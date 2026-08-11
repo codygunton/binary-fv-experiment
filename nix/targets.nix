@@ -124,6 +124,7 @@ let
     python ${repo}/tools/make_minimal_ssz.py minimal.ssz
     python ${repo}/tools/make_minimal_ssz.py invalid.ssz --mutation invalid-schema
     python ${repo}/tools/make_minimal_ssz.py block-number.ssz --mutation block-number
+    python ${repo}/tools/make_minimal_ssz.py chain-id-zero.ssz --mutation chain-id-zero
 
     ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
       < minimal.ssz > success.out
@@ -133,6 +134,8 @@ let
       < invalid.ssz > rejected.out
     ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
       < block-number.ssz > changed.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      < chain-id-zero.ssz > chain-id-zero.out
 
     test "$(od -An -tx1 -N6 success.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 changed.out | tr -d ' \n')" = 5a53535a0101
@@ -141,7 +144,8 @@ let
     cmp success.out repeated.out
     ! cmp -s success.out changed.out
     mkdir -p "$out"
-    cp minimal.ssz invalid.ssz block-number.ssz success.out rejected.out changed.out "$out/"
+    cp minimal.ssz invalid.ssz block-number.ssz chain-id-zero.ssz \
+      success.out rejected.out changed.out chain-id-zero.out "$out/"
   '';
 
   zesuSszDecodeSourceProbe = pkgs.stdenv.mkDerivation {
@@ -167,6 +171,8 @@ let
       export LD_LIBRARY_PATH=${nativeCrypto}/lib
       "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/minimal.ssz > native.out
       cmp native.out ${zesuSszDecodeSmoke}/success.out
+      "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/chain-id-zero.ssz > native-zero.out
+      cmp native-zero.out ${zesuSszDecodeSmoke}/chain-id-zero.out
     '';
   };
 in

@@ -30,7 +30,7 @@ def minimal_input() -> bytearray:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("output", type=Path)
-    parser.add_argument("--mutation", choices=("invalid-schema", "block-number"))
+    parser.add_argument("--mutation", choices=("invalid-schema", "block-number", "chain-id-zero"))
     args = parser.parse_args()
     data = minimal_input()
     if args.mutation == "invalid-schema":
@@ -38,6 +38,8 @@ def main() -> None:
     elif args.mutation == "block-number":
         # schema prefix + top-level fixed region + request fixed region + payload field offset
         data[2 + 16 + 44 + 404] = 1
+    elif args.mutation == "chain-id-zero":
+        put_int(data, 634, 8, 0)
     args.output.write_bytes(data)
 
 

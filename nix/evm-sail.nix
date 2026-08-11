@@ -94,7 +94,9 @@ let
     substituteInPlace DifferentialSmoke.lean \
       --replace-fail '@INPUT@' '${zesuSszDecodeSmoke}/minimal.ssz' \
       --replace-fail '@SUCCESS@' '${zesuSszDecodeSmoke}/success.out' \
-      --replace-fail '@CHANGED@' '${zesuSszDecodeSmoke}/changed.out'
+      --replace-fail '@CHANGED@' '${zesuSszDecodeSmoke}/changed.out' \
+      --replace-fail '@ZERO_INPUT@' '${zesuSszDecodeSmoke}/chain-id-zero.ssz' \
+      --replace-fail '@ZERO_SUCCESS@' '${zesuSszDecodeSmoke}/chain-id-zero.out'
     lean -o compiled/BinaryFv/Ssz/Specification.olean Specification.lean
     lean -o compiled/BinaryFv/Ssz/ZesuObservation.olean ZesuObservation.lean
     lean -o compiled/BinaryFv/Ssz/Relation.olean Relation.lean

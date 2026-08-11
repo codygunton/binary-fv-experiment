@@ -87,7 +87,7 @@ private def payloadRel (source : Array UInt8) (zesu : ExecutionPayload)
 
 /-- Exact common output relation before applying any reviewed `KnownBug` clause.
 Witness elements are compared only as byte strings; no RLP/MPT interpretation is claimed. -/
-def decodedResultRel (source : Array UInt8) (zesu : ZesuDecodedResult)
+private def decodedResultRelExceptChainId (source : Array UInt8) (zesu : ZesuDecodedResult)
     (sail : SailDecoded) : Prop :=
   payloadRel source zesu.payload sail ∧
   zesu.parentBeaconBlockRoot =
@@ -102,12 +102,31 @@ def decodedResultRel (source : Array UInt8) (zesu : ZesuDecodedResult)
   arrayRel (fun bytes slice => bytes == sailSliceBytes source slice) zesu.witnessNodes sail.witnessNodes ∧
   arrayRel (fun bytes slice => bytes == sailSliceBytes source slice) zesu.witnessCodes sail.witnessCodes ∧
   arrayRel (fun bytes slice => bytes == sailSliceBytes source slice) zesu.witnessHeaders sail.witnessHeaders ∧
-  zesu.chainConfig.chainId = sail.input.chain_config.chain_id ∧
   arrayRel (fun bytes slice => bytes == sailSliceBytes source slice) zesu.publicKeys sail.publicKeys
+
+def decodedResultRel (source : Array UInt8) (zesu : ZesuDecodedResult)
+    (sail : SailDecoded) : Prop :=
+  decodedResultRelExceptChainId source zesu sail ∧
+  zesu.chainConfig.chainId = sail.input.chain_config.chain_id
+
+/-- The only successful-result normalization currently admitted: Zesu maps an encoded chain id of
+zero to one, while EVM-Sail retains zero. Other `KnownBug` cases concern accept/reject domains. -/
+def decodedResultRelModuloKnownBugs (source : Array UInt8) (zesu : ZesuDecodedResult)
+    (sail : SailDecoded) : Prop :=
+  decodedResultRelExceptChainId source zesu sail ∧
+  (zesu.chainConfig.chainId = sail.input.chain_config.chain_id ∨
+    (sail.input.chain_config.chain_id = 0 ∧ zesu.chainConfig.chainId = 1))
 
 instance (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded) :
     Decidable (decodedResultRel source zesu sail) := by
-  unfold decodedResultRel payloadRel transactionMatches recipientMatches withdrawalMatches arrayRel
+  unfold decodedResultRel decodedResultRelExceptChainId payloadRel transactionMatches recipientMatches
+    withdrawalMatches arrayRel
+  infer_instance
+
+instance (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded) :
+    Decidable (decodedResultRelModuloKnownBugs source zesu sail) := by
+  unfold decodedResultRelModuloKnownBugs decodedResultRelExceptChainId payloadRel transactionMatches
+    recipientMatches withdrawalMatches arrayRel
   infer_instance
 
 end BinaryFv.Ssz
