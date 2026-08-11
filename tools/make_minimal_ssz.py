@@ -30,7 +30,10 @@ def minimal_input() -> bytearray:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("output", type=Path)
-    parser.add_argument("--mutation", choices=("invalid-schema", "block-number", "chain-id-zero"))
+    parser.add_argument(
+        "--mutation",
+        choices=("invalid-schema", "block-number", "chain-id-zero", "legacy-requests"),
+    )
     args = parser.parse_args()
     data = minimal_input()
     if args.mutation == "invalid-schema":
@@ -40,6 +43,14 @@ def main() -> None:
         data[2 + 16 + 44 + 404] = 1
     elif args.mutation == "chain-id-zero":
         put_int(data, 634, 8, 0)
+    elif args.mutation == "legacy-requests":
+        # Remove the two v0.6.2 builder-request offsets, preserving the v0.5.0 three-field table.
+        put_int(data, 6, 4, 612)
+        put_int(data, 10, 4, 624)
+        put_int(data, 14, 4, 656)
+        for offset in (602, 606, 610):
+            put_int(data, offset, 4, 12)
+        del data[614:622]
     args.output.write_bytes(data)
 
 

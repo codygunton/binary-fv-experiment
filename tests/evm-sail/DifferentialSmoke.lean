@@ -8,14 +8,20 @@ private def readSuccess (path : System.FilePath) : IO ZesuDecodedResult := do
   | some (.success decoded) => pure decoded
   | _ => throw (IO.userError s!"invalid success observation: {path}")
 
-private def runSail (input : Array UInt8) : IO SailDecoded := do
+private def tryRunSail (input : Array UInt8) : Option SailDecoded :=
   let initial := { Evm.initialHostState with inputBytes := modelBytes input }
   match ((sailDecodeAction input.size).run initial).run default with
-  | .ok (decoded, _) _ => pure decoded
-  | .error .. => throw (IO.userError "EVM-Sail rejected the shared accepted fixture")
+  | .ok (decoded, _) _ => some decoded
+  | .error .. => none
+
+private def runSail (input : Array UInt8) : IO SailDecoded := do
+  match tryRunSail input with
+  | some decoded => pure decoded
+  | none => throw (IO.userError "EVM-Sail rejected the shared accepted fixture")
 
 def differentialSmokeMain (arguments : List String) : IO Unit := do
-  let [inputPath, observationPath, changedPath, zeroInputPath, zeroObservationPath] := arguments
+  let [inputPath, observationPath, changedPath, zeroInputPath, zeroObservationPath,
+      legacyInputPath, legacyObservationPath] := arguments
     | throw (IO.userError "expected ordinary and zero-chain differential fixtures")
   let input := (← IO.FS.readBinFile inputPath).data
   let zesu ← readSuccess observationPath
@@ -32,6 +38,11 @@ def differentialSmokeMain (arguments : List String) : IO Unit := do
     throw (IO.userError "exact relation hid the zero-chain-id divergence")
   unless decodedResultRelModuloKnownBugs zeroInput zeroZesu zeroSail do
     throw (IO.userError "fixed zero-chain-id clause did not admit its exact divergence")
+  let legacyInput := (← IO.FS.readBinFile legacyInputPath).data
+  let _ ← readSuccess legacyObservationPath
+  unless (tryRunSail legacyInput).isNone do
+    throw (IO.userError "EVM-Sail accepted the legacy three-request table")
 
 #eval differentialSmokeMain
-  ["@INPUT@", "@SUCCESS@", "@CHANGED@", "@ZERO_INPUT@", "@ZERO_SUCCESS@"]
+  ["@INPUT@", "@SUCCESS@", "@CHANGED@", "@ZERO_INPUT@", "@ZERO_SUCCESS@",
+    "@LEGACY_INPUT@", "@LEGACY_SUCCESS@"]

@@ -125,6 +125,7 @@ let
     python ${repo}/tools/make_minimal_ssz.py invalid.ssz --mutation invalid-schema
     python ${repo}/tools/make_minimal_ssz.py block-number.ssz --mutation block-number
     python ${repo}/tools/make_minimal_ssz.py chain-id-zero.ssz --mutation chain-id-zero
+    python ${repo}/tools/make_minimal_ssz.py legacy-requests.ssz --mutation legacy-requests
 
     ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
       < minimal.ssz > success.out
@@ -136,6 +137,8 @@ let
       < block-number.ssz > changed.out
     ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
       < chain-id-zero.ssz > chain-id-zero.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      < legacy-requests.ssz > legacy-requests.out
 
     test "$(od -An -tx1 -N6 success.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 changed.out | tr -d ' \n')" = 5a53535a0101
@@ -144,8 +147,9 @@ let
     cmp success.out repeated.out
     ! cmp -s success.out changed.out
     mkdir -p "$out"
-    cp minimal.ssz invalid.ssz block-number.ssz chain-id-zero.ssz \
-      success.out rejected.out changed.out chain-id-zero.out "$out/"
+    test "$(od -An -tx1 -N6 legacy-requests.out | tr -d ' \n')" = 5a53535a0101
+    cp minimal.ssz invalid.ssz block-number.ssz chain-id-zero.ssz legacy-requests.ssz \
+      success.out rejected.out changed.out chain-id-zero.out legacy-requests.out "$out/"
   '';
 
   zesuSszDecodeSourceProbe = pkgs.stdenv.mkDerivation {
@@ -173,6 +177,8 @@ let
       cmp native.out ${zesuSszDecodeSmoke}/success.out
       "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/chain-id-zero.ssz > native-zero.out
       cmp native-zero.out ${zesuSszDecodeSmoke}/chain-id-zero.out
+      "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/legacy-requests.ssz > native-legacy.out
+      cmp native-legacy.out ${zesuSszDecodeSmoke}/legacy-requests.out
     '';
   };
 in
