@@ -33,6 +33,9 @@ def main() -> int:
     for row in rows:
         assert row["ownedInstructionCount"] == len(row["instructionPcs"])
         assert row["subtreeInstructionCount"] >= row["ownedInstructionCount"]
+        assert row["subtreeInstructionCount"] == len(row["executionPcs"])
+        assert set(row["instructionPcs"]) <= set(row["executionPcs"])
+        assert row["entryPc"] in row["executionPcs"]
     return 0
 
 

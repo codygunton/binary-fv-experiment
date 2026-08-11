@@ -49,6 +49,25 @@ let
       python ${../tools/test_level_manifest.py} "$out/level1-manifest.json"
     '';
 
+  level1EvidenceTools = builtins.path {
+    path = ../tools/level1_evidence;
+    name = "zesu-level1-evidence-tools";
+  };
+  zesuSszDecodeLevel1Evidence = pkgs.runCommand "zesu-ssz-decode-level1-evidence-e5f8c13" {
+    nativeBuildInputs = [ pkgs.gcc pkgs.glib pkgs.pkg-config pkgs.python3 pkgs.qemu-user ];
+  } ''
+    set -euo pipefail
+    cp -R ${level1EvidenceTools} tools
+    chmod -R u+w tools
+    python -m unittest discover -s tools -p 'test_*.py'
+    gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
+    snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel1Manifest}/level1-manifest.json"))["instances"]; print(",".join("snapshot="+str(row["entryPc"]) for row in rows))')
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=minimal.trace,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/minimal.ssz > /dev/null
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=invalid.trace,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/invalid.ssz > /dev/null
+    mkdir -p "$out"
+    python tools/analyze.py --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode --trace minimal=minimal.trace --trace invalid=invalid.trace --output "$out/level1-evidence.json"
+  '';
+
   zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-e5f8c13" { } ''
     cp -R ${../tools/binary-regions-ui} "$out"
     chmod -R u+w "$out"
@@ -59,7 +78,8 @@ let
 in
 {
   public = {
-    inherit dump stats zesuCfg zesuSszDecodeCfg zesuSszDecodeLevel1Manifest zesuCfgUi;
+    inherit dump stats zesuCfg zesuSszDecodeCfg zesuSszDecodeLevel1Manifest
+      zesuSszDecodeLevel1Evidence zesuCfgUi;
     machine-regions-ui = zesuCfgUi;
   };
 }

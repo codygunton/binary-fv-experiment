@@ -31,20 +31,37 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
             pending.extend(children.get(child, []))
         return result
 
+    def resolve(display_identifier: str) -> str:
+        if not display_identifier.startswith("fn:"):
+            return display_identifier
+        entry = int(display_identifier.removeprefix("fn:"), 16)
+        candidates = [row["id"] for row in rows.values()
+                      if row["kind"] == "concrete" and row["entryPc"] == entry]
+        if len(candidates) != 1:
+            raise ValueError(f"synthetic identity {display_identifier} has {len(candidates)} CFG matches")
+        return candidates[0]
+
+    def local_pcs(identifier: str) -> set[int]:
+        return set(rows[identifier]["pcs"]) - inline_descendant_pcs(identifier)
+
+    def execution_pcs(node: dict) -> set[int]:
+        match = INSTANCE.fullmatch(node["name"])
+        if match is None:
+            raise ValueError(f"node lacks a generated identity: {node['name']}")
+        result = local_pcs(resolve(match.group("id")))
+        for child in node["children"]:
+            result.update(execution_pcs(child))
+        if len(result) != node["value"]:
+            raise ValueError(f"subtree instruction count drift for {node['name']}")
+        return result
+
     selected = []
     for node in root["children"]:
         match = INSTANCE.fullmatch(node["name"])
         if match is None:
             raise ValueError(f"Level 1 node lacks a generated identity: {node['name']}")
         display_identifier = match.group("id")
-        identifier = display_identifier
-        if display_identifier.startswith("fn:"):
-            entry = int(display_identifier.removeprefix("fn:"), 16)
-            candidates = [row["id"] for row in rows.values()
-                          if row["kind"] == "concrete" and row["entryPc"] == entry]
-            if len(candidates) != 1:
-                raise ValueError(f"synthetic identity {display_identifier} has {len(candidates)} CFG matches")
-            identifier = candidates[0]
+        identifier = resolve(display_identifier)
         if identifier not in rows:
             raise ValueError(f"Level 1 identity is absent from CFG: {identifier}")
         row = rows[identifier]
@@ -59,6 +76,7 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
             "declLine": row["declLine"],
             "entryPc": row["entryPc"],
             "instructionPcs": owned_pcs,
+            "executionPcs": sorted(execution_pcs(node)),
             "ownedInstructionCount": node["self"],
             "subtreeInstructionCount": node["value"],
         })
