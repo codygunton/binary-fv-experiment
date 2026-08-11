@@ -1,4 +1,4 @@
-{ evmSail, evmSailCompiler, leanSail, pkgs }:
+{ binaryFvLean, evmSail, evmSailCompiler, leanSail, pkgs, repo }:
 let
   customSail = pkgs.ocamlPackages.sail.overrideAttrs (_old: {
     pname = "sail-evm-sail";
@@ -73,10 +73,19 @@ let
       cp -R . "$out/"
     '';
   };
+
+  combinedImport = pkgs.runCommand "binary-fv-evm-sail-combined-import" {
+    nativeBuildInputs = [ lean429 ];
+  } ''
+    export LEAN_PATH=${binaryFvLean}/lean:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
+    lean ${repo}/tests/evm-sail/CombinedImportSmoke.lean
+    touch "$out"
+  '';
 in
 {
   public = {
     evmSailCompiler = customSail;
     evmSailLeanExtraction = leanExtraction;
+    binaryFvEvmSailCombinedImport = combinedImport;
   };
 }

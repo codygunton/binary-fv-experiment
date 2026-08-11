@@ -64,10 +64,11 @@
             inherit pkgs rv64 targets;
           };
           proof = import ./nix/proof.nix {
-            inherit pkgs repo rv64 sailRiscv;
+            inherit leanSail pkgs repo rv64 sailRiscv;
           };
           evmSailSpec = import ./nix/evm-sail.nix {
-            inherit evmSail evmSailCompiler leanSail pkgs;
+            inherit evmSail evmSailCompiler leanSail pkgs repo;
+            inherit (proof.public) binaryFvLean;
           };
         in
         targets.public // analysis.public // proof.public // evmSailSpec.public;
@@ -95,7 +96,7 @@
             inherit pkgs repo rv64 zesu;
           };
           proof = import ./nix/proof.nix {
-            inherit pkgs repo rv64 sailRiscv;
+            inherit leanSail pkgs repo rv64 sailRiscv;
           };
         in
         {

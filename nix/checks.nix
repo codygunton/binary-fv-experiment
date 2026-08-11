@@ -1,7 +1,7 @@
 { packages }:
 let
   checks = {
-    inherit (packages) binaryFvLean evmSailLeanExtraction zesuRv64Object
+    inherit (packages) binaryFvLean binaryFvEvmSailCombinedImport evmSailLeanExtraction zesuRv64Object
       zesuSszDecodeRv64Object zesuSszDecodeRv64Elf zesuSszDecodeSmoke zesuCfgUi;
     default = packages.binaryFvLean;
   };

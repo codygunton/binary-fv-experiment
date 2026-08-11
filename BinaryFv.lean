@@ -1,12 +1,10 @@
 import BinaryFv.Binary
-import BinaryFv.RiscV
-import BinaryFv.ProofProgress.MachineProofManifest
-import BinaryFv.ProofProgress.OwnedPc
+import LeanRV64DExecutable
 
 /-!
 # `BinaryFv`
 
-Root of the binary formal-verification library. It imports the architecture-independent binary layer,
-and the generic RISC-V layer. Concrete verification targets and extracted specifications are separate
-packages so replacing either does not contaminate this reusable library.
+Root of the SSZ binary-verification library. It imports the architecture-independent binary layer and
+the extracted RISC-V semantics. Historical target-specific proof utilities remain available through
+their explicit module names, but are not dependencies of the new compliance theorem.
 -/
