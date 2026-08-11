@@ -17,12 +17,17 @@ open Sail Evm Evm.Defs Evm.Functions
 def modelBytes (input : Array UInt8) : Array byte :=
   input.map fun value => BitVec.ofNat 8 value.toNat
 
-def sailDecodeAction (inputLength : Nat) : Evm.SailM Evm.Defs.StatelessInput := do
+structure SailDecoded where
+  inputRef : Evm.Defs.StatelessInputRef
+  input : Evm.Defs.StatelessInput
+
+def sailDecodeAction (inputLength : Nat) : Evm.SailM SailDecoded := do
   let inputRef ← decode_stateless_input_ref ⟨0, ⟨inputLength, {}⟩⟩
-  decode_stateless_input inputRef
+  let input ← decode_stateless_input inputRef
+  pure { inputRef, input }
 
 /-- The concrete EVM-Sail decode relation used by the compliance theorem. -/
-def SailDecode (input : Array UInt8) (decoded : Evm.Defs.StatelessInput) : Prop :=
+def SailDecode (input : Array UInt8) (decoded : SailDecoded) : Prop :=
   let initial := { Evm.initialHostState with inputBytes := modelBytes input }
   ∃ finalHost finalSailState,
     ((sailDecodeAction input.size).run initial).run default =
