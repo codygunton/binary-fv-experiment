@@ -4,3 +4,6 @@
 [submodule "deps/zesu-upstream"]
 	path = deps/zesu-upstream
 	url = https://github.com/Consensys/zesu.git
+[submodule "deps/evm-sail"]
+	path = deps/evm-sail
+	url = https://github.com/frisitano/evm-sail.git

@@ -7,7 +7,7 @@
     # Target and audit sources are pinned independently of the proof stack.
     # Preserve the unmodified upstream source for the production baseline.
     zesu = {
-      url = "github:Consensys/zesu/aa6c94339987d278acb8b7fa409c864dbd3d05aa";
+      url = "github:Consensys/zesu/d8071c422f0faf2c52d85b401192fdffc31fd5ac";
       flake = false;
     };
 
@@ -27,6 +27,21 @@
       flake = false;
     };
 
+    evmSail = {
+      url = "github:frisitano/evm-sail/d0e4aabdde52f9158d191dbc8add444abffd9a6a";
+      flake = false;
+    };
+
+    evmSailCompiler = {
+      url = "github:frisitano/sail/25cc260d9940d65d2e5da427fe4b5d402809a50c";
+      flake = false;
+    };
+
+    leanSail = {
+      url = "github:rems-project/lean-sail/79b4d08505af29d88b3918f32d29840fae1fa191";
+      flake = false;
+    };
+
     executionSpecs = {
       url = "github:ethereum/execution-specs/bd8c673552d957dbe9c9f3f2656b87201f5ae646";
       flake = false;
@@ -40,6 +55,9 @@
     zesuRepaired,
     sailRiscv,
     etheorem,
+    evmSail,
+    evmSailCompiler,
+    leanSail,
     executionSpecs,
   }:
     let
@@ -67,8 +85,11 @@
           proof = import ./nix/proof.nix {
             inherit etheorem pkgs repo rv64 sailRiscv targets;
           };
+          evmSailSpec = import ./nix/evm-sail.nix {
+            inherit evmSail evmSailCompiler leanSail pkgs;
+          };
         in
-        targets.public // analysis.public // proof.public;
+        targets.public // analysis.public // proof.public // evmSailSpec.public;
 
       outputsFor = system: pkgs:
         import ./nix/checks.nix {

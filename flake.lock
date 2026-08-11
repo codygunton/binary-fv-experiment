@@ -17,6 +17,40 @@
         "type": "github"
       }
     },
+    "evmSail": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1786322618,
+        "narHash": "sha256-bPk8TKtbtsXH8/An3thERju18aAJZURpckQkDO1xzag=",
+        "owner": "frisitano",
+        "repo": "evm-sail",
+        "rev": "d0e4aabdde52f9158d191dbc8add444abffd9a6a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "frisitano",
+        "repo": "evm-sail",
+        "rev": "d0e4aabdde52f9158d191dbc8add444abffd9a6a",
+        "type": "github"
+      }
+    },
+    "evmSailCompiler": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1786238299,
+        "narHash": "sha256-NYOdGg4JQvdjiE0jAiniQyeZau7ojd7V+igite5qI/4=",
+        "owner": "frisitano",
+        "repo": "sail",
+        "rev": "25cc260d9940d65d2e5da427fe4b5d402809a50c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "frisitano",
+        "repo": "sail",
+        "rev": "25cc260d9940d65d2e5da427fe4b5d402809a50c",
+        "type": "github"
+      }
+    },
     "executionSpecs": {
       "flake": false,
       "locked": {
@@ -31,6 +65,23 @@
         "owner": "ethereum",
         "repo": "execution-specs",
         "rev": "bd8c673552d957dbe9c9f3f2656b87201f5ae646",
+        "type": "github"
+      }
+    },
+    "leanSail": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1775733076,
+        "narHash": "sha256-fR/AHGfbqIsHgCzD//N9HsXVKLfmxOksPN8M7cwLfUs=",
+        "owner": "rems-project",
+        "repo": "lean-sail",
+        "rev": "79b4d08505af29d88b3918f32d29840fae1fa191",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rems-project",
+        "repo": "lean-sail",
+        "rev": "79b4d08505af29d88b3918f32d29840fae1fa191",
         "type": "github"
       }
     },
@@ -53,7 +104,10 @@
     "root": {
       "inputs": {
         "etheorem": "etheorem",
+        "evmSail": "evmSail",
+        "evmSailCompiler": "evmSailCompiler",
         "executionSpecs": "executionSpecs",
+        "leanSail": "leanSail",
         "nixpkgs": "nixpkgs",
         "sailRiscv": "sailRiscv",
         "zesu": "zesu",
@@ -80,17 +134,17 @@
     "zesu": {
       "flake": false,
       "locked": {
-        "lastModified": 1783567548,
-        "narHash": "sha256-oB5np2ZGrCgMEHI7pnJfxDRIYHHrSUKQqHaHHGfWJ6A=",
+        "lastModified": 1784746951,
+        "narHash": "sha256-cpTn7GqqAmtYN5Tr5AhYmPJ+GVOTkdV9sLMSKO1e9CY=",
         "owner": "Consensys",
         "repo": "zesu",
-        "rev": "aa6c94339987d278acb8b7fa409c864dbd3d05aa",
+        "rev": "d8071c422f0faf2c52d85b401192fdffc31fd5ac",
         "type": "github"
       },
       "original": {
         "owner": "Consensys",
         "repo": "zesu",
-        "rev": "aa6c94339987d278acb8b7fa409c864dbd3d05aa",
+        "rev": "d8071c422f0faf2c52d85b401192fdffc31fd5ac",
         "type": "github"
       }
     },
