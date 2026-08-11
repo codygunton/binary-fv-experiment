@@ -71,6 +71,9 @@ def normalize_source(source: str) -> str:
         return "deps/zesu/" + source.split(marker, 1)[1]
     if source.startswith("/build/source/"):
         return "deps/zesu/" + source.removeprefix("/build/source/")
+    runtime_marker = "-source/runtime/"
+    if runtime_marker in source:
+        return "runtime/" + source.split(runtime_marker, 1)[1]
     return source
 
 
@@ -191,6 +194,8 @@ def function_instances(elf: ELFFile, instructions: dict[int, dict]) -> list[dict
             die_to_id[die.offset] = instance_id
             name = die_text(die, "DW_AT_linkage_name") or die_text(die, "DW_AT_name") or "<anonymous>"
             source_file, decl_line = die_source(die, "DW_AT_decl_file")
+            if name == "_start" and source_file is None:
+                source_file, decl_line = "runtime/riscv64/riscv64_start.S", 8
             call_file, call_line = die_source(die, "DW_AT_call_file") if kind == "inlined" else (None, None)
             instances.append({
                 "id": instance_id, "name": name, "kind": kind,
@@ -534,12 +539,18 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
     displayed_instances = {row["owner"] for row in meta.values()}
     expected_instances = {instance_id for instance_id, name in concrete_symbol.items() if name in reachable}
     expected_instances |= {instance_id for instance_id, name in inline_symbol.items() if name in reachable}
+    expected_instances |= {name for name in reachable if name not in concrete_for_name}
     if displayed_instances != expected_instances:
-        raise ValueError("displayed call hierarchy does not contain every main-reachable DWARF function instance")
+        missing = sorted(expected_instances - displayed_instances)
+        extra = sorted(displayed_instances - expected_instances)
+        raise ValueError(
+            "displayed call hierarchy does not contain every main-reachable DWARF function instance: "
+            f"missing={missing}, extra={extra}"
+        )
     if sum(row["self"] for row in meta.values()) != len(reachable_pcs):
         raise ValueError("deepest function-instance instruction ownership is not unique")
-    return {"schemaVersion": 3, "machineRegionInputs": {"target": "upstream-zesu-d8071c4-release-small",
-                                                         "functionInstances": "relocated same-object DWARF"},
+    return {"schemaVersion": 3, "machineRegionInputs": {"target": "zesu-ssz-decode-c36bb99-release-small",
+                                                         "functionInstances": "same-ELF DWARF"},
             "total": len(instructions), "programTotal": len(reachable_pcs),
             "loAddr": min(instructions), "tree": tree, "meta": meta,
             "suggest": {"cap": 0, "coverage": len(covered), "units": [], "residual": {}, "needsSubFunctionSplit": []}}
@@ -588,6 +599,10 @@ def main() -> None:
     args = parser.parse_args()
     with args.object.open("rb") as stream:
         elf = ELFFile(stream)
+        elf_kind = {
+            "ET_REL": "ELF64 RISC-V relocatable object",
+            "ET_EXEC": "ELF64 RISC-V linked executable",
+        }.get(elf["e_type"], f"ELF64 RISC-V {elf['e_type']}")
         source_rows = line_map(elf)
         instruction_rows = decode_text(elf)
         function_rows = functions(elf)
@@ -606,8 +621,8 @@ def main() -> None:
             })
     payload = {
         "schemaVersion": 1,
-        "artifact": {"kind": "ELF64 RISC-V relocatable object", "sha256": digest(args.object)},
-        "sourceMapping": {"kind": "DWARF from the same ReleaseSmall object", "confidence": "exact-line-table"},
+        "artifact": {"kind": elf_kind, "sha256": digest(args.object)},
+        "sourceMapping": {"kind": "DWARF from the same ReleaseSmall ELF", "confidence": "exact-line-table"},
         "formalStatus": "No kernel-backed target proof manifest is present.",
         "functions": output_functions,
         "functionInstances": instance_rows,

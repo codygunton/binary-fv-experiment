@@ -1,10 +1,10 @@
-{ pkgs, zesu, rv64 }:
+{ pkgs, repo, zesu, rv64 }:
 let
-  inherit (rv64) riscvBinutils riscvNm riscvReadelf;
+  inherit (rv64) cflags riscvBinutils riscvCc riscvNm riscvReadelf;
 
   zesuRv64Object = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-rv64im-object";
-    version = "6acdbd9";
+    version = "c36bb99";
     src = zesu;
     nativeBuildInputs = [ pkgs.zig riscvBinutils ];
     dontConfigure = true;
@@ -41,7 +41,7 @@ let
       ${riscvReadelf} -A "$out/obj/zesu.o" > "$out/meta/elf-attributes.txt"
       ${riscvNm} -u "$out/obj/zesu.o" > "$out/meta/undefined-symbols.txt"
       printf '%s\n' \
-        'zesu=codygunton/zesu@6acdbd90e7d9f543863bf4030d0e649553704558' \
+        'zesu=codygunton/zesu@c36bb999627ef3818dee3f0e076ea63924760c2e' \
         'upstream-base=Consensys/zesu@d8071c422f0faf2c52d85b401192fdffc31fd5ac' \
         'optimize=ReleaseSmall; debug-metadata=retained-in-analyzed-object' \
         "zig=$(zig version)" > "$out/meta/provenance.txt"
@@ -58,11 +58,75 @@ let
       [ "zig-out/lib/zesu-ssz-decode.o" "$out/obj/zesu-ssz-decode.o" ]
       old.installPhase;
   });
+
+  zesuSszDecodeRv64Elf = pkgs.stdenvNoCC.mkDerivation {
+    pname = "zesu-ssz-decode-rv64im-elf";
+    version = "c36bb99";
+    dontUnpack = true;
+    nativeBuildInputs = [ riscvBinutils ];
+    dontFixup = true;
+
+    buildPhase = ''
+      runHook preBuild
+      ${riscvCc} ${cflags} -g -mcmodel=medany -c \
+        ${repo}/runtime/riscv64/riscv64_runtime.c -o runtime.o
+      ${riscvCc} ${cflags} -g -mcmodel=medany -c \
+        ${repo}/runtime/riscv64/riscv64_start.S -o start.o
+      ${riscvCc} -nostdlib -static -no-pie -Wl,--gc-sections -Wl,--build-id=none \
+        -Wl,-e,_start -march=${rv64.riscvArch} -mabi=${rv64.riscvAbi} -mcmodel=medany \
+        start.o runtime.o ${zesuSszDecodeRv64Object}/obj/zesu-ssz-decode.o \
+        -o zesu-ssz-decode.elf
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/bin" "$out/meta"
+      cp zesu-ssz-decode.elf "$out/bin/zesu-ssz-decode"
+      ${riscvReadelf} -h "$out/bin/zesu-ssz-decode" > "$out/meta/elf-header.txt"
+      ${riscvReadelf} -A "$out/bin/zesu-ssz-decode" > "$out/meta/elf-attributes.txt"
+      ${riscvNm} -u "$out/bin/zesu-ssz-decode" > "$out/meta/undefined-symbols.txt"
+      test ! -s "$out/meta/undefined-symbols.txt"
+      printf '%s\n' \
+        'zesu=codygunton/zesu@c36bb999627ef3818dee3f0e076ea63924760c2e' \
+        'runtime=runtime/riscv64; linux-riscv-syscall-abi; no-libc' \
+        'optimize=ReleaseSmall; static=true; linked=true' > "$out/meta/provenance.txt"
+      runHook postInstall
+    '';
+  };
+
+  zesuSszDecodeSmoke = pkgs.runCommand "zesu-ssz-decode-smoke-c36bb99" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    python ${repo}/tools/make_minimal_ssz.py minimal.ssz
+    python ${repo}/tools/make_minimal_ssz.py invalid.ssz --mutation invalid-schema
+    python ${repo}/tools/make_minimal_ssz.py block-number.ssz --mutation block-number
+
+    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      < minimal.ssz > success.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      < minimal.ssz > repeated.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      < invalid.ssz > rejected.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      < block-number.ssz > changed.out
+
+    test "$(od -An -tx1 -N6 success.out | tr -d ' \n')" = 5a53535a0101
+    test "$(od -An -tx1 -N6 changed.out | tr -d ' \n')" = 5a53535a0101
+    test "$(od -An -tx1 rejected.out | tr -d ' \n')" = 5a53535a0100
+    test "$(wc -c < success.out)" = 703
+    cmp success.out repeated.out
+    ! cmp -s success.out changed.out
+    mkdir -p "$out"
+    cp success.out rejected.out changed.out "$out/"
+  '';
 in
 {
   public = {
-    inherit zesuRv64Object zesuSszDecodeRv64Object;
+    inherit zesuRv64Object zesuSszDecodeRv64Object zesuSszDecodeRv64Elf zesuSszDecodeSmoke;
     zesu-rv64-object = zesuRv64Object;
     zesu-ssz-decode-rv64-object = zesuSszDecodeRv64Object;
+    zesu-ssz-decode-rv64-elf = zesuSszDecodeRv64Elf;
+    zesu-ssz-decode-smoke = zesuSszDecodeSmoke;
   };
 }

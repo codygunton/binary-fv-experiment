@@ -1,7 +1,9 @@
+    .file 1 "runtime/riscv64/riscv64_start.S"
     .section .text.start
     .globl _start
     .type _start, @function
 _start:
+    .loc 1 8 1
     .option push
     .option norelax
     la gp, __global_pointer$

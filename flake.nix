@@ -7,7 +7,7 @@
     # Target and audit sources are pinned independently of the proof stack.
     # Preserve the unmodified upstream source for the production baseline.
     zesu = {
-      url = "github:codygunton/zesu/6acdbd90e7d9f543863bf4030d0e649553704558";
+      url = "github:codygunton/zesu/c36bb999627ef3818dee3f0e076ea63924760c2e";
       flake = false;
     };
 
@@ -58,7 +58,7 @@
             inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit pkgs rv64 zesu;
+            inherit pkgs repo rv64 zesu;
           };
           analysis = import ./nix/analysis.nix {
             inherit pkgs rv64 targets;
@@ -92,7 +92,7 @@
             inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit pkgs rv64 zesu;
+            inherit pkgs repo rv64 zesu;
           };
           proof = import ./nix/proof.nix {
             inherit pkgs repo rv64 sailRiscv;

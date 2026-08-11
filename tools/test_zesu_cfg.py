@@ -10,7 +10,10 @@ from pathlib import Path
 
 def validate(path: Path) -> None:
     data = json.loads(path.read_text())
-    assert data["artifact"]["kind"] == "ELF64 RISC-V relocatable object"
+    assert data["artifact"]["kind"] in {
+        "ELF64 RISC-V relocatable object",
+        "ELF64 RISC-V linked executable",
+    }
     assert data["sourceMapping"]["confidence"] == "exact-line-table"
     assert data["formalStatus"].startswith("No kernel-backed")
     assert data["totals"]["functions"] == len(data["functions"])
@@ -20,7 +23,7 @@ def validate(path: Path) -> None:
     assert any(fn["semanticGroup"] == "ssz" for fn in data["functions"])
     helper = next(fn for fn in data["functions"] if fn["name"] == "ssz.decodeByteListList")
     assert helper["sourceFile"] == "deps/zesu/src/stateless/stateless/ssz.zig"
-    assert helper["blocks"][0]["successors"] == ["0x40", "0x20"]
+    assert [int(pc, 16) - helper["start"] for pc in helper["blocks"][0]["successors"]] == [0x40, 0x20]
     for fn in data["functions"]:
         ids = {block["id"] for block in fn["blocks"]}
         assert fn["sourceFile"] and not fn["sourceFile"].startswith("/build/source/")
@@ -43,13 +46,13 @@ def validate(path: Path) -> None:
     assert decode["self"] > 0
     if len(data["functions"]) < 100:
         assert decode["callFile"] == "deps/zesu/src/zkvm/ssz_decode_root.zig"
-        assert decode["machineInstructionCount"] == 818
+        assert decode["machineInstructionCount"] == 2233
         tx_key, tx = next((key, row) for key, row in flame["meta"].items()
                           if row["qualified"] == "rlp_decode.decodeTxFields")
         assert "|ssz.decode [" in tx_key and "|rlp_decode.decodeSingleTx [" in tx_key
         assert tx_key.index("|ssz.decode [") < tx_key.index("|rlp_decode.decodeSingleTx [")
         assert tx["displayAnchorName"] == "rlp_decode.decodeSingleTx"
-        assert tx["displayCallsites"] == [0x274c, 0x27a0]
+        assert tx["displayCallsites"] == [0x13c28, 0x13c90]
 
     proof = json.loads(path.with_name("proof-map.json").read_text())
     validate_proof(proof)
@@ -111,7 +114,7 @@ def validate_instances(data: dict) -> None:
             assert set(row["pcs"]) <= set(by_id[row["parent"]]["pcs"])
     decode = next(row for row in instances if row["name"] == "ssz.decode" and row["kind"] == "inlined")
     if len(data["functions"]) < 100:
-        assert decode["instructionCount"] == 818
+        assert decode["instructionCount"] == 2233
     assert decode["sourceFile"] == "deps/zesu/src/stateless/stateless/ssz.zig"
 
 
@@ -144,10 +147,20 @@ def validate_flame(data: dict, flame: dict) -> None:
         assert level_one == Counter({
             "alt_fl_alloc.get": 1,
             "ssz.decode": 1,
-            "ssz_decode_root.put": 10,
-            "extern_io.write_output": 1,
-            "mem.Allocator.allocBytesWithAlignment__anon_1965": 1,
+            "ssz_decode_observation.writeSuccess": 1,
+            "ssz_decode_observation.writeFailure": 1,
+            "mem.Allocator.allocBytesWithAlignment__anon_2076": 1,
+            "read_input": 1,
+            "write_output": 1,
+            "zkvm_exit": 1,
+            "memcpy": 1,
         })
+        observations = [row for row in flame["meta"].values()
+                        if row["qualified"].startswith("ssz_decode_observation.")]
+        assert observations
+        success = next(row for row in observations
+                       if row["qualified"] == "ssz_decode_observation.writeSuccess")
+        assert success["file"] == "deps/zesu/src/zkvm/ssz_decode_observation.zig"
 
 
 def validate_proof(proof: dict) -> None:
