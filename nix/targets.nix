@@ -1,6 +1,13 @@
 { pkgs, repo, zesu, rv64 }:
 let
   inherit (rv64) cflags riscvBinutils riscvCc riscvNm riscvReadelf;
+  # Keep the production ELF independent of unrelated files in the outer repository.  This source
+  # path changes only when the linked runtime itself changes, so its DWARF paths and ELF digest are
+  # stable while proof, UI, fixture, or documentation files evolve.
+  runtimeSrc = builtins.path {
+    path = ../runtime/riscv64;
+    name = "binary-fv-riscv64-runtime";
+  };
 
   mcl = pkgs.stdenv.mkDerivation {
     pname = "mcl";
@@ -92,9 +99,9 @@ let
     buildPhase = ''
       runHook preBuild
       ${riscvCc} ${cflags} -g -mcmodel=medany -c \
-        ${repo}/runtime/riscv64/riscv64_runtime.c -o runtime.o
+        ${runtimeSrc}/riscv64_runtime.c -o runtime.o
       ${riscvCc} ${cflags} -g -mcmodel=medany -c \
-        ${repo}/runtime/riscv64/riscv64_start.S -o start.o
+        ${runtimeSrc}/riscv64_start.S -o start.o
       ${riscvCc} -nostdlib -static -no-pie -Wl,--gc-sections -Wl,--build-id=none \
         -Wl,-e,_start -march=${rv64.riscvArch} -mabi=${rv64.riscvAbi} -mcmodel=medany \
         start.o runtime.o ${zesuSszDecodeRv64Object}/obj/zesu-ssz-decode.o \

@@ -39,6 +39,16 @@ let
   zesuCfg = makeCfg "zesu-rv64-cfg-e5f8c13" zesuRv64Object "obj/zesu.o";
   zesuSszDecodeCfg = makeCfg "zesu-ssz-decode-rv64-cfg-e5f8c13" zesuSszDecodeRv64Elf "bin/zesu-ssz-decode";
 
+  zesuSszDecodeLevel1Manifest = pkgs.runCommand "zesu-ssz-decode-level1-manifest-e5f8c13"
+    { nativeBuildInputs = [ python ]; } ''
+      mkdir -p "$out"
+      python ${../tools/generate_level_manifest.py} \
+        --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --flame ${zesuSszDecodeCfg}/flame.json \
+        --level 1 --output "$out/level1-manifest.json"
+      python ${../tools/test_level_manifest.py} "$out/level1-manifest.json"
+    '';
+
   zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-e5f8c13" { } ''
     cp -R ${../tools/binary-regions-ui} "$out"
     chmod -R u+w "$out"
@@ -49,7 +59,7 @@ let
 in
 {
   public = {
-    inherit dump stats zesuCfg zesuSszDecodeCfg zesuCfgUi;
+    inherit dump stats zesuCfg zesuSszDecodeCfg zesuSszDecodeLevel1Manifest zesuCfgUi;
     machine-regions-ui = zesuCfgUi;
   };
 }
