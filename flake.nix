@@ -69,6 +69,7 @@
           evmSailSpec = import ./nix/evm-sail.nix {
             inherit evmSail evmSailCompiler leanSail pkgs repo;
             inherit (proof.public) binaryFvLean;
+            inherit (targets.public) zesuSszDecodeSmoke;
           };
         in
         targets.public // analysis.public // proof.public // evmSailSpec.public;
