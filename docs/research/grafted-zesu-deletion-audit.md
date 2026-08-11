@@ -22,6 +22,8 @@ not loss of history.
   allocation multiplier, and 64 MiB zkVM arena were not retained.
 - `BinaryFv.ProofProgress.MachineProofManifest`: kernel-backed exact-PC/composition manifests, with
   `level4` renamed to target-neutral `selectedLevel`.
+- `BinaryFv.ProofProgress.OwnedPc`: literal generated-range/exit decision support. It remains outside
+  the generic RISC-V namespace's import tree because concrete `native_decide` is target evidence.
 
 The generic `MemFramed`, loop induction, block-step, call/return, register-agreement, and separation
 logic used by the old `memcpy` proof were already under `BinaryFv.RiscV` and remain unchanged.
