@@ -1,8 +1,5 @@
 [submodule "deps/zesu"]
 	path = deps/zesu
-	url = https://github.com/codygunton/zesu.git
-[submodule "deps/zesu-upstream"]
-	path = deps/zesu-upstream
 	url = https://github.com/Consensys/zesu.git
 [submodule "deps/evm-sail"]
 	path = deps/evm-sail

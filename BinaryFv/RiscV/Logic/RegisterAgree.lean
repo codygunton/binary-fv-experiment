@@ -8,7 +8,7 @@ loops instantiate `P` with the complement of the write set of the loop body, giv
 "stable registers are preserved" relation.
 
 `WritesOnlyRegs` below is that write set, made explicit. It is the register-side counterpart of
-`BinaryFv.Zesu.Contracts.WritesOnlyWithin`, which states the same thing about `.mem` over a
+an implementation-specific memory write frame, which states the same thing about `.mem` over a
 `Region`, and it is stated in the same orientation and argument order so the two read alike.
 
 The point of stating the write set rather than the preserved set is that the write set is a property

@@ -11,19 +11,8 @@
       flake = false;
     };
 
-    # The selected lossless Amsterdam V4 decoder lives in the user's repaired fork.
-    zesuRepaired = {
-      url = "github:codygunton/zesu/96f1621468ba54755d653f19cbc9704e789be001";
-      flake = false;
-    };
-
     sailRiscv = {
       url = "github:riscv/sail-riscv/65ddde80ee2b131bf46c20e6e748343c336c4071";
-      flake = false;
-    };
-
-    etheorem = {
-      url = "github:etheorem/etheorem/032ab6c6d67186ba60b734e0f2c44ba1bb8b6fb0";
       flake = false;
     };
 
@@ -42,23 +31,16 @@
       flake = false;
     };
 
-    executionSpecs = {
-      url = "github:ethereum/execution-specs/bd8c673552d957dbe9c9f3f2656b87201f5ae646";
-      flake = false;
-    };
   };
 
   outputs = {
     self,
     nixpkgs,
     zesu,
-    zesuRepaired,
     sailRiscv,
-    etheorem,
     evmSail,
     evmSailCompiler,
     leanSail,
-    executionSpecs,
   }:
     let
       repo = ./.;
@@ -76,14 +58,13 @@
             inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit pkgs repo rv64 zesu zesuRepaired;
-            source = self;
+            inherit pkgs rv64 zesu;
           };
           analysis = import ./nix/analysis.nix {
-            inherit pkgs repo rv64 targets;
+            inherit pkgs rv64 targets;
           };
           proof = import ./nix/proof.nix {
-            inherit etheorem executionSpecs pkgs repo rv64 sailRiscv targets;
+            inherit pkgs repo rv64 sailRiscv;
           };
           evmSailSpec = import ./nix/evm-sail.nix {
             inherit evmSail evmSailCompiler leanSail pkgs;
@@ -111,11 +92,10 @@
             inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit pkgs repo rv64 zesu zesuRepaired;
-            source = self;
+            inherit pkgs rv64 zesu;
           };
           proof = import ./nix/proof.nix {
-            inherit etheorem executionSpecs pkgs repo rv64 sailRiscv targets;
+            inherit pkgs repo rv64 sailRiscv;
           };
         in
         {
