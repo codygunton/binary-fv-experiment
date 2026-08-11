@@ -89,6 +89,7 @@ let
     cp ${repo}/BinaryFv/Ssz/Level1Boundary.lean Level1Boundary.lean
     cp ${repo}/BinaryFv/Ssz/Generated/Level1.lean Level1Generated.lean
     cp ${repo}/BinaryFv/Ssz/MachineContract.lean MachineContract.lean
+    cp ${repo}/BinaryFv/Ssz/HostExecution.lean HostExecution.lean
     cp ${repo}/tests/evm-sail/CombinedImportSmoke.lean CombinedImportSmoke.lean
     cp ${repo}/tests/evm-sail/ObservationSmoke.lean ObservationSmoke.lean
     cp ${repo}/tests/evm-sail/DifferentialSmoke.lean DifferentialSmoke.lean
@@ -120,6 +121,7 @@ let
     lean -o compiled/BinaryFv/Ssz/Relation.olean Relation.lean
     lean -o compiled/BinaryFv/Ssz/Generated/Level1.olean Level1Generated.lean
     lean -o compiled/BinaryFv/Ssz/MachineContract.olean MachineContract.lean
+    lean -o compiled/BinaryFv/Ssz/HostExecution.olean HostExecution.lean
     lean -o compiled/BinaryFv/Ssz/Level1Boundary.olean Level1Boundary.lean
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean

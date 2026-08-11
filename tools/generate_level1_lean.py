@@ -47,7 +47,25 @@ def lean_ranges(values: list[int]) -> str:
     return "[\n" + ",\n".join(rows) + "\n]"
 
 
-def generate(manifest: dict) -> str:
+def syscall_pcs(cfg: dict, manifest: dict) -> dict[str, int]:
+    functions = {row["start"]: row for row in cfg["functions"]}
+    instances = {row["qualified"]: row for row in manifest["instances"]}
+    result: dict[str, int] = {}
+    for qualified in ("read_input", "write_output", "zkvm_exit"):
+        function = functions[instances[qualified]["entryPc"]]
+        ecalls = [
+            instruction
+            for block in function["blocks"]
+            for instruction in block["instructions"]
+            if instruction["mnemonic"] == "ecall"
+        ]
+        if len(ecalls) != 1 or ecalls[0]["bytes"] != "73000000":
+            raise ValueError(f"{qualified} must contain exactly one canonical ecall")
+        result[qualified] = ecalls[0]["pc"]
+    return result
+
+
+def generate(manifest: dict, cfg: dict) -> str:
     rows = {row["qualified"]: row for row in manifest["instances"]}
     if set(rows) != set(NAMES):
         raise ValueError("Level 1 Lean generation requires the reviewed nine-instance inventory")
@@ -61,6 +79,8 @@ def generate(manifest: dict) -> str:
         f'def artifactSha256 : String := "{manifest["artifact"]["sha256"]}"',
         "",
     ]
+    if cfg["artifact"]["sha256"] != manifest["artifact"]["sha256"]:
+        raise ValueError("CFG and Level 1 manifest describe different ELFs")
     for qualified, lean_name in NAMES.items():
         row = rows[qualified]
         lines.extend([
@@ -71,6 +91,13 @@ def generate(manifest: dict) -> str:
             f"def {lean_name}ExecutionPcRanges : List PcRange := {lean_ranges(row['executionPcs'])}",
             "",
         ])
+    ecalls = syscall_pcs(cfg, manifest)
+    lines.extend([
+        f"def readInputEcallPc : Nat := {ecalls['read_input']:#x}",
+        f"def writeOutputEcallPc : Nat := {ecalls['write_output']:#x}",
+        f"def zkvmExitEcallPc : Nat := {ecalls['zkvm_exit']:#x}",
+        "",
+    ])
     lines.append("end BinaryFv.Ssz.Generated")
     return "\n".join(lines) + "\n"
 
@@ -78,9 +105,11 @@ def generate(manifest: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--cfg", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    args.output.write_text(generate(json.loads(args.manifest.read_text())))
+    args.output.write_text(generate(
+        json.loads(args.manifest.read_text()), json.loads(args.cfg.read_text())))
     return 0
 
 

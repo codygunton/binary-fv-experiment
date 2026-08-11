@@ -167,4 +167,8 @@ def allocatorAllocBytesExecutionPcRanges : List PcRange := [
   (0x162a8, 0x16310)
 ]
 
+def readInputEcallPc : Nat := 0x10168
+def writeOutputEcallPc : Nat := 0x101b4
+def zkvmExitEcallPc : Nat := 0x101d0
+
 end BinaryFv.Ssz.Generated

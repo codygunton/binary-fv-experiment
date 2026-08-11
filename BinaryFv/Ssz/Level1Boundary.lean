@@ -2,7 +2,7 @@ import BinaryFv.Ssz.Relation
 import BinaryFv.Ssz.ZigRepresentation
 import BinaryFv.Ssz.Generated.Level1
 import BinaryFv.Ssz.Generated.ProgramImage
-import BinaryFv.Ssz.MachineContract
+import BinaryFv.Ssz.HostExecution
 import BinaryFv.RiscV.Logic.LoadedImage
 
 /-!
@@ -41,30 +41,31 @@ def DecodeMeaningModuloKnownBugs (args : DecodeBoundaryArgs) : DecodeBoundaryOut
         ∃ bug ∈ knownBugs, KnownBugApplies args.input zesu bug)
 
 /-- Same-ELF DWARF binds the inlined decode input pointer to `s7` and length to `s2`. -/
-def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : MachineState) : Prop :=
-  state.regs.get? PC = some (BitVec.ofNat 64 Generated.sszDecodeEntry) ∧
-  Generated.programImage.fileBytesLoadedFaithfully state.mem ∧
+def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Prop :=
+  state.stdin = args.input ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.sszDecodeEntry) ∧
+  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   args.inputAddress < 2 ^ 64 ∧
-  state.regs.get? x23 = some (BitVec.ofNat 64 args.inputAddress) ∧
-  state.regs.get? x18 = some (BitVec.ofNat 64 args.input.size) ∧
-  BytesRep state.mem args.inputAddress args.input
+  state.machine.regs.get? x23 = some (BitVec.ofNat 64 args.inputAddress) ∧
+  state.machine.regs.get? x18 = some (BitVec.ofNat 64 args.input.size) ∧
+  BytesRep state.machine.mem args.inputAddress args.input
 
 /-- The source `catch` routes failure to `writeFailure`; success passes the concrete 848-byte
 `StatelessInput` address in `a0` to `writeSuccess`. -/
-def DecodeBoundaryExit (outcome : DecodeBoundaryOutcome) (state : MachineState) : Prop :=
-  Generated.programImage.fileBytesLoadedFaithfully state.mem ∧
+def DecodeBoundaryExit (outcome : DecodeBoundaryOutcome) (state : EndpointState) : Prop :=
+  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
     match outcome with
-    | .failure => state.regs.get? PC = some (BitVec.ofNat 64 Generated.writeFailureEntry)
+    | .failure => state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.writeFailureEntry)
     | .success decoded => ∃ address : Nat,
         address < 2 ^ 64 ∧
-        state.regs.get? PC = some (BitVec.ofNat 64 Generated.writeSuccessEntry) ∧
-        state.regs.get? x10 = some (BitVec.ofNat 64 address) ∧
-        StatelessInputRep state.mem address decoded
+        state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.writeSuccessEntry) ∧
+        state.machine.regs.get? x10 = some (BitVec.ofNat 64 address) ∧
+        StatelessInputRep state.machine.mem address decoded
 
 /-- The strict contract shape. The reviewed Level 1 contract will instantiate its bound and widen
 only the fixed accept/reject domains represented by `knownBugs`. -/
 def strictDecodeContract (stepBound : DecodeBoundaryArgs → Nat) :
-    RelationalMachineContract DecodeBoundaryArgs DecodeBoundaryOutcome :=
+    RelationalMachineContract EndpointState DecodeBoundaryArgs DecodeBoundaryOutcome :=
   { allows := StrictDecodeMeaning
     entry := DecodeBoundaryEntry
     exit := fun _ outcome _ after => DecodeBoundaryExit outcome after
@@ -73,7 +74,7 @@ def strictDecodeContract (stepBound : DecodeBoundaryArgs → Nat) :
 /-- The actual Level 1 semantic contract shape. Its implementation proof supplies the input-indexed
 termination bound; observed fixture counts are evidence, not a universal premise. -/
 def decodeContractModuloKnownBugs (stepBound : DecodeBoundaryArgs → Nat) :
-    RelationalMachineContract DecodeBoundaryArgs DecodeBoundaryOutcome :=
+    RelationalMachineContract EndpointState DecodeBoundaryArgs DecodeBoundaryOutcome :=
   { allows := DecodeMeaningModuloKnownBugs
     entry := DecodeBoundaryEntry
     exit := fun _ outcome _ after => DecodeBoundaryExit outcome after
@@ -88,12 +89,13 @@ def DecodeExitPc (pc : BitVec 64) : Prop :=
 
 /-- The exact strict implementation obligation at the generated production boundary. -/
 abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : Prop :=
-  (strictDecodeContract stepBound).Implements DecodeExecutionPc DecodeExitPc
+  (strictDecodeContract stepBound).Implements EndpointStep EndpointPc DecodeExecutionPc DecodeExitPc
 
 /-- The generated decode instance terminates within some input-indexed bound and has the reviewed
 compatibility semantics. The bound is implementation evidence, not caller-selected contract data. -/
 def DecodeInstanceContractModuloKnownBugs : Prop :=
   ∃ stepBound : DecodeBoundaryArgs → Nat,
-    (decodeContractModuloKnownBugs stepBound).Implements DecodeExecutionPc DecodeExitPc
+    (decodeContractModuloKnownBugs stepBound).Implements
+      EndpointStep EndpointPc DecodeExecutionPc DecodeExitPc
 
 end BinaryFv.Ssz

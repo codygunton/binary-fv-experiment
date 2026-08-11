@@ -17,35 +17,41 @@ abbrev MachineState := PreSail.SequentialState RegisterType Sail.trivialChoiceSo
 def MachineStep (stepNo : Nat) (before after : MachineState) : Prop :=
   (try_step stepNo false).run before = .ok false after
 
-/-- A sequence of actual Sail steps whose pre-step PCs all belong to `region`. -/
-inductive ConfinedTrace (region : BitVec 64 → Prop) :
-    Nat → Nat → MachineState → MachineState → Prop where
-  | refl (fromStep : Nat) (state : MachineState) :
-      ConfinedTrace region fromStep 0 state state
-  | step (fromStep count : Nat) (pc : BitVec 64) (before middle after : MachineState)
-      (atPc : before.regs.get? PC = some pc)
+def MachinePc (state : MachineState) : Option (BitVec 64) :=
+  state.regs.get? PC
+
+/-- A sequence of steps whose pre-step PCs all belong to `region`. The state and step relation are
+parameters because the linked endpoint combines Sail instruction steps with explicit Linux syscalls. -/
+inductive ConfinedTrace {State : Type} (stepRelation : Nat → State → State → Prop)
+    (statePc : State → Option (BitVec 64)) (region : BitVec 64 → Prop) :
+    Nat → Nat → State → State → Prop where
+  | refl (fromStep : Nat) (state : State) :
+      ConfinedTrace stepRelation statePc region fromStep 0 state state
+  | step (fromStep count : Nat) (pc : BitVec 64) (before middle after : State)
+      (atPc : statePc before = some pc)
       (inside : region pc)
-      (machineStep : MachineStep fromStep before middle)
-      (rest : ConfinedTrace region (fromStep + 1) count middle after) :
-      ConfinedTrace region fromStep (count + 1) before after
+      (machineStep : stepRelation fromStep before middle)
+      (rest : ConfinedTrace stepRelation statePc region (fromStep + 1) count middle after) :
+      ConfinedTrace stepRelation statePc region fromStep (count + 1) before after
 
 /-- A compiled instance whose reviewed semantics permits a fixed relation of outcomes. -/
-structure RelationalMachineContract (Args Outcome : Type) where
+structure RelationalMachineContract (State Args Outcome : Type) where
   allows : Args → Outcome → Prop
-  entry : Args → MachineState → Prop
-  exit : Args → Outcome → MachineState → MachineState → Prop
+  entry : Args → State → Prop
+  exit : Args → Outcome → State → State → Prop
   stepBound : Args → Nat
 
 /-- The machine implementation obligation used by a Level N contract assumption. -/
-def RelationalMachineContract.Implements {Args Outcome : Type}
-    (region exitPc : BitVec 64 → Prop) (contract : RelationalMachineContract Args Outcome) : Prop :=
-  ∀ (args : Args) (fromStep : Nat) (before : MachineState),
+def RelationalMachineContract.Implements {State Args Outcome : Type}
+    (stepRelation : Nat → State → State → Prop) (statePc : State → Option (BitVec 64))
+    (region exitPc : BitVec 64 → Prop) (contract : RelationalMachineContract State Args Outcome) : Prop :=
+  ∀ (args : Args) (fromStep : Nat) (before : State),
     contract.entry args before →
-      ∃ (count : Nat) (after : MachineState) (outcome : Outcome),
+      ∃ (count : Nat) (after : State) (outcome : Outcome),
         0 < count ∧
         count ≤ contract.stepBound args ∧
-        ConfinedTrace region fromStep count before after ∧
-        (∃ pc, after.regs.get? PC = some pc ∧ exitPc pc) ∧
+        ConfinedTrace stepRelation statePc region fromStep count before after ∧
+        (∃ pc, statePc after = some pc ∧ exitPc pc) ∧
         contract.allows args outcome ∧
         contract.exit args outcome before after
 

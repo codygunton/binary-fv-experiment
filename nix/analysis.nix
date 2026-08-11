@@ -62,8 +62,10 @@ let
   zesuSszDecodeLevel1Lean = pkgs.runCommand "zesu-ssz-decode-level1-lean-e5f8c13"
     { nativeBuildInputs = [ pkgs.python3 ]; } ''
       mkdir -p "$out/BinaryFv/Ssz/Generated"
+      PYTHONPATH=${../tools} python ${../tools/test_generate_level1_lean.py}
       python ${../tools/generate_level1_lean.py} \
         --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
+        --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
         --output "$out/BinaryFv/Ssz/Generated/Level1.lean"
       cmp "$out/BinaryFv/Ssz/Generated/Level1.lean" \
         ${../BinaryFv/Ssz/Generated/Level1.lean}
