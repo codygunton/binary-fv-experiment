@@ -413,6 +413,7 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
     # Each instruction is owned by its deepest lexical inline instance, or by its emitted function.
     inline_ownership: dict[str, set[int]] = {key: set() for key in inline_by_id}
     concrete_self: dict[str, set[int]] = {}
+    inline_at_pc: dict[int, str] = {}
     inline_pc_sets = {key: set(row["pcs"]) for key, row in inline_by_id.items()}
     inline_symbol = {}
     for instance_id, row in inline_by_id.items():
@@ -429,6 +430,7 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
                 # Nested DIE depth is represented by the smallest machine range, then DIE offset.
                 owner = min(containing, key=lambda row: (row["instructionCount"], -row["dieOffset"]))
                 inline_ownership[owner["id"]].add(pc)
+                inline_at_pc[pc] = owner["id"]
                 own.discard(pc)
         concrete_self[name] = own
 
@@ -436,14 +438,42 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
     known = {fn["name"] for fn in function_rows if ownership[fn["name"]]}
     root = "main" if "main" in known else min(known)
     parents, reachable = dominator_parents(root, known, calls)
-    children: dict[str, list[str]] = defaultdict(list)
-    for child, parent in parents.items(): children[parent].append(child)
     starts = {fn["name"]: fn["start"] for fn in function_rows}
-    for rows in children.values(): rows.sort(key=lambda name: (starts.get(name, -2), name))
     fn_by_name = {fn["name"]: fn for fn in function_rows}
     meta = {}
     callers, callees = defaultdict(list), defaultdict(list)
     for call in calls: callers[call["callee"]].append(call); callees[call["caller"]].append(call)
+
+    def inline_chain(instance_id: str) -> list[str]:
+        chain = []
+        current = instance_id
+        while current in inline_by_id:
+            chain.append(current)
+            current = inline_by_id[current]["parent"]
+        return list(reversed(chain))
+
+    def common_inline_ancestor(call_rows: list[dict]) -> str | None:
+        chains = [inline_chain(inline_at_pc[row["source"]]) for row in call_rows if row["source"] in inline_at_pc]
+        if len(chains) != len(call_rows) or not chains:
+            return None
+        common = []
+        for entries in zip(*chains):
+            if len(set(entries)) != 1:
+                break
+            common.append(entries[0])
+        return common[-1] if common else None
+
+    # A concrete callee remains in the emitted-function dominator tree, but is displayed beneath
+    # the deepest inline instance common to every actual callsite from its dominator parent.
+    anchored_children: dict[str, list[str]] = defaultdict(list)
+    concrete_placement = {}
+    for child, parent in parents.items():
+        relevant = [row for row in calls if row["caller"] == parent and row["callee"] == child]
+        anchor = common_inline_ancestor(relevant) or parent
+        anchored_children[anchor].append(child)
+        concrete_placement[child] = {"anchor": anchor, "callsites": [row["source"] for row in relevant]}
+    for rows in anchored_children.values():
+        rows.sort(key=lambda name: (starts.get(name, -2), name))
 
     def inline_node(instance_id: str, parent_key: str) -> tuple[dict, set[int]]:
         instance = inline_by_id[instance_id]
@@ -454,10 +484,14 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
         for child_id in inline_children[instance_id]:
             child_node, child_pcs = inline_node(child_id, key)
             child_nodes.append(child_node); subtree |= child_pcs
+        for child in anchored_children[instance_id]:
+            child_node, child_pcs = node(child, key)
+            child_nodes.append(child_node); subtree |= child_pcs
         meta[key] = {
             "owner": instance_id, "qualified": instance["name"], "kind": "inlinedFunctionInstance",
             "hierarchy": "dwarfInlineNesting", "runs": instance["ranges"], "frags": len(instance["ranges"]),
-            "value": len(subtree), "self": len(own), "file": instance["sourceFile"],
+            "machineInstructionCount": instance["instructionCount"], "value": len(subtree), "self": len(own),
+            "file": instance["sourceFile"],
             "line": instance["declLine"] or 0, "callFile": instance["callFile"],
             "callLine": instance["callLine"] or 0, "entries": [instance["entryPc"]], "exits": [],
             "loopSccs": [], "callers": [], "callees": [], "tailDependencies": [],
@@ -476,11 +510,16 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
             for inline_id in inline_children[concrete_id]:
                 child_node, child_pcs = inline_node(inline_id, key)
                 child_nodes.append(child_node); subtree |= child_pcs
-        for child in children[name]:
+        for child in anchored_children[name]:
             child_node, child_pcs = node(child, key); child_nodes.append(child_node); subtree |= child_pcs
         fn = fn_by_name.get(name, {})
+        placement = concrete_placement.get(name, {"anchor": None, "callsites": []})
+        anchor_name = inline_by_id[placement["anchor"]]["name"] if placement["anchor"] in inline_by_id else placement["anchor"]
         meta[key] = {"owner": concrete_id or name, "qualified": name, "kind": "concreteFunctionInstance",
-                     "hierarchy": "callDominator", "runs": [], "frags": 1, "value": len(subtree), "self": len(own),
+                     "hierarchy": "callDominatorAnchoredAtDeepestCommonInlineCallsite", "runs": [], "frags": 1,
+                     "machineInstructionCount": len(ownership[name]), "value": len(subtree), "self": len(own),
+                     "displayAnchor": placement["anchor"], "displayAnchorName": anchor_name,
+                     "displayCallsites": placement["callsites"],
                      "file": fn.get("sourceFile"), "line": fn.get("sourceLine", 0), "entries": [fn["start"]],
                      "exits": [], "loopSccs": [], "callers": callers[name], "callees": callees[name], "tailDependencies": [],
                      "fragmentHandoffs": [], "parentReentryEdges": [], "carrierRoutes": [], "activeCalleeFrames": [], "src": None}
