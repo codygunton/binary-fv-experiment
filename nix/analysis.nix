@@ -49,6 +49,16 @@ let
       python ${../tools/test_level_manifest.py} "$out/level1-manifest.json"
     '';
 
+  zesuSszDecodeLevel1BoundaryBindings = pkgs.runCommand
+    "zesu-ssz-decode-level1-boundary-bindings-e5f8c13" { nativeBuildInputs = [ python ]; } ''
+      mkdir -p "$out"
+      python ${../tools/generate_level_boundary_bindings.py} \
+        --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
+        --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+        --output "$out/level1-boundary-bindings.json"
+      python ${../tools/test_level_boundary_bindings.py} "$out/level1-boundary-bindings.json"
+    '';
+
   level1EvidenceTools = builtins.path {
     path = ../tools/level1_evidence;
     name = "zesu-level1-evidence-tools";
@@ -65,7 +75,13 @@ let
     ${rv64.qemuRiscv64} -plugin ./trace.so,out=minimal.trace,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/minimal.ssz > /dev/null
     ${rv64.qemuRiscv64} -plugin ./trace.so,out=invalid.trace,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/invalid.ssz > /dev/null
     mkdir -p "$out"
-    python tools/analyze.py --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode --trace minimal=minimal.trace --trace invalid=invalid.trace --output "$out/level1-evidence.json"
+    python tools/analyze.py --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
+      --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json \
+      --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      --trace minimal=minimal.trace --trace invalid=invalid.trace \
+      --input minimal=${targets.public.zesuSszDecodeSmoke}/minimal.ssz \
+      --input invalid=${targets.public.zesuSszDecodeSmoke}/invalid.ssz \
+      --output "$out/level1-evidence.json"
   '';
 
   zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-e5f8c13"
@@ -76,16 +92,18 @@ let
     cp ${zesuSszDecodeCfg}/flame.json "$out/"
     cp ${zesuSszDecodeLevel1Manifest}/level1-manifest.json "$out/"
     cp ${zesuSszDecodeLevel1Evidence}/level1-evidence.json "$out/"
+    cp ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json "$out/"
     cp ${../tools/build_ssz_proof_map.py} build_ssz_proof_map.py
     cp ${../tools/test_ssz_proof_map.py} test_ssz_proof_map.py
-    python build_ssz_proof_map.py --cfg ${zesuSszDecodeCfg}/zesu-cfg.json --flame ${zesuSszDecodeCfg}/flame.json --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --evidence ${zesuSszDecodeLevel1Evidence}/level1-evidence.json --output "$out/proof-map.json"
-    python test_ssz_proof_map.py ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json ${zesuSszDecodeLevel1Manifest}/level1-manifest.json ${zesuSszDecodeLevel1Evidence}/level1-evidence.json
+    python build_ssz_proof_map.py --cfg ${zesuSszDecodeCfg}/zesu-cfg.json --flame ${zesuSszDecodeCfg}/flame.json --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --evidence ${zesuSszDecodeLevel1Evidence}/level1-evidence.json --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json --output "$out/proof-map.json"
+    python test_ssz_proof_map.py ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json ${zesuSszDecodeLevel1Manifest}/level1-manifest.json ${zesuSszDecodeLevel1Evidence}/level1-evidence.json ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json
     cp ${zesuCfg}/flame.json "$out/flame-full.json"
   '';
 in
 {
   public = {
     inherit dump stats zesuCfg zesuSszDecodeCfg zesuSszDecodeLevel1Manifest
+      zesuSszDecodeLevel1BoundaryBindings
       zesuSszDecodeLevel1Evidence zesuCfgUi;
     machine-regions-ui = zesuCfgUi;
   };

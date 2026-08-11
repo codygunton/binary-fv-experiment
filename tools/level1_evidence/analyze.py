@@ -66,7 +66,48 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
     return {"label": label, "instances": result}
 
 
-def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]]) -> dict:
+def validate_bindings(manifest: dict, bindings: dict, vectors: list[dict],
+                      inputs: dict[str, Path]) -> dict:
+    if bindings["artifact"] != manifest["artifact"]:
+        raise ValueError("boundary bindings and manifest artifacts differ")
+    expected = {row["id"] for row in manifest["instances"]}
+    actual = {row["id"] for row in bindings["instances"]}
+    if actual != expected:
+        raise ValueError("boundary bindings and manifest instances differ")
+    decode_binding = next(row for row in bindings["instances"]
+                          if row["qualified"] == "ssz.decode")
+    registers = {row["name"]: row["machineRegister"]
+                 for row in decode_binding["bindings"]}
+    if registers.get("input_ptr") != 23 or registers.get("input_size") != 18:
+        raise ValueError("unexpected optimized ssz.decode input bindings")
+    checks = []
+    for vector in vectors:
+        if vector["label"] not in inputs:
+            raise ValueError(f"missing input fixture for {vector['label']}")
+        decode = next(row for row in vector["instances"] if row["qualified"] == "ssz.decode")
+        if not decode["entryReached"]:
+            continue
+        size = inputs[vector["label"]].stat().st_size
+        for snapshot in decode["entryRegisters"]:
+            pointer = snapshot["values"][23]
+            if snapshot["values"][18] != size:
+                raise ValueError(f"ssz.decode input_size mismatch for {vector['label']}")
+            if not any(access["kind"] == "load" and access["address"] == pointer
+                       for access in decode["memoryAccesses"]):
+                raise ValueError(f"ssz.decode input_ptr was not observed as a load base for {vector['label']}")
+        checks.append({
+            "vector": vector["label"],
+            "inputSize": size,
+            "snapshots": len(decode["entryRegisters"]),
+            "inputPointerRegister": 23,
+            "inputSizeRegister": 18,
+        })
+    return {"source": "same-ELF DWARF checked against QEMU entry snapshots and loads",
+            "sszDecodeInputBindings": checks}
+
+
+def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
+                bindings: dict | None = None, inputs: dict[str, Path] | None = None) -> dict:
     digest = hashlib.sha256(elf.read_bytes()).hexdigest()
     if digest != manifest["artifact"]["sha256"]:
         raise ValueError("manifest and observed ELF digests differ")
@@ -79,7 +120,7 @@ def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]]) -> di
     if reached != expected:
         missing = sorted(expected - reached)
         raise ValueError(f"Level 1 entry coverage is incomplete: {missing}")
-    return {
+    report = {
         "schemaVersion": 1,
         "artifact": manifest["artifact"],
         "level": 1,
@@ -93,6 +134,10 @@ def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]]) -> di
             "semantic result relation",
         ],
     }
+    if bindings is not None:
+        report["boundaryBindingValidation"] = validate_bindings(
+            manifest, bindings, vectors, inputs or {})
+    return report
 
 
 def main() -> int:
@@ -101,6 +146,8 @@ def main() -> int:
     parser.add_argument("--elf", required=True, type=Path)
     parser.add_argument("--trace", action="append", required=True,
                         help="LABEL=PATH")
+    parser.add_argument("--bindings", type=Path)
+    parser.add_argument("--input", action="append", default=[], help="LABEL=PATH")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     traces = []
@@ -109,7 +156,15 @@ def main() -> int:
         if not separator or not label:
             raise ValueError("--trace must be LABEL=PATH")
         traces.append((label, Path(path)))
-    report = make_report(json.loads(args.manifest.read_text()), args.elf, traces)
+    inputs = {}
+    for value in args.input:
+        label, separator, path = value.partition("=")
+        if not separator or not label:
+            raise ValueError("--input must be LABEL=PATH")
+        inputs[label] = Path(path)
+    bindings = json.loads(args.bindings.read_text()) if args.bindings else None
+    report = make_report(json.loads(args.manifest.read_text()), args.elf, traces,
+                         bindings, inputs)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return 0
 

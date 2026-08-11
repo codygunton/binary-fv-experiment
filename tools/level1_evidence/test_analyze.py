@@ -57,6 +57,30 @@ class EvidenceTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "malformed"):
                 parse_trace(trace)
 
+    def test_rejects_forged_decode_input_size(self):
+        from analyze import validate_bindings
+        manifest = copy.deepcopy(self.manifest)
+        manifest["instances"][0]["qualified"] = "ssz.decode"
+        bindings = {
+            "artifact": manifest["artifact"],
+            "instances": [{"id": "fi:1", "qualified": "ssz.decode", "bindings": [
+                {"name": "input_ptr", "machineRegister": 23},
+                {"name": "input_size", "machineRegister": 18},
+            ]}],
+        }
+        snapshot = [0] * 32
+        snapshot[18], snapshot[23] = 4, 100
+        vector = {"label": "sample", "instances": [{
+            "qualified": "ssz.decode", "entryReached": True,
+            "entryRegisters": [{"values": snapshot}],
+            "memoryAccesses": [{"kind": "load", "address": 100}],
+        }]}
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "input"
+            fixture.write_bytes(b"wrong")
+            with self.assertRaisesRegex(ValueError, "input_size mismatch"):
+                validate_bindings(manifest, bindings, [vector], {"sample": fixture})
+
 
 if __name__ == "__main__":
     unittest.main()

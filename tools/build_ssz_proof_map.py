@@ -8,9 +8,10 @@ import json
 from pathlib import Path
 
 
-def build(cfg: dict, flame: dict, manifest: dict, evidence: dict) -> dict:
-    if cfg["artifact"] != manifest["artifact"] or cfg["artifact"] != evidence["artifact"]:
-        raise ValueError("CFG, manifest, and evidence artifact identities differ")
+def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict) -> dict:
+    if any(cfg["artifact"] != document["artifact"]
+           for document in (manifest, evidence, bindings)):
+        raise ValueError("CFG, manifest, evidence, and boundary-binding artifact identities differ")
     root = flame["tree"]
     root_display_id = root["name"].rsplit("[fn:", 1)[1].rstrip("]")
     root_entry = int(root_display_id, 16)
@@ -40,6 +41,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict) -> dict:
             slot["owned"].update(row["executedOwnedPcs"])
             slot["extent"].update(row["executedExtentPcs"])
             slot["exits"].update(tuple(edge) for edge in row["observedExitTransitions"])
+    bindings_by_id = {row["id"]: row["bindings"] for row in bindings["instances"]}
 
     boundaries, regions, nodes, edges = [], [], [], []
     nodes.append({
@@ -48,6 +50,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict) -> dict:
     })
     for row in manifest["instances"]:
         capture = observed[row["id"]]
+        boundary_bindings = bindings_by_id[row["id"]]
         boundary_id = "level1-" + row["id"].replace(":", "-")
         source = row["functionInstanceIdentity"]["function"]["declaration"]
         boundaries.append({
@@ -59,6 +62,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict) -> dict:
             "observedOwnedInstructionCount": len(capture["owned"]),
             "observedExtentInstructionCount": len(capture["extent"]),
             "observedExitTransitions": [list(edge) for edge in sorted(capture["exits"])],
+            "dwarfBindings": boundary_bindings,
             "evidenceStatus": "captured", "kernelStatus": "not_started",
         })
         regions.append({
@@ -67,7 +71,10 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict) -> dict:
             "scope": "selected-child", "pcs": row["executionPcs"], "boundaryIds": [boundary_id],
             "evidence": "production entry registers, PCs, memory accesses, and exits captured",
             "preparation": {
-                "liveRegisters": [], "protectedMemory": [],
+                "liveRegisters": [
+                    f"{binding['name']} = x{binding['machineRegister']}"
+                    for binding in boundary_bindings if binding["machineRegister"] is not None
+                ], "protectedMemory": [],
                 "prerequisites": ["typed source/machine boundary review"],
                 "sourceIdentity": f"{source['file']}::{source['qualifiedName']}",
             },
@@ -129,11 +136,11 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    for name in ("cfg", "flame", "manifest", "evidence", "output"):
+    for name in ("cfg", "flame", "manifest", "evidence", "bindings", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
     args = parser.parse_args()
     result = build(*(json.loads(getattr(args, name).read_text())
-                     for name in ("cfg", "flame", "manifest", "evidence")))
+                     for name in ("cfg", "flame", "manifest", "evidence", "bindings")))
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return 0
 

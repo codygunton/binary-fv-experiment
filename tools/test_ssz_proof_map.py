@@ -12,8 +12,8 @@ sys.argv[:] = sys.argv[:1]
 class ProofMapTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if len(INPUTS) != 4:
-            raise RuntimeError("expected CFG FLAME MANIFEST EVIDENCE")
+        if len(INPUTS) != 5:
+            raise RuntimeError("expected CFG FLAME MANIFEST EVIDENCE BINDINGS")
         cls.documents = [json.loads(Path(path).read_text()) for path in INPUTS]
         module_path = Path(__file__).with_name("build_ssz_proof_map.py")
         spec = importlib.util.spec_from_file_location("proof_map", module_path)
@@ -28,10 +28,13 @@ class ProofMapTest(unittest.TestCase):
         self.assertEqual(sum(region["scope"] == "parent"
                              for region in result["authoringRegions"]), 1)
         self.assertEqual(result["phases"][0]["label"], "main parent-owned glue")
+        decode = next(row for row in result["boundaries"] if row["qualified"] == "ssz.decode")
+        direct = {row["name"]: row["machineRegister"] for row in decode["dwarfBindings"]}
+        self.assertEqual((direct["input_ptr"], direct["input_size"]), (23, 18))
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
-        documents[3]["artifact"]["sha256"] = "forged"
+        documents[4]["artifact"]["sha256"] = "forged"
         with self.assertRaisesRegex(ValueError, "artifact identities differ"):
             self.module.build(*documents)
 
