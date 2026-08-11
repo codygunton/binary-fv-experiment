@@ -65,12 +65,34 @@ per-segment composition, the question becomes interesting.
 
 ## 3. Method
 
-**Token lattice.** Reported as an axis, not chosen silently: L0 exact word, L1 mnemonic+operands,
-L2 mnemonic + register set, **L3 mnemonic + α-renamed register roles**, L4 mnemonic, L5 Lean
-instruction class. L3 is the operative level — registers renamed by order of first use inside the
-window, ABI-pinned registers (`sp`, `gp`, `ra`, `zero`, `tp`) held fixed, immediates left as lemma
-parameters. An L3 motif corresponds to exactly one `Seg`-valued theorem with those registers and
-immediates as arguments.
+**What an n-gram is.** A window of n instructions at consecutive addresses inside one straight-line
+segment, mapped through a tokeniser τ. Two windows match iff their token sequences are equal. The
+levels form a lattice of quotients, and only the last two are opcode-only:
+
+| level | token | matching is equality… |
+|---|---|---|
+| L0 | the 32-bit instruction word | literally |
+| L1 | mnemonic + register operands + immediates | modulo encoding |
+| L2 | mnemonic + register names, positional | modulo immediates |
+| **L3** | **mnemonic + α-renamed register tuple** | **up to a bijection on registers fixing `sp`/`gp`/`ra`/`zero`/`tp`** |
+| L4 | mnemonic | on opcodes |
+| L5 | Lean instruction class | on opcode classes |
+| DAG | dependence-graph isomorphism class | up to register bijection *and* valid re-scheduling |
+
+L3 is the operative level, and it is not an opcode sequence: it carries the whole register-sharing
+pattern. In `lbu(r0,r1) lbu(r2,r1) lbu(r3,r1) lbu(r4,r1)` the repeated `r1` asserts that all four
+loads share a base register and that the four destinations are distinct — dataflow structure that
+L4 discards as `lbu lbu lbu lbu`. Formally, two windows match at L3 iff their mnemonics agree
+pairwise and some bijection on non-pinned register names carries one operand sequence to the other.
+
+Two consequences. L3 tokens are **window-relative**, so there is no fixed alphabet and ordinary
+string matching does not apply — which is why the suffix array covers the context-free levels only
+and L3 closed patterns are computed directly. And **immediates are excluded from the L3 match** by
+design, because they become lemma arguments; §6 measures how many arguments that actually is,
+rather than assuming.
+
+An L3 motif corresponds to exactly one `Seg`-valued theorem, with the α-renamed registers and the
+surviving immediates as its arguments.
 
 **Segmentation.** Maximal straight-line runs: break after any instruction whose `transfer` is not
 `ordinary`, and before any instruction with more than one predecessor. 314 segments, mean length
@@ -190,11 +212,43 @@ reading is *one high-value idiom with a support/length trade-off*, plus two smal
 stack-reload-and-combine (`ld ld or ld ld`, 5 owners) and a large-offset stack store
 (`lui add sd` ×2, 4 owners).
 
-The n=4 motif `slli or slli slli` is the only one whose immediates are **constant across all 21
-occurrences** — a single concrete lemma, no immediate parameters. Every other motif's immediates
-vary (up to 38 distinct tuples for the top motif) and must be lemma arguments.
-
 p = 0.0002 is the resolution floor at 5000 resamples, not a point estimate.
+
+### How many immediate arguments a lemma actually needs
+
+Immediates are excluded from the L3 match by design, because they become lemma arguments. Counting
+distinct immediate *tuples* is a poor summary of what that costs: it cannot distinguish "one base
+offset varies" from "every slot varies independently", and those differ by an order of magnitude in
+authoring cost. Each slot is therefore classified as constant across occurrences, a fixed offset
+from one shared base, or genuinely free:
+
+| motif | n | sites | owners | slots | constant | tied to one base | free | **lemma immediate args** |
+|---|---|---|---|---|---|---|---|---|
+| `slli or slli slli` | 4 | 21 | 20 | 3 | 3 (8, 16, 24) | 0 | 0 | **0** |
+| `lbu ×4 slli or` | 6 | 34 | 21 | 5 | 1 (8) | 4 | 0 | **1** |
+| `lbu ×4 slli or slli slli` | 8 | 17 | 16 | 7 | 3 (8, 16, 24) | 4 | 0 | **1** |
+| `lbu slli or slli slli` | 5 | 18 | 17 | 4 | 3 (8, 16, 24) | 1 | 0 | **1** |
+| `lbu ×4 slli` | 5 | 47 | 24 | 5 | 1 (8) | 1 | 3 | **4** |
+| `ld ld or ld ld` | 5 | 10 | 5 | 4 | 0 | 2 | 2 | **3** |
+| `lui add sd` ×2 | 6 | 8 | 4 | 4 | 2 | 2 | 0 | **1** |
+
+Nine of the eleven significant motifs have **zero genuinely free slots**. The n=8 form is fully
+pinned: across all 17 occurrences the shifts are 8, 16 and 24 without exception and the four load
+offsets are always `(b+1, b, b+2, b+3)` for a single varying base `b`:
+
+```
+lbu b+1 | lbu b+0 | lbu b+2 | lbu b+3 | slli 8 | or | slli 16 | slli 24
+```
+
+Those constants are the finding, not decoration. Shifts of exactly 8/16/24 over four consecutive
+bytes are little-endian u32 assembly, which confirms the motif is the semantic operation and not a
+coincidental opcode shape. The lemma takes **one** immediate.
+
+The `lbu ×4 slli` motif inverts the usual trade-off and is the reason this decomposition matters.
+It has the highest raw support of any motif — 47 sites in 24 instances — but shortening the window
+admits sites whose load offsets follow *different* arrangements, so 3 of its 5 slots become
+genuinely free. **Support bought by shortening a motif is support under a weaker invariant.** Raw
+occurrence count would have ranked it first; it is the worst-parameterised entry on the list.
 
 ### What did not repeat usefully
 
@@ -273,27 +327,40 @@ Ranked by measured value, not by p-value. Gross lines are
 `(non-overlapping − 1) × register-write steps × 19`, using the only measured rate available; the
 lemma authoring cost is unmeasured, so each entry states the break-even instead of a net.
 
-1. **Four-byte little-endian read, n=8.** 17 sites in 16 instances; 27 sites in 19 instances if
-   stated over the dependence graph rather than the emitted order. Gross 2432 lines. All operands
-   register-write steps, memory reads only, no control transfer. Immediates vary (14 distinct
-   tuples) and become lemma arguments.
+Ranked by value *per unit of authoring cost*, which means support and immediate-argument count
+together, not gross lines alone.
+
+1. **Fixed-shift combine, n=4** (`slli or slli slli`). 21 sites in 20 instances, gross 1520 lines.
+   **Zero immediate arguments** — shifts are 8/16/24 at every occurrence — and `memory` is empty,
+   so it needs no memory frame. The cheapest lemma on the list to state, and nearly the broadest.
+   Write this one first.
+
+2. **Byte-load and first combine, n=6** (`lbu ×4; slli; or`). 34 sites in 21 instances, gross 3762
+   lines, **one** immediate argument (the base offset; the shift is constant 8). The best support
+   available at a one-argument cost.
+
+3. **Four-byte little-endian read, n=8.** 17 sites in 16 instances, or **27 sites in 19 instances**
+   stated over the dependence graph rather than the emitted order. Gross 2432 lines, one immediate
+   argument, all steps register-write steps, memory reads only, no control transfer. Fewer sites
+   than entry 2 but it pins all three shifts, so it is the form that states the whole u32 read as
+   one semantic step. Take this over entry 2 if the proof wants the complete operation rather than
+   the widest reuse.
    Sites: `0x105a0, 0x107d0, 0x111fc, 0x11220, 0x119f4, 0x11a58, 0x11ae0, 0x11ce4, 0x122b4,
    0x12334, 0x124f4, 0x127e8, 0x1295c, 0x12ae4, 0x12b5c, 0x12d70, 0x13380`.
 
-2. **Four-byte load group, n=5** (`lbu ×4; slli`). 47 sites in 24 instances, gross 4370 lines. The
-   highest raw payoff, but it is a prefix of entry 1 — take one or the other, not both.
+4. **Large-offset stack store, n=6** (`lui; add sp; sd` twice). 8 sites in 4 instances, one
+   immediate argument, gross 532 lines with **14 unestimated store steps** — the store shape has no
+   measured rate, so this entry's value is unknown and probably understated.
 
-3. **Fixed-shift combine, n=4** (`slli or slli slli`). 21 sites in 20 instances, gross 1520 lines,
-   and the **only** motif with constant immediates across every occurrence, so it needs no
-   immediate parameters and no memory frame at all (`memory` is empty). The cheapest lemma on the
-   list to state.
+5. **Stack reload and combine, n=5** (`ld ld or ld ld`). 10 sites in 5 instances, gross 855 lines,
+   but **3 immediate arguments** and no constant slots. Weakest invariant on the list.
 
-4. **Stack reload and combine, n=5** (`ld ld or ld ld`). 10 non-overlapping sites but only 5
-   instances. Gross 855 lines.
+Entries 1–3 are the same idiom family at three lengths. Write one of them, not all three.
 
-5. **Large-offset stack store, n=6** (`lui; add sp; sd` twice). 8 non-overlapping sites in 4
-   instances, gross 532 lines with **14 unestimated store steps** — the store shape has no measured
-   rate, so this entry's real value is unknown and probably understated.
+**Not recommended: `lbu ×4; slli` at n=5**, despite having the highest raw payoff on the list (47
+sites, 24 instances, gross 4370 lines). Three of its five immediate slots are genuinely free, so
+its extra support comes under a materially weaker invariant than entries 2 and 3. It is the entry a
+frequency-ranked list would have put first.
 
 ## 10. Limitations
 
@@ -309,6 +376,13 @@ lemma authoring cost is unmeasured, so each entry states the break-even instead 
   on a common subset.
 - **Corpus is `zesu_decode_raw` plus `memcpy`/`memmove`.** `zesu_raw_sink_checksum` (451
   instructions) has no owner metadata and is outside every number here.
+- **What the L3 token drops.** Immediates (recovered separately in §6), branch targets, and the
+  identity of the memory object a load or store touches. Access width and signedness survive,
+  because they are encoded in the mnemonic — `lbu`, `lb` and `lw` are distinct at L3 but collapse
+  to `LOAD` at L5.
+- **Motifs are linear, not path-sensitive.** A window is consecutive addresses inside one
+  straight-line segment. Nothing here searches CFG paths, so an idiom split across a branch is
+  invisible to this analysis.
 - **Nothing is proved.** This ranks candidates. No `Seg` lemma is written, and no claim about Level
   3 or Level 4 follows from it.
 

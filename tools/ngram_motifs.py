@@ -938,6 +938,34 @@ def closed_alpha_motifs(
     return closed
 
 
+def immediate_structure(windows: list[list[Instruction]]) -> dict:
+    """How many immediate arguments a lemma for this motif would actually take.
+
+    Counting distinct immediate *tuples* cannot tell "one base offset varies" from "every slot
+    varies independently", and those differ by an order of magnitude in authoring cost. Each slot
+    is classified instead: constant across all occurrences, a fixed offset from one shared base, or
+    genuinely free.
+    """
+    rows = [[value for i in window for value in i.operands.immediates] for window in windows]
+    if not rows or len({len(row) for row in rows}) != 1:
+        return {"slots": None, "constant": None, "tiedToBase": None, "free": None}
+    slots = len(rows[0])
+    constant = [j for j in range(slots) if len({row[j] for row in rows}) == 1]
+    varying = [j for j in range(slots) if j not in constant]
+    tied: list[int] = []
+    if varying:
+        anchor = varying[0]
+        tied = [j for j in varying if len({row[j] - row[anchor] for row in rows}) == 1]
+    return {
+        "slots": slots,
+        "constant": len(constant),
+        "constantValues": [rows[0][j] for j in constant],
+        "tiedToBase": len(tied),
+        "free": len(varying) - len(tied),
+        "lemmaImmediateArguments": (1 if tied else 0) + (len(varying) - len(tied)),
+    }
+
+
 def describe_motif(
     length: int,
     motif: tuple[str, ...],
@@ -971,6 +999,7 @@ def describe_motif(
         "memoryKinds": sorted({kind for i in flat for kind, _ in i.memory}),
         "distinctImmediateTuples": len(immediates),
         "immediatesConstant": len(immediates) == 1,
+        "immediateStructure": immediate_structure(windows),
         "registerWriteSteps": register_writes,
         "liveOutAtExit": sorted(
             {register for window in windows for register in window[-1].live_out}
