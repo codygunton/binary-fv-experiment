@@ -30,11 +30,11 @@ def validate(path: Path) -> None:
             assert block["sourceFile"] and not block["sourceFile"].startswith("/build/source/")
 
     flame = json.loads(path.with_name("flame.json").read_text())
+    validate_flame(data, flame)
     assert flame["total"] == data["totals"]["instructions"]
     assert flame["programTotal"] > flame["total"] * 3 // 4
     assert flame["tree"]["name"].startswith("main [fn:")
     assert flame["schemaVersion"] == 3
-    assert sum(row["self"] for row in flame["meta"].values()) == flame["programTotal"]
     inline_nodes = [row for row in flame["meta"].values() if row["kind"] == "inlinedFunctionInstance"]
     assert len(inline_nodes) > 100
     decode = next(row for row in inline_nodes if row["qualified"] == "ssz.decode")
@@ -42,7 +42,13 @@ def validate(path: Path) -> None:
     assert decode["self"] > 0
     if len(data["functions"]) < 100:
         assert decode["callFile"] == "deps/zesu/src/zkvm/ssz_decode_root.zig"
-        assert decode["value"] == 818
+        assert decode["machineInstructionCount"] == 818
+        tx_key, tx = next((key, row) for key, row in flame["meta"].items()
+                          if row["qualified"] == "rlp_decode.decodeTxFields")
+        assert "|ssz.decode [" in tx_key and "|rlp_decode.decodeSingleTx [" in tx_key
+        assert tx_key.index("|ssz.decode [") < tx_key.index("|rlp_decode.decodeSingleTx [")
+        assert tx["displayAnchorName"] == "rlp_decode.decodeSingleTx"
+        assert tx["displayCallsites"] == [0x274c, 0x27a0]
 
     proof = json.loads(path.with_name("proof-map.json").read_text())
     validate_proof(proof)
@@ -74,6 +80,16 @@ def validate(path: Path) -> None:
     else:
         raise AssertionError("forged inline function range was accepted")
 
+    forged_anchor = copy.deepcopy(flame)
+    tx = next(row for row in forged_anchor["meta"].values() if row["qualified"] == "rlp_decode.decodeTxFields")
+    tx["displayCallsites"] = [0]
+    try:
+        validate_flame(data, forged_anchor)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("forged inline callsite anchor was accepted")
+
 
 def validate_instances(data: dict) -> None:
     instances = data["functionInstances"]
@@ -96,6 +112,21 @@ def validate_instances(data: dict) -> None:
     if len(data["functions"]) < 100:
         assert decode["instructionCount"] == 818
     assert decode["sourceFile"] == "deps/zesu/src/stateless/stateless/ssz.zig"
+
+
+def validate_flame(data: dict, flame: dict) -> None:
+    instances = {row["id"]: row for row in data["functionInstances"]}
+    assert sum(row["self"] for row in flame["meta"].values()) == flame["programTotal"]
+    assert len({row["owner"] for row in flame["meta"].values()}) == len(flame["meta"])
+    for row in flame["meta"].values():
+        assert row["machineInstructionCount"] > 0
+        if row["kind"] == "inlinedFunctionInstance":
+            assert row["owner"] in instances
+            assert row["machineInstructionCount"] == instances[row["owner"]]["instructionCount"]
+        elif row["displayAnchor"] and row["displayAnchor"].startswith("fi:"):
+            assert row["displayAnchor"] in instances
+            anchor_pcs = set(instances[row["displayAnchor"]]["pcs"])
+            assert row["displayCallsites"] and set(row["displayCallsites"]) <= anchor_pcs
 
 
 def validate_proof(proof: dict) -> None:
