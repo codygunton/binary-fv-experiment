@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from analyze import make_report, parse_trace, reduce_trace
+from analyze import make_report, parse_trace, reduce_trace, validate_decode_runs
 
 
 class EvidenceTest(unittest.TestCase):
@@ -80,6 +80,33 @@ class EvidenceTest(unittest.TestCase):
             fixture.write_bytes(b"wrong")
             with self.assertRaisesRegex(ValueError, "input_size mismatch"):
                 validate_bindings(manifest, bindings, [vector], {"sample": fixture})
+
+    def test_decode_run_records_exact_observed_interval(self):
+        manifest = {"instances": [
+            {"qualified": "ssz.decode", "entryPc": 4},
+            {"qualified": "ssz_decode_observation.writeSuccess", "entryPc": 20},
+            {"qualified": "ssz_decode_observation.writeFailure", "entryPc": 24},
+        ]}
+        before, after = [0] * 32, [0] * 32
+        after[10] = 100
+        trace = {"executed": [4, 8, 12, 20], "registers": {
+            4: [{"values": before}], 20: [{"values": after}],
+        }}
+        report = validate_decode_runs(manifest, [("ok", trace)])[0]
+        self.assertEqual(report["outcome"], "success")
+        self.assertEqual(report["observedStepCount"], 3)
+        self.assertEqual(report["changedIntegerRegisters"], [10])
+        self.assertEqual(report["successResultAddress"], 100)
+
+    def test_decode_run_rejects_missing_outcome(self):
+        manifest = {"instances": [
+            {"qualified": "ssz.decode", "entryPc": 4},
+            {"qualified": "ssz_decode_observation.writeSuccess", "entryPc": 20},
+            {"qualified": "ssz_decode_observation.writeFailure", "entryPc": 24},
+        ]}
+        trace = {"executed": [4, 8, 12], "registers": {4: [{"values": [0] * 32}]}}
+        with self.assertRaisesRegex(ValueError, "outcome boundary absent"):
+            validate_decode_runs(manifest, [("bad", trace)])
 
 
 if __name__ == "__main__":

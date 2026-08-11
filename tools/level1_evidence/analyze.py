@@ -106,12 +106,53 @@ def validate_bindings(manifest: dict, bindings: dict, vectors: list[dict],
             "sszDecodeInputBindings": checks}
 
 
+def validate_decode_runs(manifest: dict, traces: list[tuple[str, dict]]) -> list[dict]:
+    """Check the observed decode entry-to-outcome interval without claiming universality."""
+    entries = {row["qualified"]: row["entryPc"] for row in manifest["instances"]}
+    required = {"ssz.decode", "ssz_decode_observation.writeSuccess",
+                "ssz_decode_observation.writeFailure"}
+    if not required <= entries.keys():
+        raise ValueError("manifest lacks the typed ssz.decode outcome boundaries")
+    decode_pc = entries["ssz.decode"]
+    success_pc = entries["ssz_decode_observation.writeSuccess"]
+    failure_pc = entries["ssz_decode_observation.writeFailure"]
+    reports = []
+    for label, trace in traces:
+        executed = trace["executed"]
+        try:
+            start = executed.index(decode_pc)
+        except ValueError as error:
+            raise ValueError(f"ssz.decode entry absent from {label}") from error
+        outcomes = [(index, pc) for index, pc in enumerate(executed[start + 1:], start + 1)
+                    if pc in {success_pc, failure_pc}]
+        if not outcomes:
+            raise ValueError(f"ssz.decode outcome boundary absent from {label}")
+        finish, outcome_pc = outcomes[0]
+        entry_snapshots = trace["registers"].get(decode_pc, [])
+        exit_snapshots = trace["registers"].get(outcome_pc, [])
+        if len(entry_snapshots) != 1 or len(exit_snapshots) != 1:
+            raise ValueError(f"expected one decode and outcome snapshot for {label}")
+        before = entry_snapshots[0]["values"]
+        after = exit_snapshots[0]["values"]
+        reports.append({
+            "vector": label,
+            "outcome": "success" if outcome_pc == success_pc else "failure",
+            "outcomeEntryPc": outcome_pc,
+            "observedStepCount": finish - start,
+            "changedIntegerRegisters": [index for index, pair in enumerate(zip(before, after))
+                                        if pair[0] != pair[1]],
+            "successResultAddress": after[10] if outcome_pc == success_pc else None,
+        })
+    return reports
+
+
 def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
                 bindings: dict | None = None, inputs: dict[str, Path] | None = None) -> dict:
     digest = hashlib.sha256(elf.read_bytes()).hexdigest()
     if digest != manifest["artifact"]["sha256"]:
         raise ValueError("manifest and observed ELF digests differ")
-    vectors = [reduce_trace(manifest, parse_trace(path), label) for label, path in traces]
+    parsed_traces = [(label, parse_trace(path)) for label, path in traces]
+    vectors = [reduce_trace(manifest, trace, label) for label, trace in parsed_traces]
     reached = {
         instance["id"] for vector in vectors for instance in vector["instances"]
         if instance["entryReached"]
@@ -126,6 +167,7 @@ def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
         "level": 1,
         "vectors": vectors,
         "entryCoverage": {"observed": sorted(reached), "complete": True},
+        "sszDecodeObservedRuns": validate_decode_runs(manifest, parsed_traces),
         "unmeasuredClauses": [
             "universal path coverage",
             "universal step bounds",
