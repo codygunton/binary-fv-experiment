@@ -66,7 +66,8 @@ def strictDecodeContract (stepBound : DecodeBoundaryArgs → Nat) :
     exit := fun _ outcome _ after => DecodeBoundaryExit outcome after
     stepBound }
 
-/-- The actual Level 1 semantic contract shape, still parameterized by its reviewed machine bound. -/
+/-- The actual Level 1 semantic contract shape. Its implementation proof supplies the input-indexed
+termination bound; observed fixture counts are evidence, not a universal premise. -/
 def decodeContractModuloKnownBugs (stepBound : DecodeBoundaryArgs → Nat) :
     RelationalMachineContract DecodeBoundaryArgs DecodeBoundaryOutcome :=
   { allows := DecodeMeaningModuloKnownBugs
@@ -85,7 +86,10 @@ def DecodeExitPc (pc : BitVec 64) : Prop :=
 abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : Prop :=
   (strictDecodeContract stepBound).Implements DecodeExecutionPc DecodeExitPc
 
-abbrev DecodeInstanceContractModuloKnownBugs (stepBound : DecodeBoundaryArgs → Nat) : Prop :=
-  (decodeContractModuloKnownBugs stepBound).Implements DecodeExecutionPc DecodeExitPc
+/-- The generated decode instance terminates within some input-indexed bound and has the reviewed
+compatibility semantics. The bound is implementation evidence, not caller-selected contract data. -/
+def DecodeInstanceContractModuloKnownBugs : Prop :=
+  ∃ stepBound : DecodeBoundaryArgs → Nat,
+    (decodeContractModuloKnownBugs stepBound).Implements DecodeExecutionPc DecodeExitPc
 
 end BinaryFv.Ssz
