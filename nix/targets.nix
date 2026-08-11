@@ -10,6 +10,16 @@ let
     dontConfigure = true;
     dontFixup = true;
 
+    # Zig strips local symbols and DWARF from ReleaseSmall modules by default.  Retain them in the
+    # same optimized object so source locations describe the analyzed instructions, rather than a
+    # separately optimized Debug build with different code addresses.
+    postPatch = ''
+      substituteInPlace build.zig \
+        --replace-fail \
+          'rv64_obj.root_module.code_model = .medium;' \
+          $'rv64_obj.root_module.code_model = .medium;\n        rv64_obj.root_module.strip = false;'
+    '';
+
     buildPhase = ''
       runHook preBuild
       export HOME="$TMPDIR"
@@ -28,6 +38,7 @@ let
       ${riscvNm} -u "$out/obj/zesu.o" > "$out/meta/undefined-symbols.txt"
       printf '%s\n' \
         'zesu=Consensys/zesu@d8071c422f0faf2c52d85b401192fdffc31fd5ac' \
+        'optimize=ReleaseSmall; debug-metadata=retained-in-analyzed-object' \
         "zig=$(zig version)" > "$out/meta/provenance.txt"
       runHook postInstall
     '';

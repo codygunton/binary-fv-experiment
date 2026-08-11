@@ -85,7 +85,7 @@
 <div id="wrap">
  <div id="left">
   <header>
-    <h1>production call hierarchy</h1>
+    <h1>authentic Zesu production call hierarchy</h1>
     <span class="pill" id="zoominfo">full</span>
     <button id="reset">reset zoom</button>
     <button id="proof-toggle" hidden>proof map</button>
@@ -371,7 +371,7 @@ function renderProofCfg(){
   const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],ready:['#473b1e','#e5b84b'],
     blocked:['#472327','#d95757'],contract:['#30263b','#9c78c2']};
   const short=s=>s.length>34?s.slice(0,32)+'…':s;
-  const titles=['selected contracts','parent-owned glue','conversion theorem','parent target'];
+  const titles=['specification boundary','target machine regions','refinement theorem','compliance theorem'];
   const columns=titles.map((title,i)=>`<rect class="cfg-column" x="${i*laneW+4}" y="4" width="${laneW-8}" height="${height-8}" rx="6"/>
     <text class="cfg-column-title" x="${i*laneW+16}" y="25">${i+1}. ${esc(title)}</text>`).join('');
   const edges=graph.edges.map(edge=>{const a=positions.get(edge.source),b=positions.get(edge.target);if(!a||!b)return'';
