@@ -8,5 +8,5 @@ import BinaryFv.Binary.ProgramImage
 Umbrella for the architecture-independent binary layer: half-open address ranges, the
 file-format-independent loadable program image, and the source-associated Elfling decomposition.
 Nothing here knows about RISC-V, and nothing here
-may depend on `BinaryFv.RiscV` or `BinaryFv.Zesu`.
+may depend on `BinaryFv.RiscV` or an implementation target.
 -/

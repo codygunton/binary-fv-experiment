@@ -8,11 +8,14 @@ import BinaryFv.RiscV.ELF.CFG
 import BinaryFv.RiscV.ELF.Decode
 import BinaryFv.RiscV.ELF.Elf64
 import BinaryFv.RiscV.Elfling
+import BinaryFv.RiscV.Elfling.Seg
 import BinaryFv.RiscV.Execution.ImageLoad
 import BinaryFv.RiscV.Execution.Machine
 import BinaryFv.RiscV.Execution.MemoryIo
 import BinaryFv.RiscV.Execution.Runner
 import BinaryFv.RiscV.Instruction.Decode
+import BinaryFv.RiscV.Instruction.DecodeTactic
+import BinaryFv.RiscV.Instruction.RegisterRuns
 import BinaryFv.RiscV.Instruction.Execute.ControlFlow
 import BinaryFv.RiscV.Instruction.Execute.Arithmetic
 import BinaryFv.RiscV.Instruction.Execute.Load
@@ -52,6 +55,7 @@ import BinaryFv.RiscV.Logic.Framing
 import BinaryFv.RiscV.Logic.LoadedImage
 import BinaryFv.RiscV.Logic.LoopInduction
 import BinaryFv.RiscV.Logic.MemFrame
+import BinaryFv.RiscV.Logic.MemoryWriteFrame
 import BinaryFv.RiscV.Logic.ReadFrame
 import BinaryFv.RiscV.Logic.RegisterAgree
 import BinaryFv.RiscV.Logic.SentinelTrace
@@ -77,6 +81,8 @@ import BinaryFv.RiscV.Platform.Translation
 import BinaryFv.RiscV.Platform.TranslationFrame
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.RiscV.Proof.RunnerCorrespondence
+import BinaryFv.RiscV.Runtime.BumpAllocator
+import BinaryFv.RiscV.Runtime.AllocationCursor
 import BinaryFv.RiscV.Step.AbstractPremise
 import BinaryFv.RiscV.Step.Call
 import BinaryFv.RiscV.Step.Context
@@ -86,6 +92,7 @@ import BinaryFv.RiscV.Step.GenericRetire
 import BinaryFv.RiscV.Step.Hart
 import BinaryFv.RiscV.Step.LandingPad
 import BinaryFv.RiscV.Step.Postlude
+import BinaryFv.RiscV.Step.RegisterWrite
 import BinaryFv.RiscV.Step.StackAddi
 import BinaryFv.RiscV.Step.TryStep
 import BinaryFv.RiscV.Step.TryStepStackAddi
@@ -105,6 +112,6 @@ Umbrella for the architecture-generic RISC-V layer, in dependency order:
 * `Execution` — executable image loading and runners.
 * `Analysis` — static reachability, call-graph, and stack-flow algorithms.
 
-Nothing in this layer may depend on `BinaryFv.Zesu`; the layer is generic over the binary under
+Nothing in this layer may depend on an implementation target; the layer is generic over the binary under
 analysis. Enforced by the import audit in `nix/proof.nix`.
 -/
