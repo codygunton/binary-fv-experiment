@@ -1,6 +1,7 @@
 import BinaryFv.Binary
 import BinaryFv.RiscV
 import BinaryFv.ProofProgress.MachineProofManifest
+import BinaryFv.ProofProgress.OwnedPc
 
 /-!
 # `BinaryFv`
