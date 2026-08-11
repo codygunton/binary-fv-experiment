@@ -1,4 +1,4 @@
-import BinaryFv.Ssz.ZesuObservation
+import BinaryFv.Ssz.Relation
 
 -- Both extracted machine semantics and the SSZ reference model must inhabit one Lean environment.
 #check Register
@@ -7,3 +7,4 @@ import BinaryFv.Ssz.ZesuObservation
 #check BinaryFv.Ssz.SailDecode
 #check BinaryFv.Ssz.knownBugs
 #check BinaryFv.Ssz.decodeZesuObservation
+#check BinaryFv.Ssz.decodedResultRel
