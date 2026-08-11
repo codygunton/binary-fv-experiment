@@ -1,6 +1,6 @@
 [submodule "deps/zesu"]
 	path = deps/zesu
-	url = https://github.com/Consensys/zesu.git
+	url = https://github.com/codygunton/zesu.git
 [submodule "deps/evm-sail"]
 	path = deps/evm-sail
 	url = https://github.com/frisitano/evm-sail.git
