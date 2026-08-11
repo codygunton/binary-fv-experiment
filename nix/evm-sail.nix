@@ -86,15 +86,21 @@ let
     cp ${repo}/BinaryFv/Ssz/Relation.lean Relation.lean
     cp ${repo}/tests/evm-sail/CombinedImportSmoke.lean CombinedImportSmoke.lean
     cp ${repo}/tests/evm-sail/ObservationSmoke.lean ObservationSmoke.lean
+    cp ${repo}/tests/evm-sail/DifferentialSmoke.lean DifferentialSmoke.lean
     substituteInPlace ObservationSmoke.lean \
       --replace-fail '@SUCCESS@' '${zesuSszDecodeSmoke}/success.out' \
       --replace-fail '@FAILURE@' '${zesuSszDecodeSmoke}/rejected.out' \
+      --replace-fail '@CHANGED@' '${zesuSszDecodeSmoke}/changed.out'
+    substituteInPlace DifferentialSmoke.lean \
+      --replace-fail '@INPUT@' '${zesuSszDecodeSmoke}/minimal.ssz' \
+      --replace-fail '@SUCCESS@' '${zesuSszDecodeSmoke}/success.out' \
       --replace-fail '@CHANGED@' '${zesuSszDecodeSmoke}/changed.out'
     lean -o compiled/BinaryFv/Ssz/Specification.olean Specification.lean
     lean -o compiled/BinaryFv/Ssz/ZesuObservation.olean ZesuObservation.lean
     lean -o compiled/BinaryFv/Ssz/Relation.olean Relation.lean
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
+    lean DifferentialSmoke.lean
     touch "$out"
   '';
 in

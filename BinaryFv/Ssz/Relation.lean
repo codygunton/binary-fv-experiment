@@ -7,9 +7,13 @@ namespace BinaryFv.Ssz
 def sailSliceBytes (source : Array UInt8) : Evm.Defs.StatelessInputSlice → Array UInt8
   | ⟨offset, ⟨length, _⟩⟩ => source.extract offset (offset + length)
 
-private def arrayRel (relation : α → β → Prop) (left : Array α) (right : Array β) : Prop :=
-  left.size = right.size ∧
-    ∀ pair ∈ left.toList.zip right.toList, relation pair.1 pair.2
+private def listMatches (relation : α → β → Bool) : List α → List β → Bool
+  | [], [] => true
+  | left :: lefts, right :: rights => relation left right && listMatches relation lefts rights
+  | _, _ => false
+
+private def arrayRel (relation : α → β → Bool) (left : Array α) (right : Array β) : Prop :=
+  listMatches relation left.toList right.toList = true
 
 private def sailBytes (bytes : Array Evm.Defs.byte) : Array UInt8 :=
   bytes.map fun byte => UInt8.ofNat byte.toNat
@@ -25,34 +29,35 @@ private def txTypeCode : Evm.Defs.TxType → Nat
   | .BlobTx => 3
   | .SetCodeTx => 4
 
-private def recipientRel (transaction : Transaction) (fields : Evm.Defs.TransactionFields limit) : Prop :=
+private def recipientMatches (transaction : Transaction)
+    (fields : Evm.Defs.TransactionFields limit) : Bool :=
   if fields.is_create then
-    transaction.recipient = none
+    transaction.recipient.isNone
   else
-    transaction.recipient = some (sailBytes fields.recipient.toArray)
+    transaction.recipient == some (sailBytes fields.recipient.toArray)
 
 /-- Fields decoded by both transaction implementations. Sender recovery and the
 EVM-Sail signing hash are deliberately outside this relation. -/
-def transactionRel (source : Array UInt8) (transaction : Transaction) : Evm.Defs.Transaction → Prop
+def transactionMatches (source : Array UInt8) (transaction : Transaction) : Evm.Defs.Transaction → Bool
   | ⟨_, fields⟩ =>
-      transaction.txType = txTypeCode fields.tx_type ∧
-      transaction.chainId = some fields.chain_id ∧
-      transaction.nonce = fields.nonce ∧
-      transaction.gasLimit = fields.gas_limit ∧
-      recipientRel transaction fields ∧
-      transaction.value = fields.value ∧
-      transaction.data = sailSliceBytes source fields.input_src ∧
-      transaction.gasPrice = fields.max_fee ∧
-      transaction.maxFeePerBlobGas = fields.max_blob_fee ∧
-      transaction.v = fields.sig_v ∧
-      transaction.r = fields.sig_r ∧
-      transaction.s = fields.sig_s
+      transaction.txType == txTypeCode fields.tx_type &&
+      transaction.chainId == some fields.chain_id &&
+      transaction.nonce == fields.nonce &&
+      transaction.gasLimit == fields.gas_limit &&
+      recipientMatches transaction fields &&
+      transaction.value == fields.value &&
+      transaction.data == sailSliceBytes source fields.input_src &&
+      transaction.gasPrice == fields.max_fee &&
+      transaction.maxFeePerBlobGas == fields.max_blob_fee &&
+      transaction.v == fields.sig_v &&
+      transaction.r == fields.sig_r &&
+      transaction.s == fields.sig_s
 
-private def withdrawalRel (withdrawal : Withdrawal) (reference : Evm.Defs.Withdrawal) : Prop :=
-  withdrawal.index = reference.index ∧
-  withdrawal.validatorIndex = reference.validator_index ∧
-  withdrawal.address = sailBytes reference.address.toArray ∧
-  withdrawal.amount = reference.amount
+private def withdrawalMatches (withdrawal : Withdrawal) (reference : Evm.Defs.Withdrawal) : Bool :=
+  withdrawal.index == reference.index &&
+  withdrawal.validatorIndex == reference.validator_index &&
+  withdrawal.address == sailBytes reference.address.toArray &&
+  withdrawal.amount == reference.amount
 
 private def payloadRel (source : Array UInt8) (zesu : ExecutionPayload)
     (sail : SailDecoded) : Prop :=
@@ -71,10 +76,10 @@ private def payloadRel (source : Array UInt8) (zesu : ExecutionPayload)
   zesu.extraData = sailSliceBytes source header.extra_data ∧
   zesu.baseFeePerGas = header.base_fee ∧
   zesu.blockHash = sailBytes payload.expected_block_hash.toArray ∧
-  arrayRel (transactionRel source) zesu.transactions sail.transactions ∧
-  arrayRel (fun bytes slice => bytes = sailSliceBytes source slice)
+  arrayRel (transactionMatches source) zesu.transactions sail.transactions ∧
+  arrayRel (fun bytes slice => bytes == sailSliceBytes source slice)
     zesu.rawTransactions sail.rawTransactions ∧
-  arrayRel withdrawalRel zesu.withdrawals sail.withdrawals ∧
+  arrayRel withdrawalMatches zesu.withdrawals sail.withdrawals ∧
   zesu.blobGasUsed = header.blob_gas_used ∧
   zesu.excessBlobGas = header.excess_blob_gas ∧
   zesu.slotNumber = some header.slot_number ∧
@@ -87,17 +92,22 @@ def decodedResultRel (source : Array UInt8) (zesu : ZesuDecodedResult)
   payloadRel source zesu.payload sail ∧
   zesu.parentBeaconBlockRoot =
     sailBytes sail.input.payload.block'.header.parent_beacon_block_root.toArray ∧
-  arrayRel (fun bytes slice => bytes = sailSliceBytes source slice)
+  arrayRel (fun bytes slice => bytes == sailSliceBytes source slice)
     zesu.versionedHashes sail.versionedHashes ∧
   zesu.executionRequests.deposits = sailSliceBytes source sail.inputRef.deposits ∧
   zesu.executionRequests.withdrawals = sailSliceBytes source sail.inputRef.withdrawal_requests ∧
   zesu.executionRequests.consolidations = sailSliceBytes source sail.inputRef.consolidation_requests ∧
   zesu.executionRequests.builderDeposits = sailSliceBytes source sail.inputRef.builder_deposit_requests ∧
   zesu.executionRequests.builderExits = sailSliceBytes source sail.inputRef.builder_exit_requests ∧
-  arrayRel (fun bytes slice => bytes = sailSliceBytes source slice) zesu.witnessNodes sail.witnessNodes ∧
-  arrayRel (fun bytes slice => bytes = sailSliceBytes source slice) zesu.witnessCodes sail.witnessCodes ∧
-  arrayRel (fun bytes slice => bytes = sailSliceBytes source slice) zesu.witnessHeaders sail.witnessHeaders ∧
+  arrayRel (fun bytes slice => bytes == sailSliceBytes source slice) zesu.witnessNodes sail.witnessNodes ∧
+  arrayRel (fun bytes slice => bytes == sailSliceBytes source slice) zesu.witnessCodes sail.witnessCodes ∧
+  arrayRel (fun bytes slice => bytes == sailSliceBytes source slice) zesu.witnessHeaders sail.witnessHeaders ∧
   zesu.chainConfig.chainId = sail.input.chain_config.chain_id ∧
-  arrayRel (fun bytes slice => bytes = sailSliceBytes source slice) zesu.publicKeys sail.publicKeys
+  arrayRel (fun bytes slice => bytes == sailSliceBytes source slice) zesu.publicKeys sail.publicKeys
+
+instance (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded) :
+    Decidable (decodedResultRel source zesu sail) := by
+  unfold decodedResultRel payloadRel transactionMatches recipientMatches withdrawalMatches arrayRel
+  infer_instance
 
 end BinaryFv.Ssz

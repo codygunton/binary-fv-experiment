@@ -118,7 +118,7 @@ let
     cmp success.out repeated.out
     ! cmp -s success.out changed.out
     mkdir -p "$out"
-    cp success.out rejected.out changed.out "$out/"
+    cp minimal.ssz invalid.ssz block-number.ssz success.out rejected.out changed.out "$out/"
   '';
 in
 {
