@@ -475,20 +475,21 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
     for rows in anchored_children.values():
         rows.sort(key=lambda name: (starts.get(name, -2), name))
 
-    def inline_node(instance_id: str, parent_key: str) -> tuple[dict, set[int]]:
+    def inline_node(instance_id: str, parent_key: str, level: int) -> tuple[dict, set[int]]:
         instance = inline_by_id[instance_id]
         label = f"{instance['name']} [{instance_id}]"
         key = f"{parent_key}|{label}"
         own = inline_ownership[instance_id]
         child_nodes, subtree = [], set(own)
         for child_id in inline_children[instance_id]:
-            child_node, child_pcs = inline_node(child_id, key)
+            child_node, child_pcs = inline_node(child_id, key, level + 1)
             child_nodes.append(child_node); subtree |= child_pcs
         for child in anchored_children[instance_id]:
-            child_node, child_pcs = node(child, key)
+            child_node, child_pcs = node(child, key, level + 1)
             child_nodes.append(child_node); subtree |= child_pcs
         meta[key] = {
             "owner": instance_id, "qualified": instance["name"], "kind": "inlinedFunctionInstance",
+            "refinementLevel": level,
             "hierarchy": "dwarfInlineNesting", "runs": instance["ranges"], "frags": len(instance["ranges"]),
             "machineInstructionCount": instance["instructionCount"], "value": len(subtree), "self": len(own),
             "file": instance["sourceFile"],
@@ -500,7 +501,7 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
         }
         return {"name": label, "value": len(subtree), "self": len(own), "children": child_nodes, "key": key}, subtree
 
-    def node(name: str, parent_key: str | None) -> tuple[dict, set[int]]:
+    def node(name: str, parent_key: str | None, level: int) -> tuple[dict, set[int]]:
         label = f"{name} [fn:0x{fn_by_name[name]['start']:x}]"
         key = label if parent_key is None else f"{parent_key}|{label}"
         own = concrete_self[name]
@@ -508,14 +509,15 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
         concrete_id = concrete_for_name.get(name)
         if concrete_id is not None:
             for inline_id in inline_children[concrete_id]:
-                child_node, child_pcs = inline_node(inline_id, key)
+                child_node, child_pcs = inline_node(inline_id, key, level + 1)
                 child_nodes.append(child_node); subtree |= child_pcs
         for child in anchored_children[name]:
-            child_node, child_pcs = node(child, key); child_nodes.append(child_node); subtree |= child_pcs
+            child_node, child_pcs = node(child, key, level + 1); child_nodes.append(child_node); subtree |= child_pcs
         fn = fn_by_name.get(name, {})
         placement = concrete_placement.get(name, {"anchor": None, "callsites": []})
         anchor_name = inline_by_id[placement["anchor"]]["name"] if placement["anchor"] in inline_by_id else placement["anchor"]
         meta[key] = {"owner": concrete_id or name, "qualified": name, "kind": "concreteFunctionInstance",
+                     "refinementLevel": level,
                      "hierarchy": "callDominatorAnchoredAtDeepestCommonInlineCallsite", "runs": [], "frags": 1,
                      "machineInstructionCount": len(ownership[name]), "value": len(subtree), "self": len(own),
                      "displayAnchor": placement["anchor"], "displayAnchorName": anchor_name,
@@ -525,7 +527,7 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
                      "fragmentHandoffs": [], "parentReentryEdges": [], "carrierRoutes": [], "activeCalleeFrames": [], "src": None}
         return {"name": label, "value": len(subtree), "self": len(own), "children": child_nodes, "key": key}, subtree
 
-    tree, covered = node(root, None)
+    tree, covered = node(root, None, 0)
     reachable_pcs = set().union(*(set(ownership[name]) for name in reachable))
     if covered != reachable_pcs:
         raise ValueError("displayed call hierarchy does not cover the main-reachable inventory")

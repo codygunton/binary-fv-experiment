@@ -4,6 +4,7 @@
 import argparse
 import copy
 import json
+from collections import Counter
 from pathlib import Path
 
 
@@ -118,6 +119,15 @@ def validate_flame(data: dict, flame: dict) -> None:
     instances = {row["id"]: row for row in data["functionInstances"]}
     assert sum(row["self"] for row in flame["meta"].values()) == flame["programTotal"]
     assert len({row["owner"] for row in flame["meta"].values()}) == len(flame["meta"])
+    seen_levels = {}
+
+    def record_levels(node: dict, level: int = 0) -> None:
+        seen_levels[node["key"]] = level
+        for child in node["children"]:
+            record_levels(child, level + 1)
+
+    record_levels(flame["tree"])
+    assert set(seen_levels) == set(flame["meta"])
     for row in flame["meta"].values():
         assert row["machineInstructionCount"] > 0
         if row["kind"] == "inlinedFunctionInstance":
@@ -127,6 +137,17 @@ def validate_flame(data: dict, flame: dict) -> None:
             assert row["displayAnchor"] in instances
             anchor_pcs = set(instances[row["displayAnchor"]]["pcs"])
             assert row["displayCallsites"] and set(row["displayCallsites"]) <= anchor_pcs
+    assert all(flame["meta"][key]["refinementLevel"] == level for key, level in seen_levels.items())
+    assert flame["meta"][flame["tree"]["key"]]["refinementLevel"] == 0
+    if len(data["functions"]) < 100:
+        level_one = Counter(flame["meta"][child["key"]]["qualified"] for child in flame["tree"]["children"])
+        assert level_one == Counter({
+            "alt_fl_alloc.get": 1,
+            "ssz.decode": 1,
+            "ssz_decode_root.put": 10,
+            "extern_io.write_output": 1,
+            "mem.Allocator.allocBytesWithAlignment__anon_1965": 1,
+        })
 
 
 def validate_proof(proof: dict) -> None:

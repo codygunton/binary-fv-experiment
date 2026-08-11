@@ -175,23 +175,24 @@ function renderLevelLabels(){
   const chart=$('#chart'), rail=$('#levels'), chartBox=chart.getBoundingClientRect();
   const rows=new Map(), names=new Map();
   d3.selectAll('#chart g.frame').each(function(d){
-    if(!d || d.depth<2) return;
-    if(!rows.has(d.depth)){
+    if(!d) return;
+    const level=META[keyOf(d)]?.refinementLevel ?? d.depth;
+    if(!rows.has(level)){
       const rect=this.querySelector('rect'); if(!rect) return;
       const box=rect.getBoundingClientRect();
-      rows.set(d.depth, box.top-chartBox.top+chart.scrollTop+box.height/2);
+      rows.set(level, box.top-chartBox.top+chart.scrollTop+box.height/2);
     }
     const qualified=META[keyOf(d)]?.qualified;
     if(qualified){
-      if(!names.has(d.depth)) names.set(d.depth, []);
-      if(!names.get(d.depth).includes(qualified)) names.get(d.depth).push(qualified);
+      if(!names.has(level)) names.set(level, []);
+      if(!names.get(level).includes(qualified)) names.get(level).push(qualified);
     }
   });
   rail.innerHTML='';
-  [...rows].sort((a,b)=>a[0]-b[0]).forEach(([depth,top])=>{
+  [...rows].sort((a,b)=>a[0]-b[0]).forEach(([level,top])=>{
     const label=document.createElement('span');
-    label.className='level-label'; label.textContent=`Level ${depth-1}`; label.style.top=`${top}px`;
-    label.onclick=ev=>{ ev.stopPropagation(); showLevel(depth-1, names.get(depth)||[]); };
+    label.className='level-label'; label.textContent=`Level ${level}`; label.style.top=`${top}px`;
+    label.onclick=ev=>{ ev.stopPropagation(); showLevel(level, names.get(level)||[]); };
     rail.appendChild(label);
   });
 }
