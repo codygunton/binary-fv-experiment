@@ -75,20 +75,22 @@ the largest fetch bill: **107 seconds that the lemma does not touch**.
 ## 4. What this does to the campaign's question
 
 The study proposed 149 class-level motif lemmas covering 74.2% of the binary — 3292 instructions.
-Every one of those instructions carries its own fetch and decode regardless. At ~90ms per
-`native_decide`:
+Every one of those instructions carries its own fetch and decode regardless:
 
 ```
 3292 instructions × 4 native_decide × 84.8ms  =  1116s  =  18.6 minutes
 ```
 
-For the whole binary, 4435 instructions: **25.1 minutes**.
+For the whole binary, 4435 instructions, **25.1 minutes**. That is the floor for proving the covered
+part, before any semantic content is proved at all, and no arrangement of motif lemmas avoids it.
 
-of elaboration that no arrangement of motif lemmas can avoid. That is the floor for proving the
-covered part of this binary, before any semantic content is proved at all.
+**A motif lemma competes only on the execute half**, and there its saving is real. A lemma for the
+Case A shape is proved once, chaining ten execute contracts internally, then applied at seven sites:
+70 execute obligations become 10 + 7 applications. That *is* `uses × (n−1)`, correctly scoped.
 
-**A motif lemma competes only on the execute half.** Whether it wins there is a separate question,
-still open, and it is the one Case A's remaining work answers.
+So the study's model is not wrong — it is **misapplied**. It prices the whole instruction at a rate
+that only holds for one of its four parts. The correct reading is `uses × (n−1) × (execute share)`,
+and the execute share is what section 4a will fix.
 
 ## 5. What was already collapsed before this campaign started
 
