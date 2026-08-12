@@ -233,8 +233,13 @@ uses it. That ordering reproduces the archived target's.
 The table this section used to carry — 15 lemmas, 62.6%, 35.6% — came from an ad-hoc script that
 ranked candidates by `uses` rather than by the `uses × (n−1)` it claimed to use. It therefore took
 `LOAD LOAD` (n=2, 300 uses, value 300) ahead of `LOAD LOAD LOAD` (n=3, 280 uses, value 560). The
-level ordering it reported was right; its numbers were not. The greedy now lives in
-`ngram_dashboard.py` and is reproducible.
+level ordering it reported was right; its numbers were not.
+
+The value-weighted covering it belonged to is now removed rather than repaired. Its objective was
+`uses × (n−1) − 20`, and section 9 establishes that *both* terms are ungrounded: the unit is a
+class-lemma invocation that no longer exists in the tree, and the constant 20 came from a
+calibration against the file the pivot deleted. The covering reported above weights nothing and
+needs no constant, so it survives that finding intact.
 
 ## 5a. What kind of repetition is this?
 

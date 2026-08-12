@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Repeat census and covering dashboard for the Zesu SSZ decode endpoint.
+"""Motif coverage dashboard for the Zesu SSZ decode endpoint.
 
 `ngram_motifs.py` answers "which motifs are statistically real". This answers the separate
 question "how much of the binary can repeated motifs cover, and at what price in lemmas".
 
-It emits three frames, all as polars DataFrames, and renders them into one self-contained page:
+It emits four frames, all as polars DataFrames, and renders them into one self-contained page:
 
-  census   level x policy x n -> how many n-grams repeat, and how many instructions they touch
-  cascade  the largest-n-first covering: cover every repeat at n, drop to n-1, repeat down to 2
-  greedy   the value-weighted covering: pick by uses x (n-1) - lemmaCost, mixed n
+  cascade   the longest-first covering: place every repeat at n, drop to n-1, continue to n=2
+  bodies    the inlined function instances that repeat, and whether their bodies match
+  leverage  what each lemma in the covering actually reuses
+  strategy  motifs, whole bodies, and the two composed
 
-Two window policies are reported side by side, because the difference between them is the price
-of being provable rather than merely present:
+Nothing is counted per length. A census of n-grams at each length counts a run of three loads as
+two overlapping `LOAD LOAD` windows, and counts it again inside every longer pattern holding it.
+The covering attributes each instruction to one pattern at one length, so its columns can be added.
+
+Two windows are reported side by side, because the difference between them is the price of being
+provable rather than merely present:
 
   segment  the window lies inside one straight-line segment
   lemma    also inside one function instance, and free of control transfers -- what a `Seg`
@@ -48,7 +53,6 @@ TRANSFER_CLASSES = {"BTYPE", "JAL", "JALR"}
 
 LEVELS = [
     ("L0_word", "exact 32-bit word"),
-    ("L1_mnemonic_operands", "mnemonic + operands"),
     ("L2_mnemonic_registers", "mnemonic + register names"),
     ("L3_alpha", "mnemonic + register roles"),
     ("L4_mnemonic", "opcode"),
@@ -96,52 +100,6 @@ def admissible(indices: list[int], policy: str, owner, is_transfer) -> bool:
 
 def build_starts(segments: list[list[int]], n: int) -> list[list[int]]:
     return [s[i : i + n] for s in segments for i in range(len(s) - n + 1)]
-
-
-def census(segments, streams, frame, order_of, owner, is_transfer, total) -> pl.DataFrame:
-    """For every level, policy and n: how many distinct n-grams occur two or more times, and how
-    much of the binary those repeats touch. A pattern seen once buys nothing, so it is not
-    counted -- only the repeat census leaves this function."""
-    rows = []
-    longest = max(len(s) for s in segments)
-    for n in range(2, longest + 1):
-        windows = build_starts(segments, n)
-        if not windows:
-            continue
-        for policy, _ in POLICIES:
-            allowed = [w for w in windows if admissible(w, policy, owner, is_transfer)]
-            if not allowed:
-                continue
-            starts = [w[0] for w in allowed]
-            for level, _ in LEVELS:
-                keys = window_keys(level, n, starts, streams, frame, order_of)
-                groups: dict[object, list[list[int]]] = collections.defaultdict(list)
-                for key, w in zip(keys, allowed):
-                    groups[key].append(w)
-                repeated = {k: v for k, v in groups.items() if len(v) >= 2}
-                touched: set[int] = set()
-                occurrences = 0
-                for places in repeated.values():
-                    occurrences += len(places)
-                    for w in places:
-                        touched.update(w)
-                commonest = max(repeated.values(), key=len, default=None)
-                rows.append(
-                    {
-                        "level": level,
-                        "policy": policy,
-                        "n": n,
-                        "windows": len(allowed),
-                        "repeated": len(repeated),
-                        "maximumCount": 0 if commonest is None else len(commonest),
-                        "commonest": "—" if commonest is None
-                        else describe(level, commonest[0], streams),
-                        "repeatOccurrences": occurrences,
-                        "instructionsTouched": len(touched),
-                        "shareTouched": len(touched) / total,
-                    }
-                )
-    return pl.DataFrame(rows)
 
 
 def cascade(
@@ -382,55 +340,6 @@ def cover_with(
     return last["lemmasCumulative"], last["coverCumulative"]
 
 
-def greedy(
-    level, policy, segments, streams, frame, order_of, owner, is_transfer, total,
-    lemma_cost=20, maximum_n=20, steps=40,
-) -> pl.DataFrame:
-    """Value-weighted covering. One motif lemma replaces n class-lemma invocations with 1, so a
-    motif is worth `uses x (n-1)` steps and costs `lemma_cost` to author."""
-    pool: dict[tuple[int, object], list[list[int]]] = collections.defaultdict(list)
-    for n in range(2, maximum_n + 1):
-        windows = [w for w in build_starts(segments, n) if admissible(w, policy, owner, is_transfer)]
-        if not windows:
-            continue
-        keys = window_keys(level, n, [w[0] for w in windows], streams, frame, order_of)
-        for key, w in zip(keys, windows):
-            pool[(n, key)].append(w)
-
-    covered = np.zeros(total, dtype=bool)
-    rows = []
-    saved = 0
-    for step in range(steps):
-        best = None
-        best_value = 0
-        for (n, key), places in pool.items():
-            usable = [w for w in places if not covered[w].any()]
-            value = len(usable) * (n - 1) - lemma_cost
-            if value > best_value:
-                best_value = value
-                best = (n, key, usable)
-        if best is None:
-            break
-        n, key, usable = best
-        for w in usable:
-            covered[w] = True
-        saved += len(usable) * (n - 1)
-        rows.append(
-            {
-                "level": level,
-                "policy": policy,
-                "rank": step + 1,
-                "n": n,
-                "uses": len(usable),
-                "owners": len({owner[w[0]] for w in usable}),
-                "motif": describe(level, usable[0], streams),
-                "coverCumulative": int(covered.sum()) / total,
-                "savedCumulative": saved / total,
-            }
-        )
-    return pl.DataFrame(rows)
-
-
 def describe(level: str, window: list[int], streams, limit: int = 8) -> str:
     """A readable name for a window. The alpha level renames registers per window and has no
     printable token, so it is shown by its mnemonic sequence -- the part of it that is visible."""
@@ -484,102 +393,10 @@ svg{display:block;max-width:100%}
 .legend i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .note{font-size:13px;color:var(--muted);border-left:2px solid var(--accent);padding-left:12px;margin:12px 0}
 .big{color:var(--fg);font-weight:600}
+.hint{font-size:12.5px;margin:2px 0 16px}
+ol,ul{color:var(--muted);max-width:74ch;font-size:14.5px;margin:6px 0 14px;padding-left:22px}
+li{margin:3px 0}
 """
-
-
-def svg_bars(rows, xkey, ykey, label, colour, height=190, log=False):
-    if not rows:
-        return "<p>no data</p>"
-    width = 1080
-    pad_l, pad_b, pad_t = 52, 26, 12
-    xs = [r[xkey] for r in rows]
-    ys = [r[ykey] for r in rows]
-    top = max(ys) or 1
-    plot_w = width - pad_l - 12
-    plot_h = height - pad_b - pad_t
-    step = plot_w / len(xs)
-
-    def scale(v):
-        if log:
-            import math
-
-            return 0 if v <= 0 else (math.log10(v + 1) / math.log10(top + 1)) * plot_h
-        return v / top * plot_h
-
-    parts = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{label}">']
-    for frac in (0, 0.25, 0.5, 0.75, 1):
-        y = pad_t + plot_h - frac * plot_h
-        parts.append(
-            f'<line x1="{pad_l}" x2="{width - 12}" y1="{y:.1f}" y2="{y:.1f}" '
-            f'stroke="var(--grid)" stroke-width="1"/>'
-        )
-    parts.append(
-        f'<text x="{pad_l - 8}" y="{pad_t + 4}" text-anchor="end" font-size="10" '
-        f'fill="var(--muted)">{top:,}</text>'
-        f'<text x="{pad_l - 8}" y="{pad_t + plot_h}" text-anchor="end" font-size="10" '
-        f'fill="var(--muted)">0</text>'
-    )
-    for i, (x, y) in enumerate(zip(xs, ys)):
-        h = scale(y)
-        bx = pad_l + i * step
-        parts.append(
-            f'<rect x="{bx:.1f}" y="{pad_t + plot_h - h:.1f}" width="{max(step - 1.6, 1):.1f}" '
-            f'height="{h:.1f}" fill="{colour}" rx="1.5"><title>n={x}: {y:,}</title></rect>'
-        )
-        if len(xs) <= 24 or x % 5 == 0 or i == 0 or i == len(xs) - 1:
-            parts.append(
-                f'<text x="{bx + step / 2:.1f}" y="{height - 9}" text-anchor="middle" '
-                f'font-size="10" fill="var(--muted)">{x}</text>'
-            )
-    parts.append("</svg>")
-    return "".join(parts)
-
-
-def svg_cascade(rows, height=260):
-    """Cumulative coverage against n, drawn right-to-left because the cascade runs downward."""
-    if not rows:
-        return "<p>no data</p>"
-    width, pad_l, pad_b, pad_t, pad_r = 1080, 52, 30, 12, 14
-    plot_w, plot_h = width - pad_l - pad_r, height - pad_b - pad_t
-    ordered = sorted(rows, key=lambda r: -r["n"])
-    xs = [r["n"] for r in ordered]
-    lo, hi = min(xs), max(xs)
-
-    def px(n):
-        return pad_l + (hi - n) / max(hi - lo, 1) * plot_w
-
-    def py(share):
-        return pad_t + plot_h - share * plot_h
-
-    parts = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="cumulative coverage">']
-    for frac in (0, 0.25, 0.5, 0.75, 1):
-        y = py(frac)
-        parts.append(
-            f'<line x1="{pad_l}" x2="{width - pad_r}" y1="{y:.1f}" y2="{y:.1f}" '
-            f'stroke="var(--grid)"/>'
-            f'<text x="{pad_l - 8}" y="{y + 3:.1f}" text-anchor="end" font-size="10" '
-            f'fill="var(--muted)">{int(frac * 100)}%</text>'
-        )
-    for key, colour in (("coverCumulative", "var(--accent)"), ("savedCumulative", "var(--accent2)")):
-        pts = " ".join(f"{px(r['n']):.1f},{py(r[key]):.1f}" for r in ordered)
-        parts.append(
-            f'<polyline points="{pts}" fill="none" stroke="{colour}" stroke-width="2.2" '
-            f'stroke-linejoin="round"/>'
-        )
-        for r in ordered:
-            parts.append(
-                f'<circle cx="{px(r["n"]):.1f}" cy="{py(r[key]):.1f}" r="3" fill="{colour}">'
-                f"<title>n={r['n']}: {r[key] * 100:.1f}% after {r['lemmasCumulative']} lemmas"
-                f"</title></circle>"
-            )
-    for r in ordered:
-        if r["n"] % 5 == 0 or r["n"] in (lo, hi):
-            parts.append(
-                f'<text x="{px(r["n"]):.1f}" y="{height - 10}" text-anchor="middle" '
-                f'font-size="10" fill="var(--muted)">{r["n"]}</text>'
-            )
-    parts.append("</svg>")
-    return "".join(parts)
 
 
 def table(frame: pl.DataFrame, columns, formats, headers) -> str:
@@ -600,9 +417,7 @@ def render(data: dict) -> str:
     plain = lambda v: str(v)  # noqa: E731
     mono = lambda v: f'<span class="mono">{v}</span>'  # noqa: E731
 
-    census_frame = pl.DataFrame(data["census"])
     cascade_frame = pl.DataFrame(data["cascade"])
-    greedy_frame = pl.DataFrame(data["greedy"])
     scope = data["scope"]
 
     head_class = cascade_frame.filter(
@@ -619,11 +434,12 @@ def render(data: dict) -> str:
 
     cards = []
     for label, value, note in [
-        ("Corpus", num(scope["instructions"]), "instructions, RLP included"),
-        ("Segments", num(scope["segments"]), f"median {scope['segmentMedian']}, max {scope['segmentMax']}"),
-        ("Motif lemmas", num(head_row["lemmasCumulative"]), "class level, lemma policy"),
-        ("Coverage", pct(head_row["coverCumulative"]), "instructions, counted once"),
-        ("Invocations removed", pct(head_row["savedCumulative"]), "of one-per-instruction"),
+        ("Corpus", num(scope["instructions"]), "instructions"),
+        ("Segments", num(scope["segments"]),
+         f"median {scope['segmentMedian']}, longest {scope['segmentMax']}"),
+        ("Motif lemmas", num(head_row["lemmasCumulative"]), "instruction class, Seg window"),
+        ("Coverage", pct(head_row["coverCumulative"]), "each instruction counted one time"),
+        ("Invocations removed", pct(head_row["savedCumulative"]), "of one step per instruction"),
     ]:
         cards.append(f'<div class="card"><div class="k">{label}</div><div class="v">{value}</div>'
                      f'<div class="n">{note}</div></div>')
@@ -636,13 +452,6 @@ def render(data: dict) -> str:
         )
 
     cascade_json = json.dumps(data["cascade"])
-
-    class_lemma = census_frame.filter(
-        (pl.col("level") == "L5_class") & (pl.col("policy") == "lemma")
-    ).sort("n")
-    greedy_class = greedy_frame.filter(
-        (pl.col("level") == "L5_class") & (pl.col("policy") == "lemma")
-    )
 
     levels_summary = []
     for level, label in LEVELS:
@@ -665,39 +474,45 @@ def render(data: dict) -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Zesu SSZ endpoint — n-gram repeat census</title>
+<title>Zesu SSZ endpoint — motif coverage</title>
 <style>{STYLE}</style></head><body><div class="wrap">
 
-<h1>Zesu SSZ endpoint — n-gram repeat census</h1>
+<h1>Zesu SSZ endpoint — motif coverage</h1>
 <div class="sub">Input <span class="mono">{scope['sha256'][:16]}…</span> ·
-{scope['instructions']:,} instructions · seed fixed · every figure below covers the whole
-endpoint, RLP logic included.</div>
+{scope['instructions']:,} instructions · every figure covers the whole endpoint. The RLP code is
+included. It is 48.8% of the binary.</div>
 
 <div class="cards">{''.join(cards)}</div>
 
 <h2>1. Coverage by motif length</h2>
-<p>Every figure on this page comes from one covering run, so no instruction is counted twice.
-Start at the largest repeated length. Place its occurrences, disjointly. Take those instructions
-off the table. Drop to n&minus;1 and repeat, down to n=2. A pattern must still occur twice
-<em>after</em> the longer patterns took their instructions, or it is not placed at all.</p>
-<div class="note">This is deliberately not a raw n-gram census, which overcounts twice over. A run
-of three loads yields <em>two</em> overlapping <code>LOAD LOAD</code> windows, and that same run
-is counted again at every shorter length, inside every longer pattern that contains it. The
-effect is not small: <code>LOAD LOAD</code> appears in 459 raw windows, and this covering places
-it <strong>30</strong> times. The other 429 are overlaps of one another, or sit inside longer
-motifs that were claimed first.</div>
+<p>One covering run supplies every figure on this page. The run counts no instruction twice.
+It works like this:</p>
+<ol><li>Start at the longest length that repeats.</li>
+<li>Place the occurrences of that pattern. Do not let two placements overlap.</li>
+<li>Remove those instructions from the pool.</li>
+<li>Go to length n&minus;1. Do the same. Continue down to n=2.</li></ol>
+<p>A pattern must still occur two times <em>after</em> the longer patterns take their instructions.
+If it does not, the run does not place it.</p>
+<div class="note">This page does not report a census of n-grams for each length. That census
+counts the same code two ways. A run of 3 loads gives <em>two</em> overlapping
+<code>LOAD LOAD</code> windows. The same run is counted again at every shorter length, inside every
+longer pattern that holds it. The error is large. <code>LOAD LOAD</code> occurs in 459 raw windows.
+This covering places it <strong>30</strong> times.</div>
 
 <div class="controls" id="censusControls">
   <span style="color:var(--muted);font-size:12px">Level:</span>
   {''.join(f'<button data-level="{lv}" aria-pressed="{str(lv == "L5_class").lower()}">{lb}</button>' for lv, lb in LEVELS)}
 </div>
 <div class="controls" id="policyControls">
-  <span style="color:var(--muted);font-size:12px">Policy:</span>
+  <span style="color:var(--muted);font-size:12px">Window:</span>
   {''.join(f'<button data-policy="{p}" aria-pressed="{str(p == "lemma").lower()}">{lb}</button>' for p, lb in POLICIES)}
 </div>
+<p class="hint">The level sets what makes two patterns the same. The window sets which patterns a
+lemma can state. A <code>Seg</code> lemma needs one basic block, one function instance, and no
+control transfer.</p>
 
 <div class="panel">
-  <h3>Instructions claimed at each length — each counted once</h3>
+  <h3>Instructions claimed at each length</h3>
   <div id="chartClaimed"></div>
   <h3 style="margin-top:20px">Lemmas spent at each length</h3>
   <div id="chartLemmas"></div>
@@ -706,63 +521,70 @@ motifs that were claimed first.</div>
 </div>
 
 <div class="panel">
-  <h3>Cumulative, running from the longest length down</h3>
+  <h3>Cumulative totals, from the longest length down</h3>
   <div id="chartCascade"></div>
   <div class="legend"><span><i style="background:var(--accent)"></i>coverage</span>
   <span><i style="background:var(--accent3)"></i>invocations removed</span></div>
 </div>
 
-<div class="panel"><h3>Where the coverage arrives — instruction class, lemma policy</h3>
-<div class="scroll"><table><thead><tr><th>sizes used</th><th>coverage</th><th>lemmas spent</th>
+<div class="panel"><h3>Where the coverage comes from</h3>
+<div class="scroll"><table><thead><tr><th>lengths used</th><th>coverage</th><th>lemmas spent</th>
 </tr></thead><tbody>{''.join(milestones)}</tbody></table></div>
-<div class="note">The long motifs are a thin tail. The bottom three sizes carry most of the
-coverage, and most of the lemma bill.</div>
+<div class="note">The long motifs are a thin tail. The three shortest lengths give most of the
+coverage. They also give most of the lemma cost.</div>
 </div>
 
-<div class="panel"><h3>Detail — instruction class, lemma policy</h3>
-<p style="margin-top:0"><span class="big">lemmas</span> is how many distinct patterns of that
-length the covering placed. <span class="big">placements</span> is how many disjoint sites they
-were placed at. <span class="big">claimed</span> is placements × n, the instructions this length
-takes, and every instruction in the binary appears in at most one row.
-<span class="big">invocations removed</span> counts the per-instruction lemma applications the
-motifs replace, as <span class="mono">placements × (n−1)</span>.</p>
+<div class="panel"><h3>Detail: instruction class level, <code>Seg</code> window</h3>
+<p style="margin-top:0">Read the columns like this:</p>
+<ul>
+<li><span class="big">lemmas</span> — how many different patterns of this length the run placed.</li>
+<li><span class="big">placements</span> — how many sites those patterns went to. No two overlap.</li>
+<li><span class="big">uses / lemma</span> — placements divided by lemmas. This says what one lemma
+buys.</li>
+<li><span class="big">claimed</span> — placements multiplied by n. Each instruction occurs in one
+row only.</li>
+<li><span class="big">invocations removed</span> — placements multiplied by (n&minus;1). This is
+how many single-instruction steps the motifs replace.</li>
+</ul>
 {table(head_class.sort('n', descending=True),
        ['n', 'lemmas', 'placements', 'usesPerLemma', 'instructionsClaimed', 'shareClaimed',
         'lemmasCumulative', 'coverCumulative', 'savedCumulative'],
        [plain, num, num, lambda v: f"{v:.1f}", num, pct, num, pct, pct],
        ['n', 'lemmas', 'placements', 'uses / lemma', 'claimed', 'share',
         'lemmas total', 'coverage', 'invocations removed'])}
+<div class="note">Look at <span class="big">uses / lemma</span>. It is 11.2 at n=2 and 2.0 at
+every length from 14 up. A long lemma is used the smallest number of times that still counts as a
+repeat. That, and not rarity, is why the long tail does not pay.</div>
 </div>
 
-<h2>2. The same covering, per abstraction level</h2>
-<p>The level decides what counts as the same pattern. Coarser levels match more, so they cover
-more with fewer lemmas — and each lemma then has to discharge more side conditions.</p>
-<div class="panel"><div class="scroll"><table><thead><tr><th>level</th><th>largest repeat</th>
+<h2>2. The same covering at each abstraction level</h2>
+<p>The level sets what makes two patterns the same. A coarse level matches more code. It covers
+more with fewer lemmas. Each lemma must then discharge more side conditions.</p>
+<div class="panel"><div class="scroll"><table><thead><tr><th>level</th><th>longest repeat</th>
 <th>coverage</th><th>lemmas</th><th>invocations removed</th></tr></thead>
-<tbody>{''.join(levels_summary)}</tbody></table></div></div>
+<tbody>{''.join(levels_summary)}</tbody></table></div>
+<div class="note">The instruction class level wins on coverage and on lemma count at the same time.
+The rest of this page uses it.</div></div>
 
 <h2>3. Are the repeats inlined functions?</h2>
-<p>The artifact already maps every inline instance, so this question can be answered rather than
-guessed. Of 88 distinct function names, <strong>12 have two or more instances</strong>, and those
-instances hold {pct(data['insideRepeatedInstance'])} of the binary. The motif search knew nothing
-about any of this.</p>
-<div class="note">It found one anyway. The strongest motif in the study,
-<code class="mono">lbu lbu lbu lbu slli or slli slli or or</code>, is exactly the body of
-<code>mem.readInt</code>, which the compiler inlined 7 times with that shape. Seven placements of
-the covering equal a whole <code>mem.readInt</code> body, instruction for instruction. An
-unsupervised search over instruction classes rediscovered a function.
-<br><br>Beware of counting <code>ssz.readU32</code> as well: all 10 of its instances are
-<em>pc-identical</em> to the <code>mem.readInt</code> they inline, so it is a pure wrapper that
-contributes no code of its own. Ten of the 14 <code>mem.readInt</code> instances sit inside one.
-</div>
+<p>The artifact maps every inline instance. So this page measures the answer. It does not guess it.
+The artifact holds 88 different function names. <strong>12 names have two or more
+instances.</strong> Those instances hold {pct(data['insideRepeatedInstance'])} of the binary. The motif search received
+none of this data.</p>
+<div class="note">The search found one of them without help. The strongest motif in the study is
+<code class="mono">lbu lbu lbu lbu slli or slli slli or or</code>. It is the body of
+<code>mem.readInt</code>. The compiler inlined that body 7 times with that shape. Seven placements
+of the covering equal a whole <code>mem.readInt</code> body, instruction for instruction.
+<br><br>Do not count <code>ssz.readU32</code> as well. All 10 of its instances hold the same
+program counters as the <code>mem.readInt</code> inside them. It is a wrapper. It adds no code.
+Ten of the 14 <code>mem.readInt</code> instances sit in one.</div>
 
-<div class="panel"><h3>The 12 repeated function names — are their bodies the same?</h3>
-<p style="margin-top:0">One instance of a source function is not one shape of code. Inlining
-specialises each call site, so the columns below count how many <em>distinct</em> bodies the
-instances actually have, at four levels. The opcode column is the one that matters: where it is
-far below the instance count, the instances really do share an instruction sequence and an
-exact-code lemma is simply the wrong abstraction. Note how rarely the class column improves on
-the opcode column — for a repeated body, opcodes already do the work.</p>
+<div class="panel"><h3>The 12 repeated names: are the bodies the same?</h3>
+<p style="margin-top:0">One source function does not give one shape of code. Inlining makes each
+call site different. The columns count how many <em>different</em> bodies the instances have, at
+four levels. Read the opcode column first. A number far below the instance count means the
+instances do share an instruction sequence. Then an exact-code lemma is the wrong tool. The class
+column rarely improves on the opcode column. For a repeated body, opcodes are sufficient.</p>
 {table(pl.DataFrame(data['instanceBodies']),
        ['name', 'instances', 'sizes', 'byteShapes', 'registerShapes', 'opcodeShapes',
         'classShapes', 'instructions'],
@@ -771,35 +593,35 @@ the opcode column — for a repeated body, opcodes already do the work.</p>
         'opcode shapes', 'class shapes', 'instructions'])}
 </div>
 
-<div class="panel"><h3>Whole-body lemma candidates</h3>
-<p style="margin-top:0">A body earns a lemma when two or more instances share a class-level shape.
-Bodies nested inside a chosen one are skipped — <code>ssz.readU32</code> and the
-<code>mem.readInt</code> it wraps hold the same program counters.
-<span class="big">Seg</span> says whether a straight-line <code>Seg</code> lemma can state it; a
-body with control transfers needs a function-level lemma form instead.</p>
+<div class="panel"><h3>Candidates for a whole-body lemma</h3>
+<p style="margin-top:0">A body earns a lemma when two or more instances share a class shape. The
+selection skips a body that sits inside a body it already took. The <span class="big">Seg</span>
+column says if a straight-line <code>Seg</code> lemma can state the body. A body with a control
+transfer needs a lemma form for a whole function instead.</p>
 {table(pl.DataFrame(data['instancePicks']),
        ['name', 'length', 'sites', 'instructions', 'share', 'transfers', 'segLemmaPossible'],
        [mono, plain, num, num, pct, num, lambda v: "yes" if v else "no"],
        ['function', 'length', 'sites', 'instructions', 'share', 'transfers', 'Seg'])}
 <div class="note">One lemma for <code>alt_fl_alloc.sizeClassOfBytes</code> covers 7.0% of the
-binary on its own — 4 instances of 78 instructions, all one class shape. It is the single largest
-prize in the study, and it holds 24 control transfers, so no <code>Seg</code> lemma can state it.
+binary. It has 4 instances of 78 instructions, and all 4 share one class shape. This is the largest
+prize in the study. It also holds 24 control transfers, so no <code>Seg</code> lemma can state it.
 </div>
 </div>
 
-<div class="panel"><h3>What kind of repetition does each lemma exploit?</h3>
-<p style="margin-top:0">A motif whose sites are all instances of one function tells us only that
-the compiler inlined that function twice — a whole-body lemma already says that, so the motif adds
-no leverage. Everything else does: a shape recurring across unrelated functions, or recurring
-inside a single instance, is a repeat the inline map cannot see.</p>
+<div class="panel"><h3>What does each lemma actually reuse?</h3>
+<p style="margin-top:0">Some motifs only tell us that the compiler inlined one function two times.
+A whole-body lemma already tells us that, so those motifs add nothing. The other motifs do add
+something. A shape that occurs in unrelated functions, or that occurs again inside one instance, is
+a repeat that the inline map cannot show.</p>
 {table(pl.DataFrame(data['motifLeverage']),
        ['bucket', 'lemmas', 'instructions', 'share', 'widest', 'example'],
        [plain, num, num, pct, num, mono],
-       ['what repeats', 'lemmas', 'instructions', 'share of binary', 'most functions', 'widest motif'])}
-<div class="note">Only {pct(next(r['share'] for r in data['motifLeverage'] if r['bucket'] == 'same function, several instances'))} of the binary is
-covered by motifs that merely restate "these two instances are the same function". The motif
-search is not a roundabout way of finding duplicated code — the great majority of what it covers
-is shape shared between functions that have nothing to do with each other.</div>
+       ['what repeats', 'lemmas', 'instructions', 'share of binary', 'most functions',
+        'widest motif'])}
+<div class="note">Motifs that only restate "these instances are the same function" cover
+{pct(next(r['share'] for r in data['motifLeverage']
+                      if r['bucket'] == 'same function, several instances'))} of the binary. So the motif search is not an indirect way to find duplicated
+functions. Almost all of what it covers is shape that unrelated functions share.</div>
 </div>
 
 <div class="panel"><h3>Three strategies</h3>
@@ -807,33 +629,38 @@ is shape shared between functions that have nothing to do with each other.</div>
        ['strategy', 'lemmas', 'coverage', 'instructionsPerLemma'],
        [plain, num, pct, lambda v: f"{v:.1f}"],
        ['strategy', 'lemmas', 'coverage', 'instructions / lemma'])}
-<div class="note">The two strategies are complementary, not rival. Whole-body lemmas are three
-times as productive per lemma, but they reach only the sixth of the binary that the compiler
-duplicated. Most repetition in this binary is <em>inside</em> one large function that occurs once
-— <code>rlp_decode.decodeTxFields</code> hosts 719 covered instructions from a single instance.
-Take the bodies first, then let the motif covering work on what is left.</div>
+<div class="note">The two strategies work together. They do not compete. A whole-body lemma is
+three times as productive as a motif lemma. But whole bodies reach only the sixth of the binary
+that the compiler duplicated. Most repeats here occur <em>inside</em> one large function that has
+one instance. <code>rlp_decode.decodeTxFields</code> holds 719 covered instructions by itself.
+Write the body lemmas first. Then let the motif covering work on the remainder.</div>
 </div>
 
-<h2>4. Value-weighted greedy, for comparison</h2>
-<p>Same corpus, different objective. Pick the motif maximising
-<span class="mono">uses × (n−1) − 20</span>, over mixed n. This buys far less coverage for far
-fewer lemmas, and it never selects anything long.</p>
-<div class="panel">
-{table(greedy_class, ['rank', 'n', 'uses', 'owners', 'motif', 'coverCumulative', 'savedCumulative'],
-       [plain, plain, num, num, mono, pct, pct],
-       ['#', 'n', 'uses', 'owners', 'motif', 'coverage', 'invocations removed'])}
-</div>
-
-<h2>5. What the corpus is made of</h2>
-<p>Attribution is by innermost inline instance, then by that instance's source file.</p>
+<h2>4. What the corpus contains</h2>
+<p>Each instruction is attributed to its innermost inline instance, then to the source file of that
+instance.</p>
 <div class="panel"><div class="scroll"><table><thead><tr><th>source file</th>
 <th>instructions</th><th>share</th></tr></thead><tbody>{composition}</tbody></table></div></div>
 
-<h2>6. Reading this honestly</h2>
-<div class="note">Coverage is not proof. A placed motif still needs a lemma written, and a
-class-level lemma merges several dataflow shapes, so it carries register-distinctness side
-conditions that this page does not price. The lemma cost of 20 steps in section 3 is a placeholder:
-its only measured predecessor was deleted in the EVM-Sail pivot.</div>
+<h2>5. What this page does not show</h2>
+<p>Three facts limit every number above. All three come from the tree, not from an estimate.</p>
+<div class="panel">
+<ul>
+<li><strong>Coverage is not proof.</strong> A placed motif still needs a lemma. A class-level lemma
+merges several dataflow shapes, so it carries side conditions about register distinctness. This
+page does not price those side conditions.</li>
+<li><strong>No lemma for a single instruction exists.</strong> The EVM-Sail pivot deleted
+<code>InstructionClassSteps.lean</code> and the <code>decoderLoadStep</code> family. Nothing
+replaced them. So "invocations removed" counts a unit with no known price.</li>
+<li><strong>No proof uses <code>Seg</code>.</strong> The file
+<code>BinaryFv/RiscV/Elfling/Seg.lean</code> is complete. No other file uses its combinators. Only
+the root module imports it. This is an adoption gap, not a missing component.</li>
+</ul>
+<div class="note">The first measurement that fixes this is small. Prove one straight-line segment
+with <code>Seg</code>. Record the lines and the elaboration time for one step. That gives the
+baseline every figure on this page needs. Use the 10 instructions of <code>mem.readInt</code>: they
+have no transfer, no memory write, and one free immediate.</div>
+</div>
 
 <script>
 const CASCADE = {cascade_json};
@@ -930,7 +757,6 @@ def main() -> int:
     parser.add_argument("--cfg", type=pathlib.Path, required=True)
     parser.add_argument("--out-json", type=pathlib.Path)
     parser.add_argument("--out-html", type=pathlib.Path)
-    parser.add_argument("--lemma-cost", type=int, default=20)
     arguments = parser.parse_args()
 
     instructions, database = load_zesu_cfg(arguments.cfg)
@@ -946,22 +772,14 @@ def main() -> int:
     order = [index for indices in segments for index in indices]
     order_of = {index: row for row, index in enumerate(order)}
 
-    census_frame = census(segments, streams, frame, order_of, owner, is_transfer, total)
-
     cascades = []
-    greedies = []
     for level, _ in LEVELS:
         for policy, _ in POLICIES:
             cascades.append(
                 cascade(level, policy, segments, streams, frame, order_of, owner,
                         is_transfer, total)
             )
-        greedies.append(
-            greedy(level, "lemma", segments, streams, frame, order_of, owner, is_transfer,
-                   total, lemma_cost=arguments.lemma_cost)
-        )
     cascade_frame = pl.concat([c for c in cascades if not c.is_empty()])
-    greedy_frame = pl.concat([g for g in greedies if not g.is_empty()])
 
     cfg = json.loads(arguments.cfg.read_text())
 
@@ -997,9 +815,6 @@ def main() -> int:
     ]
 
     lengths = sorted(len(s) for s in segments)
-    class_lemma = census_frame.filter(
-        (pl.col("level") == "L5_class") & (pl.col("policy") == "lemma")
-    )
     data = {
         "scope": {
             "instructions": total,
@@ -1009,13 +824,7 @@ def main() -> int:
             "owners": len(set(owner)),
             "sha256": database["inputs"]["sha256"],
         },
-        "totals": {
-            "repeatedClassLemma": int(class_lemma["repeated"].sum()),
-            "repeatedAllLevels": int(census_frame.filter(pl.col("policy") == "lemma")["repeated"].sum()),
-        },
-        "census": census_frame.to_dicts(),
         "cascade": cascade_frame.to_dicts(),
-        "greedy": greedy_frame.to_dicts(),
         "composition": composition,
         "instanceBodies": bodies_frame.to_dicts(),
         "instancePicks": picks_frame.to_dicts(),
@@ -1032,13 +841,16 @@ def main() -> int:
         arguments.out_html.write_text(render(data))
 
     with pl.Config(tbl_rows=60, tbl_cols=12, fmt_str_lengths=48):
-        print("== repeated n-grams, instruction class, lemma policy ==")
-        print(class_lemma.select(["n", "repeated", "maximumCount", "commonest",
-                                  "instructionsTouched", "shareTouched"]))
-        print("== cascade, instruction class, lemma policy ==")
+        print("== covering, instruction class, Seg window ==")
         print(cascade_frame.filter(
             (pl.col("level") == "L5_class") & (pl.col("policy") == "lemma")
         ).sort("n", descending=True))
+        print("== repeated inlined bodies ==")
+        print(picks_frame)
+        print("== what each lemma reuses ==")
+        print(leverage_frame)
+        print("== strategies ==")
+        print(pl.DataFrame(strategies))
     return 0
 
 
