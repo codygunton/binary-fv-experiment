@@ -6,7 +6,7 @@ question "how much of the binary can repeated motifs cover, and at what price in
 
 It emits three frames, all as polars DataFrames, and renders them into one self-contained page:
 
-  census   level x policy x n -> distinct n-grams, how many repeat, how many instructions they touch
+  census   level x policy x n -> how many n-grams repeat, and how many instructions they touch
   cascade  the largest-n-first covering: cover every repeat at n, drop to n-1, repeat down to 2
   greedy   the value-weighted covering: pick by uses x (n-1) - lemmaCost, mixed n
 
@@ -99,8 +99,9 @@ def build_starts(segments: list[list[int]], n: int) -> list[list[int]]:
 
 
 def census(segments, streams, frame, order_of, owner, is_transfer, total) -> pl.DataFrame:
-    """For every level, policy and n: how many distinct n-grams exist, how many of them repeat,
-    and how much of the binary those repeats touch."""
+    """For every level, policy and n: how many distinct n-grams occur two or more times, and how
+    much of the binary those repeats touch. A pattern seen once buys nothing, so it is not
+    counted -- only the repeat census leaves this function."""
     rows = []
     longest = max(len(s) for s in segments)
     for n in range(2, longest + 1):
@@ -124,18 +125,17 @@ def census(segments, streams, frame, order_of, owner, is_transfer, total) -> pl.
                     occurrences += len(places)
                     for w in places:
                         touched.update(w)
-                commonest = max(groups.values(), key=len)
+                commonest = max(repeated.values(), key=len, default=None)
                 rows.append(
                     {
                         "level": level,
                         "policy": policy,
                         "n": n,
                         "windows": len(allowed),
-                        "distinct": len(groups),
                         "repeated": len(repeated),
-                        "seenOnce": sum(1 for v in groups.values() if len(v) == 1),
-                        "maximumCount": len(commonest),
-                        "commonest": describe(level, commonest[0], streams),
+                        "maximumCount": 0 if commonest is None else len(commonest),
+                        "commonest": "—" if commonest is None
+                        else describe(level, commonest[0], streams),
                         "repeatOccurrences": occurrences,
                         "instructionsTouched": len(touched),
                         "shareTouched": len(touched) / total,
@@ -170,6 +170,7 @@ def cascade(
     for n in sorted(precomputed, reverse=True):
         here = 0
         placed = 0
+        top = (0, "—")
         while True:
             best = None
             best_size = 0
@@ -189,6 +190,8 @@ def cascade(
             _, chosen = best
             for w in chosen:
                 covered[w] = True
+            if len(chosen) > top[0]:
+                top = (len(chosen), describe(level, chosen[0], streams))
             here += 1
             placed += len(chosen)
             saved += len(chosen) * (n - 1)
@@ -201,6 +204,11 @@ def cascade(
                     "n": n,
                     "lemmas": here,
                     "placements": placed,
+                    "instructionsClaimed": placed * n,
+                    "shareClaimed": placed * n / total,
+                    "usesPerLemma": placed / here,
+                    "topPlacements": top[0],
+                    "topPattern": top[1],
                     "lemmasCumulative": lemmas,
                     "coverCumulative": int(covered.sum()) / total,
                     "savedCumulative": saved / total,
@@ -448,8 +456,8 @@ def render(data: dict) -> str:
     for label, value, note in [
         ("Corpus", num(scope["instructions"]), "instructions, RLP included"),
         ("Segments", num(scope["segments"]), f"median {scope['segmentMedian']}, max {scope['segmentMax']}"),
-        ("Repeated n-grams", num(data["totals"]["repeatedClassLemma"]), "class level, lemma policy"),
-        ("Cascade coverage", pct(head_row["coverCumulative"]), f"{head_row['lemmasCumulative']} lemmas"),
+        ("Motif lemmas", num(head_row["lemmasCumulative"]), "class level, lemma policy"),
+        ("Coverage", pct(head_row["coverCumulative"]), "instructions, counted once"),
         ("Invocations removed", pct(head_row["savedCumulative"]), "of one-per-instruction"),
     ]:
         cards.append(f'<div class="card"><div class="k">{label}</div><div class="v">{value}</div>'
@@ -462,15 +470,11 @@ def render(data: dict) -> str:
             f"<tr><td>n &ge; {threshold}</td><td>{pct(cover)}</td><td>{lemmas}</td></tr>"
         )
 
-    census_json = json.dumps(data["census"])
     cascade_json = json.dumps(data["cascade"])
 
     class_lemma = census_frame.filter(
         (pl.col("level") == "L5_class") & (pl.col("policy") == "lemma")
     ).sort("n")
-    hist_rows = class_lemma.select(["n", "distinct", "repeated", "seenOnce", "maximumCount",
-                                    "commonest", "instructionsTouched", "shareTouched"]).to_dicts()
-
     greedy_class = greedy_frame.filter(
         (pl.col("level") == "L5_class") & (pl.col("policy") == "lemma")
     )
@@ -506,10 +510,17 @@ endpoint, RLP logic included.</div>
 
 <div class="cards">{''.join(cards)}</div>
 
-<h2>1. How many n-grams repeat?</h2>
-<p>An n-gram counts as repeated when it occurs two or more times. A window must lie inside one
-straight-line segment. Under the lemma policy it must also lie inside one function instance and
-contain no control transfer, which is what a <code>Seg</code> lemma can state.</p>
+<h2>1. Coverage by motif length</h2>
+<p>Every figure on this page comes from one covering run, so no instruction is counted twice.
+Start at the largest repeated length. Place its occurrences, disjointly. Take those instructions
+off the table. Drop to n&minus;1 and repeat, down to n=2. A pattern must still occur twice
+<em>after</em> the longer patterns took their instructions, or it is not placed at all.</p>
+<div class="note">This is deliberately not a raw n-gram census, which overcounts twice over. A run
+of three loads yields <em>two</em> overlapping <code>LOAD LOAD</code> windows, and that same run
+is counted again at every shorter length, inside every longer pattern that contains it. The
+effect is not small: <code>LOAD LOAD</code> appears in 459 raw windows, and this covering places
+it <strong>30</strong> times. The other 429 are overlaps of one another, or sit inside longer
+motifs that were claimed first.</div>
 
 <div class="controls" id="censusControls">
   <span style="color:var(--muted);font-size:12px">Level:</span>
@@ -521,54 +532,19 @@ contain no control transfer, which is what a <code>Seg</code> lemma can state.</
 </div>
 
 <div class="panel">
-  <h3>Distinct n-grams with two or more occurrences</h3>
-  <div id="chartRepeated"></div>
-  <h3 style="margin-top:20px">Instructions those repeats touch</h3>
-  <div id="chartTouched"></div>
-  <div class="legend"><span><i style="background:var(--accent)"></i>repeated n-grams</span>
-  <span><i style="background:var(--accent2)"></i>instructions touched</span></div>
+  <h3>Instructions claimed at each length — each counted once</h3>
+  <div id="chartClaimed"></div>
+  <h3 style="margin-top:20px">Lemmas spent at each length</h3>
+  <div id="chartLemmas"></div>
+  <div class="legend"><span><i style="background:var(--accent)"></i>instructions claimed</span>
+  <span><i style="background:var(--accent2)"></i>lemmas</span></div>
 </div>
-
-<div class="panel"><h3>Histogram — instruction class, lemma policy</h3>
-<p style="margin-top:0">Slide a window of n instructions along the code and write down the
-pattern inside it each time. <span class="big">distinct</span> is how many different patterns you
-saw. <span class="big">repeat</span> is how many of those you saw two or more times.
-<span class="big">seen once</span> is the rest, so distinct = repeat + seen once.
-<span class="big">most-used pattern</span> is the occurrence count of the single commonest one.
-Windows overlap, so a run of 8 loads yields 7 occurrences of <code>LOAD LOAD</code>, not 1. These
-are raw counts. The cascade below places <em>disjoint</em> occurrences instead, which is why its
-numbers are smaller.</p>
-<p><span class="big">instructions touched</span> counts the instructions that lie inside at least
-one occurrence of a <em>repeated</em> pattern. Overlapping occurrences are unioned, so each
-instruction counts once. Read it as the ceiling for that one length: no covering built from
-n-grams of this length alone can reach further, because every other instruction sits only in
-patterns that occur once. The ceiling is not attainable. A real covering must place disjoint
-occurrences, and a pattern must still repeat after the earlier placements take their
-instructions away. The gap is large and it widens with n.</p>
-<div class="scroll"><table><thead><tr><th>n</th><th>touched (ceiling)</th>
-<th>reached by a disjoint covering at that n</th><th>lemmas</th></tr></thead><tbody>
-<tr><td>2</td><td>76.5%</td><td>66.6%</td><td>26</td></tr>
-<tr><td>4</td><td>61.8%</td><td>48.4%</td><td>43</td></tr>
-<tr><td>8</td><td>33.5%</td><td>23.1%</td><td>24</td></tr>
-<tr><td>12</td><td>16.1%</td><td>11.4%</td><td>10</td></tr>
-<tr><td>20</td><td>8.3%</td><td>5.0%</td><td>3</td></tr>
-</tbody></table></div>
-{table(pl.DataFrame(hist_rows), ['n', 'distinct', 'repeated', 'seenOnce', 'maximumCount',
-                                 'commonest', 'instructionsTouched', 'shareTouched'],
-       [plain, num, num, num, num, mono, num, pct],
-       ['n', 'distinct', 'repeat', 'seen once', 'most-used pattern',
-        'that pattern', 'instructions touched', 'share'])}
-</div>
-
-<h2>2. Largest-n-first cascade</h2>
-<p>Cover every repeat at the largest n. Take what remains to n&minus;1. Continue down to n=2.
-Coverage is the share of instructions inside some placed motif. Invocations removed counts the
-per-instruction lemma applications a motif replaces, as <span class="mono">uses × (n−1)</span>.</p>
 
 <div class="panel">
+  <h3>Cumulative, running from the longest length down</h3>
   <div id="chartCascade"></div>
   <div class="legend"><span><i style="background:var(--accent)"></i>coverage</span>
-  <span><i style="background:var(--accent2)"></i>invocations removed</span></div>
+  <span><i style="background:var(--accent3)"></i>invocations removed</span></div>
 </div>
 
 <div class="panel"><h3>Where the coverage arrives — instruction class, lemma policy</h3>
@@ -578,17 +554,27 @@ per-instruction lemma applications a motif replaces, as <span class="mono">uses 
 coverage, and most of the lemma bill.</div>
 </div>
 
-<div class="panel"><h3>Cascade per level, lemma policy</h3>
-<div class="scroll"><table><thead><tr><th>level</th><th>largest repeat</th><th>coverage</th>
-<th>lemmas</th><th>invocations removed</th></tr></thead>
-<tbody>{''.join(levels_summary)}</tbody></table></div></div>
-
-<div class="panel"><h3>Cascade detail — instruction class, lemma policy</h3>
+<div class="panel"><h3>Detail — instruction class, lemma policy</h3>
+<p style="margin-top:0"><span class="big">lemmas</span> is how many distinct patterns of that
+length the covering placed. <span class="big">placements</span> is how many disjoint sites they
+were placed at. <span class="big">claimed</span> is placements × n, the instructions this length
+takes, and every instruction in the binary appears in at most one row.
+<span class="big">invocations removed</span> counts the per-instruction lemma applications the
+motifs replace, as <span class="mono">placements × (n−1)</span>.</p>
 {table(head_class.sort('n', descending=True),
-       ['n', 'lemmas', 'placements', 'lemmasCumulative', 'coverCumulative', 'savedCumulative'],
-       [plain, num, num, num, pct, pct],
-       ['n', 'lemmas here', 'placements', 'lemmas total', 'coverage', 'invocations removed'])}
+       ['n', 'lemmas', 'placements', 'usesPerLemma', 'instructionsClaimed', 'shareClaimed',
+        'lemmasCumulative', 'coverCumulative', 'savedCumulative'],
+       [plain, num, num, lambda v: f"{v:.1f}", num, pct, num, pct, pct],
+       ['n', 'lemmas', 'placements', 'uses / lemma', 'claimed', 'share',
+        'lemmas total', 'coverage', 'invocations removed'])}
 </div>
+
+<h2>2. The same covering, per abstraction level</h2>
+<p>The level decides what counts as the same pattern. Coarser levels match more, so they cover
+more with fewer lemmas — and each lemma then has to discharge more side conditions.</p>
+<div class="panel"><div class="scroll"><table><thead><tr><th>level</th><th>largest repeat</th>
+<th>coverage</th><th>lemmas</th><th>invocations removed</th></tr></thead>
+<tbody>{''.join(levels_summary)}</tbody></table></div></div>
 
 <h2>3. Value-weighted greedy, for comparison</h2>
 <p>Same corpus, different objective. Pick the motif maximising
@@ -612,7 +598,6 @@ conditions that this page does not price. The lemma cost of 20 steps in section 
 its only measured predecessor was deleted in the EVM-Sail pivot.</div>
 
 <script>
-const CENSUS = {census_json};
 const CASCADE = {cascade_json};
 let level = "L5_class", policy = "lemma";
 
@@ -635,7 +620,7 @@ function bars(host, rows, key, colour, fmt) {{
     const h = r[key] / top * ph, x = PL + i * step;
     s += `<rect x="${{x}}" y="${{PT + ph - h}}" width="${{Math.max(step - 1.6, 1)}}"
           height="${{h}}" fill="${{colour}}" rx="1.5"><title>n=${{r.n}}: ${{fmt(r[key])}}</title></rect>`;
-    if (rows.length <= 24 || r.n % 10 === 0 || i === 0 || i === rows.length - 1)
+    if (rows.length <= 26 || r.n % 5 === 0 || i === 0 || i === rows.length - 1)
       s += `<text x="${{x + step / 2}}" y="${{H - 9}}" text-anchor="middle" font-size="10"
             fill="var(--muted)">${{r.n}}</text>`;
   }});
@@ -655,7 +640,7 @@ function cascadeChart(host, rows) {{
     s += `<line x1="${{PL}}" x2="${{W - PR}}" y1="${{py(f)}}" y2="${{py(f)}}" stroke="var(--grid)"/>
           <text x="${{PL - 8}}" y="${{py(f) + 3}}" text-anchor="end" font-size="10"
           fill="var(--muted)">${{Math.round(f * 100)}}%</text>`;
-  for (const [k, c] of [["coverCumulative", "var(--accent)"], ["savedCumulative", "var(--accent2)"]]) {{
+  for (const [k, c] of [["coverCumulative", "var(--accent)"], ["savedCumulative", "var(--accent3)"]]) {{
     s += `<polyline points="${{ordered.map(r => `${{px(r.n)}},${{py(r[k])}}`).join(" ")}}"
           fill="none" stroke="${{c}}" stroke-width="2.2" stroke-linejoin="round"/>`;
     for (const r of ordered)
@@ -670,14 +655,14 @@ function cascadeChart(host, rows) {{
 }}
 
 function draw() {{
-  const rows = CENSUS.filter(r => r.level === level && r.policy === policy)
-                     .sort((a, b) => a.n - b.n);
-  bars(document.getElementById("chartRepeated"), rows, "repeated", "var(--accent)",
+  // only lengths the covering actually used; a length it skipped claimed nothing
+  const rows = CASCADE.filter(r => r.level === level && r.policy === policy)
+                      .sort((a, b) => a.n - b.n);
+  bars(document.getElementById("chartClaimed"), rows, "instructionsClaimed", "var(--accent)",
        v => v.toLocaleString());
-  bars(document.getElementById("chartTouched"), rows, "instructionsTouched", "var(--accent2)",
+  bars(document.getElementById("chartLemmas"), rows, "lemmas", "var(--accent2)",
        v => v.toLocaleString());
-  cascadeChart(document.getElementById("chartCascade"),
-               CASCADE.filter(r => r.level === level && r.policy === policy));
+  cascadeChart(document.getElementById("chartCascade"), rows);
 }}
 
 for (const b of document.querySelectorAll("#censusControls button"))
@@ -780,7 +765,7 @@ def main() -> int:
 
     with pl.Config(tbl_rows=60, tbl_cols=12, fmt_str_lengths=48):
         print("== repeated n-grams, instruction class, lemma policy ==")
-        print(class_lemma.select(["n", "distinct", "repeated", "maximumCount",
+        print(class_lemma.select(["n", "repeated", "maximumCount", "commonest",
                                   "instructionsTouched", "shareTouched"]))
         print("== cascade, instruction class, lemma policy ==")
         print(cascade_frame.filter(
