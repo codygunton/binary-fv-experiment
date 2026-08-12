@@ -532,6 +532,144 @@ theorem main_read_input_call_step (stepNo : Nat) (state : State)
         (by native_decide) hzca counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1
         counters.2.2.2.2.1 counters.2.2.2.2.2)
 
+/-- Production `0x14cec: addi a0, sp, 32`, selecting main's decoded-result slot. -/
+theorem main_decode_result_address_step (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre mainGluePcs state)
+    (atPc : state.regs.get? PC = some 0x14cec)
+    (loaded : Generated.programImage.fileBytesLoadedFaithfully state.mem)
+    (source : MainAddiSource state 0x14cec stackPointer) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cec with
+          regs := (coreControlFlowNextState
+            (tryStepControlFlowAfterIncrement state) 0x14cec).regs.insert
+              x10 (iTypeResult .ADDI 0x20 source.value) }
+        0x14cf0 retired) false := by
+  obtain ⟨retired, counters⟩ := configured.counters
+  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
+    configured.stepContext 0x14cec atPc (by
+      refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+  have loadedAfter : Generated.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Generated.programImage
+    (tryStepControlFlowAfterIncrement state) 0x14cec (by native_decide) loadedAfter
+    0x13 0x05 0x01 0x02 (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide)
+  have decode : Runs
+      (ext_decode (fetchWord (0x13 : BitVec 8) (0x05 : BitVec 8) (0x01 : BitVec 8)
+        (0x02 : BitVec 8)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (0x20, stackPointer, .Regidx 10#5, .ADDI)) := by
+    obtain ⟨seccfgBits, seccfgRead⟩ := configured.seccfgPresent
+    have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+        some Privilege.Machine := by
+      calc
+        _ = state.regs.get? cur_privilege := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+        _ = some Privilege.Machine := configured.normal.2.1
+    have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+        some seccfgBits := by
+      calc
+        _ = state.regs.get? mseccfg := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+        _ = some seccfgBits := seccfgRead
+    unfold Runs
+    rw [extDecode_eq]
+    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
+      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
+      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
+      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
+    rfl
+  have execute : Runs (execute (.ITYPE (0x20, stackPointer, .Regidx 10#5, .ADDI)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cec)
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cec with
+        regs := (coreControlFlowNextState
+          (tryStepControlFlowAfterIncrement state) 0x14cec).regs.insert
+            x10 (iTypeResult .ADDI 0x20 source.value) }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0x20 stackPointer (.Regidx 10#5) .ADDI) _ _ _
+    exact execute_ITYPE_run _ _ 0x20 stackPointer (.Regidx 10#5) .ADDI source.value source.read
+      (main_wX_bits_run_x10 _ _)
+  refine ⟨retired, tryStepFallThroughWriteRegRetires stepNo state 0x14cec retired 0 0
+    0x13 0x05 0x01 0x02 (.ITYPE (0x20, stackPointer, .Regidx 10#5, .ADDI)) x10
+    (iTypeResult .ADDI 0x20 source.value) platform noMMIO bytes interrupts ?_ decode notExpected
+    execute (by decide) (by decide) (by decide) (by decide) counters.1 counters.2.1
+    counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1 counters.2.2.2.2.2⟩
+  rfl
+
+/-- Production `0x14cf0: addi a1, sp, 16`, selecting the allocator descriptor slot. -/
+theorem main_decode_allocator_address_step (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre mainGluePcs state)
+    (atPc : state.regs.get? PC = some 0x14cf0)
+    (loaded : Generated.programImage.fileBytesLoadedFaithfully state.mem)
+    (source : MainAddiSource state 0x14cf0 stackPointer) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cf0 with
+          regs := (coreControlFlowNextState
+            (tryStepControlFlowAfterIncrement state) 0x14cf0).regs.insert
+              x11 (iTypeResult .ADDI 0x10 source.value) }
+        0x14cf4 retired) false := by
+  obtain ⟨retired, counters⟩ := configured.counters
+  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
+    configured.stepContext 0x14cf0 atPc (by
+      refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+  have loadedAfter : Generated.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Generated.programImage
+    (tryStepControlFlowAfterIncrement state) 0x14cf0 (by native_decide) loadedAfter
+    0x93 0x05 0x01 0x01 (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide)
+  have decode : Runs
+      (ext_decode (fetchWord (0x93 : BitVec 8) (0x05 : BitVec 8) (0x01 : BitVec 8)
+        (0x01 : BitVec 8)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (0x10, stackPointer, .Regidx 11#5, .ADDI)) := by
+    obtain ⟨seccfgBits, seccfgRead⟩ := configured.seccfgPresent
+    have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+        some Privilege.Machine := by
+      calc
+        _ = state.regs.get? cur_privilege := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+        _ = some Privilege.Machine := configured.normal.2.1
+    have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+        some seccfgBits := by
+      calc
+        _ = state.regs.get? mseccfg := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+        _ = some seccfgBits := seccfgRead
+    unfold Runs
+    rw [extDecode_eq]
+    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
+      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
+      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
+      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
+    rfl
+  have execute : Runs (execute (.ITYPE (0x10, stackPointer, .Regidx 11#5, .ADDI)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cf0)
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cf0 with
+        regs := (coreControlFlowNextState
+          (tryStepControlFlowAfterIncrement state) 0x14cf0).regs.insert
+            x11 (iTypeResult .ADDI 0x10 source.value) }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0x10 stackPointer (.Regidx 11#5) .ADDI) _ _ _
+    exact execute_ITYPE_run _ _ 0x10 stackPointer (.Regidx 11#5) .ADDI source.value source.read
+      (main_wX_bits_run_x11 _ _)
+  refine ⟨retired, tryStepFallThroughWriteRegRetires stepNo state 0x14cf0 retired 0 0
+    0x93 0x05 0x01 0x01 (.ITYPE (0x10, stackPointer, .Regidx 11#5, .ADDI)) x11
+    (iTypeResult .ADDI 0x10 source.value) platform noMMIO bytes interrupts ?_ decode notExpected
+    execute (by decide) (by decide) (by decide) (by decide) counters.1 counters.2.1
+    counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1 counters.2.2.2.2.2⟩
+  rfl
+
 /-- Production `0x14cb0: addi sp, sp, -896`, including generated fetch and retirement. -/
 theorem main_stack_allocate_step (stepNo : Nat) (state : State) (stackValue : BitVec 64)
     (configured : ConfiguredMachinePre mainGluePcs state)
