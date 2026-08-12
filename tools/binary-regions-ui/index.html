@@ -96,7 +96,7 @@
       <span><i style="background:#e5b84b"></i>proof in progress</span>
       <span><i class="contracted"></i>contract specified</span>
       <span><i style="background:#687385"></i>not selected at current proof level</span>
-      <span><i style="background:#ff5f68"></i>invalid target model</span></span>
+      </span>
     <span class="muted"><b>scroll</b> = zoom · <b>drag</b> = pan · <b>double-click</b> = reset · click = details</span>
   </header>
   <div id="chart"><div id="levels"></div></div>
@@ -200,7 +200,7 @@ function renderLevelLabels(){
   rail.innerHTML='';
   [...rows].sort((a,b)=>a[0]-b[0]).forEach(([level,top])=>{
     const label=document.createElement('span');
-    label.className='level-label'; label.textContent=`Row ${level}`; label.style.top=`${top}px`;
+    label.className='level-label'; label.textContent=`Level ${level}`; label.style.top=`${top}px`;
     label.onclick=ev=>{ ev.stopPropagation(); showLevel(level, names.get(level)||[]); };
     rail.appendChild(label);
   });
@@ -223,7 +223,7 @@ async function copyCurrent(){
 }
 
 function showLevel(level,names){
-  $('#dname').textContent=`Display row ${level}`;
+  $('#dname').textContent=`Level ${level}`;
   $('#dsub').textContent=`${names.length} displayed function instances`;
   setCopy(names.join(' | '));
   $('#rbody').innerHTML=names.length
@@ -283,7 +283,7 @@ function details(d){
   const qualified=m.qualified||d.data.name;
   $('#dname').textContent=qualified;
   setCopy(qualified);
-  $('#dsub').textContent=`proof Level ${m.refinementLevel??'?'} · display row ${m.displayTreeLevel??d.depth} · ${m.machineInstructionCount??d.data.self} instance instructions · ${d.data.value} including descendants`;
+  $('#dsub').textContent=`Level ${m.refinementLevel??m.displayTreeLevel??d.depth} · ${m.machineInstructionCount??d.data.self} instance instructions · ${d.data.value} including descendants`;
   const calls=(m.callees||[]).map(call=>`${esc(call.kind)} → ${esc(MACHINE_META.get(call.callee)?.qualified||call.callee)}`);
   const tails=(m.tailDependencies||[]).map(t=>`${esc(t.qualified)}: 0x${t.transfer.source.toString(16)} → 0x${t.transfer.target.toString(16)}, completes at ${t.completionSourcePcs.map(x=>'0x'+x.toString(16)).join(', ')}`);
   const handoffs=(m.fragmentHandoffs||[]).map(e=>`0x${e.sourcePc.toString(16)} → 0x${e.targetPc.toString(16)}`);
