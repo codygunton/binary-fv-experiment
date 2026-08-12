@@ -25,11 +25,11 @@ private theorem runsExceptTLift {ε α β : Type} (action : SailM α)
   have runEq : ExceptT.run ((ExceptT.lift action) >>= next) = (do
       let current ← action
       ExceptT.run (next current)) := by
-    simp only [ExceptT.instMonad, Monad.toBind, ExceptT.bind, ExceptT.lift, ExceptT.mk,
-      ExceptT.run, EStateM.instMonad]
     funext state
-    cases hAction' : action state <;>
-      simp [EStateM.bind, EStateM.map, ExceptT.bindCont, hAction']
+    change EStateM.bind (EStateM.map Except.ok action) (ExceptT.bindCont next) state =
+      EStateM.bind action (fun current => ExceptT.run (next current)) state
+    unfold EStateM.bind EStateM.map
+    cases hAction' : action state <;> rfl
   rw [runEq]
   exact Runs.bind hAction hNext
 
@@ -55,10 +55,10 @@ private theorem runsSailMERunOfOk {α : Type} (action : SailME α α)
     (hAction : Runs (ExceptT.run action) before after (.ok result)) :
     Runs (Sail.SailME.run action) before after result := by
   unfold Runs at hAction
+  unfold EStateM.run at hAction
   unfold Runs Sail.SailME.run PreSail.PreSailME.run
-  simp only [EStateM.instMonad]
+  change EStateM.bind (ExceptT.run action) _ before = EStateM.Result.ok result after
   unfold EStateM.bind
-  unfold EStateM.run at hAction ⊢
   dsimp
   rw [hAction]
   rfl
@@ -69,16 +69,13 @@ theorem read_ram_plain_fetch_bytes_run (state : State) (pc : BitVec 64)
     (bytes : FetchBytesAt state pc byte0 byte1 byte2 byte3) :
     Runs (read_ram .Read_plain (physaddr.Physaddr pc) 4 false) state state
       (fetchWord byte0 byte1 byte2 byte3, ()) := by
-  change (read_ram .Read_plain (physaddr.Physaddr pc) 4 false).run state =
-    .ok (fetchWord byte0 byte1 byte2 byte3, ()) state
   unfold LeanRV64DExecutable.Functions.read_ram
-  simp only [Sail.ConcurrencyInterfaceV1.sail_mem_read,
-    PreSail.ConcurrencyInterfaceV1.sail_mem_read]
-  simp only [EStateM.run, EStateM.bind, EStateM.pure, EStateM.instMonad,
-    EStateM.instMonadExceptOfOfBacktrackable]
-  rw [show (PreSail.readBytes 4 pc.toNat) state =
-    .ok (fetchWord byte0 byte1 byte2 byte3, none) state from
-      readBytes4_run state pc byte0 byte1 byte2 byte3 bytes]
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  refine Runs.bind (show Runs (pure _) state state _ from rfl) ?_
+  refine Runs.bind (middle := state)
+    (value := Sail.Ok (fetchWord byte0 byte1 byte2 byte3, none)) ?_ ?_
+  · unfold Sail.ConcurrencyInterfaceV1.sail_mem_read
+    exact Runs.bind (readBytes4_run state pc byte0 byte1 byte2 byte3 bytes) rfl
   rfl
 
 private theorem checked_mem_read_machine_instructionFetch_run (state : State) (pc : BitVec 64)

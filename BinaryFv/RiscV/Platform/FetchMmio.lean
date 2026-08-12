@@ -43,17 +43,21 @@ private theorem within_clint_of_address_excluded (state : State) (pc : BitVec 64
     (excluded : FetchMMIOAddressExcluded pc) :
     Runs (within_clint (physaddr.Physaddr pc) 4) state state false := by
   rcases excluded with ⟨clint, _⟩
+  simp at clint
   unfold Runs within_clint
-  simp [plat_have_clint, clint]
-  rfl
+  simp [plat_have_clint, LeanRV64DExecutable.Functions.not, clint, Pure.pure,
+    EStateM.pure, EStateM.run]
+  exact clint
 
 private theorem within_sig_of_address_excluded (state : State) (pc : BitVec 64)
     (excluded : FetchMMIOAddressExcluded pc) :
     Runs (within_sig (physaddr.Physaddr pc) 4) state state false := by
   rcases excluded with ⟨_, sig⟩
+  simp at sig
   unfold Runs within_sig
-  simp [plat_have_sig, sig]
-  rfl
+  simp [plat_have_sig, LeanRV64DExecutable.Functions.not, sig, Pure.pure,
+    EStateM.pure, EStateM.run]
+  exact sig
 
 private theorem within_htif_readable_of_disabled (state : State) (pc : BitVec 64)
     (disabled : state.regs.get? htif_tohost_base = some none) :
@@ -68,17 +72,21 @@ private theorem within_clint_data_of_address_excluded (state : State) (address :
     (width : Nat) (excluded : DataMMIOAddressExcluded address width) :
     Runs (within_clint (physaddr.Physaddr address) width) state state false := by
   rcases excluded with ⟨clint, _⟩
+  simp at clint
   unfold Runs within_clint
-  simp [plat_have_clint, clint]
-  rfl
+  simp [plat_have_clint, LeanRV64DExecutable.Functions.not, clint, Pure.pure,
+    EStateM.pure, EStateM.run]
+  exact clint
 
 private theorem within_sig_data_of_address_excluded (state : State) (address : BitVec 64)
     (width : Nat) (excluded : DataMMIOAddressExcluded address width) :
     Runs (within_sig (physaddr.Physaddr address) width) state state false := by
   rcases excluded with ⟨_, sig⟩
+  simp at sig
   unfold Runs within_sig
-  simp [plat_have_sig, sig]
-  rfl
+  simp [plat_have_sig, LeanRV64DExecutable.Functions.not, sig, Pure.pure,
+    EStateM.pure, EStateM.run]
+  exact sig
 
 private theorem within_htif_writable_of_disabled (state : State) (address : BitVec 64)
     (width : Nat) (disabled : state.regs.get? htif_tohost_base = some none) :
@@ -139,10 +147,14 @@ theorem fetch_mmio_address_excluded_of_before_layout (pc : BitVec 64)
     have noClintStart : ¬ BitVec.toNat plat_clint_base ≤ pc.toNat := by
       omega
     simp [noClintStart]
+    intro starts
+    exact (noClintStart starts).elim
   · unfold Sail.BitVec.toNatInt
     have noSigStart : ¬ BitVec.toNat plat_sig_base ≤ pc.toNat := by
       omega
     simp [noSigStart]
+    intro starts
+    exact (noSigStart starts).elim
 
 /-- A data-access range ending before both fixed MMIO bases avoids both regions. -/
 theorem data_mmio_address_excluded_of_before_layout (address : BitVec 64) (width : Nat)
@@ -156,10 +168,14 @@ theorem data_mmio_address_excluded_of_before_layout (address : BitVec 64) (width
     have noClintStart : ¬ BitVec.toNat plat_clint_base ≤ address.toNat := by
       omega
     simp [noClintStart]
+    intro starts
+    exact (noClintStart starts).elim
   · unfold Sail.BitVec.toNatInt
     have noSigStart : ¬ BitVec.toNat plat_sig_base ≤ address.toNat := by
       omega
     simp [noSigStart]
+    intro starts
+    exact (noSigStart starts).elim
 
 /-- Compatibility wrapper for store proofs. -/
 theorem store_mmio_address_excluded_of_before_layout (address : BitVec 64) (width : Nat)
@@ -262,10 +278,11 @@ theorem fetchMemoryNoMMIO_of_agree {before after : State} {pc : BitVec 64}
     | none =>
       exfalso
       unfold within_htif_readable within_htif_writable Runs at afterSig
-      simp [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
+      simp [PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, MonadState.get,
+        MonadStateOf.get, EStateM.bind, EStateM.get,
         EStateM.instMonad, EStateM.instMonadStateOf, instMonadStateOfMonadStateOf,
         EStateM.instMonadExceptOfOfBacktrackable, getThe, hb] at afterSig
-      exact EStateM.Result.noConfusion afterSig
+      cases afterSig
   have afterHtif := runs_bind_inv (within_htif_readable_runs pc 4 base before baseRead) afterSig
   exact Runs.bind (within_clint_congr clintRuns)
     (Runs.bind (within_sig_congr sigRuns)
