@@ -381,6 +381,7 @@ function renderProofCfg(){
     nodes.forEach((node,row)=>positions.set(node.id,{x:column*laneW+24,y:top+offset+row*gap,w:nodeW,h:nodeH,node}));
   }
   const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],
+    proved:['#173f30','#3ddc84'],conditionally_proven:['#173f30','#3ddc84'],
     contract_specified_assumption:['#283b48','#62b5e5'],
     contract_consumed:['#283b48','#62b5e5'],proof_in_progress:['#473b1e','#e5b84b'],
     contract_preliminary_shape:['#473b1e','#e5b84b'],contract_not_specified:['#472327','#d95757'],

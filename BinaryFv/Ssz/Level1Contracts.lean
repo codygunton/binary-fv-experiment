@@ -59,7 +59,8 @@ def readInputContract (stepBound : ReadInputArgs → Nat) :
     stepBound }
 
 def ReadInputInstanceContract : Prop :=
-  ∃ stepBound, (readInputContract stepBound).Implements EndpointStep EndpointPc
+  ∃ stepBound : Nat → Nat,
+    (readInputContract (fun args => stepBound args.input.size)).Implements EndpointStep EndpointPc
     (pcInRanges Generated.readInputExecutionPcRanges)
     (pcInList Generated.readInputExitPcs)
 
@@ -117,7 +118,8 @@ def allocatorGetContract (stepBound : AllocatorGetArgs → Nat) :
     stepBound }
 
 def AllocatorGetInstanceContract : Prop :=
-  ∃ stepBound, (allocatorGetContract stepBound).Implements EndpointStep EndpointPc
+  ∃ stepBound : Nat → Nat,
+    (allocatorGetContract (fun args => stepBound args.input.size)).Implements EndpointStep EndpointPc
     (pcInRanges Generated.allocatorGetExecutionPcRanges)
     (pcInList Generated.allocatorGetExitPcs)
 
@@ -128,6 +130,7 @@ structure WriteSuccessArgs where
   stackPointer : Nat
   decodedAddress : Nat
   decoded : ZesuDecodedResult
+  inputSize : Nat
 
 def WriteSuccessEntry (args : WriteSuccessArgs) (state : EndpointState) : Prop :=
   args.returnAddress ∈ Generated.writeSuccessExitPcs ∧ 0x7d0 ≤ args.stackPointer ∧
@@ -157,7 +160,8 @@ def writeSuccessContract (stepBound : WriteSuccessArgs → Nat) :
     stepBound }
 
 def WriteSuccessInstanceContract : Prop :=
-  ∃ stepBound, (writeSuccessContract stepBound).Implements EndpointStep EndpointPc
+  ∃ stepBound : Nat → Nat,
+    (writeSuccessContract (fun args => stepBound args.inputSize)).Implements EndpointStep EndpointPc
     (pcInRanges Generated.writeSuccessExecutionPcRanges)
     (pcInList Generated.writeSuccessExitPcs)
 
@@ -187,7 +191,8 @@ def writeFailureContract (stepBound : WriteFailureArgs → Nat) :
     stepBound }
 
 def WriteFailureInstanceContract : Prop :=
-  ∃ stepBound, (writeFailureContract stepBound).Implements EndpointStep EndpointPc
+  ∃ stepBound : Nat,
+    (writeFailureContract (fun _ => stepBound)).Implements EndpointStep EndpointPc
     (pcInRanges Generated.writeFailureExecutionPcRanges)
     (pcInList Generated.writeFailureExitPcs)
 
@@ -214,7 +219,8 @@ def zkvmExitContract (stepBound : ZkvmExitArgs → Nat) :
     stepBound }
 
 def ZkvmExitInstanceContract : Prop :=
-  ∃ stepBound, (zkvmExitContract stepBound).Implements EndpointStep EndpointPc
+  ∃ stepBound : Nat,
+    (zkvmExitContract (fun _ => stepBound)).Implements EndpointStep EndpointPc
     (pcInRanges Generated.zkvmExitExecutionPcRanges)
     (pcInList Generated.zkvmExitExitPcs)
 

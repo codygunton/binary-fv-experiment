@@ -134,8 +134,8 @@ abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : P
 /-- The generated decode instance terminates within some input-indexed bound and has the reviewed
 compatibility semantics. The bound is implementation evidence, not caller-selected contract data. -/
 def DecodeInstanceContractModuloKnownBugs : Prop :=
-  ∃ stepBound : DecodeBoundaryArgs → Nat,
-    (decodeContractModuloKnownBugs stepBound).Implements
+  ∃ stepBound : Nat → Nat,
+    (decodeContractModuloKnownBugs (fun args => stepBound args.input.size)).Implements
       EndpointStep EndpointPc DecodeExecutionPc DecodeExitPc
 
 end BinaryFv.Ssz

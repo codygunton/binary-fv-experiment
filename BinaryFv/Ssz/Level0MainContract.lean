@@ -155,6 +155,53 @@ def ComplianceModulo (bugs : List KnownBug) : Prop :=
 /-- The parent contract derived by resolving Level 0 against its six selected children. -/
 abbrev ExportedContractAssumptions : Prop := ComplianceModulo knownBugs
 
+/-- The six existential contract bounds opened once, so Level 0 can add them into one endpoint
+termination bound while reusing the corresponding implementation proofs. -/
+structure Level1ResolvedContracts where
+  readInputBound : Nat → Nat
+  readInput : (readInputContract (fun args => readInputBound args.input.size)).Implements
+    EndpointStep EndpointPc (pcInRanges Generated.readInputExecutionPcRanges)
+      (pcInList Generated.readInputExitPcs)
+  allocatorGetBound : Nat → Nat
+  allocatorGet : (allocatorGetContract (fun args => allocatorGetBound args.input.size)).Implements
+    EndpointStep EndpointPc (pcInRanges Generated.allocatorGetExecutionPcRanges)
+      (pcInList Generated.allocatorGetExitPcs)
+  decodeBound : Nat → Nat
+  sszDecode : (decodeContractModuloKnownBugs (fun args => decodeBound args.input.size)).Implements
+    EndpointStep EndpointPc DecodeExecutionPc DecodeExitPc
+  writeSuccessBound : Nat → Nat
+  writeSuccess : (writeSuccessContract (fun args => writeSuccessBound args.inputSize)).Implements
+    EndpointStep EndpointPc (pcInRanges Generated.writeSuccessExecutionPcRanges)
+      (pcInList Generated.writeSuccessExitPcs)
+  writeFailureBound : Nat
+  writeFailure : (writeFailureContract (fun _ => writeFailureBound)).Implements
+    EndpointStep EndpointPc (pcInRanges Generated.writeFailureExecutionPcRanges)
+      (pcInList Generated.writeFailureExitPcs)
+  zkvmExitBound : Nat
+  zkvmExit : (zkvmExitContract (fun _ => zkvmExitBound)).Implements
+    EndpointStep EndpointPc (pcInRanges Generated.zkvmExitExecutionPcRanges)
+      (pcInList Generated.zkvmExitExitPcs)
+
+noncomputable def Level1ContractAssumptions.resolve (h : Level1ContractAssumptions) :
+    Level1ResolvedContracts :=
+  { readInputBound := Classical.choose h.readInput
+    readInput := Classical.choose_spec h.readInput
+    allocatorGetBound := Classical.choose h.allocatorGet
+    allocatorGet := Classical.choose_spec h.allocatorGet
+    decodeBound := Classical.choose h.sszDecode
+    sszDecode := Classical.choose_spec h.sszDecode
+    writeSuccessBound := Classical.choose h.writeSuccess
+    writeSuccess := Classical.choose_spec h.writeSuccess
+    writeFailureBound := Classical.choose h.writeFailure
+    writeFailure := Classical.choose_spec h.writeFailure
+    zkvmExitBound := Classical.choose h.zkvmExit
+    zkvmExit := Classical.choose_spec h.zkvmExit }
+
+def level0ResolvedStepBound (contracts : Level1ResolvedContracts) (inputSize : Nat) : Nat :=
+  24 + contracts.readInputBound inputSize + contracts.allocatorGetBound inputSize +
+    contracts.decodeBound inputSize + contracts.writeSuccessBound inputSize +
+    contracts.writeFailureBound + contracts.zkvmExitBound
+
 private theorem instructionPreserved_abiCalleePreserved (register : Register)
     (preserved : instructionPreserved register) : abiCalleePreserved register := by
   rcases preserved.1 with
@@ -713,7 +760,7 @@ theorem main_prepare_read_input_call (args : MainArgs) (fromStep : Nat)
 
 /-- Result of the exact Level 0 call instruction followed by the opaque reviewed `read_input`
 contract. The dynamic child count remains explicit in the combined trace length. -/
-def MainReadInputHandoff (args : MainArgs) (fromStep : Nat)
+def MainReadInputHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (fromStep : Nat)
     (before : EndpointState) : Prop :=
   ∃ (childCount : Nat) (after : EndpointState) (outcome : ReadInputOutcome),
     ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep (7 + childCount) before after ∧
@@ -726,12 +773,13 @@ def MainReadInputHandoff (args : MainArgs) (fromStep : Nat)
     UIntRep 8 after.machine.mem args.stackPointer outcome.inputAddress ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 8) args.input.size ∧
     BytesRep after.machine.mem outcome.inputAddress args.input ∧
-    UIntRep 8 after.machine.mem (args.stackPointer + 0x378) args.returnAddress
+    UIntRep 8 after.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
+    childCount ≤ contracts.readInputBound args.input.size
 
 /-- Execute the `jalr` into `read_input` and consume the corresponding Level 1 assumption. -/
-theorem main_call_read_input (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
-    MainReadInputHandoff args fromStep before := by
+    MainReadInputHandoff contracts args fromStep before := by
   obtain ⟨ready, prefixTrace, configured, code, atPc, callBase, sp, a0, a1, savedReturn,
       stdin, cursor, stdout, exitCode⟩ := main_prepare_read_input_call args fromStep before entry
   obtain ⟨retired, run⟩ := main_read_input_call_step (fromStep + 6) ready.machine configured
@@ -766,8 +814,9 @@ theorem main_call_read_input (hLevel1 : Level1ContractAssumptions) (args : MainA
         simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
           tryStepControlFlowAfterIncrement])
-  obtain ⟨stepBound, implements⟩ := hLevel1.readInput
-  obtain ⟨childCount, after, outcome, positive, _bounded, childTrace, _exitPc,
+  let stepBound := contracts.readInputBound
+  let implements := contracts.readInput
+  obtain ⟨childCount, after, outcome, positive, bounded, childTrace, _exitPc,
       _allowed, childExit⟩ := implements
         { returnAddress := 0x14ccc, bufferSlot := args.stackPointer,
           sizeSlot := args.stackPointer + 8, savedFrameAddress := args.stackPointer + 0x378,
@@ -787,10 +836,10 @@ theorem main_call_read_input (hLevel1 : Level1ContractAssumptions) (args : MainA
     afterStdin.trans (by simpa [callState] using stdin), afterCursor,
     afterStdout.trans (by simpa [callState] using stdout),
     afterExitCode.trans (by simpa [callState] using exitCode),
-    bufferRep, sizeRep, inputRep, savedReturnRep⟩
+    bufferRep, sizeRep, inputRep, savedReturnRep, bounded⟩
 
 /-- Handoff after the adjacent opaque `allocatorGet` call returns at `0x14cec`. -/
-def MainAllocatorGetHandoff (args : MainArgs) (fromStep : Nat)
+def MainAllocatorGetHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (fromStep : Nat)
     (before : EndpointState) : Prop :=
   ∃ (readCount allocatorCount : Nat) (after : EndpointState)
       (readOutcome : ReadInputOutcome) (allocatorOutcome : AllocatorGetOutcome),
@@ -813,15 +862,18 @@ def MainAllocatorGetHandoff (args : MainArgs) (fromStep : Nat)
     UIntRep 8 after.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
     BytesRep after.machine.mem readOutcome.inputAddress args.input ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
-    after.stdout = #[] ∧ after.exitCode = none
+    after.stdout = #[] ∧ after.exitCode = none ∧
+    readCount ≤ contracts.readInputBound args.input.size ∧
+    allocatorCount ≤ contracts.allocatorGetBound args.input.size
 
 /-- Consume the second Level 1 assumption, whose entry is exactly the `read_input` return PC. -/
-theorem main_call_allocator_get (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+theorem main_call_allocator_get (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
-    MainAllocatorGetHandoff args fromStep before := by
+    MainAllocatorGetHandoff contracts args fromStep before := by
   obtain ⟨readCount, readState, readOutcome, readTrace, readPositive, readPc, configured,
       code, stackPointer, stdin, stdinCursor, stdout, exitCode, inputAddressRep, inputSizeRep,
-      inputRep, savedReturnRep⟩ := main_call_read_input hLevel1 args fromStep before entry
+      inputRep, savedReturnRep, readBounded⟩ :=
+    main_call_read_input contracts args fromStep before entry
   let allocatorArgs : AllocatorGetArgs :=
     { returnAddress := 0x14cec, stackPointer := args.stackPointer,
       inputAddress := readOutcome.inputAddress, input := args.input,
@@ -830,8 +882,9 @@ theorem main_call_allocator_get (hLevel1 : Level1ContractAssumptions) (args : Ma
     refine ⟨allocatorGetExitPc_14cec, ?_, stackPointer,
       inputAddressRep, inputSizeRep, savedReturnRep, inputRep, code⟩
     simpa [allocatorArgs, EndpointPc, Generated.allocatorGetEntry] using readPc
-  obtain ⟨stepBound, implements⟩ := hLevel1.allocatorGet
-  obtain ⟨allocatorCount, after, allocatorOutcome, allocatorPositive, _bounded,
+  let stepBound := contracts.allocatorGetBound
+  let implements := contracts.allocatorGet
+  obtain ⟨allocatorCount, after, allocatorOutcome, allocatorPositive, allocatorBounded,
       allocatorTrace, _exitPc, _allowed, allocatorExit⟩ :=
     implements allocatorArgs (fromStep + (7 + readCount)) readState allocatorEntry
   rcases allocatorExit with ⟨afterPc, afterStack, stateAddress, vtableAddress, inputPointer,
@@ -849,10 +902,10 @@ theorem main_call_allocator_get (hLevel1 : Level1ContractAssumptions) (args : Ma
     afterStack, stateAddress, vtableAddress, inputPointer, inputLength, inputSize, inputAddress,
     inputAddressRep, inputSizeRep, stateAddressRep, vtableAddressRep, afterSavedReturn, afterInput,
     afterStdin.trans stdin, afterCursor.trans stdinCursor,
-    afterStdout.trans stdout, afterExitCode.trans exitCode⟩
+    afterStdout.trans stdout, afterExitCode.trans exitCode, readBounded, allocatorBounded⟩
 
 /-- Handoff immediately before the concrete `jalr` into `ssz_decode_root.decodeInput`. -/
-def MainDecodeCallReady (args : MainArgs) (fromStep : Nat)
+def MainDecodeCallReady (contracts : Level1ResolvedContracts) (args : MainArgs) (fromStep : Nat)
     (before : EndpointState) : Prop :=
   ∃ (readCount allocatorCount : Nat) (after : EndpointState)
       (readOutcome : ReadInputOutcome) (allocatorOutcome : AllocatorGetOutcome),
@@ -874,18 +927,21 @@ def MainDecodeCallReady (args : MainArgs) (fromStep : Nat)
     UIntRep 8 after.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
     BytesRep after.machine.mem readOutcome.inputAddress args.input ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
-    after.stdout = #[] ∧ after.exitCode = none
+    after.stdout = #[] ∧ after.exitCode = none ∧
+    readCount ≤ contracts.readInputBound args.input.size ∧
+    allocatorCount ≤ contracts.allocatorGetBound args.input.size
 
 /-- Compose the two stack-address calculations and `auipc` before `decodeInput`. -/
-theorem main_prepare_decode_call (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+theorem main_prepare_decode_call (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
-    MainDecodeCallReady args fromStep before := by
+    MainDecodeCallReady contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, allocatorState, readOutcome, allocatorOutcome,
       prefixTrace, readPositive, allocatorPositive, pc0, configured0, code0, sp0,
       _a0, _a1, inputAddress0, inputLength0, _inputSize0, _inputAddress0,
       inputAddressRep0, inputSizeRep0, allocatorStateRep0, allocatorVtableRep0,
-      savedReturnRep0, inputRep0, stdin0, cursor0, stdout0, exit0⟩ :=
-    main_call_allocator_get hLevel1 args fromStep before entry
+      savedReturnRep0, inputRep0, stdin0, cursor0, stdout0, exit0,
+      readBounded, allocatorBounded⟩ :=
+    main_call_allocator_get contracts args fromStep before entry
   let step0 := fromStep + (7 + readCount + allocatorCount)
   obtain ⟨retired0, run0⟩ := main_decode_result_address_step step0 allocatorState.machine
     configured0 (by simpa [EndpointPc] using pc0) code0 (MainAddiSource.stackPointer sp0)
@@ -991,10 +1047,10 @@ theorem main_prepare_decode_call (hLevel1 : Level1ContractAssumptions) (args : M
     (by simpa [state3, state2, state1] using stdin0),
     (by simpa [state3, state2, state1] using cursor0),
     (by simpa [state3, state2, state1] using stdout0),
-    (by simpa [state3, state2, state1] using exit0)⟩
+    (by simpa [state3, state2, state1] using exit0), readBounded, allocatorBounded⟩
 
 /-- Handoff after the opaque decoder returns to the parent status load at `0x14cfc`. -/
-def MainDecodeHandoff (args : MainArgs) (fromStep : Nat)
+def MainDecodeHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (fromStep : Nat)
     (before : EndpointState) : Prop :=
   ∃ (readCount allocatorCount decodeCount : Nat) (after : EndpointState)
       (readOutcome : ReadInputOutcome) (allocatorOutcome : AllocatorGetOutcome)
@@ -1019,25 +1075,28 @@ def MainDecodeHandoff (args : MainArgs) (fromStep : Nat)
     BytesRep after.machine.mem readOutcome.inputAddress args.input ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
-    match decodeOutcome with
+    (match decodeOutcome with
     | .failure => ∃ status : Nat, status ≠ 0 ∧ status < 2 ^ 16 ∧
         UIntRep 2 after.machine.mem (args.stackPointer + 0x370) status ∧
         DecodeStatusLoadWitness after status
     | .success decoded =>
         UIntRep 2 after.machine.mem (args.stackPointer + 0x370) 0 ∧
         DecodeStatusLoadWitness after 0 ∧
-        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded
+        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded) ∧
+    readCount ≤ contracts.readInputBound args.input.size ∧
+    allocatorCount ≤ contracts.allocatorGetBound args.input.size ∧
+    decodeCount ≤ contracts.decodeBound args.input.size
 
 /-- Execute the exact decoder call instruction and consume `hLevel1.sszDecode`. -/
-theorem main_call_decode (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
-    MainDecodeHandoff args fromStep before := by
+    MainDecodeHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, ready, readOutcome, allocatorOutcome, prefixTrace,
       readPositive, allocatorPositive, atPc, configured, code, callBase, sp, resultAddress,
       allocatorAddress, inputAddress, inputLength, inputAddressRep, inputSizeRep,
       allocatorStateRep, allocatorVtableRep, savedReturnRep, inputRep,
-      stdin, cursor, stdout, exitCode⟩ :=
-    main_prepare_decode_call hLevel1 args fromStep before entry
+      stdin, cursor, stdout, exitCode, readBounded, allocatorBounded⟩ :=
+    main_prepare_decode_call contracts args fromStep before entry
   let callStep := fromStep + (10 + readCount + allocatorCount)
   obtain ⟨retired, run⟩ := main_decode_call_step callStep ready.machine configured
     (by simpa [EndpointPc] using atPc) callBase code
@@ -1083,8 +1142,9 @@ theorem main_call_decode (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
     · exact UIntRep.of_mem_eq allocatorVtableRep callMemory
     · simpa [callState, decodeArgs] using UIntRep.of_mem_eq savedReturnRep callMemory
     · simpa [callState, BytesRep, callMemory] using inputRep
-  obtain ⟨stepBound, implements⟩ := hLevel1.sszDecode
-  obtain ⟨decodeCount, after, decodeOutcome, decodePositive, _bounded, decodeTrace,
+  let stepBound := contracts.decodeBound
+  let implements := contracts.sszDecode
+  obtain ⟨decodeCount, after, decodeOutcome, decodePositive, decodeBounded, decodeTrace,
       _exitPc, meaning, decodeExit⟩ :=
     implements decodeArgs (fromStep + (11 + readCount + allocatorCount)) callState decodeEntry
   rcases decodeExit with ⟨afterPc, afterStdin, afterCursor, afterStdout, afterExitCode,
@@ -1110,10 +1170,11 @@ theorem main_call_decode (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
     afterStdin.trans (by simpa [callState] using stdin),
     afterCursor.trans (by simpa [callState] using cursor),
     afterStdout.trans (by simpa [callState] using stdout),
-    afterExitCode.trans (by simpa [callState] using exitCode), outcomeRep⟩
+    afterExitCode.trans (by simpa [callState] using exitCode), outcomeRep,
+    readBounded, allocatorBounded, decodeBounded⟩
 
 /-- Handoff after main loads the decoder status into `a0`, immediately before its branch. -/
-def MainStatusLoadedHandoff (args : MainArgs) (fromStep : Nat)
+def MainStatusLoadedHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (fromStep : Nat)
     (before : EndpointState) : Prop :=
   ∃ (readCount allocatorCount decodeCount : Nat) (after : EndpointState)
       (readOutcome : ReadInputOutcome) (allocatorOutcome : AllocatorGetOutcome)
@@ -1134,23 +1195,27 @@ def MainStatusLoadedHandoff (args : MainArgs) (fromStep : Nat)
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
-    match decodeOutcome with
+    (match decodeOutcome with
     | .failure => ∃ status : Nat, status ≠ 0 ∧ status < 2 ^ 16 ∧
         after.machine.regs.get? x10 =
           some (extend_value true (BitVec.ofNat 16 status))
     | .success decoded =>
         after.machine.regs.get? x10 = some (0#64) ∧
-        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded
+        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded) ∧
+    readCount ≤ contracts.readInputBound args.input.size ∧
+    allocatorCount ≤ contracts.allocatorGetBound args.input.size ∧
+    decodeCount ≤ contracts.decodeBound args.input.size
 
 /-- Execute the exact status `lhu` using the read witness exported by `sszDecode`. -/
-theorem main_load_decode_status (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
-    MainStatusLoadedHandoff args fromStep before := by
+    MainStatusLoadedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
       decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
       atPc, configured, code, sp, _inputAddressRep, _inputSizeRep, _savedReturnRep,
-      _inputRep, stdin, cursor, stdout, exitCode, outcomeRep⟩ :=
-    main_call_decode hLevel1 args fromStep before entry
+      _inputRep, stdin, cursor, stdout, exitCode, outcomeRep,
+      readBounded, allocatorBounded, decodeBounded⟩ :=
+    main_call_decode contracts args fromStep before entry
   cases decodeOutcome with
   | failure =>
       rcases outcomeRep with ⟨status, statusNe, statusFits, _statusRep, access, accessData⟩
@@ -1169,7 +1234,7 @@ theorem main_load_decode_status (hLevel1 : Level1ContractAssumptions) (args : Ma
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .failure, trace,
         readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
-        status, statusNe, statusFits, ?_⟩
+        ⟨status, statusNe, statusFits, ?_⟩, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · simpa [after, EndpointPc, afterMachine] using
           afterRegisterWrite_pc state.machine 0x14cfc retired x10 (extend_value true access.data)
@@ -1202,7 +1267,7 @@ theorem main_load_decode_status (hLevel1 : Level1ContractAssumptions) (args : Ma
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .success decoded, trace,
         readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
-        ?_, ?_⟩
+        ⟨?_, ?_⟩, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · simpa [after, EndpointPc, afterMachine] using
           afterRegisterWrite_pc state.machine 0x14cfc retired x10 (extend_value true access.data)
@@ -1221,7 +1286,7 @@ theorem main_load_decode_status (hLevel1 : Level1ContractAssumptions) (args : Ma
       · simpa [after, afterMachine, afterRegisterWrite_mem] using decodedRep
 
 /-- Handoff after the exact status branch selects main's success or failure route. -/
-def MainStatusBranchedHandoff (args : MainArgs) (fromStep : Nat)
+def MainStatusBranchedHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (fromStep : Nat)
     (before : EndpointState) : Prop :=
   ∃ (readCount allocatorCount decodeCount : Nat) (after : EndpointState)
       (readOutcome : ReadInputOutcome) (allocatorOutcome : AllocatorGetOutcome)
@@ -1241,19 +1306,23 @@ def MainStatusBranchedHandoff (args : MainArgs) (fromStep : Nat)
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
-    match decodeOutcome with
+    (match decodeOutcome with
     | .failure => EndpointPc after = some 0x14d1c
     | .success decoded => EndpointPc after = some 0x14d04 ∧
-        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded
+        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded) ∧
+    readCount ≤ contracts.readInputBound args.input.size ∧
+    allocatorCount ≤ contracts.allocatorGetBound args.input.size ∧
+    decodeCount ≤ contracts.decodeBound args.input.size
 
 /-- Execute the exact `bnez` and expose the selected success or failure continuation. -/
-theorem main_branch_decode_status (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
-    MainStatusBranchedHandoff args fromStep before := by
+    MainStatusBranchedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
       decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
-      atPc, configured, code, sp, stdin, cursor, stdout, exitCode, outcomeRep⟩ :=
-    main_load_decode_status hLevel1 args fromStep before entry
+      atPc, configured, code, sp, stdin, cursor, stdout, exitCode, outcomeRep,
+      readBounded, allocatorBounded, decodeBounded⟩ :=
+    main_load_decode_status contracts args fromStep before entry
   cases decodeOutcome with
   | failure =>
       rcases outcomeRep with ⟨status, statusNe, statusFits, statusAtState⟩
@@ -1300,7 +1369,7 @@ theorem main_branch_decode_status (hLevel1 : Level1ContractAssumptions) (args : 
             (by unfold LinuxSyscallPc; native_decide) run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .failure, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_,
-        ?_, ?_, ?_, ?_⟩
+        ?_, ?_, ?_, ?_, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · exact ConfiguredMachinePre.afterJump 0x14d00 0x14d1c retired configured
       · simpa [after, afterMachine] using code
@@ -1341,7 +1410,7 @@ theorem main_branch_decode_status (hLevel1 : Level1ContractAssumptions) (args : 
             (by unfold LinuxSyscallPc; native_decide) run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .success decoded, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_,
-        ?_, ?_, ?_, ?_, ?_⟩
+        ?_, ?_, ?_, ?_, ?_, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · exact ConfiguredMachinePre.afterFallThrough 0x14d00 0x14d04 retired configured
       · simpa [after, afterMachine] using code
@@ -1359,7 +1428,7 @@ theorem main_branch_decode_status (hLevel1 : Level1ContractAssumptions) (args : 
 
 /-- The status-selected route after the successful observation has been written. A rejected input
 remains at the first failure-route instruction; it performs no output work in this theorem. -/
-def MainOutputSelectedHandoff (args : MainArgs) (fromStep : Nat)
+def MainOutputSelectedHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (fromStep : Nat)
     (before : EndpointState) : Prop :=
   ∃ (readCount allocatorCount decodeCount routeCount : Nat) (after : EndpointState)
       (readOutcome : ReadInputOutcome) (allocatorOutcome : AllocatorGetOutcome)
@@ -1379,27 +1448,32 @@ def MainOutputSelectedHandoff (args : MainArgs) (fromStep : Nat)
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.exitCode = none ∧
-    match decodeOutcome with
+    (match decodeOutcome with
     | .failure => routeCount = 0 ∧ EndpointPc after = some 0x14d1c ∧ after.stdout = #[]
     | .success decoded => ∃ bytes writeCount,
         routeCount = 3 + writeCount ∧ 0 < writeCount ∧
         EndpointPc after = some 0x14d10 ∧ after.stdout = bytes ∧
-        decodeZesuObservation bytes = some (.success decoded)
+        decodeZesuObservation bytes = some (.success decoded)) ∧
+    readCount ≤ contracts.readInputBound args.input.size ∧
+    allocatorCount ≤ contracts.allocatorGetBound args.input.size ∧
+    decodeCount ≤ contracts.decodeBound args.input.size ∧
+    routeCount ≤ 3 + contracts.writeSuccessBound args.input.size
 
 /-- Execute the successful result-address and call-base instructions, enter `writeSuccess`, and
 consume its reviewed Level 1 contract. -/
-theorem main_write_selected_output (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
-    MainOutputSelectedHandoff args fromStep before := by
+    MainOutputSelectedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
       decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
-      configured, code, sp, stdin, cursor, stdout, exitCode, selected⟩ :=
-    main_branch_decode_status hLevel1 args fromStep before entry
+      configured, code, sp, stdin, cursor, stdout, exitCode, selected,
+      readBounded, allocatorBounded, decodeBounded⟩ :=
+    main_branch_decode_status contracts args fromStep before entry
   cases decodeOutcome with
   | failure =>
       refine ⟨readCount, allocatorCount, decodeCount, 0, state, readOutcome, allocatorOutcome,
         .failure, ?_, readPositive, allocatorPositive, decodePositive, meaning, configured, code,
-        sp, stdin, cursor, exitCode, ?_⟩
+        sp, stdin, cursor, exitCode, ?_, readBounded, allocatorBounded, decodeBounded, (by omega)⟩
       · simpa using prefixTrace
       · exact ⟨rfl, selected, stdout⟩
   | success decoded =>
@@ -1480,7 +1554,7 @@ theorem main_write_selected_output (hLevel1 : Level1ContractAssumptions) (args :
           tryStepControlFlowAfterIncrement, afterRegisterWrite_mem]
       let writeArgs : WriteSuccessArgs :=
         { returnAddress := 0x14d10, stackPointer := args.stackPointer,
-          decodedAddress := args.stackPointer + 0x20, decoded }
+          decodedAddress := args.stackPointer + 0x20, decoded, inputSize := args.input.size }
       have writeEntry : WriteSuccessEntry writeArgs callState := by
         refine ⟨(by show 0x14d10 ∈ Generated.writeSuccessExitPcs; native_decide),
           entry.stackLower, ?_, ?_, ?_, ?_, ?_, callCode⟩
@@ -1500,8 +1574,9 @@ theorem main_write_selected_output (hLevel1 : Level1ContractAssumptions) (args :
               (afterRegisterWrite_destination state.machine 0x14d04 retired0 x10 value0
                 (by decide) (by decide)))
         · simpa [callState, writeArgs, callMemory] using decodedRep
-      obtain ⟨stepBound, implements⟩ := hLevel1.writeSuccess
-      obtain ⟨writeCount, after, bytes, writePositive, _writeBound, writeTrace, _writeExit,
+      let stepBound := contracts.writeSuccessBound
+      let implements := contracts.writeSuccess
+      obtain ⟨writeCount, after, bytes, writePositive, writeBounded, writeTrace, _writeExit,
           _writeAllowed, writePost⟩ := implements writeArgs
         (fromStep + (16 + readCount + allocatorCount + decodeCount)) callState writeEntry
       rcases writePost with ⟨afterPc, observed, afterStdout, afterStdin, afterCursor,
@@ -1509,10 +1584,13 @@ theorem main_write_selected_output (hLevel1 : Level1ContractAssumptions) (args :
       have wideWrite : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
           (fromStep + (16 + readCount + allocatorCount + decodeCount)) writeCount callState after :=
         writeTrace.weaken (fun pc inside => Or.inr (Or.inr (Or.inr (Or.inr (Or.inl inside)))))
+      have writeBounded' : writeCount ≤ contracts.writeSuccessBound args.input.size := by
+        simpa [writeSuccessContract, writeArgs] using writeBounded
       refine ⟨readCount, allocatorCount, decodeCount, 3 + writeCount, after, readOutcome,
         allocatorOutcome, .success decoded, ?_, readPositive, allocatorPositive, decodePositive,
-        meaning, ?_, callFrame.2.2.1, ?_, ?_, ?_, ?_, bytes, writeCount, rfl, writePositive,
-        (by simpa [EndpointPc] using afterPc), ?_, observed⟩
+        meaning, ?_, callFrame.2.2.1, ?_, ?_, ?_, ?_,
+        ⟨bytes, writeCount, rfl, writePositive, (by simpa [EndpointPc] using afterPc), ?_, observed⟩,
+        readBounded, allocatorBounded, decodeBounded, (by omega)⟩
       · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using callTrace.append wideWrite
       · exact ConfiguredMachinePre.of_endpointCallFrame
           (ConfiguredMachinePre.afterCall 0x14d0c 0x14d30 0x14d10 retired2 configured2) callFrame
@@ -1531,36 +1609,42 @@ theorem main_write_selected_output (hLevel1 : Level1ContractAssumptions) (args :
 
 /-- The successful route has reached the terminal exit contract; a rejected input remains at its
 first output instruction with every fact required to compose that route. -/
-def MainSuccessExitedHandoff (args : MainArgs) (fromStep : Nat)
+def MainSuccessExitedHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (fromStep : Nat)
     (before : EndpointState) : Prop :=
   ∃ (used : Nat) (after : EndpointState) (outcome : MainOutcome),
     ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep used before after ∧
-    MainMeaningModulo knownBugs args outcome ∧
+    0 < used ∧ MainMeaningModulo knownBugs args outcome ∧
     match outcome with
     | .failure => EndpointPc after = some 0x14d1c ∧
         ConfiguredMachinePre mainGluePcs after.machine ∧
         Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
         after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
-        after.stdout = #[] ∧ after.exitCode = none
-    | .success decoded => MainExit args (.success decoded) before after
+        after.stdout = #[] ∧ after.exitCode = none ∧
+        used + 5 + contracts.writeFailureBound + contracts.zkvmExitBound ≤
+          level0ResolvedStepBound contracts args.input.size
+    | .success decoded => MainExit args (.success decoded) before after ∧
+        used ≤ level0ResolvedStepBound contracts args.input.size
 
 /-- Complete the successful `zkvm_exit` route while retaining the rejected-input route for the
 next composition theorem. -/
-theorem main_exit_success_or_select_failure (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
-    MainSuccessExitedHandoff args fromStep before := by
+    MainSuccessExitedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, routeCount, state, readOutcome,
       allocatorOutcome, decodeOutcome, prefixTrace, readPositive, allocatorPositive,
-      decodePositive, meaning, configured, code, _sp, stdin, cursor, exitCode, selected⟩ :=
-    main_write_selected_output hLevel1 args fromStep before entry
+      decodePositive, meaning, configured, code, _sp, stdin, cursor, exitCode, selected,
+      readBounded, allocatorBounded, decodeBounded, routeBounded⟩ :=
+    main_write_selected_output contracts args fromStep before entry
   cases decodeOutcome with
   | failure =>
       rcases selected with ⟨routeZero, atPc, stdout⟩
-      refine ⟨13 + readCount + allocatorCount + decodeCount, state, .failure, ?_, ?_, atPc,
-        configured, code, stdin, cursor, stdout, exitCode⟩
+      refine ⟨13 + readCount + allocatorCount + decodeCount, state, .failure, ?_, (by omega), ?_, atPc,
+        configured, code, stdin, cursor, stdout, exitCode, ?_⟩
       · simpa [routeZero] using prefixTrace
       · change ¬∃ decoded, SailDecode args.input decoded
         exact meaning
+      · unfold level0ResolvedStepBound
+        omega
   | success decoded =>
       rcases selected with ⟨bytes, writeCount, routeEq, writePositive, atPc, stdout, observed⟩
       subst routeCount
@@ -1646,18 +1730,21 @@ theorem main_exit_success_or_select_failure (hLevel1 : Level1ContractAssumptions
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.zkvmExitEntry]
         · exact (callWrites.get x10 (by decide)).trans zero2
-      obtain ⟨stepBound, implements⟩ := hLevel1.zkvmExit
-      obtain ⟨exitCount, after, unit, exitPositive, _exitBound, exitTrace, _terminal,
+      let stepBound := contracts.zkvmExitBound
+      let implements := contracts.zkvmExit
+      obtain ⟨exitCount, after, unit, exitPositive, exitBounded, exitTrace, _terminal,
           _allowed, exitPost⟩ := implements { code := 0 }
         (fromStep + (19 + readCount + allocatorCount + decodeCount + writeCount)) callState exitEntry
       rcases exitPost with ⟨terminalPc, finalCode, finalStdin, finalCursor, finalStdout, _memory⟩
+      have exitBounded' : exitCount ≤ contracts.zkvmExitBound := by
+        simpa [zkvmExitContract] using exitBounded
       have wideExit : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
           (fromStep + (19 + readCount + allocatorCount + decodeCount + writeCount)) exitCount
           callState after :=
         exitTrace.weaken (fun pc inside =>
           Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr inside))))))
       refine ⟨19 + readCount + allocatorCount + decodeCount + writeCount + exitCount,
-        after, .success decoded, ?_, ?_, ?_⟩
+        after, .success decoded, ?_, (by omega), ?_, ?_, ?_⟩
       · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using callTrace.append wideExit
       · change (∃ sail, SailDecode args.input sail ∧
           decodedResultRelModuloKnownBugs args.input decoded sail) ∨
@@ -1668,24 +1755,30 @@ theorem main_exit_success_or_select_failure (hLevel1 : Level1ContractAssumptions
         · exact finalStdin.trans (by simpa [callState, state2, state1] using stdin)
         · exact finalCursor.trans (by simpa [callState, state2, state1] using cursor)
         · exact finalStdout.trans (by simpa [callState, state2, state1] using stdout)
+      · unfold level0ResolvedStepBound
+        omega
 
 /-- Complete Level 0 result: an exact confined endpoint trace, its semantic outcome, and `MainExit`. -/
-def MainResolvedHandoff (args : MainArgs) (fromStep : Nat) (before : EndpointState) : Prop :=
+def MainResolvedHandoff (contracts : Level1ResolvedContracts) (args : MainArgs)
+    (fromStep : Nat) (before : EndpointState) : Prop :=
   ∃ (used : Nat) (after : EndpointState) (outcome : MainOutcome),
     ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep used before after ∧
-    MainMeaningModulo knownBugs args outcome ∧ MainExit args outcome before after
+    0 < used ∧ MainMeaningModulo knownBugs args outcome ∧ MainExit args outcome before after ∧
+    used ≤ level0ResolvedStepBound contracts args.input.size
 
 /-- Compose the rejected-input writer and terminal exit. The successful route is already complete
 and is returned unchanged. -/
-theorem main_resolved_handoff (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
-    MainResolvedHandoff args fromStep before := by
-  obtain ⟨used, state, outcome, prefixTrace, meaning, selected⟩ :=
-    main_exit_success_or_select_failure hLevel1 args fromStep before entry
+    MainResolvedHandoff contracts args fromStep before := by
+  obtain ⟨used, state, outcome, prefixTrace, usedPositive, meaning, selected⟩ :=
+    main_exit_success_or_select_failure contracts args fromStep before entry
   cases outcome with
-  | success decoded => exact ⟨used, state, .success decoded, prefixTrace, meaning, selected⟩
+  | success decoded =>
+      rcases selected with ⟨exited, bounded⟩
+      exact ⟨used, state, .success decoded, prefixTrace, usedPositive, meaning, exited, bounded⟩
   | failure =>
-      rcases selected with ⟨atPc, configured, code, stdin, cursor, stdout, exitCode⟩
+      rcases selected with ⟨atPc, configured, code, stdin, cursor, stdout, exitCode, reserved⟩
       obtain ⟨retired0, run0⟩ := main_write_failure_call_base_step (fromStep + used)
         state.machine configured (by simpa [EndpointPc] using atPc) code
       let machine1 := afterRegisterWrite state.machine 0x14d1c retired0 x1 0x15d1c
@@ -1731,8 +1824,9 @@ theorem main_resolved_handoff (hLevel1 : Level1ContractAssumptions) (args : Main
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.writeFailureEntry]
         · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
-      obtain ⟨failureBound, failureImplements⟩ := hLevel1.writeFailure
-      obtain ⟨failureCount, written, bytes, failurePositive, _failureBound, failureTrace,
+      let failureBound := contracts.writeFailureBound
+      let failureImplements := contracts.writeFailure
+      obtain ⟨failureCount, written, bytes, failurePositive, failureBounded, failureTrace,
           _failureExit, _failureAllowed, failurePost⟩ := failureImplements
         { returnAddress := 0x14d24 } (fromStep + (used + 2)) callState failureEntry
       rcases failurePost with ⟨writtenPc, observed, writtenStdout, writtenStdin, writtenCursor,
@@ -1831,20 +1925,45 @@ theorem main_resolved_handoff (hLevel1 : Level1ContractAssumptions) (args : Main
         refine ⟨?_, (exitWrites.get x10 (by decide)).trans zero4, exitCodeLoaded⟩
         simp [exitState, exitMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.zkvmExitEntry]
-      obtain ⟨exitBound, exitImplements⟩ := hLevel1.zkvmExit
-      obtain ⟨exitCount, after, unit, exitPositive, _exitBound, exitTrace, _terminal,
+      let exitBound := contracts.zkvmExitBound
+      let exitImplements := contracts.zkvmExit
+      obtain ⟨exitCount, after, unit, exitPositive, exitBounded, exitTrace, _terminal,
           _exitAllowed, exitPost⟩ := exitImplements { code := 0 }
         (fromStep + (used + 5 + failureCount)) exitState terminalEntry
       rcases exitPost with ⟨terminalPc, finalCode, finalStdin, finalCursor, finalStdout, _finalMem⟩
+      have failureBounded' : failureCount ≤ contracts.writeFailureBound := by
+        simpa [writeFailureContract] using failureBounded
+      have exitBounded' : exitCount ≤ contracts.zkvmExitBound := by
+        simpa [zkvmExitContract] using exitBounded
       have wideExit : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
           (fromStep + (used + 5 + failureCount)) exitCount exitState after :=
         exitTrace.weaken (fun pc inside =>
           Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr inside))))))
-      refine ⟨used + 5 + failureCount + exitCount, after, .failure, ?_, meaning, ?_⟩
+      refine ⟨used + 5 + failureCount + exitCount, after, .failure, ?_, (by omega), meaning, ?_, ?_⟩
       · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using exitCallTrace.append wideExit
       · refine ⟨terminalPc, ?_, ?_, finalCode, bytes, ?_, observed⟩
         · exact finalStdin.trans (by simpa [exitState, state4, state3] using writtenStdinEq)
         · exact finalCursor.trans (by simpa [exitState, state4, state3] using writtenCursorEq)
         · exact finalStdout.trans (by simpa [exitState, state4, state3] using writtenStdoutEq)
+      · omega
+
+/-- Resolve the six reviewed Level 1 contracts into the complete Level 0 endpoint contract. -/
+theorem exportedContracts_of_level1
+    (hLevel1 : Level1ContractAssumptions) : ExportedContractAssumptions := by
+  let contracts := hLevel1.resolve
+  refine ⟨fun args => level0ResolvedStepBound contracts args.input.size, ?_⟩
+  intro args fromStep before entry
+  obtain ⟨used, after, outcome, trace, usedPositive, meaning, exit, bounded⟩ :=
+    main_resolved_handoff contracts args fromStep before entry
+  refine ⟨used, after, outcome, usedPositive, bounded, trace, ?_, meaning, exit⟩
+  exact ⟨Generated.zkvmExitTerminalPc, (by simpa [EndpointPc] using exit.1), by
+    unfold pcInList
+    native_decide⟩
+
+/-- The shipped endpoint satisfies the fixed SSZ/RLP compliance relation if its six immediate
+Level 1 machine contracts hold. -/
+theorem root_compliance
+    (hLevel1 : Level1ContractAssumptions) : ComplianceModulo knownBugs :=
+  exportedContracts_of_level1 hLevel1
 
 end BinaryFv.Ssz

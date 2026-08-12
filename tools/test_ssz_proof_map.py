@@ -47,14 +47,14 @@ class ProofMapTest(unittest.TestCase):
         glue = next(node for node in result["refinementGraph"]["nodes"]
                     if node["kind"] == "parentGlue")
         self.assertEqual((glue["proofStatus"], glue["provedInstructionCount"]),
-                         ("in_progress", 24))
+                         ("proved", 24))
         self.assertEqual(glue["instructionCount"], 24)
         self.assertEqual(glue["absorbedInlineInstructionCount"], 2)
         progress = {row["owner"]: row["status"]
                     for row in result["flameProgress"]["states"]}
         main = next(row for row in self.documents[0]["functionInstances"]
                     if row["kind"] == "concrete" and row["entryPc"] == 0x14cb0)
-        self.assertEqual(progress[main["id"]], "in_progress")
+        self.assertEqual(progress[main["id"]], "conditionally_proven")
         self.assertEqual({progress[row["id"]] for row in self.documents[2]["instances"]},
                          {"contracted"})
         self.assertEqual(len(progress), 7)

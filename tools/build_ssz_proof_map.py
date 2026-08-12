@@ -114,8 +114,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         edges.append({"source": node_id, "target": "conversion", "kind": "dependency"})
 
     regions.append({
-        "id": "level0-glue", "label": "main parent-owned glue", "authoringState": "proof_in_progress",
-        "blocker": "Level 0 is complete; prove exportedContracts_of_level1 and root_compliance.",
+        "id": "level0-glue", "label": "main parent-owned glue", "authoringState": "local",
+        "blocker": "None: the conditional Level 0 theorem and refinement edge are proved.",
         "scope": "parent", "pcs": glue_pcs, "boundaryIds": [],
         "evidence": "production ELF structure and endpoint differential fixtures",
         "preparation": {"liveRegisters": [], "protectedMemory": [],
@@ -124,14 +124,14 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
     })
     nodes.extend([
         {"id": "glue", "label": "main parent-owned glue", "kind": "parentGlue", "column": 1,
-         "status": "proof_in_progress", "proofStatus": "in_progress",
+         "status": "proved", "proofStatus": "proved",
          "phase": "level0-glue", "instructionCount": len(glue_pcs),
          "absorbedInlineInstructionCount": absorbed,
          "provedInstructionCount": len(proved_level0_pcs)},
         {"id": "conversion", "label": "exportedContracts_of_level1", "kind": "conversion",
-         "column": 2, "status": "not_started", "proofStatus": "not_started"},
+         "column": 2, "status": "proved", "proofStatus": "proved"},
         {"id": "root", "label": "root_compliance", "kind": "parent", "column": 3,
-         "status": "not_started", "proofStatus": "not_started"},
+         "status": "conditionally_proven", "proofStatus": "proved"},
     ])
     edges.extend([
         {"source": "glue", "target": "conversion", "kind": "dependency"},
@@ -159,7 +159,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         "authoringRegions": regions,
         "flameProgress": {
             "states": [
-                {"owner": main["id"], "qualified": "main", "status": "in_progress"},
+                {"owner": main["id"], "qualified": "main", "status": "conditionally_proven"},
                 *({"owner": row["id"], "qualified": row["qualified"],
                    "status": "contracted"} for row in manifest["instances"]),
             ],
