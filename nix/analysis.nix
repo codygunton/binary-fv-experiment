@@ -39,6 +39,27 @@ let
   zesuCfg = makeCfg "zesu-rv64-cfg-6acdbd9" zesuRv64Object "zesu.o";
   zesuSszDecodeCfg = makeCfg "zesu-ssz-decode-rv64-cfg-6acdbd9" zesuSszDecodeRv64Object "zesu-ssz-decode.o";
 
+  # The generated Lean the proofs import. Address-bearing and untrusted: `Check.lean` in-tree
+  # re-derives the sizes and byte reads by `#guard`, and this derivation runs the converter twice
+  # and requires byte-identical output, the same discipline `makeCfg` uses.
+  makeProgramLean = name: object: filename: cfg:
+    pkgs.runCommand name { nativeBuildInputs = [ python ]; } ''
+      mkdir -p "$out" "$TMPDIR/repeated"
+      python ${../tools/generate_zesu_program.py} \
+        --cfg ${cfg}/zesu-cfg.json --object ${object}/obj/${filename} \
+        --out-image "$out/Image.lean" --out-program "$out/Program.lean" \
+        --check-determinism > "$out/summary.json"
+      python ${../tools/generate_zesu_program.py} \
+        --cfg ${cfg}/zesu-cfg.json --object ${object}/obj/${filename} \
+        --out-image "$TMPDIR/repeated/Image.lean" \
+        --out-program "$TMPDIR/repeated/Program.lean" > /dev/null
+      cmp "$out/Image.lean" "$TMPDIR/repeated/Image.lean"
+      cmp "$out/Program.lean" "$TMPDIR/repeated/Program.lean"
+    '';
+  zesuSszDecodeProgramLean = makeProgramLean
+    "zesu-ssz-decode-program-lean-6acdbd9" zesuSszDecodeRv64Object "zesu-ssz-decode.o"
+    zesuSszDecodeCfg;
+
   zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-6acdbd9" { } ''
     cp -R ${../tools/binary-regions-ui} "$out"
     chmod -R u+w "$out"
@@ -49,7 +70,7 @@ let
 in
 {
   public = {
-    inherit dump stats zesuCfg zesuSszDecodeCfg zesuCfgUi;
+    inherit dump stats zesuCfg zesuSszDecodeCfg zesuCfgUi zesuSszDecodeProgramLean;
     machine-regions-ui = zesuCfgUi;
   };
 }
