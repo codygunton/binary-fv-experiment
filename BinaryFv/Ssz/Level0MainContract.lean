@@ -44,24 +44,32 @@ def MainMeaningModulo (bugs : List KnownBug) (args : MainArgs) : MainOutcome →
       ((¬∃ sail, SailDecode args.input sail) ∧
         ∃ bug ∈ bugs, KnownBugApplies args.input zesu bug)
 
+set_option genInjectivity false in
 /-- Concrete Linux/RV64 entry state for the exported endpoint. The two PMA/MMIO clauses are the
 actual stack stores at offsets `0x378` and `8`; no generated instruction run is assumed here. -/
-def MainEntry (args : MainArgs) (state : EndpointState) : Prop :=
-  state.stdin = args.input ∧ state.stdinCursor = 0 ∧ state.stdout = #[] ∧
-  state.exitCode = none ∧ args.input.size ≤ 64 * 1024 * 1024 ∧
-  args.stackPointer + 0x380 < 2 ^ 64 ∧ args.stackPointer % 16 = 0 ∧
-  args.returnAddress < 2 ^ 64 ∧
-  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.mainEntry) ∧
-  state.machine.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer + 0x380)) ∧
-  state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
-  ConfiguredMachinePre mainGluePcs state.machine ∧
-  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
-  StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8 ∧
-  StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
-  StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8 ∧
-  StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
-  (∀ address, args.stackPointer ≤ address → address < args.stackPointer + 0x380 →
-    Generated.programImage.readFileByte? address = none)
+structure MainEntry (args : MainArgs) (state : EndpointState) : Prop where
+  stdin : state.stdin = args.input
+  stdinCursor : state.stdinCursor = 0
+  stdout : state.stdout = #[]
+  exitCode : state.exitCode = none
+  inputBound : args.input.size ≤ 64 * 1024 * 1024
+  stackFits : args.stackPointer + 0x380 < 2 ^ 64
+  stackAligned : args.stackPointer % 16 = 0
+  returnAddressFits : args.returnAddress < 2 ^ 64
+  atPc : state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.mainEntry)
+  stackRegister :
+    state.machine.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer + 0x380))
+  returnRegister : state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress)
+  configured : ConfiguredMachinePre mainGluePcs state.machine
+  code : Generated.programImage.fileBytesLoadedFaithfully state.machine.mem
+  savedReturnPma :
+    StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8
+  inputSizePma : StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8
+  savedReturnNoMMIO :
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8
+  inputSizeNoMMIO : StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 8)) 8
+  stackNotFileBacked : ∀ address, args.stackPointer ≤ address →
+    address < args.stackPointer + 0x380 → Generated.programImage.readFileByte? address = none
 
 def MainExit (args : MainArgs) (outcome : MainOutcome)
     (_before after : EndpointState) : Prop :=
@@ -168,5 +176,72 @@ theorem main_confined_sail_step (stepNo : Nat) (before : EndpointState) (after :
       cases Option.some.inj targetPc
       exact notSyscall) step
   · exact .refl (stepNo + 1) _
+
+/-- Exact one-step handoff after `main` allocates its 896-byte frame. -/
+def MainStackAllocatedHandoff (args : MainArgs) (fromStep : Nat)
+    (before : EndpointState) : Prop :=
+  ∃ after : EndpointState,
+    ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep 1 before after ∧
+    ConfiguredMachinePre mainGluePcs after.machine ∧
+    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    EndpointPc after = some 0x14cb4 ∧
+    after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
+    after.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress)
+
+/-- Execute the first exact Level 0 instruction and bind the resulting stack base. -/
+theorem main_stack_allocate (args : MainArgs) (fromStep : Nat) (before : EndpointState)
+    (entry : MainEntry args before) : MainStackAllocatedHandoff args fromStep before := by
+  obtain ⟨retired, run⟩ := main_stack_allocate_step fromStep before.machine
+    (BitVec.ofNat 64 (args.stackPointer + 0x380)) entry.configured entry.atPc
+    entry.stackRegister entry.code
+  let afterMachine := tryStepStackAddiAfterRetired before.machine
+    (BitVec.ofNat 64 Generated.mainEntry) (BitVec.ofNat 12 0xc80)
+    (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired
+  let after : EndpointState := { before with machine := afterMachine }
+  have machineStep : MachineStep fromStep before.machine afterMachine := run
+  have stackValueToNat :
+      (BitVec.ofNat 64 (args.stackPointer + 0x380)).toNat = args.stackPointer + 0x380 := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt entry.stackFits]
+  have stackResultToNat :
+      (BitVec.ofNat 64 (args.stackPointer + 0x380) +
+        sign_extend (m := 64) (BitVec.ofNat 12 0xc80)).toNat = args.stackPointer := by
+    rw [prologue_toNat (delta := 0x380)]
+    · rw [stackValueToNat]
+      omega
+    · native_decide
+    · rw [stackValueToNat]
+      omega
+  have stackResult :
+      BitVec.ofNat 64 (args.stackPointer + 0x380) +
+        sign_extend (m := 64) (BitVec.ofNat 12 0xc80) =
+          BitVec.ofNat 64 args.stackPointer := by
+    apply BitVec.eq_of_toNat_eq
+    rw [stackResultToNat, BitVec.toNat_ofNat,
+      Nat.mod_eq_of_lt (by omega : args.stackPointer < 2 ^ 64)]
+  refine ⟨after,
+      main_confined_sail_step fromStep before afterMachine
+        (BitVec.ofNat 64 Generated.mainEntry) (by simpa [EndpointPc] using entry.atPc)
+        (by refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
+        (by unfold LinuxSyscallPc; native_decide) machineStep,
+      ConfiguredMachinePre.afterStackAddi _ _ _ _ entry.configured,
+      (by simpa [after, afterMachine, tryStepStackAddiAfterRetired_mem] using entry.code),
+      (by
+        simp [after, afterMachine, EndpointPc, MachinePc, tryStepStackAddiAfterRetired,
+          tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState,
+          stackAddiNextState, tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert,
+          Generated.mainEntry]
+        native_decide),
+      (by
+        simpa [after, afterMachine, stackResult] using
+          tryStepStackAddiAfterRetired_stackPointer before.machine
+            (BitVec.ofNat 64 Generated.mainEntry) (BitVec.ofNat 12 0xc80)
+            (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired),
+      (by
+        calc
+          after.machine.regs.get? x1 = before.machine.regs.get? x1 :=
+            (stackAddiRetirement_writes before.machine
+              (BitVec.ofNat 64 Generated.mainEntry) (BitVec.ofNat 12 0xc80)
+              (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired).get x1 (by decide)
+          _ = some (BitVec.ofNat 64 args.returnAddress) := entry.returnRegister)⟩
 
 end BinaryFv.Ssz
