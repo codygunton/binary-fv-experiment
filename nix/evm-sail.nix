@@ -92,6 +92,7 @@ let
     cp ${repo}/BinaryFv/Zesu/Contracts/DecodedResultRelation.lean DecodedResultRelation.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.lean Level1Boundary.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.lean Level1Contracts.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.lean Level2Contracts.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.lean Level0Contract.lean
     cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
     cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
@@ -147,6 +148,7 @@ let
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/HostExecution.olean HostExecution.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.olean Level1Boundary.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.olean Level1Contracts.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.olean Level2Contracts.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.olean Level0Contract.lean
     lean -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
     lean -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean
