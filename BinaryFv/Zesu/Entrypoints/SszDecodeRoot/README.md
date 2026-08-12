@@ -12,3 +12,7 @@ models the linked read/write/exit ecalls. The three optimized transaction, withd
 regions use separate inline contracts: their live count registers and decoded array representations
 are explicit, their writes are confined to the existing 2,000-byte `writeSuccess` frame, and no
 source-function ABI is assumed.
+
+`Level2ContractAssumptions` is the proof-progress gauge for the next root theorem: it contains the
+19 unresolved generated instances above. It intentionally excludes Linux read/exit and `memcpy`,
+which the named Level 2-to-Level 1 conversion must prove rather than assume.

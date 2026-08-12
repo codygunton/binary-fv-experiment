@@ -349,4 +349,27 @@ abbrev WriteSuccessHashesInstanceContract : Prop :=
       (fun state count => state.machine.regs.get? x8 = some (BitVec.ofNat 64 count)) 32
       (fun mem address hash => hash.size = 32 ∧ BytesRep mem address hash))
 
+/-- The exact unresolved contracts selected at UI Level 2. Linux read/exit and the shared `memcpy`
+are omitted because `level1Contracts_of_level2` must discharge those three leaves unconditionally. -/
+structure Level2ContractAssumptions : Prop where
+  sszDecode : DecodeInstanceContractModuloKnownBugs
+  writeSuccessPrefix : WriteSuccessPrefixInstanceContract
+  writeSuccessParentHash : WriteSuccessParentHashInstanceContract
+  writeSuccessFeeRecipient : WriteSuccessFeeRecipientInstanceContract
+  writeSuccessStateRoot : WriteSuccessStateRootInstanceContract
+  writeSuccessReceiptsRoot : WriteSuccessReceiptsRootInstanceContract
+  writeSuccessLogsBloom : WriteSuccessLogsBloomInstanceContract
+  writeSuccessPrevRandao : WriteSuccessPrevRandaoInstanceContract
+  writeSuccessBlockHash : WriteSuccessBlockHashInstanceContract
+  writeSuccessParentBeaconRoot : WriteSuccessParentBeaconRootInstanceContract
+  writeSuccessTransactions : WriteSuccessTransactionsInstanceContract
+  writeSuccessWithdrawals : WriteSuccessWithdrawalsInstanceContract
+  writeSuccessHashes : WriteSuccessHashesInstanceContract
+  writeSuccessBoolean : WriteSuccessBooleanInstanceContract
+  writeSuccessOptionalU64 : WriteSuccessOptionalU64InstanceContract
+  writeSuccessByteLists : WriteSuccessByteListsInstanceContract
+  writeSuccessBytes : WriteSuccessBytesInstanceContract
+  writeSuccessInt : WriteSuccessIntInstanceContract
+  writeFailureRecord : WriteFailureRecordInstanceContract
+
 end BinaryFv.Zesu
