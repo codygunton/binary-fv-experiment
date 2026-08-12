@@ -111,6 +111,7 @@ structure MainEntry (args : MainArgs) (state : EndpointState) : Prop where
   stdout : state.stdout = #[]
   exitCode : state.exitCode = none
   inputBound : args.input.size ≤ 64 * 1024 * 1024
+  stackLower : 0x7d0 ≤ args.stackPointer
   stackFits : args.stackPointer + 0x380 < 2 ^ 64
   stackAligned : args.stackPointer % 16 = 0
   returnAddressFits : args.returnAddress < 2 ^ 64
@@ -1130,6 +1131,7 @@ def MainStatusLoadedHandoff (args : MainArgs) (fromStep : Nat)
     EndpointPc after = some 0x14d00 ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
     Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
     match decodeOutcome with
@@ -1146,7 +1148,7 @@ theorem main_load_decode_status (hLevel1 : Level1ContractAssumptions) (args : Ma
     MainStatusLoadedHandoff args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
       decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
-      atPc, configured, code, _sp, _inputAddressRep, _inputSizeRep, _savedReturnRep,
+      atPc, configured, code, sp, _inputAddressRep, _inputSizeRep, _savedReturnRep,
       _inputRep, stdin, cursor, stdout, exitCode, outcomeRep⟩ :=
     main_call_decode hLevel1 args fromStep before entry
   cases decodeOutcome with
@@ -1166,7 +1168,7 @@ theorem main_load_decode_status (hLevel1 : Level1ContractAssumptions) (args : Ma
             0x14cfc atPc mainGluePcs_14cfc main14cfc_not_syscall run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .failure, trace,
-        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
         status, statusNe, statusFits, ?_⟩
       · simpa using meaning
       · simpa [after, EndpointPc, afterMachine] using
@@ -1174,6 +1176,8 @@ theorem main_load_decode_status (hLevel1 : Level1ContractAssumptions) (args : Ma
       · exact ConfiguredMachinePre.afterRegisterWrite 0x14cfc retired x10
           (extend_value true access.data) configured x10_not_instructionPreserved
       · simpa [after, afterMachine] using code
+      · exact (afterRegisterWrite_writes state.machine 0x14cfc retired x10
+          (extend_value true access.data)).get x2 (by decide) |>.trans sp
       · simpa [after] using stdin
       · simpa [after] using cursor
       · simpa [after] using stdout
@@ -1197,13 +1201,16 @@ theorem main_load_decode_status (hLevel1 : Level1ContractAssumptions) (args : Ma
             0x14cfc atPc mainGluePcs_14cfc main14cfc_not_syscall run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .success decoded, trace,
-        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+        ?_, ?_⟩
       · simpa using meaning
       · simpa [after, EndpointPc, afterMachine] using
           afterRegisterWrite_pc state.machine 0x14cfc retired x10 (extend_value true access.data)
       · exact ConfiguredMachinePre.afterRegisterWrite 0x14cfc retired x10
           (extend_value true access.data) configured x10_not_instructionPreserved
       · simpa [after, afterMachine] using code
+      · exact (afterRegisterWrite_writes state.machine 0x14cfc retired x10
+          (extend_value true access.data)).get x2 (by decide) |>.trans sp
       · simpa [after] using stdin
       · simpa [after] using cursor
       · simpa [after] using stdout
@@ -1231,6 +1238,7 @@ def MainStatusBranchedHandoff (args : MainArgs) (fromStep : Nat)
       decodeOutcome ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
     Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
     match decodeOutcome with
@@ -1244,7 +1252,7 @@ theorem main_branch_decode_status (hLevel1 : Level1ContractAssumptions) (args : 
     MainStatusBranchedHandoff args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
       decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
-      atPc, configured, code, stdin, cursor, stdout, exitCode, outcomeRep⟩ :=
+      atPc, configured, code, sp, stdin, cursor, stdout, exitCode, outcomeRep⟩ :=
     main_load_decode_status hLevel1 args fromStep before entry
   cases decodeOutcome with
   | failure =>
@@ -1292,10 +1300,12 @@ theorem main_branch_decode_status (hLevel1 : Level1ContractAssumptions) (args : 
             (by unfold LinuxSyscallPc; native_decide) run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .failure, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_,
-        ?_, ?_, ?_⟩
+        ?_, ?_, ?_, ?_⟩
       · simpa using meaning
       · exact ConfiguredMachinePre.afterJump 0x14d00 0x14d1c retired configured
       · simpa [after, afterMachine] using code
+      · exact (jumpRetirement_writes state.machine 0x14d00 0x14d1c retired).get x2
+          (by decide) |>.trans sp
       · simpa [after] using stdin
       · simpa [after] using cursor
       · simpa [after] using stdout
@@ -1335,12 +1345,16 @@ theorem main_branch_decode_status (hLevel1 : Level1ContractAssumptions) (args : 
       · simpa using meaning
       · exact ConfiguredMachinePre.afterFallThrough 0x14d00 0x14d04 retired configured
       · simpa [after, afterMachine] using code
+      · exact (fallThroughRetirement_writes state.machine 0x14d00 0x14d04 retired).get x2
+          (by decide) |>.trans sp
       · simpa [after] using stdin
       · simpa [after] using cursor
       · simpa [after] using stdout
       · simpa [after] using exitCode
-      · simp [after, EndpointPc, MachinePc, afterMachine, tryStepControlFlowAfterRetired,
-          tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
-      · simpa [after, afterMachine] using decodedRep
+      · constructor
+        · simp [after, EndpointPc, MachinePc, afterMachine, tryStepControlFlowAfterRetired,
+            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+        · rw [show after.machine.mem = state.machine.mem by rfl]
+          exact decodedRep
 
 end BinaryFv.Ssz
