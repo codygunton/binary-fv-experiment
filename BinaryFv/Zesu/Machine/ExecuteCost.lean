@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.Machine.Target
 import BinaryFv.RiscV.Instruction.Execute.Load
+import BinaryFv.RiscV.Logic.SepLogic
 
 /-!
 # The cost of the execute half
@@ -22,6 +23,8 @@ namespace BinaryFv.Zesu.Machine
 
 open BinaryFv BinaryFv.Binary BinaryFv.RiscV
 open PreSail LeanRV64DExecutable.Functions Register
+open MemoryAccessType mem_payload page_based_mem_type read_kind
+open BinaryFv.RiscV.Sep
 
 theorem exec_1 (s s' : State) (imm : BitVec 12) (rs1 rd : regidx)
     (srcBits mstatusBits : BitVec 64) (v : BitVec (8 * 1))

@@ -47,14 +47,24 @@ a 13.0× ratio in calls. **The cost is linear in instructions and it does not am
 
 So one instruction costs approximately:
 
+The execute half was measured the same way: ten applications of `execute_LOAD_lbu_run` with its
+twelve premises abstract, in a module containing nothing else — **1.36s, so ~136ms each**.
+
 | part | cost | shareable by a motif lemma? |
 |---|---|---|
-| fetch | 4 × ~90ms = **~360ms** | **no** |
+| fetch | 4 × 84.8ms = **339ms** | **no** |
 | decode | **~50ms** | **no** |
-| retire | one `StepPremises` field access + 4 `decide` | already shared, per segment |
-| execute | per-instruction semantics | **this is the only place a lemma can win** |
+| execute | **~136ms** | **yes — the only part** |
+| retire | one `StepPremises` field + 4 `decide` | already shared, per segment |
+| **total** | **~525ms** | **26% of it** |
 
-Fetch outweighs decode roughly 7:1, and together they are the floor.
+So a motif lemma addresses **26%** of what one instruction costs, and only the `n·s → n+s` fraction
+of that 26%.
+
+A caution on the execute figure: 136ms is the cost of *applying* the contract with its premises
+abstract. A real site must also prove those twelve premises, which costs more. That makes 136ms a
+lower bound on the shareable part — but it is the right lower bound, because the premises a real
+site proves are per-site memory facts that a motif lemma cannot share either.
 
 ## 3. Per case
 
@@ -71,6 +81,31 @@ paid whether or not a motif lemma is written.
 
 Case E is the study's largest single prize — one lemma covering 7.0% of the binary — and it is also
 the largest fetch bill: **107 seconds that the lemma does not touch**.
+
+## 3a. What a motif lemma actually saves, per case
+
+A lemma is proved once (`n` execute contracts) and applied at each site (`s` applications), so
+`n·s` execute obligations become `n + s`. Everything else is paid regardless.
+
+| case | n | sites | instr | floor (fetch+decode) | execute, no lemma | execute, lemma | total no | total lemma | saving |
+|---|---|---|---|---|---|---|---|---|---|
+| A `mem.readInt` | 10 | 7 | 70 | 27.2s | 9.5s | 2.3s | 36.8s | 29.6s | **20%** |
+| B `mem.writeInt` | 15 | 6 | 90 | 35.0s | 12.2s | 2.9s | 47.3s | 37.9s | **20%** |
+| E `sizeClassOfBytes` | 78 | 4 | 312 | 121.4s | 42.4s | 11.2s | 163.9s | 132.6s | **19%** |
+| F `rawAlloc`/`rawRemap` | 4 | 6 | 24 | 9.3s | 3.3s | 1.4s | 12.6s | 10.7s | **15%** |
+| G `decodeTxFields` tail | 32 | 5 | 160 | 62.3s | 21.8s | 5.0s | 84.0s | 67.3s | **20%** |
+| D `addi mv mv auipc` | 4 | 21 | 84 | 32.7s | 11.4s | 3.4s | 44.1s | 36.1s | **18%** |
+| C `mv addi` | 2 | 45 | 90 | 35.0s | 12.2s | 6.4s | 47.3s | 41.4s | **12%** |
+| C `ld ld addi` | 3 | 13 | 39 | 15.2s | 5.3s | 2.2s | 20.5s | 17.4s | **15%** |
+| **all eight** | | | | | | | **456.4s** | **372.9s** | **18%** |
+
+**Every case lands between 12% and 20%.** The spread the n-gram study predicted — where long motifs
+at many sites should dominate short ones — collapses, because the term that varies with `n` and `s`
+is only 26% of the cost and the other 74% scales with `n·s` no matter what.
+
+Case C, the short-motif case, is worst at 12%. Case E, the study's largest prize, is 19% — the same
+as everything else. **The ranking the study produced does not survive contact with the real cost
+model.**
 
 ## 4. What this does to the campaign's question
 
