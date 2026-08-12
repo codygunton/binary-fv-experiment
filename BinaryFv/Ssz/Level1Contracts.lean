@@ -33,9 +33,6 @@ def EndpointCallFrame (before after : EndpointState) : Prop :=
   after.machine.tags = before.machine.tags ∧
   after.machine.sailOutput = before.machine.sailOutput
 
-def pcInList (pcs : List Nat) (pc : BitVec 64) : Prop :=
-  pc.toNat ∈ pcs
-
 structure ReadInputArgs where
   returnAddress : Nat
   bufferSlot : Nat

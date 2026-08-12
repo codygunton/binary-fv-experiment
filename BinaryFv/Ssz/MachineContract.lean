@@ -87,4 +87,8 @@ def RelationalMachineContract.Implements {State Args Outcome : Type}
 def pcInRanges (ranges : List (Nat × Nat)) (pc : BitVec 64) : Prop :=
   ∃ range ∈ ranges, range.1 ≤ pc.toNat ∧ pc.toNat < range.2
 
+/-- Exact membership in a generated finite PC list. -/
+def pcInList (pcs : List Nat) (pc : BitVec 64) : Prop :=
+  pc.toNat ∈ pcs
+
 end BinaryFv.Ssz

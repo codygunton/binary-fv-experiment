@@ -109,4 +109,12 @@ inductive EndpointStep (stepNo : Nat) (before after : EndpointState) : Prop wher
   | write (step : LinuxWriteStep before after) : EndpointStep stepNo before after
   | exit (step : LinuxExitStep before after) : EndpointStep stepNo before after
 
+/-- Lift an ordinary production instruction into the linked Linux endpoint while retaining every
+host component. Concrete Level 0 instruction wrappers supply the `try_step` run. -/
+theorem endpointStep_sail (stepNo : Nat) (before : EndpointState) (after : MachineState)
+    (notSyscall : ∀ pc, EndpointPc before = some pc → ¬ LinuxSyscallPc pc)
+    (step : MachineStep stepNo before.machine after) :
+    EndpointStep stepNo before { before with machine := after } := by
+  exact .sail notSyscall step rfl rfl rfl rfl
+
 end BinaryFv.Ssz
