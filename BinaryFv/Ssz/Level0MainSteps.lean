@@ -959,6 +959,110 @@ theorem main_decode_status_step (stepNo : Nat) (state : State)
       MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
     rfl
 
+private theorem main_decode_status_branch_decode (state : State)
+    (configured : ConfiguredMachinePre mainGluePcs state) :
+    Runs (ext_decode (fetchWord (0x63 : BitVec 8) (0x1e : BitVec 8) (0x05 : BitVec 8)
+      (0x00 : BitVec 8)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.BTYPE (0x01c, .Regidx 0#5, .Regidx 10#5, .BNE)) := by
+  obtain ⟨seccfgBits, seccfgRead⟩ := configured.seccfgPresent
+  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine := by
+    calc
+      _ = state.regs.get? cur_privilege := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+      _ = some Privilege.Machine := configured.normal.2.1
+  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+      some seccfgBits := by
+    calc
+      _ = state.regs.get? mseccfg := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+      _ = some seccfgBits := seccfgRead
+  unfold Runs
+  rw [extDecode_eq]
+  simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
+    PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
+    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
+    instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+    MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
+  rfl
+
+/-- Production `0x14d00: bnez a0,0x14d1c`, on the successful zero-status route. -/
+theorem main_decode_status_success_step (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre mainGluePcs state)
+    (atPc : state.regs.get? PC = some 0x14d00)
+    (loaded : Generated.programImage.fileBytesLoadedFaithfully state.mem)
+    (condition : Runs (bTypeTaken (.Regidx 0#5) (.Regidx 10#5) .BNE)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d00)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d00) false) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d00)
+        0x14d04 retired) false := by
+  obtain ⟨retired, counters⟩ := configured.counters
+  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
+    configured.stepContext 0x14d00 atPc (by
+      refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+  have loadedAfter : Generated.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Generated.programImage
+    (tryStepControlFlowAfterIncrement state) 0x14d00 (by native_decide) loadedAfter
+    0x63 0x1e 0x05 0x00 (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide)
+  refine ⟨retired, tryStepBranchNotTakenRetires stepNo state 0x14d00 retired 0x01c
+    (.Regidx 0#5) (.Regidx 10#5) .BNE 0 0 0x63 0x1e 0x05 0x00 platform noMMIO bytes
+    interrupts (by rfl) (main_decode_status_branch_decode state configured) notExpected condition
+    counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1
+    counters.2.2.2.2.2⟩
+
+/-- Production `0x14d00: bnez a0,0x14d1c`, on a nonzero decoder status. -/
+theorem main_decode_status_failure_step (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre mainGluePcs state)
+    (atPc : state.regs.get? PC = some 0x14d00)
+    (loaded : Generated.programImage.fileBytesLoadedFaithfully state.mem)
+    (condition : Runs (bTypeTaken (.Regidx 0#5) (.Regidx 10#5) .BNE)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d00)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d00) true) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x14d00 0x14d1c)
+        0x14d1c retired) false := by
+  obtain ⟨retired, counters⟩ := configured.counters
+  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
+    configured.stepContext 0x14d00 atPc (by
+      refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+  have loadedAfter : Generated.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Generated.programImage
+    (tryStepControlFlowAfterIncrement state) 0x14d00 (by native_decide) loadedAfter
+    0x63 0x1e 0x05 0x00 (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide)
+  have pcRead : Runs (readReg PC)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d00)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d00) 0x14d00 := by
+    apply readReg_run
+    simp [coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, atPc]
+  cases misaRead : state.regs.get? misa with
+  | none =>
+    have impossible := configured.normal.2.2.2.2.2.2.2.2.2.2.2
+    simp [misaRead] at impossible
+  | some misaBits =>
+    have zca := currentlyEnabledZca_run_atStepPremise state 0x14d00 misaBits misaRead
+    refine ⟨retired, ?_⟩
+    simpa only [show (0x14d00 : BitVec 64) + sign_extend (m := 64) (0x01c : BitVec 13) =
+        0x14d1c by native_decide] using
+      (tryStepBranchTakenRetires stepNo state 0x14d00 0x14d00 retired 0x01c
+        (.Regidx 0#5) (.Regidx 10#5) .BNE 0 0 0x63 0x1e 0x05 0x00
+        (_get_Misa_C misaBits == 1#1) platform noMMIO bytes interrupts (by rfl)
+        (main_decode_status_branch_decode state configured) notExpected condition pcRead
+        (by native_decide) (by native_decide) zca counters.1 counters.2.1 counters.2.2.1
+        counters.2.2.2.1 counters.2.2.2.2.1 counters.2.2.2.2.2)
+
 /-- Production `0x14cb0: addi sp, sp, -896`, including generated fetch and retirement. -/
 theorem main_stack_allocate_step (stepNo : Nat) (state : State) (stackValue : BitVec 64)
     (configured : ConfiguredMachinePre mainGluePcs state)
