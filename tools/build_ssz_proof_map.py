@@ -46,7 +46,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
     consumed_level1 = {"read_input", "alt_fl_alloc.get", "ssz_decode_root.decodeInput"}
     proved_level0_pcs = {
         0x14CB0, 0x14CB4, 0x14CB8, 0x14CBC, 0x14CC0, 0x14CC4, 0x14CC8,
-        0x14CEC, 0x14CF0, 0x14CF4, 0x14CF8,
+        0x14CEC, 0x14CF0, 0x14CF4, 0x14CF8, 0x14CFC,
     }
 
     boundaries, regions, nodes, edges = [], [], [], []
@@ -109,7 +109,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
 
     regions.append({
         "id": "level0-glue", "label": "main parent-owned glue", "authoringState": "proof_in_progress",
-        "blocker": "Continue from decodeInput return PC 0x14cfc through the status branch and both exits.",
+        "blocker": "Continue from the status branch at PC 0x14d00 through both output/exit routes.",
         "scope": "parent", "pcs": glue_pcs, "boundaryIds": [],
         "evidence": "production ELF structure and endpoint differential fixtures",
         "preparation": {"liveRegisters": [], "protectedMemory": [],

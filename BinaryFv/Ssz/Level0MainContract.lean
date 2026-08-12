@@ -69,6 +69,17 @@ private theorem main14cf8_not_syscall : ¬ LinuxSyscallPc 0x14cf8 := by
   unfold LinuxSyscallPc
   native_decide
 
+private theorem main14cfc_not_syscall : ¬ LinuxSyscallPc 0x14cfc := by
+  unfold LinuxSyscallPc
+  native_decide
+
+private theorem mainGluePcs_14cfc : mainGluePcs 0x14cfc := by
+  unfold mainGluePcs
+  refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide
+
+private theorem x10_not_instructionPreserved : ¬instructionPreserved x10 := by
+  simp [instructionPreserved, platformPreserved]
+
 private theorem sign_extend_zero_12_64 : sign_extend (m := 64) (0 : BitVec 12) = 0 := by
   native_decide
 
@@ -1077,5 +1088,107 @@ theorem main_call_decode (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
     afterCursor.trans (by simpa [callState] using cursor),
     afterStdout.trans (by simpa [callState] using stdout),
     afterExitCode.trans (by simpa [callState] using exitCode), outcomeRep⟩
+
+/-- Handoff after main loads the decoder status into `a0`, immediately before its branch. -/
+def MainStatusLoadedHandoff (args : MainArgs) (fromStep : Nat)
+    (before : EndpointState) : Prop :=
+  ∃ (readCount allocatorCount decodeCount : Nat) (after : EndpointState)
+      (readOutcome : ReadInputOutcome) (allocatorOutcome : AllocatorGetOutcome)
+      (decodeOutcome : DecodeBoundaryOutcome),
+    ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+      (12 + readCount + allocatorCount + decodeCount) before after ∧
+    0 < readCount ∧ 0 < allocatorCount ∧ 0 < decodeCount ∧
+    DecodeMeaningModuloKnownBugs
+      { returnAddress := 0x14cfc, savedReturnAddress := args.returnAddress,
+        inputAddress := readOutcome.inputAddress, input := args.input,
+        stackPointer := args.stackPointer,
+        allocatorStateAddress := allocatorOutcome.stateAddress,
+        allocatorVtableAddress := allocatorOutcome.vtableAddress }
+      decodeOutcome ∧
+    EndpointPc after = some 0x14d00 ∧
+    ConfiguredMachinePre mainGluePcs after.machine ∧
+    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
+    after.stdout = #[] ∧ after.exitCode = none ∧
+    match decodeOutcome with
+    | .failure => ∃ status : Nat, status ≠ 0 ∧ status < 2 ^ 16 ∧
+        after.machine.regs.get? x10 =
+          some (extend_value true (BitVec.ofNat 16 status))
+    | .success decoded =>
+        after.machine.regs.get? x10 = some (0#64) ∧
+        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded
+
+/-- Execute the exact status `lhu` using the read witness exported by `sszDecode`. -/
+theorem main_load_decode_status (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+    (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
+    MainStatusLoadedHandoff args fromStep before := by
+  obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
+      decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
+      atPc, configured, code, _sp, _inputAddressRep, _inputSizeRep, _savedReturnRep,
+      _inputRep, stdin, cursor, stdout, exitCode, outcomeRep⟩ :=
+    main_call_decode hLevel1 args fromStep before entry
+  cases decodeOutcome with
+  | failure =>
+      rcases outcomeRep with ⟨status, statusNe, statusFits, _statusRep, access, accessData⟩
+      obtain ⟨retired, run⟩ := main_decode_status_step
+        (fromStep + (11 + readCount + allocatorCount + decodeCount)) state.machine configured
+        (by simpa [EndpointPc] using atPc) code access
+      let afterMachine := afterRegisterWrite state.machine 0x14cfc retired x10
+        (extend_value true access.data)
+      let after : EndpointState := { state with machine := afterMachine }
+      have trace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+          (12 + readCount + allocatorCount + decodeCount) before after := by
+        simpa [after, afterMachine, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
+          prefixTrace.append (main_confined_sail_step
+            (fromStep + (11 + readCount + allocatorCount + decodeCount)) state afterMachine
+            0x14cfc atPc mainGluePcs_14cfc main14cfc_not_syscall run)
+      refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
+        .failure, trace,
+        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+        status, statusNe, statusFits, ?_⟩
+      · simpa using meaning
+      · simpa [after, EndpointPc, afterMachine] using
+          afterRegisterWrite_pc state.machine 0x14cfc retired x10 (extend_value true access.data)
+      · exact ConfiguredMachinePre.afterRegisterWrite 0x14cfc retired x10
+          (extend_value true access.data) configured x10_not_instructionPreserved
+      · simpa [after, afterMachine] using code
+      · simpa [after] using stdin
+      · simpa [after] using cursor
+      · simpa [after] using stdout
+      · simpa [after] using exitCode
+      · simpa [after, afterMachine, accessData] using
+          afterRegisterWrite_destination state.machine 0x14cfc retired x10
+            (extend_value true access.data)
+  | success decoded =>
+      rcases outcomeRep with ⟨_statusRep, ⟨access, accessData⟩, decodedRep⟩
+      obtain ⟨retired, run⟩ := main_decode_status_step
+        (fromStep + (11 + readCount + allocatorCount + decodeCount)) state.machine configured
+        (by simpa [EndpointPc] using atPc) code access
+      let afterMachine := afterRegisterWrite state.machine 0x14cfc retired x10
+        (extend_value true access.data)
+      let after : EndpointState := { state with machine := afterMachine }
+      have trace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+          (12 + readCount + allocatorCount + decodeCount) before after := by
+        simpa [after, afterMachine, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
+          prefixTrace.append (main_confined_sail_step
+            (fromStep + (11 + readCount + allocatorCount + decodeCount)) state afterMachine
+            0x14cfc atPc mainGluePcs_14cfc main14cfc_not_syscall run)
+      refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
+        .success decoded, trace,
+        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+      · simpa using meaning
+      · simpa [after, EndpointPc, afterMachine] using
+          afterRegisterWrite_pc state.machine 0x14cfc retired x10 (extend_value true access.data)
+      · exact ConfiguredMachinePre.afterRegisterWrite 0x14cfc retired x10
+          (extend_value true access.data) configured x10_not_instructionPreserved
+      · simpa [after, afterMachine] using code
+      · simpa [after] using stdin
+      · simpa [after] using cursor
+      · simpa [after] using stdout
+      · simpa [after] using exitCode
+      · simpa [after, afterMachine, accessData, extend_value, zero_extend] using
+          afterRegisterWrite_destination state.machine 0x14cfc retired x10
+            (extend_value true access.data)
+      · simpa [after, afterMachine, afterRegisterWrite_mem] using decodedRep
 
 end BinaryFv.Ssz
