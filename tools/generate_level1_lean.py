@@ -48,6 +48,11 @@ def lean_nats(values: list[int]) -> str:
     return "[" + ", ".join(hex(value) for value in values) + "]"
 
 
+def lean_words(values: list[tuple[int, int]]) -> str:
+    rows = [f"  ({pc:#x}, {word:#010x})" for pc, word in values]
+    return "[\n" + ",\n".join(rows) + "\n]"
+
+
 def syscall_pcs(cfg: dict, manifest: dict) -> dict[str, int]:
     functions = {row["name"]: row for row in cfg["functions"]}
     result: dict[str, int] = {}
@@ -90,10 +95,26 @@ def generate(manifest: dict, cfg: dict) -> str:
     glue_pcs = sorted(set(mains[0]["pcs"]) - selected_extent)
     if len(glue_pcs) != 24:
         raise ValueError("expected exactly 24 Level 0 parent-owned instructions")
+    instructions = {
+        instruction["pc"]: instruction
+        for function in cfg["functions"]
+        for block in function["blocks"]
+        for instruction in block["instructions"]
+    }
+    if any(pc not in instructions for pc in glue_pcs):
+        raise ValueError("Level 0 instruction is absent from the CFG instruction table")
+    glue_words = []
+    for pc in glue_pcs:
+        encoded = bytes.fromhex(instructions[pc]["bytes"])
+        if len(encoded) != 4:
+            raise ValueError(f"Level 0 instruction at {pc:#x} is not a four-byte word")
+        glue_words.append((pc, int.from_bytes(encoded, "little")))
     lines.extend([
         f"def mainEntry : Nat := {mains[0]['entryPc']:#x}",
         f"def mainGlueInstructionCount : Nat := {len(glue_pcs)}",
         f"def mainGluePcRanges : List PcRange := {lean_ranges(glue_pcs)}",
+        "/-- Exact little-endian words of the Level 0 instructions, generated from the production CFG. -/",
+        f"def mainGlueWords : List (Nat × Nat) := {lean_words(glue_words)}",
         "",
     ])
     for qualified, lean_name in NAMES.items():
