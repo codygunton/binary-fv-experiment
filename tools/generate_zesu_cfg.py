@@ -118,7 +118,7 @@ def die_text(die, attribute: str) -> str | None:
     return None
 
 
-def die_source(die, attribute: str) -> tuple[str | None, int | None]:
+def die_source(die, attribute: str) -> tuple[str | None, int | None, int | None]:
     current = die
     seen = set()
     while current is not None and current.offset not in seen:
@@ -133,12 +133,20 @@ def die_source(die, attribute: str) -> tuple[str | None, int | None]:
                 file = files[index - 1]
                 directory = directories[file.dir_index] if file.dir_index < len(directories) else b"."
                 path = Path(directory.decode(errors="replace")) / file.name.decode(errors="replace")
-                line_name = "DW_AT_call_line" if attribute == "DW_AT_call_file" else "DW_AT_decl_line"
+                call_site = attribute == "DW_AT_call_file"
+                line_name = "DW_AT_call_line" if call_site else "DW_AT_decl_line"
                 line = current.attributes.get(line_name)
-                return normalize_source(str(path)), line.value if line is not None else None
+                # The column is what makes an inline instance's identity unique. Two calls to the
+                # same function on one line -- `sizeClass` and `sizeClassOfBytes` each have a pair
+                # -- collapse to one identity without it, and a `FunctionInstanceId` is defined to
+                # be address-free, so the collision is not recoverable downstream.
+                column = current.attributes.get("DW_AT_call_column") if call_site else None
+                return (normalize_source(str(path)),
+                        line.value if line is not None else None,
+                        column.value if column is not None else None)
         reference = current.attributes.get("DW_AT_abstract_origin") or current.attributes.get("DW_AT_specification")
         current = current.get_DIE_from_attribute(reference.name) if reference is not None else None
-    return None, None
+    return None, None, None
 
 
 def die_ranges(die) -> list[tuple[int, int]]:
@@ -190,14 +198,15 @@ def function_instances(elf: ELFFile, instructions: dict[int, dict]) -> list[dict
             instance_id = f"fi:{cu_index}:{die.offset:x}"
             die_to_id[die.offset] = instance_id
             name = die_text(die, "DW_AT_linkage_name") or die_text(die, "DW_AT_name") or "<anonymous>"
-            source_file, decl_line = die_source(die, "DW_AT_decl_file")
-            call_file, call_line = die_source(die, "DW_AT_call_file") if kind == "inlined" else (None, None)
+            source_file, decl_line, _ = die_source(die, "DW_AT_decl_file")
+            call_file, call_line, call_column = (
+                die_source(die, "DW_AT_call_file") if kind == "inlined" else (None, None, None))
             instances.append({
                 "id": instance_id, "name": name, "kind": kind,
                 "ranges": [{"start": start, "end": end} for start, end in ranges],
                 "pcs": pcs, "entryPc": min(pcs), "instructionCount": len(pcs),
                 "sourceFile": source_file, "declLine": decl_line,
-                "callFile": call_file, "callLine": call_line,
+                "callFile": call_file, "callLine": call_line, "callColumn": call_column,
                 "dieOffset": die.offset, "parent": None,
             })
     for instance in instances:
