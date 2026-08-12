@@ -10,6 +10,8 @@ static FILE *out;
 static GHashTable *snapshot_pcs;
 static GPtrArray *vcpu_registers;
 static uint64_t capture_write_pc;
+static uint64_t input_address, context_address, terminal_pc;
+static GByteArray *input_bytes;
 
 struct registers { struct qemu_plugin_register *x[32]; GByteArray *buf; };
 
@@ -75,6 +77,20 @@ static void vcpu_init(qemu_plugin_id_t id, unsigned vcpu) {
   if (!vcpu_registers) vcpu_registers = g_ptr_array_new_with_free_func(free_registers);
   g_ptr_array_set_size(vcpu_registers, MAX(vcpu_registers->len, vcpu + 1));
   g_ptr_array_index(vcpu_registers, vcpu) = regs;
+  if (input_bytes) {
+    GByteArray *length = g_byte_array_sized_new(8);
+    uint64_t value = input_bytes->len;
+    for (unsigned i = 0; i < 8; ++i) {
+      uint8_t byte = (uint8_t)(value >> (8 * i));
+      g_byte_array_append(length, &byte, 1);
+    }
+    if (!qemu_plugin_write_memory_vaddr(input_address, input_bytes) ||
+        !qemu_plugin_write_memory_vaddr(context_address, length)) {
+      fprintf(stderr, "failed to initialize bare-metal input memory\n");
+      exit(2);
+    }
+    g_byte_array_free(length, TRUE);
+  }
 }
 
 static struct registers *registers_for(unsigned vcpu) {
@@ -100,7 +116,7 @@ static void execute(unsigned vcpu, void *data) {
     }
     g_byte_array_free(bytes, TRUE);
   }
-  if (!g_hash_table_contains(snapshot_pcs, &pc)) return;
+  if (!g_hash_table_contains(snapshot_pcs, &pc) && pc != terminal_pc) return;
   uint32_t available = 0;
   uint64_t values[32];
   for (unsigned i = 0; i < 32; ++i) {
@@ -110,6 +126,25 @@ static void execute(unsigned vcpu, void *data) {
   fprintf(out, "R %" PRIu64 " %" PRIu32, pc, available);
   for (unsigned i = 0; i < 32; ++i) fprintf(out, " %" PRIu64, values[i]);
   fputc('\n', out);
+  if (pc == terminal_pc) {
+    GByteArray *context = g_byte_array_new();
+    if (!qemu_plugin_read_memory_vaddr(context_address, context, 32)) exit(3);
+    uint64_t address = 0, length = 0;
+    for (unsigned i = 0; i < 8; ++i) {
+      address |= (uint64_t)context->data[8 + i] << (8 * i);
+      length |= (uint64_t)context->data[16 + i] << (8 * i);
+    }
+    GByteArray *bytes = g_byte_array_new();
+    if (length > 64 * 1024 * 1024 ||
+        (length && !qemu_plugin_read_memory_vaddr(address, bytes, (size_t)length))) exit(4);
+    fprintf(out, "B %" PRIu64 " %" PRIu64 " %" PRIu64 " ", pc, address, length);
+    for (guint i = 0; i < bytes->len; ++i) fprintf(out, "%02x", bytes->data[i]);
+    fputc('\n', out);
+    fflush(out);
+    g_byte_array_free(bytes, TRUE);
+    g_byte_array_free(context, TRUE);
+    exit(0);
+  }
 }
 
 static void memory(unsigned vcpu, qemu_plugin_meminfo_t info, uint64_t address, void *data) {
@@ -137,19 +172,34 @@ static void finish(qemu_plugin_id_t id, void *data) {
   if (out && out != stderr) fclose(out);
   if (snapshot_pcs) g_hash_table_destroy(snapshot_pcs);
   if (vcpu_registers) g_ptr_array_free(vcpu_registers, TRUE);
+  if (input_bytes) g_byte_array_free(input_bytes, TRUE);
 }
 
 QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
                                             int argc, char **argv) {
   (void)info;
   const char *path = NULL;
+  const char *input_path = NULL;
   for (int i = 0; i < argc; ++i) {
     if (g_str_has_prefix(argv[i], "out=")) path = argv[i] + 4;
     if (g_str_has_prefix(argv[i], "capture_write="))
       capture_write_pc = g_ascii_strtoull(argv[i] + 14, NULL, 0);
+    if (g_str_has_prefix(argv[i], "input=")) input_path = argv[i] + 6;
+    if (g_str_has_prefix(argv[i], "input_address="))
+      input_address = g_ascii_strtoull(argv[i] + 14, NULL, 0);
+    if (g_str_has_prefix(argv[i], "context_address="))
+      context_address = g_ascii_strtoull(argv[i] + 16, NULL, 0);
+    if (g_str_has_prefix(argv[i], "terminal="))
+      terminal_pc = g_ascii_strtoull(argv[i] + 9, NULL, 0);
   }
   out = path ? fopen(path, "w") : stderr;
   if (!out) return -1;
+  if (input_path) {
+    gchar *contents = NULL;
+    gsize length = 0;
+    if (!g_file_get_contents(input_path, &contents, &length, NULL)) return -1;
+    input_bytes = g_byte_array_new_take((guint8 *)contents, length);
+  }
   snapshot_pcs = g_hash_table_new_full(g_int64_hash, g_int64_equal, g_free, NULL);
   for (int i = 0; i < argc; ++i) {
     const char *value = NULL;

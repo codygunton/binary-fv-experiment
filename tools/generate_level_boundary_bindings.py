@@ -63,6 +63,21 @@ def generate(manifest: dict, elf_path: Path) -> dict:
         dies = {die.offset: die for cu in dwarf.iter_CUs() for die in cu.iter_DIEs()}
         rows = []
         for instance in manifest["instances"]:
+            if instance["id"].startswith("fn:"):
+                abi = {
+                    "read_input": [("buffer", 10), ("size", 11)],
+                    "zkvm_exit": [("code", 10)],
+                }.get(instance["qualified"], [])
+                rows.append({
+                    "id": instance["id"], "qualified": instance["qualified"],
+                    "entryPc": instance["entryPc"],
+                    "bindings": [{
+                        "kind": "parameter", "name": name,
+                        "expression": f"assembly ABI register x{register}",
+                        "machineRegister": register, "addressRegister": None,
+                    } for name, register in abi],
+                })
+                continue
             die_offset = int(instance["id"].rsplit(":", 1)[1], 16)
             die = dies.get(die_offset)
             if die is None:
@@ -110,7 +125,8 @@ def generate(manifest: dict, elf_path: Path) -> dict:
         "artifact": manifest["artifact"],
         "level": manifest["level"],
         "instances": rows,
-        "interpretation": "same-ELF DWARF locations live at the exact selected entry PC",
+        "interpretation": ("same-ELF DWARF locations, or explicit assembly ABI registers for "
+                           "symbol-only bare-metal host functions, at the exact selected entry PC"),
     }
 
 

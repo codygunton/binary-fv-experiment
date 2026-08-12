@@ -17,6 +17,20 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
     if level < 1:
         raise ValueError("a refinement manifest must select Level 1 or deeper")
     rows = {row["id"]: row for row in cfg["functionInstances"]}
+    concrete_entries = {row["entryPc"] for row in rows.values() if row["kind"] == "concrete"}
+    for function in cfg["functions"]:
+        if function["start"] in concrete_entries:
+            continue
+        identifier = f"fn:0x{function['start']:x}"
+        pcs = [instruction["pc"] for block in function["blocks"]
+               for instruction in block["instructions"]]
+        rows[identifier] = {
+            "id": identifier, "name": function["name"], "kind": "concrete",
+            "parent": None, "entryPc": function["start"], "pcs": pcs,
+            "instructionCount": len(pcs), "dieOffset": 0,
+            "sourceFile": function.get("sourceFile") or "runtime/riscv64/riscv64_baremetal_host.S",
+            "declLine": function.get("sourceLine", 0), "callFile": None, "callLine": 0,
+        }
     instruction_at_pc = {}
     successors: dict[int, set[int]] = defaultdict(set)
     for function in cfg["functions"]:
@@ -44,6 +58,8 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
 
     def resolve(display_identifier: str) -> str:
         if not display_identifier.startswith("fn:"):
+            return display_identifier
+        if display_identifier in rows:
             return display_identifier
         entry = int(display_identifier.removeprefix("fn:"), 16)
         candidates = [row["id"] for row in rows.values()
@@ -193,7 +209,7 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
             exit_pcs.update(return_targets[row["name"]])
         if row["name"] == "zkvm_exit":
             exit_pcs = {
-                pc for pc in subtree if instruction_at_pc[pc]["mnemonic"] == "ecall"
+                pc for pc in subtree if pc in successors.get(pc, set())
             }
         else:
             exit_pcs.update(

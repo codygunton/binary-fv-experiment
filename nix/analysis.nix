@@ -3,7 +3,7 @@ let
   inherit (rv64) riscvNm riscvObjdump riscvSize;
   zesuRv64Object = targets.public.zesuRv64Object;
   zesuSszDecodeRv64Elf = targets.public.zesuSszDecodeRv64Elf;
-  zesuSszDecodeBareMetalRv64Elf = targets.public.zesuSszDecodeBareMetalRv64Elf;
+  zesuSszDecodeLinuxRv64Elf = targets.public.zesuSszDecodeLinuxRv64Elf;
 
   stats = pkgs.runCommand "zesu-rv64-object-stats" { } ''
     mkdir -p "$out/bin" "$out/meta"
@@ -39,21 +39,15 @@ let
     '';
   zesuCfg = makeCfg "zesu-rv64-cfg-d67f28c" zesuRv64Object "obj/zesu.o";
   zesuSszDecodeCfg = makeCfg "zesu-ssz-decode-rv64-cfg-d67f28c" zesuSszDecodeRv64Elf "bin/zesu-ssz-decode";
-  zesuSszDecodeBareMetalCfg = pkgs.runCommand "zesu-ssz-decode-bare-metal-rv64-cfg-d67f28c"
-    { nativeBuildInputs = [ python ]; } ''
-      mkdir -p "$out"
-      python ${../tools/generate_zesu_cfg.py} \
-        --object ${zesuSszDecodeBareMetalRv64Elf}/bin/zesu-ssz-decode \
-        --output "$out/zesu-cfg.json" --flame "$out/flame.json" \
-        --proof-map "$out/proof-map.json"
-    '';
+  zesuSszDecodeLinuxCfg = makeCfg "zesu-ssz-decode-linux-rv64-cfg-d67f28c"
+    zesuSszDecodeLinuxRv64Elf "bin/zesu-ssz-decode";
   zesuSszDecodeBareMetalRetargetCheck = pkgs.runCommand
     "zesu-ssz-decode-bare-metal-retarget-check-d67f28c" { nativeBuildInputs = [ python ]; } ''
       python ${../tools/validate_baremetal_retarget.py} \
-        --old-elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
-        --new-elf ${zesuSszDecodeBareMetalRv64Elf}/bin/zesu-ssz-decode \
-        --old-cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
-        --new-cfg ${zesuSszDecodeBareMetalCfg}/zesu-cfg.json
+        --old-elf ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
+        --new-elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+        --old-cfg ${zesuSszDecodeLinuxCfg}/zesu-cfg.json \
+        --new-cfg ${zesuSszDecodeCfg}/zesu-cfg.json
       touch "$out"
     '';
 
@@ -145,8 +139,8 @@ let
     python -m unittest discover -s tools -p 'test_*.py'
     gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel1Manifest}/level1-manifest.json"))["instances"]; cfg=json.load(open("${zesuSszDecodeCfg}/zesu-cfg.json")); main=next(row for row in cfg["functionInstances"] if row["kind"] == "concrete" and row["name"] == "ssz_decode_root.main"); pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | set(main["pcs"])); print(",".join("snapshot="+str(pc) for pc in pcs))')
-    ${rv64.qemuRiscv64} -plugin ./trace.so,out=minimal.trace,capture_write=65972,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/minimal.ssz > /dev/null
-    ${rv64.qemuRiscv64} -plugin ./trace.so,out=invalid.trace,capture_write=65972,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/invalid.ssz > /dev/null
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=minimal.trace,input=${targets.public.zesuSszDecodeSmoke}/minimal.ssz,input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=invalid.trace,input=${targets.public.zesuSszDecodeSmoke}/invalid.ssz,input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
     mkdir -p "$out"
     python tools/analyze.py --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
       --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json \
@@ -168,9 +162,8 @@ let
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel2Manifest}/level2-manifest.json"))["instances"]; pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | {pc for row in rows for pc in row["exitPcs"]}); print(",".join("snapshot="+str(pc) for pc in pcs))')
     for vector in minimal block-number chain-id-zero legacy-requests legacy-payload \
         future-activation extra-data-33 public-key-overflow versioned-hash-overflow invalid; do
-      ${rv64.qemuRiscv64} -plugin ./trace.so,out="$vector.trace",capture_write=65972,"$snapshots" \
-        ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
-        < ${targets.public.zesuSszDecodeSmoke}/"$vector.ssz" > /dev/null
+      ${rv64.qemuRiscv64} -plugin ./trace.so,out="$vector.trace",input=${targets.public.zesuSszDecodeSmoke}/"$vector.ssz",input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,"$snapshots" \
+        ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
     done
     mkdir -p "$out"
     python tools/analyze.py --structural-only \
@@ -230,7 +223,7 @@ let
 in
 {
   public = {
-    inherit dump stats zesuCfg zesuSszDecodeCfg zesuSszDecodeBareMetalCfg
+    inherit dump stats zesuCfg zesuSszDecodeCfg zesuSszDecodeLinuxCfg
       zesuSszDecodeBareMetalRetargetCheck zesuSszDecodeLevel1Manifest
       zesuSszDecodeLevel2Manifest
       zesuSszDecodeLevel1BoundaryBindings zesuSszDecodeLevel2BoundaryBindings

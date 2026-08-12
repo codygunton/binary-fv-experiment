@@ -89,7 +89,7 @@ let
       old.installPhase;
   });
 
-  zesuSszDecodeRv64Elf = pkgs.stdenvNoCC.mkDerivation {
+  zesuSszDecodeLinuxRv64Elf = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-ssz-decode-rv64im-elf";
     version = "d67f28c";
     dontUnpack = true;
@@ -125,7 +125,7 @@ let
     '';
   };
 
-  zesuSszDecodeBareMetalRv64Elf = pkgs.stdenvNoCC.mkDerivation {
+  zesuSszDecodeRv64Elf = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-ssz-decode-bare-metal-rv64im-elf";
     version = "d67f28c";
     dontUnpack = true;
@@ -179,27 +179,27 @@ let
     python ${repo}/tools/make_minimal_ssz.py public-key-overflow.ssz --mutation public-key-overflow
     python ${repo}/tools/make_minimal_ssz.py versioned-hash-overflow.ssz --mutation versioned-hash-overflow
 
-    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < minimal.ssz > success.out
-    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < minimal.ssz > repeated.out
-    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < invalid.ssz > rejected.out
-    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < block-number.ssz > changed.out
-    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < chain-id-zero.ssz > chain-id-zero.out
-    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < legacy-requests.ssz > legacy-requests.out
-    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < legacy-payload.ssz > legacy-payload.out
-    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < future-activation.ssz > future-activation.out
-    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < extra-data-33.ssz > extra-data-33.out
-    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < public-key-overflow.ssz > public-key-overflow.out
-    ${rv64.qemuRiscv64} ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < versioned-hash-overflow.ssz > versioned-hash-overflow.out
 
     test "$(od -An -tx1 -N6 success.out | tr -d ' \n')" = 5a53535a0101
@@ -265,12 +265,12 @@ in
 {
   public = {
     inherit zesuRv64Object zesuSszDecodeRv64Object zesuSszDecodeRv64Elf
-      zesuSszDecodeBareMetalRv64Elf zesuSszDecodeSmoke
+      zesuSszDecodeLinuxRv64Elf zesuSszDecodeSmoke
       zesuSszDecodeSourceProbe;
     zesu-rv64-object = zesuRv64Object;
     zesu-ssz-decode-rv64-object = zesuSszDecodeRv64Object;
     zesu-ssz-decode-rv64-elf = zesuSszDecodeRv64Elf;
-    zesu-ssz-decode-bare-metal-rv64-elf = zesuSszDecodeBareMetalRv64Elf;
+    zesu-ssz-decode-linux-rv64-elf = zesuSszDecodeLinuxRv64Elf;
     zesu-ssz-decode-smoke = zesuSszDecodeSmoke;
   };
 }
