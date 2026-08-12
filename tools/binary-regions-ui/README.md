@@ -12,7 +12,7 @@ Zesu `main` hierarchy. Machine structure and source lines come from the same Rel
 the generated proof map supplies current proof colors.
 
 The left rail is **call depth**, which is contiguous and matches the flamegraph's physical rows.
-Proof refinement level follows actual call and inlining edges and can differ for shared emitted
-functions; clicking a frame reports both values. For example, `memcpy` is displayed once at call
-depth 1 because many descendants share the emitted body, but it is proof Level 2 and is not one of
-the six assumptions in `Level1ContractAssumptions`.
+Every static callsite gets its own displayed instance, even when multiple callers invoke the same
+emitted function body. Clicking a frame reports that invocation's callsite and return PC. Proof
+status first keys the callsite instance; a body-level theorem such as `memcpyInstanceContract` is
+shown as reusable machine work, not as evidence that every caller-specific composition is complete.

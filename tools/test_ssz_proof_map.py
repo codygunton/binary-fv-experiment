@@ -77,7 +77,7 @@ class ProofMapTest(unittest.TestCase):
         self.assertEqual(progress[main["id"]], "invalid_target_model")
         self.assertEqual(progress["fi:1:57d"], "invalid_target_model")
         self.assertEqual(progress["fi:1:3c7"], "invalid_target_model")
-        self.assertEqual(progress["fi:1:31b"], "unconditionally_proven")
+        self.assertEqual(progress["fi:1:31b"], "proof_in_progress")
         self.assertEqual({progress[row["id"]] for row in self.documents[5]["instances"]
                           if row["id"] not in {"fi:1:57d", "fi:1:3c7", "fi:1:31b"}},
                          {"contract_specified_assumption"})

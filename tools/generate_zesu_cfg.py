@@ -509,156 +509,145 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
     ownership = symbol_ownership
     known = {fn["name"] for fn in function_rows if ownership[fn["name"]]}
     root = "main" if "main" in known else min(known)
-    parents, reachable = dominator_parents(root, known, calls)
+    call_successors: dict[str, set[str]] = defaultdict(set)
+    for call in calls:
+        call_successors[call["caller"]].add(call["callee"])
+    reachable, todo = set(), [root]
+    while todo:
+        current = todo.pop()
+        if current in reachable:
+            continue
+        reachable.add(current)
+        todo.extend(call_successors[current] - reachable)
     starts = {fn["name"]: fn["start"] for fn in function_rows}
     fn_by_name = {fn["name"]: fn for fn in function_rows}
     meta = {}
     callers, callees = defaultdict(list), defaultdict(list)
     for call in calls: callers[call["callee"]].append(call); callees[call["caller"]].append(call)
 
-    def inline_chain(instance_id: str) -> list[str]:
-        chain = []
-        current = instance_id
-        while current in inline_by_id:
-            chain.append(current)
-            current = inline_by_id[current]["parent"]
-        return list(reversed(chain))
-
-    def common_inline_ancestor(call_rows: list[dict]) -> str | None:
-        chains = [inline_chain(inline_at_pc[row["source"]]) for row in call_rows if row["source"] in inline_at_pc]
-        if len(chains) != len(call_rows) or not chains:
-            return None
-        common = []
-        for entries in zip(*chains):
-            if len(set(entries)) != 1:
-                break
-            common.append(entries[0])
-        return common[-1] if common else None
-
-    # A concrete callee remains in the emitted-function dominator tree, but is displayed beneath
-    # the deepest inline instance common to every actual callsite from its dominator parent.
-    anchored_children: dict[str, list[str]] = defaultdict(list)
-    concrete_placement = {}
-    for child, parent in parents.items():
-        relevant = [row for row in calls if row["caller"] == parent and row["callee"] == child]
-        anchor = common_inline_ancestor(relevant) or parent
-        anchored_children[anchor].append(child)
-        concrete_placement[child] = {"anchor": anchor, "callsites": [row["source"] for row in relevant]}
-    for rows in anchored_children.values():
-        rows.sort(key=lambda name: (starts.get(name, -2), name))
-
-    # Proof refinement levels follow actual call/inlining edges, not the unique display placement
-    # required by the flame tree for shared emitted functions.
-    proof_edges: dict[str, set[str]] = defaultdict(set)
-    inline_ids_by_name: dict[str, list[str]] = defaultdict(list)
-    for instance_id, instance in inline_by_id.items():
-        inline_ids_by_name[instance["name"]].append(instance_id)
-        parent = instance["parent"]
-        proof_parent = parent if parent in inline_by_id else concrete_symbol.get(parent)
-        if proof_parent is not None:
-            proof_edges[proof_parent].add(instance_id)
+    # Display concrete functions once per static callsite.  A shared emitted body is not a function
+    # instance: each callsite has its own caller bindings, return PC, evidence, and composition
+    # obligation even when every instruction in the callee body is byte-identical.
+    anchored_calls: dict[str, list[dict]] = defaultdict(list)
     for call in calls:
-        if call["source"] in inline_at_pc:
-            proof_callers = [inline_at_pc[call["source"]]]
-        elif call["caller"] in concrete_for_name:
-            proof_callers = [call["caller"]]
-        else:
-            proof_callers = inline_ids_by_name.get(call["caller"], [])
-        if call["callee"] in concrete_for_name:
-            for proof_caller in proof_callers:
-                proof_edges[proof_caller].add(call["callee"])
-    proof_depths = {root: 0}
-    pending = deque([root])
-    while pending:
-        proof_parent = pending.popleft()
-        for proof_child in proof_edges[proof_parent]:
-            candidate = proof_depths[proof_parent] + 1
-            if proof_child not in proof_depths or candidate < proof_depths[proof_child]:
-                proof_depths[proof_child] = candidate
-                pending.append(proof_child)
+        if call["caller"] not in reachable or call["callee"] not in reachable:
+            continue
+        anchor = inline_at_pc.get(call["source"], call["caller"])
+        anchored_calls[anchor].append(call)
+    for rows in anchored_calls.values():
+        rows.sort(key=lambda row: (row["source"], row["target"], row["callee"]))
 
-    def inline_node(instance_id: str, parent_key: str, level: int) -> tuple[dict, set[int]]:
+    # A callsite is one static proof obligation, even when its caller is itself reached at several
+    # callsites.  The tree expands the body below the first deterministic occurrence and leaves later
+    # caller instances as body references; otherwise a shared caller multiplies every descendant.
+    expanded_calls: set[int] = set()
+    expanded_inline: set[str] = set()
+
+    def inline_node(instance_id: str, parent_key: str, level: int,
+                    active_functions: tuple[str, ...]) -> tuple[dict, int]:
         instance = inline_by_id[instance_id]
         label = f"{instance['name']} [{instance_id}]"
         key = f"{parent_key}|{label}"
         own = inline_ownership[instance_id]
-        child_nodes, subtree = [], set(own)
-        for child_id in inline_children[instance_id]:
-            child_node, child_pcs = inline_node(child_id, key, level + 1)
-            child_nodes.append(child_node); subtree |= child_pcs
-        for child in anchored_children[instance_id]:
-            child_node, child_pcs = node(child, key, level + 1)
-            child_nodes.append(child_node); subtree |= child_pcs
+        child_nodes, subtree_size = [], len(own)
+        body_expanded = instance_id not in expanded_inline
+        expanded_inline.add(instance_id)
+        if body_expanded:
+            for child_id in inline_children[instance_id]:
+                child_node, child_size = inline_node(child_id, key, level + 1, active_functions)
+                child_nodes.append(child_node); subtree_size += child_size
+            for call in anchored_calls[instance_id]:
+                if call["source"] in expanded_calls:
+                    continue
+                expanded_calls.add(call["source"])
+                child_node, child_size = node(call["callee"], key, level + 1, call, active_functions)
+                child_nodes.append(child_node); subtree_size += child_size
+        invocation_id = key
         meta[key] = {
-            "owner": instance_id, "qualified": instance["name"], "kind": "inlinedFunctionInstance",
-            "refinementLevel": proof_depths.get(instance_id, level),
+            "owner": invocation_id, "machineOwner": instance_id,
+            "qualified": instance["name"], "kind": "inlinedFunctionInstance",
+            "refinementLevel": level,
             "displayTreeLevel": level,
             "hierarchy": "dwarfInlineNesting", "runs": instance["ranges"], "frags": len(instance["ranges"]),
-            "machineInstructionCount": instance["instructionCount"], "value": len(subtree), "self": len(own),
+            "machineInstructionCount": instance["instructionCount"], "value": subtree_size,
+            "self": len(own),
             "file": instance["sourceFile"],
             "line": instance["declLine"] or 0, "callFile": instance["callFile"],
             "callLine": instance["callLine"] or 0, "entries": [instance["entryPc"]], "exits": [],
             "loopSccs": [], "callers": [], "callees": [], "tailDependencies": [],
             "fragmentHandoffs": [], "parentReentryEdges": [], "carrierRoutes": [],
             "activeCalleeFrames": [], "src": None,
+            "sharedBodyExpansionTruncated": not body_expanded,
         }
-        return {"name": label, "value": len(subtree), "self": len(own), "children": child_nodes, "key": key}, subtree
+        return {"name": label, "value": subtree_size, "self": len(own),
+                "children": child_nodes, "key": key}, subtree_size
 
-    def node(name: str, parent_key: str | None, level: int) -> tuple[dict, set[int]]:
-        placement = concrete_placement.get(name, {"anchor": None, "callsites": []})
-        actual_callers = {row["caller"] for row in callers[name]}
-        display_hoisted = placement["anchor"] is not None and placement["anchor"] not in actual_callers
-        shared_suffix = " · shared/hoisted" if display_hoisted else ""
-        label = f"{name}{shared_suffix} [fn:0x{fn_by_name[name]['start']:x}]"
+    def node(name: str, parent_key: str | None, level: int, incoming: dict | None = None,
+             active_functions: tuple[str, ...] = ()) -> tuple[dict, int]:
+        callsite = f" @0x{incoming['source']:x}" if incoming is not None else ""
+        label = f"{name}{callsite} [fn:0x{fn_by_name[name]['start']:x}]"
         key = label if parent_key is None else f"{parent_key}|{label}"
         own = concrete_self[name]
-        child_nodes, subtree = [], set(own)
+        child_nodes, subtree_size = [], len(own)
+        cycle = name in active_functions
+        next_active = (*active_functions, name)
         concrete_id = concrete_for_name.get(name)
-        if concrete_id is not None:
+        if concrete_id is not None and not cycle:
             for inline_id in inline_children[concrete_id]:
-                child_node, child_pcs = inline_node(inline_id, key, level + 1)
-                child_nodes.append(child_node); subtree |= child_pcs
-        for child in anchored_children[name]:
-            child_node, child_pcs = node(child, key, level + 1); child_nodes.append(child_node); subtree |= child_pcs
+                child_node, child_size = inline_node(inline_id, key, level + 1, next_active)
+                child_nodes.append(child_node); subtree_size += child_size
+        if not cycle:
+            for call in anchored_calls[name]:
+                if call["source"] in expanded_calls:
+                    continue
+                expanded_calls.add(call["source"])
+                child_node, child_size = node(call["callee"], key, level + 1, call, next_active)
+                child_nodes.append(child_node); subtree_size += child_size
         fn = fn_by_name.get(name, {})
-        anchor_name = inline_by_id[placement["anchor"]]["name"] if placement["anchor"] in inline_by_id else placement["anchor"]
-        meta[key] = {"owner": concrete_id or name, "qualified": name, "kind": "concreteFunctionInstance",
-                     "refinementLevel": proof_depths.get(name, level),
+        invocation_id = key
+        display_anchor = None if incoming is None else inline_at_pc.get(incoming["source"], incoming["caller"])
+        display_anchor_name = (None if display_anchor is None else
+                               inline_by_id[display_anchor]["name"] if display_anchor in inline_by_id else
+                               incoming["caller"])
+        meta[key] = {"owner": invocation_id, "machineOwner": concrete_id or name,
+                     "qualified": name, "kind": "concreteCallsiteInstance",
+                     "refinementLevel": level,
                      "displayTreeLevel": level,
                      "hierarchy": "callDominatorAnchoredAtDeepestCommonInlineCallsite", "runs": [], "frags": 1,
-                     "machineInstructionCount": len(ownership[name]), "value": len(subtree), "self": len(own),
-                     "displayAnchor": placement["anchor"], "displayAnchorName": anchor_name,
-                     "displayHoisted": display_hoisted,
-                     "displayRelation": ("shared callee hoisted to its call-tree dominator"
-                                         if display_hoisted else "actual call-tree placement"),
-                     "displayCallsites": placement["callsites"],
+                     "machineInstructionCount": len(ownership[name]), "value": subtree_size,
+                     "self": len(own),
+                     "displayAnchor": display_anchor,
+                     "displayAnchorName": display_anchor_name,
+                     "displayHoisted": False, "displayRelation": "actual static callsite instance",
+                     "displayCallsites": [] if incoming is None else [incoming["source"]],
+                     "callsitePc": None if incoming is None else incoming["source"],
+                     "returnPc": None if incoming is None else incoming["source"] + 4,
+                     "cycleTruncated": cycle,
+                     "sharedBodyExpansionTruncated": bool(incoming) and not child_nodes and bool(anchored_calls[name]),
                      "file": fn.get("sourceFile"), "line": fn.get("sourceLine", 0), "entries": [fn["start"]],
                      "exits": [], "loopSccs": [], "callers": callers[name], "callees": callees[name], "tailDependencies": [],
                      "fragmentHandoffs": [], "parentReentryEdges": [], "carrierRoutes": [], "activeCalleeFrames": [], "src": None}
-        return {"name": label, "value": len(subtree), "self": len(own), "children": child_nodes, "key": key}, subtree
+        return {"name": label, "value": subtree_size, "self": len(own),
+                "children": child_nodes, "key": key}, subtree_size
 
-    tree, covered = node(root, None, 0)
+    tree, expanded_total = node(root, None, 0)
     reachable_pcs = set().union(*(set(ownership[name]) for name in reachable))
-    if covered != reachable_pcs:
-        raise ValueError("displayed call hierarchy does not cover the main-reachable inventory")
-    displayed_instances = {row["owner"] for row in meta.values()}
+    displayed_instances = {row["machineOwner"] for row in meta.values()}
     expected_instances = {instance_id for instance_id, name in concrete_symbol.items() if name in reachable}
     expected_instances |= {instance_id for instance_id, name in inline_symbol.items() if name in reachable}
     expected_instances |= {name for name in reachable if name not in concrete_for_name}
-    if displayed_instances != expected_instances:
+    if not expected_instances <= displayed_instances:
         missing = sorted(expected_instances - displayed_instances)
-        extra = sorted(displayed_instances - expected_instances)
         raise ValueError(
             "displayed call hierarchy does not contain every main-reachable DWARF function instance: "
-            f"missing={missing}, extra={extra}"
+            f"missing={missing}"
         )
-    if sum(row["self"] for row in meta.values()) != len(reachable_pcs):
-        raise ValueError("deepest function-instance instruction ownership is not unique")
     return {"schemaVersion": 3, "machineRegionInputs": {"target": "zesu-ssz-decode-c36bb99-release-small",
                                                          "functionInstances": "same-ELF DWARF"},
-            "total": len(instructions), "programTotal": len(reachable_pcs),
+            "total": len(instructions), "programTotal": expanded_total,
+            "uniqueProgramTotal": len(reachable_pcs),
             "loAddr": min(instructions), "tree": tree, "meta": meta,
-            "suggest": {"cap": 0, "coverage": len(covered), "units": [], "residual": {}, "needsSubFunctionSplit": []}}
+            "suggest": {"cap": 0, "coverage": len(reachable_pcs), "units": [], "residual": {}, "needsSubFunctionSplit": []}}
 
 
 def build_proof_map(functions_output: list[dict], formal_total: int) -> dict:

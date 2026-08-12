@@ -112,7 +112,7 @@
 <script src="vendor/d3.min.js"></script>
 <script src="vendor/d3-flamegraph.min.js"></script>
 <script>
-let D=null, META=null, OWNER_META=new Map(), TOTAL=0, PROGRAM_TOTAL=0, fg=null, PROGRESS=new Map();
+let D=null, META=null, OWNER_META=new Map(), MACHINE_META=new Map(), TOTAL=0, PROGRAM_TOTAL=0, fg=null, PROGRESS=new Map();
 let PROOF_MAP=null, PROOF_FILTER='all', PROOF_VIEW=false;
 let copyText='';
 const $=s=>document.querySelector(s);
@@ -126,7 +126,10 @@ Promise.all([fetch(FLAME_FILE).then(r=>r.json()),fetch('proof-progress.json').th
   fetch('proof-map.json').then(r=>r.ok?r.json():null)]).then(([d,p,proofMap])=>{
   D=d.tree; META=d.meta; TOTAL=d.total; PROGRAM_TOTAL=d.programTotal;
   PROOF_MAP=proofMap;
-  Object.values(META).forEach(m=>{if(m.owner) OWNER_META.set(m.owner,m)});
+  Object.values(META).forEach(m=>{
+    if(m.owner) OWNER_META.set(m.owner,m);
+    if(m.machineOwner&&!MACHINE_META.has(m.machineOwner)) MACHINE_META.set(m.machineOwner,m);
+  });
   (p.states||[]).forEach(state=>PROGRESS.set(state.owner||state.qualified,state));
   (PROOF_MAP?.flameProgress?.states||[]).forEach(state=>
     PROGRESS.set(state.owner||state.qualified,state));
@@ -143,7 +146,8 @@ function keyOf(node){
 
 let Z=1, baseW=0;
 const proofState=d=>{const meta=META[keyOf(d)]||{};
-  return PROGRESS.get(meta.owner)||PROGRESS.get(meta.qualified)||{status:'not_selected'};};
+  return PROGRESS.get(meta.owner)||PROGRESS.get(meta.machineOwner)||
+    PROGRESS.get(meta.qualified)||{status:'not_selected'};};
 const proofColor=s=>({unconditionally_proven:'#3ddc84',
   conditionally_proven:'url(#conditionally-proven)',in_progress:'#e5b84b',
   contracted:'url(#contract-specified)',contract_not_specified:'#d95757',
@@ -280,7 +284,7 @@ function details(d){
   $('#dname').textContent=qualified;
   setCopy(qualified);
   $('#dsub').textContent=`proof Level ${m.refinementLevel??'?'} · display row ${m.displayTreeLevel??d.depth} · ${m.machineInstructionCount??d.data.self} instance instructions · ${d.data.value} including descendants`;
-  const calls=(m.callees||[]).map(call=>`${esc(call.kind)} → ${esc(OWNER_META.get(call.callee)?.qualified||call.callee)}`);
+  const calls=(m.callees||[]).map(call=>`${esc(call.kind)} → ${esc(MACHINE_META.get(call.callee)?.qualified||call.callee)}`);
   const tails=(m.tailDependencies||[]).map(t=>`${esc(t.qualified)}: 0x${t.transfer.source.toString(16)} → 0x${t.transfer.target.toString(16)}, completes at ${t.completionSourcePcs.map(x=>'0x'+x.toString(16)).join(', ')}`);
   const handoffs=(m.fragmentHandoffs||[]).map(e=>`0x${e.sourcePc.toString(16)} → 0x${e.targetPc.toString(16)}`);
   const reentries=(m.parentReentryEdges||[]).map(e=>`0x${e.sourcePc.toString(16)} → 0x${e.targetPc.toString(16)}`);
@@ -298,12 +302,13 @@ function details(d){
     return [line,...frameTree(frame.activeCalleeFrames||[],depth+1)];
   });
   const activeFrames=frameTree(m.activeCalleeFrames||[]);
-  const callers=(m.callers||[]).map(call=>`${esc(call.kind)} ← ${esc(call.caller==='program'?'program':OWNER_META.get(call.caller)?.qualified||call.caller)}`);
+  const callers=(m.callers||[]).map(call=>`${esc(call.kind)} ← ${esc(call.caller==='program'?'program':MACHINE_META.get(call.caller)?.qualified||call.caller)}`);
   const displayCallsites=(m.displayCallsites||[]).map(pc=>'0x'+pc.toString(16)).join(', ');
   $('#rbody').innerHTML=
    `<div class="kv">
       <span>stack path</span><span>${esc(k.replace(/\|/g,' › '))}</span>
       <span>instance kind</span><span>${esc(m.kind||'?')}</span>
+      <span>callsite / return</span><span>${m.callsitePc==null?'program entry':`0x${m.callsitePc.toString(16)} / 0x${m.returnPc.toString(16)}`}</span>
       <span>proof status</span><span>${esc(progress.status.replaceAll('_',' '))}</span>
       <span>contract/theorem</span><span>${esc(progress.theorem||progress.contract||'none')}</span>
       <span>outstanding condition</span><span>${esc(progress.condition||'none')}</span>
@@ -319,7 +324,7 @@ function details(d){
       <span>instance instructions</span><span>${m.machineInstructionCount??d.data.self}</span>
       <span>subtree instructions</span><span>${d.data.value}</span>
       <span>fragments</span><span>${m.frags>1?`<b style="color:var(--cur)">${m.frags}</b> (non-contiguous)`:'1 (contiguous)'}</span>
-      <span>tree placement</span><span>${esc(m.displayRelation||'actual call-tree placement')}${m.displayHoisted?' — inspect callers below; this card is not a direct call from its displayed parent':''}</span>
+      <span>tree placement</span><span>${esc(m.displayRelation||'actual call-tree placement')}${m.cycleTruncated?' — recursive expansion stops here':''}</span>
       <span>children</span><span>${(d.children||d._children||[]).length}</span>
       <span>entries</span><span>${(m.entries||[]).map(x=>'0x'+x.toString(16)).join(', ')||'none'}</span>
       <span>exits</span><span>${(m.exits||[]).length}</span>

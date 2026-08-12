@@ -167,7 +167,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             boundary_bindings = level2_bindings_by_id[row["id"]]
             local_proof = level2_local_proofs.get(row["id"], "not_started")
             authoring_state = ("invalid_target_model" if local_proof == "invalid_target_model"
-                               else "unconditionally_proven" if local_proof == "proved_not_connected"
+                               else "proof_in_progress" if local_proof == "proved_not_connected"
                                else "proof_in_progress" if local_proof == "in_progress"
                                else "contract_specified_assumption")
             boundaries.append({
