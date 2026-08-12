@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.DecodedValue.Observers
+import BinaryFv.Zesu.DecodedValue.Encoder
 
 open BinaryFv.Zesu
 
@@ -22,6 +22,11 @@ def observationSmokeMain (arguments : List String) : IO Unit := do
   unless success.payload.blockNumber = 0 && changed.payload.blockNumber = 1 do
     throw (IO.userError "block-number mutation was not reflected by the typed decoder")
   let encoded ← IO.FS.readBinFile successPath
+  unless encodeZesuObservation (.success success) = encoded.data do
+    throw (IO.userError "Lean encoder disagrees with the production success observation")
+  let failed ← IO.FS.readBinFile failurePath
+  unless encodeZesuObservation .failure = failed.data do
+    throw (IO.userError "Lean encoder disagrees with the production failure observation")
   unless decodeZesuObservation (encoded.data.push 0) = none do
     throw (IO.userError "typed decoder accepted trailing bytes")
   unless decodeZesuObservation encoded.data.pop = none do

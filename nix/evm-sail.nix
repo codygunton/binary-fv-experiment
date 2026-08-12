@@ -87,6 +87,7 @@ let
     export LEAN_PATH=$PWD/compiled:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
     cp ${repo}/BinaryFv/Specs/SSZ/Decode.lean Decode.lean
     cp ${repo}/BinaryFv/Zesu/DecodedValue/Observers.lean Observers.lean
+    cp ${repo}/BinaryFv/Zesu/DecodedValue/Encoder.lean Encoder.lean
     cp ${repo}/BinaryFv/Zesu/DecodedValue/Representation.lean Representation.lean
     cp ${repo}/BinaryFv/Zesu/Contracts/KnownBugs.lean KnownBugs.lean
     cp ${repo}/BinaryFv/Zesu/Contracts/DecodedResultRelation.lean DecodedResultRelation.lean
@@ -133,6 +134,7 @@ let
       --replace-fail '@HASHES_SUCCESS@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.out'
     lean -o compiled/BinaryFv/Specs/SSZ/Decode.olean Decode.lean
     lean -o compiled/BinaryFv/Zesu/DecodedValue/Observers.olean Observers.lean
+    lean -o compiled/BinaryFv/Zesu/DecodedValue/Encoder.olean Encoder.lean
     lean -o compiled/BinaryFv/Zesu/DecodedValue/Representation.olean Representation.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/KnownBugs.olean KnownBugs.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/DecodedResultRelation.olean DecodedResultRelation.lean
