@@ -63,7 +63,8 @@ theorem pmaCheck_data_allowed (access : DataPmaAccess) (state : State)
     rcases allowed with ⟨regions, region, regionsRead, matching, permitted⟩
     change region.attributes.readable = true at permitted
     unfold Runs
-    simp [DataPmaAccess.memoryAccess, pmaCheck, PreSail.readReg, EStateM.run, EStateM.bind,
+    simp [DataPmaAccess.memoryAccess, pmaCheck, PreSail.readReg, EStateM.run,
+      Bind.bind, Pure.pure, Functor.map, MonadState.get, MonadStateOf.get, EStateM.bind,
       EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
       instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
       LeanRV64DExecutable.Functions.not, override_PMA, Sail.assert, PreSail.assert,
@@ -72,7 +73,8 @@ theorem pmaCheck_data_allowed (access : DataPmaAccess) (state : State)
     rcases allowed with ⟨regions, region, regionsRead, matching, permitted⟩
     change region.attributes.writable = true at permitted
     unfold Runs
-    simp [DataPmaAccess.memoryAccess, pmaCheck, PreSail.readReg, EStateM.run, EStateM.bind,
+    simp [DataPmaAccess.memoryAccess, pmaCheck, PreSail.readReg, EStateM.run,
+      Bind.bind, Pure.pure, Functor.map, MonadState.get, MonadStateOf.get, EStateM.bind,
       EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
       instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
       LeanRV64DExecutable.Functions.not, override_PMA, Sail.assert, PreSail.assert,

@@ -61,7 +61,9 @@ private theorem RunsME.lift {ε α : Type} (action : SailM α) (before after : S
   change Runs (ExceptT.run (liftM action : SailME ε α)) before after (Except.ok value)
   change Runs (Except.ok <$> action) before after (Except.ok value)
   unfold Runs at hAction ⊢
-  simp only [EStateM.run, EStateM.instMonad, EStateM.map] at hAction ⊢
+  unfold EStateM.run at hAction
+  change EStateM.map Except.ok action before = EStateM.Result.ok (Except.ok value) after
+  unfold EStateM.map
   rw [hAction]
 
 /-- Unwrap the generated `SailME.run` around a normally-completing action. -/
