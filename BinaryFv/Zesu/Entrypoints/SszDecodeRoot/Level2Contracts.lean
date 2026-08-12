@@ -218,4 +218,47 @@ abbrev WriteSuccessIntInstanceContract : Prop :=
     Elflings.writeSuccessIntExecutionPcRanges Elflings.writeSuccessIntExitPcs 16
     (encodeNatLE 8) UInt64EncoderBinding
 
+structure MemcpyArgs where
+  returnAddress : Nat
+  destination : Nat
+  source : Nat
+  bytes : Array UInt8
+
+def MemcpyEntry (args : MemcpyArgs) (state : EndpointState) : Prop :=
+  args.returnAddress ∈ Elflings.memcpyExitPcs ∧
+  args.destination + args.bytes.size ≤ 2 ^ 64 ∧
+  args.source + args.bytes.size ≤ 2 ^ 64 ∧
+  (args.destination + args.bytes.size ≤ args.source ∨
+    args.source + args.bytes.size ≤ args.destination) ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.memcpyEntry) ∧
+  state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
+  state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.destination) ∧
+  state.machine.regs.get? x11 = some (BitVec.ofNat 64 args.source) ∧
+  state.machine.regs.get? x12 = some (BitVec.ofNat 64 args.bytes.size) ∧
+  BytesRep state.machine.mem args.source args.bytes ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+
+def MemcpyExit (args : MemcpyArgs) (_outcome : Unit)
+    (before after : EndpointState) : Prop :=
+  after.machine.regs.get? PC = some (BitVec.ofNat 64 args.returnAddress) ∧
+  after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
+  after.stdout = before.stdout ∧ after.exitCode = before.exitCode ∧
+  BytesRep after.machine.mem args.destination args.bytes ∧
+  BytesRep after.machine.mem args.source args.bytes ∧
+  BinaryFv.RiscV.WritesOnlyWithin
+    (BinaryFv.RiscV.byteRange args.destination args.bytes.size) before.machine after.machine ∧
+  EndpointCallFrame before after
+
+def memcpyContract (stepBound : Nat → Nat) :
+    RelationalMachineContract EndpointState MemcpyArgs Unit :=
+  { allows := fun _ _ => True
+    entry := MemcpyEntry
+    exit := MemcpyExit
+    stepBound := fun args => stepBound args.bytes.size }
+
+def MemcpyInstanceContract : Prop :=
+  ∃ stepBound : Nat → Nat,
+    (memcpyContract stepBound).Implements EndpointStep EndpointPc
+      (pcInRanges Elflings.memcpyExecutionPcRanges) (pcInList Elflings.memcpyExitPcs)
+
 end BinaryFv.Zesu

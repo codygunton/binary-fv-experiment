@@ -6,4 +6,6 @@ instructions. `Level2Contracts.lean` states the reviewed fixed-raw encoder contr
 genuine encoder-call contracts for booleans, optional u64 values, byte-list arrays, byte slices, and
 u64 values. The genuine-call contracts bind semantic values to entry registers and memory, and frame
 their exact temporary stack windows; the larger inlined encoder regions require separate live-state
-contracts. `HostExecution.lean` models the linked read/write/exit ecalls.
+contracts. The same file states the shared emitted `memcpy` contract, including nonoverlapping source
+and destination windows, byte-copy semantics, and its exact generated return set. `HostExecution.lean`
+models the linked read/write/exit ecalls.
