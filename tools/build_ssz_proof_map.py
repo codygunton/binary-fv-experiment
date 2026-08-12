@@ -51,12 +51,12 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         "ssz_decode_observation.writeFailure",
     }
     level1_local_proofs = {
-        "read_input": "in_progress",
-        "zkvm_exit": "proved_not_connected",
+        "read_input": "invalid_target_model",
+        "zkvm_exit": "invalid_target_model",
     }
     level2_local_proofs = {
-        "fi:1:57d": "in_progress",
-        "fi:1:3c7": "proved_not_connected",
+        "fi:1:57d": "invalid_target_model",
+        "fi:1:3c7": "invalid_target_model",
         "fi:1:31b": "proved_not_connected",
     }
     proved_level0_pcs = {
@@ -76,7 +76,9 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         boundary_bindings = bindings_by_id[row["id"]]
         boundary_id = "level1-" + row["id"].replace(":", "-")
         source = row["functionInstanceIdentity"]["function"]["declaration"]
-        contract_status = "specified_assumption"
+        contract_status = ("invalid_linux_qemu_shim"
+                           if row["qualified"] in {"read_input", "zkvm_exit"}
+                           else "specified_assumption")
         boundaries.append({
             "id": boundary_id, "instanceId": row["id"], "qualified": row["qualified"],
             "entryPc": row["entryPc"], "instructionPcs": row["instructionPcs"],
@@ -96,10 +98,14 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         })
         regions.append({
             "id": boundary_id, "label": row["qualified"],
-            "authoringState": ("proof_in_progress" if row["qualified"] in level1_local_proofs
+            "authoringState": ("invalid_target_model"
+                               if level1_local_proofs.get(row["qualified"]) == "invalid_target_model"
+                               else "proof_in_progress" if row["qualified"] in level1_local_proofs
                                else "contract_consumed"),
             "blocker": ("Local machine proof exists but level1Contracts_of_level2 is not proved."
                         if level1_local_proofs.get(row["qualified"]) == "proved_not_connected"
+                        else "Linux/QEMU shim is not the required bare-metal zkVM boundary."
+                        if level1_local_proofs.get(row["qualified"]) == "invalid_target_model"
                         else "Machine proof is in progress."
                         if level1_local_proofs.get(row["qualified"]) == "in_progress"
                         else "Level 0 consumes this contract; its machine proof is deferred."),
@@ -118,7 +124,9 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         nodes.append({
             "id": node_id, "label": row["qualified"], "kind": "level1Contract",
             "column": 1,
-            "status": ("proof_in_progress" if row["qualified"] in level1_local_proofs
+            "status": ("invalid_target_model"
+                       if level1_local_proofs.get(row["qualified"]) == "invalid_target_model"
+                       else "proof_in_progress" if row["qualified"] in level1_local_proofs
                        else "contract_consumed"),
             "evidenceStatus": "captured", "contractStatus": contract_status,
             "level0UseStatus": ("consumed" if row["qualified"] in consumed_level1
@@ -158,7 +166,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             boundary_id = "level2-" + row["id"].replace(":", "-")
             boundary_bindings = level2_bindings_by_id[row["id"]]
             local_proof = level2_local_proofs.get(row["id"], "not_started")
-            authoring_state = ("unconditionally_proven" if local_proof == "proved_not_connected"
+            authoring_state = ("invalid_target_model" if local_proof == "invalid_target_model"
+                               else "unconditionally_proven" if local_proof == "proved_not_connected"
                                else "proof_in_progress" if local_proof == "in_progress"
                                else "contract_specified_assumption")
             boundaries.append({
@@ -173,7 +182,9 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
                 "observedExtentInstructionCount": len(capture["extent"]),
                 "observedExitTransitions": [list(edge) for edge in sorted(capture["exits"])],
                 "dwarfBindings": boundary_bindings,
-                "evidenceStatus": "captured", "contractStatus": "specified",
+                "evidenceStatus": "captured",
+                "contractStatus": ("invalid_linux_qemu_shim"
+                                   if local_proof == "invalid_target_model" else "specified"),
                 "level0UseStatus": "not_applicable", "proofStatus": local_proof,
                 "kernelStatus": ("proved" if local_proof == "proved_not_connected"
                                  else "not_complete"),
@@ -181,7 +192,9 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             regions.append({
                 "id": boundary_id, "label": row["qualified"],
                 "authoringState": authoring_state,
-                "blocker": ("Contract is proved locally; parent refinement connection remains."
+                "blocker": ("Linux syscall3/QEMU-user shim is not a bare-metal zkVM host boundary."
+                            if local_proof == "invalid_target_model"
+                            else "Contract is proved locally; parent refinement connection remains."
                             if local_proof == "proved_not_connected"
                             else "Exact Sail proof is in progress."
                             if local_proof == "in_progress"
@@ -222,7 +235,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         {"id": "conversion", "label": "exportedContracts_of_level1", "kind": "conversion",
          "column": 2, "status": "proved", "proofStatus": "proved"},
         {"id": "root", "label": "root_compliance", "kind": "parent", "column": 3,
-         "status": "conditionally_proven", "proofStatus": "proved"},
+         "status": "invalid_target_model", "proofStatus": "proved_for_linux_qemu_shim"},
     ])
     edges.extend([
         {"source": "glue", "target": "conversion", "kind": "dependency"},
@@ -241,6 +254,10 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         })
     return {
         "schemaVersion": 2, "target": flame["machineRegionInputs"]["target"],
+        "targetModel": {
+            "status": "invalid_target_model",
+            "reason": "ELF links the repository's Linux syscall-number/QEMU-user runtime, not a bare-metal zkVM host object",
+        },
         "artifact": cfg["artifact"], "instructions": instructions, "blocks": [],
         "boundaries": boundaries, "manifests": [],
         "formalCoverage": {"localPcCount": len(proved_level0_pcs),
@@ -250,7 +267,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         "authoringRegions": regions,
         "flameProgress": {
             "states": [
-                {"owner": main["id"], "qualified": "main", "status": "conditionally_proven"},
+                {"owner": main["id"], "qualified": "main", "status": "invalid_target_model"},
                 *({"owner": row["id"], "qualified": row["qualified"],
                    "status": "contracted"} for row in manifest["instances"]),
                 *level2_states,

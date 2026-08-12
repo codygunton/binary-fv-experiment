@@ -95,7 +95,8 @@
       <span><i class="conditional"></i>proven conditional on function contracts</span>
       <span><i style="background:#e5b84b"></i>proof in progress</span>
       <span><i class="contracted"></i>contract specified</span>
-      <span><i style="background:#d95757"></i>none</span></span>
+      <span><i style="background:#687385"></i>not selected at current proof level</span>
+      <span><i style="background:#ff5f68"></i>invalid target model</span></span>
     <span class="muted"><b>scroll</b> = zoom · <b>drag</b> = pan · <b>double-click</b> = reset · click = details</span>
   </header>
   <div id="chart"><div id="levels"></div></div>
@@ -142,11 +143,11 @@ function keyOf(node){
 
 let Z=1, baseW=0;
 const proofState=d=>{const meta=META[keyOf(d)]||{};
-  return PROGRESS.get(meta.owner)||PROGRESS.get(meta.qualified)||{status:'none'};};
+  return PROGRESS.get(meta.owner)||PROGRESS.get(meta.qualified)||{status:'not_selected'};};
 const proofColor=s=>({unconditionally_proven:'#3ddc84',
   conditionally_proven:'url(#conditionally-proven)',in_progress:'#e5b84b',
   contracted:'url(#contract-specified)',contract_not_specified:'#d95757',
-  none:'#d95757'})[s]||'#d95757';
+  not_selected:'#687385',invalid_target_model:'#ff5f68'})[s]||'#d95757';
 
 function build(){
   baseW = $('#chart').clientWidth - 100;
@@ -387,6 +388,7 @@ function renderProofCfg(){
     contract_specified_assumption:['#283b48','#62b5e5'],
     contract_consumed:['#283b48','#62b5e5'],proof_in_progress:['#473b1e','#e5b84b'],
     contract_preliminary_shape:['#473b1e','#e5b84b'],contract_not_specified:['#472327','#d95757'],
+    invalid_target_model:['#4c2026','#ff5f68'],
     proof_not_started:['#202631','#687385'],not_started:['#202631','#687385']};
   const short=s=>s.length>34?s.slice(0,32)+'…':s;
   const titles=['reference semantics','Level 1 contracts + Level 0 glue','refinement theorem','compliance theorem'];
