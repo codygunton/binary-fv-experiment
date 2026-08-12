@@ -21,7 +21,10 @@ def instructionPreserved (register : Register) : Prop :=
 structure ConfiguredMachinePre (pcs : BitVec 64 → Prop) (state : State) : Prop where
   normal : NormalExecutionState state
   retiredCounter : RetiredCounterPresent state
-  seccfgPresent : ∃ bits, state.regs.get? mseccfg = some bits
+  mstatusStoreMode : ∃ bits, state.regs.get? mstatus = some bits ∧ _get_Mstatus_MPRV bits = 0#1
+  seccfgPresent : ∃ bits, state.regs.get? mseccfg = some bits ∧
+    pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled
+  htifDisabled : state.regs.get? htif_tohost_base = some none
   platform : AbstractPlatform instructionPreserved pcs state
   landingPad : AbstractElp instructionPreserved (fun _ => True) state
 
@@ -74,9 +77,17 @@ theorem ConfiguredMachinePre.mono {pcs : BitVec 64 → Prop} {before after : Sta
   normal := normalExecutionState_of_agree
     (agree.weaken (fun _ member => normalRegisters_instructionPreserved member)) configured.normal
   retiredCounter := retiredAfter
+  mstatusStoreMode := by
+    obtain ⟨bits, read, disabled⟩ := configured.mstatusStoreMode
+    exact ⟨bits,
+      (agree mstatus (by simp [instructionPreserved, platformPreserved])).trans read, disabled⟩
   seccfgPresent := by
-    obtain ⟨bits, read⟩ := configured.seccfgPresent
-    exact ⟨bits, (agree mseccfg (by simp [instructionPreserved, platformPreserved])).trans read⟩
+    obtain ⟨bits, read, disabled⟩ := configured.seccfgPresent
+    exact ⟨bits,
+      (agree mseccfg (by simp [instructionPreserved, platformPreserved])).trans read, disabled⟩
+  htifDisabled :=
+    (agree htif_tohost_base (by simp [instructionPreserved, platformPreserved])).trans
+      configured.htifDisabled
   platform := configured.platform.mono agree
   landingPad := configured.landingPad.mono agree
 
@@ -86,7 +97,9 @@ theorem ConfiguredMachinePre.restrict {wide narrow : BitVec 64 → Prop} {state 
     ConfiguredMachinePre narrow state where
   normal := configured.normal
   retiredCounter := configured.retiredCounter
+  mstatusStoreMode := configured.mstatusStoreMode
   seccfgPresent := configured.seccfgPresent
+  htifDisabled := configured.htifDisabled
   platform := fun target pc agree landed inside =>
     configured.platform target pc agree landed (subset pc inside)
   landingPad := configured.landingPad
