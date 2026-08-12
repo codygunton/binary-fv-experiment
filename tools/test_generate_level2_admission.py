@@ -57,6 +57,13 @@ class Level2AdmissionTests(unittest.TestCase):
             "pointerRegister": 10, "lengthRegister": 11,
             "encoding": "length-prefixed-bytes",
         })
+        read_input = next(row for row in result["instances"]
+                          if row["leanName"] == "readInputSyscall")
+        self.assertEqual(read_input["measured"]["validatedEntryBinding"], {
+            "fdRegister": 10, "bufferRegister": 11, "requestedRegister": 12,
+            "syscallRegister": 17, "returnRegister": 10,
+            "observedPolicy": "positive-until-final-zero-eof",
+        })
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
@@ -104,6 +111,22 @@ class Level2AdmissionTests(unittest.TestCase):
                           if len(occurrence["hostWrites"]) == 2)
         occurrence["entryRegisters"]["values"][10] += 1
         with self.assertRaisesRegex(ValueError, "byte-slice pointer/length binding mismatch"):
+            self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
+
+    def test_rejects_zero_read_before_eof(self):
+        evidence = copy.deepcopy(self.documents[1])
+        row = next(row for vector in evidence["vectors"] if vector["label"] == "minimal"
+                   for row in vector["instances"] if row["id"] == "fi:1:57d")
+        row["occurrences"][0]["afterRegisters"]["values"][10] = 0
+        with self.assertRaisesRegex(ValueError, "lacks pre-EOF progress"):
+            self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
+
+    def test_rejects_forged_read_retry_pointer(self):
+        evidence = copy.deepcopy(self.documents[1])
+        row = next(row for vector in evidence["vectors"] if vector["label"] == "minimal"
+                   for row in vector["instances"] if row["id"] == "fi:1:57d")
+        row["occurrences"][1]["afterRegisters"]["values"][11] += 1
+        with self.assertRaisesRegex(ValueError, "retry binding mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
 
 

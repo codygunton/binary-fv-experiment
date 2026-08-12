@@ -124,6 +124,34 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
                     raise ValueError("byte-slice pointer/length binding mismatch")
             entry_binding = {"pointerRegister": 10, "lengthRegister": 11,
                              "encoding": "length-prefixed-bytes"}
+        elif name == "readInputSyscall":
+            by_vector: dict[str, list[dict]] = {}
+            for occurrence in observed["occurrences"]:
+                by_vector.setdefault(occurrence["vector"], []).append(occurrence)
+            for vector, occurrences in by_vector.items():
+                if not occurrences:
+                    raise ValueError(f"missing Linux read observations for {vector}")
+                first = occurrences[0]["entryRegisters"]["values"]
+                buffer, requested, consumed = first[14], first[13], 0
+                for index, occurrence in enumerate(occurrences):
+                    entry = occurrence["entryRegisters"]["values"]
+                    after = occurrence["afterRegisters"]["values"]
+                    count = after[10]
+                    if entry[15] != consumed or entry[14] != buffer or entry[13] != requested or \
+                            after[11] != buffer + consumed or after[12] != requested - consumed or \
+                            after[17] != 63:
+                        raise ValueError(f"Linux read retry binding mismatch for {vector}")
+                    if index + 1 == len(occurrences):
+                        if count != 0:
+                            raise ValueError(f"Linux read trace lacks EOF for {vector}")
+                    elif count <= 0 or count > after[12]:
+                        raise ValueError(f"Linux read trace lacks pre-EOF progress for {vector}")
+                    consumed += count
+            entry_binding = {
+                "fdRegister": 10, "bufferRegister": 11, "requestedRegister": 12,
+                "syscallRegister": 17, "returnRegister": 10,
+                "observedPolicy": "positive-until-final-zero-eof",
+            }
         elif name in {"writeSuccessTransactions", "writeSuccessWithdrawals",
                       "writeSuccessHashes", "writeSuccessByteLists"}:
             count_register = {

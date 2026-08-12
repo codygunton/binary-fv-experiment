@@ -78,7 +78,9 @@ def HostMachineFrame (before after : MachineState) : Prop :=
 def InputChunk (state : EndpointState) (count : Nat) : Array UInt8 :=
   state.stdin.extract state.stdinCursor (state.stdinCursor + count)
 
-/-- Linux `read(0, buffer, requested)` at the runtime's exact `ecall` instruction. -/
+/-- Linux `read(0, buffer, requested)` at the runtime's exact `ecall` instruction. A positive
+remaining input suffix must make progress, while zero is returned exactly at the modeled EOF. The
+relation still permits arbitrary positive partial reads, matching the loop that retries them. -/
 def LinuxReadStep (before after : EndpointState) : Prop :=
   ∃ buffer requested count,
     before.machine.regs.get? PC = some (BitVec.ofNat 64 readEcallPc) ∧
@@ -87,6 +89,7 @@ def LinuxReadStep (before after : EndpointState) : Prop :=
     before.machine.regs.get? x11 = some (BitVec.ofNat 64 buffer) ∧
     before.machine.regs.get? x12 = some (BitVec.ofNat 64 requested) ∧
     count ≤ requested ∧ before.stdinCursor + count ≤ before.stdin.size ∧
+    (count = 0 ↔ before.stdinCursor = before.stdin.size) ∧
     after.stdin = before.stdin ∧
     after.stdinCursor = before.stdinCursor + count ∧
     after.stdout = before.stdout ∧ after.exitCode = before.exitCode ∧
