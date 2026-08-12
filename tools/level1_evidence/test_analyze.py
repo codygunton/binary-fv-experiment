@@ -34,6 +34,20 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual(row["executedOwnedPcs"], [4, 8])
         self.assertEqual(row["observedExitTransitions"], [[12, 16]])
         self.assertEqual(row["observedExits"][0]["afterPc"], 16)
+        self.assertEqual(len(row["occurrences"]), 1)
+        self.assertEqual(row["occurrences"][0]["hostWrites"], [])
+
+    def test_pairs_each_occurrence_with_its_own_host_writes(self):
+        trace = copy.deepcopy(self.trace)
+        first = trace["executions"][2]
+        first["hostWrites"] = [{"pc": 8, "address": 100, "bytes": "01"}]
+        second = copy.deepcopy(trace["executions"][1:])
+        second[1]["hostWrites"] = [{"pc": 8, "address": 200, "bytes": "02"}]
+        trace["executions"].extend(second)
+        trace["registers"][4].append(copy.deepcopy(trace["registers"][4][0]))
+        row = reduce_trace(self.manifest, trace, "twice")["instances"][0]
+        self.assertEqual([[write["bytes"] for write in occurrence["hostWrites"]]
+                          for occurrence in row["occurrences"]], [["01"], ["02"]])
 
     def test_missing_entry_is_not_inferred(self):
         trace = copy.deepcopy(self.trace)

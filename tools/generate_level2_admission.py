@@ -62,7 +62,7 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
         for row in vector["instances"]:
             slot = observations.setdefault(row["id"], {
                 "vectors": [], "entries": 0, "exits": set(), "loads": 0, "stores": 0,
-                "hostWrites": [],
+                "hostWrites": [], "occurrences": [],
             })
             if row["entryReached"]:
                 slot["vectors"].append(vector["label"])
@@ -72,6 +72,8 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
             slot["stores"] += sum(access["kind"] == "store" for access in row["memoryAccesses"])
             slot["hostWrites"].extend({"vector": vector["label"], **write}
                                       for write in row["hostWrites"])
+            slot["occurrences"].extend({"vector": vector["label"], **occurrence}
+                                       for occurrence in row["occurrences"])
     rows = []
     for instance in manifest["instances"]:
         name = source_name(instance, cfg_instances)
@@ -93,6 +95,49 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
                         for snapshot, write in zip(snapshots, writes, strict=True)):
                     raise ValueError(f"fixed source pointer binding mismatch for {name}")
                 entry_binding = {"pointerRegister": 10, "width": len(FIXED_WRITE_BYTES[name])}
+        elif name == "writeSuccessBoolean":
+            for occurrence in observed["occurrences"]:
+                writes = occurrence["hostWrites"]
+                value = occurrence["entryRegisters"]["values"][10] & 1
+                if len(writes) != 1 or bytes.fromhex(writes[0]["bytes"]) != bytes([value]):
+                    raise ValueError("boolean entry/output binding mismatch")
+            entry_binding = {"valueRegister": 10, "encoding": "low-bit-u8"}
+        elif name == "writeSuccessInt":
+            for occurrence in observed["occurrences"]:
+                writes = occurrence["hostWrites"]
+                value = occurrence["entryRegisters"]["values"][10]
+                if len(writes) != 1 or bytes.fromhex(writes[0]["bytes"]) != value.to_bytes(8, "little"):
+                    raise ValueError("u64 entry/output binding mismatch")
+            entry_binding = {"valueRegister": 10, "encoding": "little-u64"}
+        elif name == "writeSuccessBytes":
+            for occurrence in observed["occurrences"]:
+                writes = occurrence["hostWrites"]
+                registers = occurrence["entryRegisters"]["values"]
+                address, length = registers[10], registers[11]
+                if not writes or bytes.fromhex(writes[0]["bytes"]) != length.to_bytes(8, "little"):
+                    raise ValueError("byte-slice length binding mismatch")
+                if length == 0:
+                    if len(writes) != 1:
+                        raise ValueError("empty byte slice emitted payload bytes")
+                elif len(writes) != 2 or writes[1]["address"] != address or \
+                        len(bytes.fromhex(writes[1]["bytes"])) != length:
+                    raise ValueError("byte-slice pointer/length binding mismatch")
+            entry_binding = {"pointerRegister": 10, "lengthRegister": 11,
+                             "encoding": "length-prefixed-bytes"}
+        elif name in {"writeSuccessTransactions", "writeSuccessWithdrawals",
+                      "writeSuccessHashes", "writeSuccessByteLists"}:
+            count_register = {
+                "writeSuccessTransactions": 10,
+                "writeSuccessWithdrawals": 9,
+                "writeSuccessHashes": 8,
+                "writeSuccessByteLists": 11,
+            }[name]
+            for occurrence in observed["occurrences"]:
+                writes = occurrence["hostWrites"]
+                count = occurrence["entryRegisters"]["values"][count_register]
+                if not writes or bytes.fromhex(writes[0]["bytes"]) != count.to_bytes(8, "little"):
+                    raise ValueError(f"{name} count binding mismatch")
+            entry_binding = {"countRegister": count_register, "encoding": "little-u64-prefix"}
         rows.append({
             "id": instance["id"], "leanName": name, "qualified": instance["qualified"],
             "parentInstanceIds": instance["parentInstanceIds"],
@@ -107,6 +152,7 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
                 "observedExitTransitions": [list(edge) for edge in sorted(observed["exits"])],
                 "loadCount": observed["loads"], "storeCount": observed["stores"],
                 "hostWrites": observed["hostWrites"],
+                "occurrences": observed["occurrences"],
                 "validatedEntryBinding": entry_binding,
                 "dwarfBindings": dwarf,
             },

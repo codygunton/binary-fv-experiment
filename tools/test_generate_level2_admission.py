@@ -47,6 +47,16 @@ class Level2AdmissionTests(unittest.TestCase):
         failure = next(row for row in result["instances"]
                        if row["leanName"] == "writeFailureRawLine127")
         self.assertEqual(failure["measured"]["vectors"], ["invalid"])
+        boolean = next(row for row in result["instances"]
+                       if row["leanName"] == "writeSuccessBoolean")
+        self.assertEqual(boolean["measured"]["validatedEntryBinding"],
+                         {"valueRegister": 10, "encoding": "low-bit-u8"})
+        encoded_bytes = next(row for row in result["instances"]
+                             if row["leanName"] == "writeSuccessBytes")
+        self.assertEqual(encoded_bytes["measured"]["validatedEntryBinding"], {
+            "pointerRegister": 10, "lengthRegister": 11,
+            "encoding": "length-prefixed-bytes",
+        })
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
@@ -76,6 +86,24 @@ class Level2AdmissionTests(unittest.TestCase):
                    for row in vector["instances"] if row["id"] == "fi:2:407d")
         row["entryRegisters"][0]["values"][10] += 1
         with self.assertRaisesRegex(ValueError, "fixed source pointer binding mismatch"):
+            self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
+
+    def test_rejects_forged_boolean_value_binding(self):
+        evidence = copy.deepcopy(self.documents[1])
+        row = next(row for vector in evidence["vectors"] if vector["label"] == "minimal"
+                   for row in vector["instances"] if row["id"] == "fi:2:457c")
+        row["occurrences"][0]["entryRegisters"]["values"][10] ^= 1
+        with self.assertRaisesRegex(ValueError, "boolean entry/output binding mismatch"):
+            self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
+
+    def test_rejects_forged_byte_slice_pointer_binding(self):
+        evidence = copy.deepcopy(self.documents[1])
+        rows = (row for vector in evidence["vectors"] for row in vector["instances"]
+                if row["id"] == "fi:2:4639")
+        occurrence = next(occurrence for row in rows for occurrence in row["occurrences"]
+                          if len(occurrence["hostWrites"]) == 2)
+        occurrence["entryRegisters"]["values"][10] += 1
+        with self.assertRaisesRegex(ValueError, "byte-slice pointer/length binding mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
 
 

@@ -61,13 +61,17 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             if snapshot["available"] != 2 ** 32 - 1:
                 raise ValueError(f"unavailable register in snapshot for {instance['id']}")
         observed_owned, observed_extent = set(), set()
-        transitions, exits = [], []
+        transitions, exits, occurrences = [], [], []
         active_host_writes = []
+        occurrence_writes = []
+        occurrence_entry = None
         active = False
         executions = trace["executions"]
         for index, current in enumerate(executions):
             if not active and current["pc"] == instance["entryPc"] and current["registers"] is not None:
                 active = True
+                occurrence_entry = current["registers"]
+                occurrence_writes = []
             if not active:
                 continue
             if current["pc"] not in extent:
@@ -75,10 +79,16 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             observed_extent.add(current["pc"])
             if current["pc"] in instance["instructionPcs"]:
                 observed_owned.add(current["pc"])
-            active_host_writes.extend(current.get("hostWrites", []))
+            writes = current.get("hostWrites", [])
+            active_host_writes.extend(writes)
+            occurrence_writes.extend(writes)
             if index + 1 == len(executions):
                 if current["pc"] not in exits_expected:
                     raise ValueError(f"unterminated occurrence for {instance['id']}")
+                occurrences.append({"entryRegisters": occurrence_entry,
+                                    "afterPc": current["pc"],
+                                    "afterRegisters": None,
+                                    "hostWrites": occurrence_writes})
                 active = False
                 continue
             after = executions[index + 1]
@@ -94,6 +104,10 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             transitions.append((current["pc"], after["pc"]))
             exits.append({"beforePc": current["pc"], "afterPc": after["pc"],
                           "afterRegisters": snapshot})
+            occurrences.append({"entryRegisters": occurrence_entry,
+                                "afterPc": after["pc"],
+                                "afterRegisters": snapshot,
+                                "hostWrites": occurrence_writes})
             active = False
         memory = [
             {"kind": kind, "pc": record[0], "address": record[1],
@@ -110,6 +124,7 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             "executedExtentPcs": sorted(observed_extent),
             "observedExitTransitions": [list(pair) for pair in sorted(set(transitions))],
             "observedExits": exits,
+            "occurrences": occurrences,
             "memoryAccesses": memory,
             "hostWrites": active_host_writes,
         })
