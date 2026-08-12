@@ -19,6 +19,7 @@ open PreSail LeanRV64DExecutable.Functions Register
 
 structure DecodeBoundaryArgs where
   returnAddress : Nat
+  savedReturnAddress : Nat
   inputAddress : Nat
   input : Array UInt8
   stackPointer : Nat
@@ -64,7 +65,7 @@ def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Pr
   UIntRep 8 state.machine.mem (args.stackPointer + 8) args.input.size ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x10) args.allocatorStateAddress ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x18) args.allocatorVtableAddress ∧
-  UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.savedReturnAddress ∧
   BytesRep state.machine.mem args.inputAddress args.input
 
 /-- Both outcomes return to main at the same ABI continuation. The two-byte error-union tag selects
@@ -77,7 +78,7 @@ def DecodeBoundaryExit (args : DecodeBoundaryArgs) (outcome : DecodeBoundaryOutc
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   UIntRep 8 state.machine.mem args.stackPointer args.inputAddress ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 8) args.input.size ∧
-  UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.savedReturnAddress ∧
   BytesRep state.machine.mem args.inputAddress args.input ∧
   Generated.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   state.machine.choiceState = before.machine.choiceState ∧
@@ -114,6 +115,8 @@ def DecodeExecutionPc : BitVec 64 → Prop :=
 
 def DecodeExitPc (pc : BitVec 64) : Prop :=
   pcInList Generated.decodeInputExitPcs pc
+
+theorem decodeInputExitPc_14cfc : 0x14cfc ∈ Generated.decodeInputExitPcs := by native_decide
 
 /-- The exact strict implementation obligation at the generated production boundary. -/
 abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : Prop :=

@@ -44,6 +44,22 @@ theorem mainGluePcs_14cc8 : mainGluePcs 0x14cc8 := by
   unfold mainGluePcs
   refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide
 
+theorem mainGluePcs_14cec : mainGluePcs 0x14cec := by
+  unfold mainGluePcs
+  refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide
+
+theorem mainGluePcs_14cf0 : mainGluePcs 0x14cf0 := by
+  unfold mainGluePcs
+  refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide
+
+theorem mainGluePcs_14cf4 : mainGluePcs 0x14cf4 := by
+  unfold mainGluePcs
+  refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide
+
+theorem mainGluePcs_14cf8 : mainGluePcs 0x14cf8 := by
+  unfold mainGluePcs
+  refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide
+
 /-- The data-side premises for one concrete Level 0 double-word store. They are kept separate from
 the generated fetch/decode facts because the eventual `main` frame derives them from its stack
 layout, while the instruction wrapper below is reusable at both prologue stores. -/
