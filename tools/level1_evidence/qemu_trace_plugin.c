@@ -105,7 +105,9 @@ static void execute(unsigned vcpu, void *data) {
   if (pc == capture_write_pc) {
     uint64_t address = 0, length = 0;
     GByteArray *bytes = g_byte_array_new();
-    if (!read_register(regs, 11, &address) || !read_register(regs, 12, &length) ||
+    /* write_output is a real C-ABI function in the bare-metal target: a0 is the
+       byte pointer and a1 is its length. */
+    if (!read_register(regs, 10, &address) || !read_register(regs, 11, &length) ||
         length > 64 * 1024 * 1024 ||
         (length != 0 && !qemu_plugin_read_memory_vaddr(address, bytes, (size_t)length))) {
       fprintf(out, "B %" PRIu64 " unreadable\n", pc);
@@ -137,7 +139,7 @@ static void execute(unsigned vcpu, void *data) {
     GByteArray *bytes = g_byte_array_new();
     if (length > 64 * 1024 * 1024 ||
         (length && !qemu_plugin_read_memory_vaddr(address, bytes, (size_t)length))) exit(4);
-    fprintf(out, "B %" PRIu64 " %" PRIu64 " %" PRIu64 " ", pc, address, length);
+    fprintf(out, "O %" PRIu64 " %" PRIu64 " %" PRIu64 " ", pc, address, length);
     for (guint i = 0; i < bytes->len; ++i) fprintf(out, "%02x", bytes->data[i]);
     fputc('\n', out);
     fflush(out);

@@ -10,8 +10,8 @@ from pathlib import Path
 
 def validate(report: dict) -> None:
     rows = report["instances"]
-    if report["level"] != 2 or len(rows) != 22:
-        raise ValueError("boundary report must contain the exact 22 Level 2 instances")
+    if report["level"] != 2 or len(rows) != 20:
+        raise ValueError("boundary report must contain the exact 20 bare-metal Level 2 instances")
     if len({row["id"] for row in rows}) != len(rows):
         raise ValueError("Level 2 boundary identities must be unique")
     if not all(row["entryPc"] > 0 for row in rows):

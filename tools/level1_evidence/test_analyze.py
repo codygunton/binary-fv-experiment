@@ -85,6 +85,24 @@ class EvidenceTest(unittest.TestCase):
                 "pc": 65972, "address": 4096, "bytes": "0102ff",
             }])
 
+    def test_parser_reads_empty_host_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "trace"
+            trace.write_text("E 65936\nB 65936 4096 0 \n")
+            self.assertEqual(parse_trace(trace)["hostWrites"], [{
+                "pc": 65936, "address": 4096, "bytes": "",
+            }])
+
+    def test_parser_separates_terminal_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "trace"
+            trace.write_text("E 66000\nO 66000 4096 2 aabb\n")
+            parsed = parse_trace(trace)
+            self.assertEqual(parsed["hostWrites"], [])
+            self.assertEqual(parsed["terminalOutputs"], [{
+                "pc": 66000, "address": 4096, "bytes": "aabb",
+            }])
+
     def test_rejects_missing_exit_snapshot(self):
         trace = copy.deepcopy(self.trace)
         trace["executions"][-1]["registers"] = None

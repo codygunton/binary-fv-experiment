@@ -3,36 +3,10 @@ import BinaryFv.Zesu.Elflings.GeneratedLevel1
 
 namespace BinaryFv.Zesu.Elflings
 
-def level2ArtifactSha256 : String := "51db443cc29bbe4be81a989ad6a02ff89c1866f30155a7739a5c17ed9034ec20"
-def level2InstanceCount : Nat := 22
+def level2ArtifactSha256 : String := "3e13afeae5719e10c65a89ea1b8a9afdb60b360e7e18faa81c31a71a44dcd8fb"
+def level2InstanceCount : Nat := 20
 
-def readInputSyscallInstanceId : String := "fi:1:57d"
-def readInputSyscallEntry : Nat := 0x10158
-def readInputSyscallOwnedInstructionCount : Nat := 5
-def readInputSyscallExecutionInstructionCount : Nat := 5
-def readInputSyscallOwnedPcRanges : List PcRange := [
-  (0x10158, 0x1016c)
-]
-def readInputSyscallExecutionPcRanges : List PcRange := [
-  (0x10158, 0x1016c)
-]
-def readInputSyscallExitPcs : List Nat := [0x1016c]
-def readInputSyscallParentInstanceIds : List String := ["fi:1:510"]
-
-def zkvmExitSyscallInstanceId : String := "fi:1:3c7"
-def zkvmExitSyscallEntry : Nat := 0x101c4
-def zkvmExitSyscallOwnedInstructionCount : Nat := 4
-def zkvmExitSyscallExecutionInstructionCount : Nat := 4
-def zkvmExitSyscallOwnedPcRanges : List PcRange := [
-  (0x101c4, 0x101d4)
-]
-def zkvmExitSyscallExecutionPcRanges : List PcRange := [
-  (0x101c4, 0x101d4)
-]
-def zkvmExitSyscallExitPcs : List Nat := [0x101d0]
-def zkvmExitSyscallParentInstanceIds : List String := ["fi:1:39b"]
-
-def memcpyInstanceId : String := "fi:1:31b"
+def memcpyInstanceId : String := "fi:0:2d1"
 def memcpyEntry : Nat := 0x101d4
 def memcpyOwnedInstructionCount : Nat := 9
 def memcpyExecutionInstructionCount : Nat := 9
@@ -43,9 +17,9 @@ def memcpyExecutionPcRanges : List PcRange := [
   (0x101d4, 0x101f8)
 ]
 def memcpyExitPcs : List Nat := [0x10950, 0x10a0c, 0x11374, 0x11e78, 0x12040, 0x120bc, 0x12120, 0x122b8, 0x123ac, 0x123c0, 0x123d4, 0x123e8, 0x123fc, 0x124e0, 0x12504, 0x12f88, 0x13748, 0x14374, 0x14434, 0x14478, 0x14be0, 0x14d80, 0x14e28, 0x15200, 0x155a4, 0x156a8, 0x166a0, 0x16a04, 0x16a48, 0x16b60, 0x16c90, 0x16ccc, 0x16ee8, 0x171cc]
-def memcpyParentInstanceIds : List String := ["fi:2:30e9", "fi:2:4028"]
+def memcpyParentInstanceIds : List String := ["fi:1:2de3", "fi:1:3d22"]
 
-def sszDecodeInstanceId : String := "fi:2:3115"
+def sszDecodeInstanceId : String := "fi:1:2e0f"
 def sszDecodeEntry : Nat := 0x121ac
 def sszDecodeOwnedInstructionCount : Nat := 1701
 def sszDecodeExecutionInstructionCount : Nat := 5920
@@ -101,9 +75,9 @@ def sszDecodeExecutionPcRanges : List PcRange := [
   (0x161d4, 0x171f8)
 ]
 def sszDecodeExitPcs : List Nat := [0x14ca8, 0x14cfc]
-def sszDecodeParentInstanceIds : List String := ["fi:2:30e9"]
+def sszDecodeParentInstanceIds : List String := ["fi:1:2de3"]
 
-def writeSuccessRawLine131InstanceId : String := "fi:2:4054"
+def writeSuccessRawLine131InstanceId : String := "fi:1:3d4e"
 def writeSuccessRawLine131Entry : Nat := 0x14e00
 def writeSuccessRawLine131OwnedInstructionCount : Nat := 0
 def writeSuccessRawLine131ExecutionInstructionCount : Nat := 18
@@ -113,9 +87,9 @@ def writeSuccessRawLine131ExecutionPcRanges : List PcRange := [
   (0x14e00, 0x14e14)
 ]
 def writeSuccessRawLine131ExitPcs : List Nat := [0x14d10, 0x14e14]
-def writeSuccessRawLine131ParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessRawLine131ParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessRawLine135InstanceId : String := "fi:2:407d"
+def writeSuccessRawLine135InstanceId : String := "fi:1:3d77"
 def writeSuccessRawLine135Entry : Nat := 0x14e2c
 def writeSuccessRawLine135OwnedInstructionCount : Nat := 0
 def writeSuccessRawLine135ExecutionInstructionCount : Nat := 16
@@ -125,9 +99,9 @@ def writeSuccessRawLine135ExecutionPcRanges : List PcRange := [
   (0x14e2c, 0x14e38)
 ]
 def writeSuccessRawLine135ExitPcs : List Nat := [0x14d10, 0x14e38]
-def writeSuccessRawLine135ParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessRawLine135ParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessRawLine136InstanceId : String := "fi:2:40a6"
+def writeSuccessRawLine136InstanceId : String := "fi:1:3da0"
 def writeSuccessRawLine136Entry : Nat := 0x14e3c
 def writeSuccessRawLine136OwnedInstructionCount : Nat := 0
 def writeSuccessRawLine136ExecutionInstructionCount : Nat := 16
@@ -137,9 +111,9 @@ def writeSuccessRawLine136ExecutionPcRanges : List PcRange := [
   (0x14e3c, 0x14e48)
 ]
 def writeSuccessRawLine136ExitPcs : List Nat := [0x14d10, 0x14e48]
-def writeSuccessRawLine136ParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessRawLine136ParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessRawLine137InstanceId : String := "fi:2:40cf"
+def writeSuccessRawLine137InstanceId : String := "fi:1:3dc9"
 def writeSuccessRawLine137Entry : Nat := 0x14e4c
 def writeSuccessRawLine137OwnedInstructionCount : Nat := 0
 def writeSuccessRawLine137ExecutionInstructionCount : Nat := 16
@@ -149,9 +123,9 @@ def writeSuccessRawLine137ExecutionPcRanges : List PcRange := [
   (0x14e4c, 0x14e58)
 ]
 def writeSuccessRawLine137ExitPcs : List Nat := [0x14d10, 0x14e58]
-def writeSuccessRawLine137ParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessRawLine137ParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessRawLine138InstanceId : String := "fi:2:40f8"
+def writeSuccessRawLine138InstanceId : String := "fi:1:3df2"
 def writeSuccessRawLine138Entry : Nat := 0x14e5c
 def writeSuccessRawLine138OwnedInstructionCount : Nat := 0
 def writeSuccessRawLine138ExecutionInstructionCount : Nat := 16
@@ -161,9 +135,9 @@ def writeSuccessRawLine138ExecutionPcRanges : List PcRange := [
   (0x14e5c, 0x14e68)
 ]
 def writeSuccessRawLine138ExitPcs : List Nat := [0x14d10, 0x14e68]
-def writeSuccessRawLine138ParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessRawLine138ParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessRawLine139InstanceId : String := "fi:2:4121"
+def writeSuccessRawLine139InstanceId : String := "fi:1:3e1b"
 def writeSuccessRawLine139Entry : Nat := 0x14e6c
 def writeSuccessRawLine139OwnedInstructionCount : Nat := 0
 def writeSuccessRawLine139ExecutionInstructionCount : Nat := 16
@@ -173,9 +147,9 @@ def writeSuccessRawLine139ExecutionPcRanges : List PcRange := [
   (0x14e6c, 0x14e78)
 ]
 def writeSuccessRawLine139ExitPcs : List Nat := [0x14d10, 0x14e78]
-def writeSuccessRawLine139ParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessRawLine139ParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessRawLine140InstanceId : String := "fi:2:414a"
+def writeSuccessRawLine140InstanceId : String := "fi:1:3e44"
 def writeSuccessRawLine140Entry : Nat := 0x14e7c
 def writeSuccessRawLine140OwnedInstructionCount : Nat := 0
 def writeSuccessRawLine140ExecutionInstructionCount : Nat := 16
@@ -185,9 +159,9 @@ def writeSuccessRawLine140ExecutionPcRanges : List PcRange := [
   (0x14e7c, 0x14e88)
 ]
 def writeSuccessRawLine140ExitPcs : List Nat := [0x14d10, 0x14e88]
-def writeSuccessRawLine140ParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessRawLine140ParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessRawLine147InstanceId : String := "fi:2:4173"
+def writeSuccessRawLine147InstanceId : String := "fi:1:3e6d"
 def writeSuccessRawLine147Entry : Nat := 0x14ed8
 def writeSuccessRawLine147OwnedInstructionCount : Nat := 0
 def writeSuccessRawLine147ExecutionInstructionCount : Nat := 16
@@ -197,9 +171,9 @@ def writeSuccessRawLine147ExecutionPcRanges : List PcRange := [
   (0x14ed8, 0x14ee4)
 ]
 def writeSuccessRawLine147ExitPcs : List Nat := [0x14d10, 0x14ee4]
-def writeSuccessRawLine147ParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessRawLine147ParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessTransactionsInstanceId : String := "fi:2:419c"
+def writeSuccessTransactionsInstanceId : String := "fi:1:3e96"
 def writeSuccessTransactionsEntry : Nat := 0x14ef4
 def writeSuccessTransactionsOwnedInstructionCount : Nat := 271
 def writeSuccessTransactionsExecutionInstructionCount : Nat := 579
@@ -220,9 +194,9 @@ def writeSuccessTransactionsExecutionPcRanges : List PcRange := [
   (0x15c6c, 0x15d38)
 ]
 def writeSuccessTransactionsExitPcs : List Nat := [0x14d10, 0x15668]
-def writeSuccessTransactionsParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessTransactionsParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessWithdrawalsInstanceId : String := "fi:2:43b5"
+def writeSuccessWithdrawalsInstanceId : String := "fi:1:40af"
 def writeSuccessWithdrawalsEntry : Nat := 0x15680
 def writeSuccessWithdrawalsOwnedInstructionCount : Nat := 22
 def writeSuccessWithdrawalsExecutionInstructionCount : Nat := 58
@@ -237,9 +211,9 @@ def writeSuccessWithdrawalsExecutionPcRanges : List PcRange := [
   (0x15d10, 0x15d38)
 ]
 def writeSuccessWithdrawalsExitPcs : List Nat := [0x14d10, 0x156e8]
-def writeSuccessWithdrawalsParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessWithdrawalsParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessRawLine156InstanceId : String := "fi:2:43f3"
+def writeSuccessRawLine156InstanceId : String := "fi:1:40ed"
 def writeSuccessRawLine156Entry : Nat := 0x15730
 def writeSuccessRawLine156OwnedInstructionCount : Nat := 0
 def writeSuccessRawLine156ExecutionInstructionCount : Nat := 16
@@ -249,9 +223,9 @@ def writeSuccessRawLine156ExecutionPcRanges : List PcRange := [
   (0x15730, 0x1573c)
 ]
 def writeSuccessRawLine156ExitPcs : List Nat := [0x14d10, 0x1573c]
-def writeSuccessRawLine156ParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessRawLine156ParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessHashesInstanceId : String := "fi:2:441c"
+def writeSuccessHashesInstanceId : String := "fi:1:4116"
 def writeSuccessHashesEntry : Nat := 0x15744
 def writeSuccessHashesOwnedInstructionCount : Nat := 99
 def writeSuccessHashesExecutionInstructionCount : Nat := 126
@@ -265,9 +239,9 @@ def writeSuccessHashesExecutionPcRanges : List PcRange := [
   (0x15d10, 0x15d38)
 ]
 def writeSuccessHashesExitPcs : List Nat := [0x14d10, 0x158e0]
-def writeSuccessHashesParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessHashesParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessBooleanInstanceId : String := "fi:2:457c"
+def writeSuccessBooleanInstanceId : String := "fi:1:4276"
 def writeSuccessBooleanEntry : Nat := 0x15b9c
 def writeSuccessBooleanOwnedInstructionCount : Nat := 7
 def writeSuccessBooleanExecutionInstructionCount : Nat := 24
@@ -280,9 +254,9 @@ def writeSuccessBooleanExecutionPcRanges : List PcRange := [
   (0x15b9c, 0x15bc8)
 ]
 def writeSuccessBooleanExitPcs : List Nat := [0x150fc, 0x15128, 0x15148, 0x15180, 0x1519c, 0x1571c, 0x15980, 0x159a0, 0x159bc, 0x159c8, 0x15bec]
-def writeSuccessBooleanParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessBooleanParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessOptionalU64InstanceId : String := "fi:2:45d2"
+def writeSuccessOptionalU64InstanceId : String := "fi:1:42cc"
 def writeSuccessOptionalU64Entry : Nat := 0x15bc8
 def writeSuccessOptionalU64OwnedInstructionCount : Nat := 18
 def writeSuccessOptionalU64ExecutionInstructionCount : Nat := 52
@@ -295,9 +269,9 @@ def writeSuccessOptionalU64ExecutionPcRanges : List PcRange := [
   (0x15d10, 0x15d38)
 ]
 def writeSuccessOptionalU64ExitPcs : List Nat := [0x150fc, 0x1571c, 0x159bc, 0x159c8]
-def writeSuccessOptionalU64ParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessOptionalU64ParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessByteListsInstanceId : String := "fi:2:461c"
+def writeSuccessByteListsInstanceId : String := "fi:1:4316"
 def writeSuccessByteListsEntry : Nat := 0x15c10
 def writeSuccessByteListsOwnedInstructionCount : Nat := 23
 def writeSuccessByteListsExecutionInstructionCount : Nat := 63
@@ -310,9 +284,9 @@ def writeSuccessByteListsExecutionPcRanges : List PcRange := [
   (0x15d10, 0x15d38)
 ]
 def writeSuccessByteListsExitPcs : List Nat := [0x15678, 0x15940, 0x15950, 0x15960, 0x159d8]
-def writeSuccessByteListsParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessByteListsParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessBytesInstanceId : String := "fi:2:4639"
+def writeSuccessBytesInstanceId : String := "fi:1:4333"
 def writeSuccessBytesEntry : Nat := 0x15c6c
 def writeSuccessBytesOwnedInstructionCount : Nat := 9
 def writeSuccessBytesExecutionInstructionCount : Nat := 40
@@ -325,9 +299,9 @@ def writeSuccessBytesExecutionPcRanges : List PcRange := [
   (0x15d10, 0x15d38)
 ]
 def writeSuccessBytesExitPcs : List Nat := [0x14ec8, 0x151c4, 0x1572c, 0x158f0, 0x15900, 0x15910, 0x15920, 0x15930, 0x15990, 0x15c4c]
-def writeSuccessBytesParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessBytesParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeSuccessIntInstanceId : String := "fi:2:487e"
+def writeSuccessIntInstanceId : String := "fi:1:4578"
 def writeSuccessIntEntry : Nat := 0x15d10
 def writeSuccessIntOwnedInstructionCount : Nat := 5
 def writeSuccessIntExecutionInstructionCount : Nat := 23
@@ -340,9 +314,9 @@ def writeSuccessIntExecutionPcRanges : List PcRange := [
   (0x15d10, 0x15d38)
 ]
 def writeSuccessIntExitPcs : List Nat := [0x14e94, 0x14ea0, 0x14eac, 0x14eb8, 0x14ed4, 0x14efc, 0x150fc, 0x15108, 0x15154, 0x151d0, 0x1521c, 0x153d0, 0x15584, 0x155d8, 0x155e4, 0x1562c, 0x1568c, 0x156b4, 0x156c0, 0x156dc, 0x156f4, 0x15700, 0x1571c, 0x15750, 0x1596c, 0x159b0, 0x159bc, 0x159c8, 0x15c34, 0x15c90]
-def writeSuccessIntParentInstanceIds : List String := ["fi:2:4028"]
+def writeSuccessIntParentInstanceIds : List String := ["fi:1:3d22"]
 
-def writeFailureRawLine127InstanceId : String := "fi:2:4ca3"
+def writeFailureRawLine127InstanceId : String := "fi:1:499d"
 def writeFailureRawLine127Entry : Nat := 0x161c0
 def writeFailureRawLine127OwnedInstructionCount : Nat := 0
 def writeFailureRawLine127ExecutionInstructionCount : Nat := 18
@@ -352,6 +326,6 @@ def writeFailureRawLine127ExecutionPcRanges : List PcRange := [
   (0x161c0, 0x161d4)
 ]
 def writeFailureRawLine127ExitPcs : List Nat := [0x14d24]
-def writeFailureRawLine127ParentInstanceIds : List String := ["fi:2:4c86"]
+def writeFailureRawLine127ParentInstanceIds : List String := ["fi:1:4980"]
 
 end BinaryFv.Zesu.Elflings

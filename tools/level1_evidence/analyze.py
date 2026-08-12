@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def parse_trace(path: Path) -> dict:
-    executed, executions, registers, loads, stores, host_writes = [], [], {}, [], [], []
+    executed, executions, registers, loads, stores, host_writes, outputs = [], [], {}, [], [], [], []
     for number, line in enumerate(path.read_text().splitlines(), 1):
         parts = line.split()
         if not parts:
@@ -33,9 +33,9 @@ def parse_trace(path: Path) -> dict:
             elif parts[0] in {"L", "S"} and len(parts) == 5:
                 record = [int(value) for value in parts[1:]]
                 (loads if parts[0] == "L" else stores).append(record)
-            elif parts[0] == "B" and len(parts) == 5:
+            elif parts[0] == "B" and len(parts) in {4, 5}:
                 pc, address, length = map(int, parts[1:4])
-                payload = bytes.fromhex(parts[4]) if parts[4] else b""
+                payload = bytes.fromhex(parts[4]) if len(parts) == 5 else b""
                 if len(payload) != length:
                     raise ValueError
                 write = {"pc": pc, "address": address, "bytes": payload.hex()}
@@ -43,12 +43,19 @@ def parse_trace(path: Path) -> dict:
                     raise ValueError
                 executions[-1]["hostWrites"].append(write)
                 host_writes.append(write)
+            elif parts[0] == "O" and len(parts) in {4, 5}:
+                pc, address, length = map(int, parts[1:4])
+                payload = bytes.fromhex(parts[4]) if len(parts) == 5 else b""
+                if len(payload) != length:
+                    raise ValueError
+                outputs.append({"pc": pc, "address": address, "bytes": payload.hex()})
             else:
                 raise ValueError
         except ValueError as error:
             raise ValueError(f"{path}:{number}: malformed trace record") from error
     return {"executed": executed, "executions": executions, "registers": registers,
-            "loads": loads, "stores": stores, "hostWrites": host_writes}
+            "loads": loads, "stores": stores, "hostWrites": host_writes,
+            "terminalOutputs": outputs}
 
 
 def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
@@ -128,7 +135,8 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             "memoryAccesses": memory,
             "hostWrites": active_host_writes,
         })
-    return {"label": label, "instances": result}
+    return {"label": label, "instances": result,
+            "terminalOutputs": trace.get("terminalOutputs", [])}
 
 
 def validate_bindings(manifest: dict, bindings: dict, vectors: list[dict],

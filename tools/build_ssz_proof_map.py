@@ -50,15 +50,11 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         "ssz_decode_observation.writeSuccess",
         "ssz_decode_observation.writeFailure",
     }
-    level1_local_proofs = {
-        "read_input": "in_progress",
-        "zkvm_exit": "proved_not_connected",
-    }
-    level2_local_proofs = {
-        "fi:1:57d": "in_progress",
-        "fi:1:3c7": "proved_not_connected",
-        "fi:1:31b": "proved_not_connected",
-    }
+    level1_local_proofs = {}
+    level2_local_proofs = ({
+        next(row["id"] for row in level2_manifest["instances"]
+             if row["qualified"] == "memcpy"): "proof_revalidation_pending",
+    } if level2_manifest is not None else {})
     proved_level0_pcs = {
         0x14CB0, 0x14CB4, 0x14CB8, 0x14CBC, 0x14CC0, 0x14CC4, 0x14CC8,
         0x14CEC, 0x14CF0, 0x14CF4, 0x14CF8, 0x14CFC, 0x14D00,
@@ -158,7 +154,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             boundary_id = "level2-" + row["id"].replace(":", "-")
             boundary_bindings = level2_bindings_by_id[row["id"]]
             local_proof = level2_local_proofs.get(row["id"], "not_started")
-            authoring_state = ("proof_in_progress" if local_proof == "proved_not_connected"
+            authoring_state = ("proof_revalidation_pending"
+                               if local_proof == "proof_revalidation_pending"
                                else "proof_in_progress" if local_proof == "in_progress"
                                else "contract_specified_assumption")
             boundaries.append({
@@ -182,8 +179,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             regions.append({
                 "id": boundary_id, "label": row["qualified"],
                 "authoringState": authoring_state,
-                "blocker": ("Contract is proved locally; parent refinement connection remains."
-                            if local_proof == "proved_not_connected"
+                "blocker": ("Existing exact-byte proof must be rechecked against the regenerated program image."
+                            if local_proof == "proof_revalidation_pending"
                             else "Exact Sail proof is in progress."
                             if local_proof == "in_progress"
                             else "Typed contract is specified and remains an hLevel2 assumption."),
@@ -216,14 +213,14 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
     })
     nodes.extend([
         {"id": "glue", "label": "main parent-owned glue", "kind": "parentGlue", "column": 1,
-         "status": "proved", "proofStatus": "proved",
+         "status": "proof_revalidation_pending", "proofStatus": "proof_revalidation_pending",
          "phase": "level0-glue", "instructionCount": len(glue_pcs),
          "absorbedInlineInstructionCount": absorbed,
          "provedInstructionCount": len(proved_level0_pcs)},
         {"id": "conversion", "label": "exportedContracts_of_level1", "kind": "conversion",
          "column": 2, "status": "proved", "proofStatus": "proved"},
         {"id": "root", "label": "root_compliance", "kind": "parent", "column": 3,
-         "status": "conditionally_proven", "proofStatus": "conditionally_proven"},
+         "status": "proof_revalidation_pending", "proofStatus": "proof_revalidation_pending"},
     ])
     edges.extend([
         {"source": "glue", "target": "conversion", "kind": "dependency"},
@@ -243,19 +240,19 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
     return {
         "schemaVersion": 2, "target": flame["machineRegionInputs"]["target"],
         "targetModel": {
-            "status": "shimmed_demo",
-            "reason": "Linux/QEMU host shim used for this proof-progress demo",
+            "status": "valid_bare_metal",
+            "reason": "ELF uses the fixed memory context and contains no ecall instruction",
         },
         "artifact": cfg["artifact"], "instructions": instructions, "blocks": [],
         "boundaries": boundaries, "manifests": [],
-        "formalCoverage": {"localPcCount": len(proved_level0_pcs),
+        "formalCoverage": {"localPcCount": 0,
                            "level1PcCount": 0, "rootPcCount": 0},
         "compilerProvenance": {"state": "same-ELF DWARF"},
         "phases": [{"id": "level0-glue", "label": "main parent-owned glue", "pcs": glue_pcs}],
         "authoringRegions": regions,
         "flameProgress": {
             "states": [
-                {"owner": main["id"], "qualified": "main", "status": "conditionally_proven"},
+                {"owner": main["id"], "qualified": "main", "status": "proof_revalidation_pending"},
                 *({"owner": row["id"], "qualified": row["qualified"],
                    "status": "contracted"} for row in manifest["instances"]),
                 *level2_states,

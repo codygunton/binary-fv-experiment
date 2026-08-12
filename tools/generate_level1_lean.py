@@ -53,23 +53,6 @@ def lean_words(values: list[tuple[int, int]]) -> str:
     return "[\n" + ",\n".join(rows) + "\n]"
 
 
-def syscall_pcs(cfg: dict, manifest: dict) -> dict[str, int]:
-    functions = {row["name"]: row for row in cfg["functions"]}
-    result: dict[str, int] = {}
-    for qualified in ("read_input", "write_output", "zkvm_exit"):
-        function = functions[qualified]
-        ecalls = [
-            instruction
-            for block in function["blocks"]
-            for instruction in block["instructions"]
-            if instruction["mnemonic"] == "ecall"
-        ]
-        if len(ecalls) != 1 or ecalls[0]["bytes"] != "73000000":
-            raise ValueError(f"{qualified} must contain exactly one canonical ecall")
-        result[qualified] = ecalls[0]["pc"]
-    return result
-
-
 def generate(manifest: dict, cfg: dict) -> str:
     rows = {row["qualified"]: row for row in manifest["instances"]}
     if set(rows) != set(NAMES):
@@ -142,11 +125,9 @@ def generate(manifest: dict, cfg: dict) -> str:
         f"def zkvmExitTerminalPc : Nat := {zkvm_exits[0]:#x}",
         "",
     ])
-    ecalls = syscall_pcs(cfg, manifest)
     lines.extend([
-        f"def readInputEcallPc : Nat := {ecalls['read_input']:#x}",
-        f"def writeOutputEcallPc : Nat := {ecalls['write_output']:#x}",
-        f"def zkvmExitEcallPc : Nat := {ecalls['zkvm_exit']:#x}",
+        "def inputBufferAddress : Nat := 0x2001a000",
+        "def ioContextAddress : Nat := 0x2401a0b8",
         "",
     ])
     indirect = cfg.get("reviewedIndirectCalls", [])

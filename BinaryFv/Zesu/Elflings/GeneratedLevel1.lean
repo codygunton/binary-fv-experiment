@@ -4,7 +4,7 @@ namespace BinaryFv.Zesu.Elflings
 /-- A half-open, four-byte-aligned interval of production instruction addresses. -/
 abbrev PcRange := Nat × Nat
 
-def artifactSha256 : String := "51db443cc29bbe4be81a989ad6a02ff89c1866f30155a7739a5c17ed9034ec20"
+def artifactSha256 : String := "3e13afeae5719e10c65a89ea1b8a9afdb60b360e7e18faa81c31a71a44dcd8fb"
 
 def mainEntry : Nat := 0x14cb0
 def mainGlueInstructionCount : Nat := 24
@@ -66,12 +66,11 @@ def mainGlueWordAt14d28 : Nat := 0xffffb097
 def mainGlueWordAt14d2c : Nat := 0x49c080e7
 
 def readInputEntry : Nat := 0x10140
-def readInputOwnedInstructionCount : Nat := 15
+def readInputOwnedInstructionCount : Nat := 20
 def readInputAbsorbedInstructionCount : Nat := 0
 def readInputExecutionInstructionCount : Nat := 20
 def readInputOwnedPcRanges : List PcRange := [
-  (0x10140, 0x10158),
-  (0x1016c, 0x10190)
+  (0x10140, 0x10190)
 ]
 def readInputExecutionPcRanges : List PcRange := [
   (0x10140, 0x10190)
@@ -79,10 +78,12 @@ def readInputExecutionPcRanges : List PcRange := [
 def readInputExitPcs : List Nat := [0x14ccc]
 
 def zkvmExitEntry : Nat := 0x101c4
-def zkvmExitOwnedInstructionCount : Nat := 0
+def zkvmExitOwnedInstructionCount : Nat := 4
 def zkvmExitAbsorbedInstructionCount : Nat := 0
 def zkvmExitExecutionInstructionCount : Nat := 4
-def zkvmExitOwnedPcRanges : List PcRange := []
+def zkvmExitOwnedPcRanges : List PcRange := [
+  (0x101c4, 0x101d4)
+]
 def zkvmExitExecutionPcRanges : List PcRange := [
   (0x101c4, 0x101d4)
 ]
@@ -158,9 +159,8 @@ def writeFailureExitPcs : List Nat := [0x14d24]
 
 def zkvmExitTerminalPc : Nat := 0x101d0
 
-def readInputEcallPc : Nat := 0x10168
-def writeOutputEcallPc : Nat := 0x101b4
-def zkvmExitEcallPc : Nat := 0x101d0
+def inputBufferAddress : Nat := 0x2001a000
+def ioContextAddress : Nat := 0x2401a0b8
 
 def allocatorVtableAddress : Nat := 0x177a8
 def allocatorAllocAddress : Nat := 0x15ffc

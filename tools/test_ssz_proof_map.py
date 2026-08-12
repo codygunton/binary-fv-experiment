@@ -42,7 +42,7 @@ class ProofMapTest(unittest.TestCase):
         level2_boundaries = [row for row in result["boundaries"]
                              if row["id"].startswith("level2-")]
         self.assertEqual(len(level1_boundaries), 6)
-        self.assertEqual(len(level2_boundaries), 22)
+        self.assertEqual(len(level2_boundaries), 20)
         self.assertTrue(all(row["contractStatus"] == "specified_assumption"
                             for row in level1_boundaries))
         self.assertTrue(all(row["contractStatus"] == "specified"
@@ -59,26 +59,26 @@ class ProofMapTest(unittest.TestCase):
         glue = next(node for node in result["refinementGraph"]["nodes"]
                     if node["kind"] == "parentGlue")
         self.assertEqual((glue["proofStatus"], glue["provedInstructionCount"]),
-                         ("proved", 24))
+                         ("proof_revalidation_pending", 24))
         self.assertEqual(glue["instructionCount"], 24)
         self.assertEqual(glue["absorbedInlineInstructionCount"], 2)
         progress = {row["owner"]: row["status"]
                     for row in result["flameProgress"]["states"]}
         main = next(row for row in self.documents[0]["functionInstances"]
                     if row["kind"] == "concrete" and row["entryPc"] == 0x14cb0)
-        self.assertEqual(progress[main["id"]], "conditionally_proven")
-        self.assertEqual(progress["fi:1:57d"], "proof_in_progress")
-        self.assertEqual(progress["fi:1:3c7"], "proof_in_progress")
-        self.assertEqual(progress["fi:1:31b"], "proof_in_progress")
+        self.assertEqual(progress[main["id"]], "proof_revalidation_pending")
+        memcpy = next(row for row in self.documents[5]["instances"]
+                      if row["qualified"] == "memcpy")
+        self.assertEqual(progress[memcpy["id"]], "proof_revalidation_pending")
         self.assertEqual({progress[row["id"]] for row in self.documents[5]["instances"]
-                          if row["id"] not in {"fi:1:57d", "fi:1:3c7", "fi:1:31b"}},
+                          if row["id"] != memcpy["id"]},
                          {"contract_specified_assumption"})
         read_input = next(row for row in level1_boundaries if row["qualified"] == "read_input")
         zkvm_exit = next(row for row in level1_boundaries if row["qualified"] == "zkvm_exit")
-        self.assertEqual(read_input["proofStatus"], "in_progress")
-        self.assertEqual(zkvm_exit["proofStatus"], "proved_not_connected")
-        self.assertEqual(result["targetModel"]["status"], "shimmed_demo")
-        self.assertEqual(len(progress), 29)
+        self.assertEqual(read_input["proofStatus"], "not_started")
+        self.assertEqual(zkvm_exit["proofStatus"], "not_started")
+        self.assertEqual(result["targetModel"]["status"], "valid_bare_metal")
+        self.assertEqual(len(progress), 27)
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)

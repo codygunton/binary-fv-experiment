@@ -22,7 +22,7 @@ class Level2AdmissionTests(unittest.TestCase):
 
     def test_reviews_exact_inventory_without_admitting_contracts(self):
         result = self.module.build(*self.documents)
-        self.assertEqual(len(result["instances"]), 22)
+        self.assertEqual(len(result["instances"]), 20)
         self.assertEqual({row["semanticReview"]["status"] for row in result["instances"]},
                          {"reviewed"})
         self.assertEqual({row["contractStatus"] for row in result["instances"]},
@@ -57,13 +57,6 @@ class Level2AdmissionTests(unittest.TestCase):
             "pointerRegister": 10, "lengthRegister": 11,
             "encoding": "length-prefixed-bytes",
         })
-        read_input = next(row for row in result["instances"]
-                          if row["leanName"] == "readInputSyscall")
-        self.assertEqual(read_input["measured"]["validatedEntryBinding"], {
-            "fdRegister": 10, "bufferRegister": 11, "requestedRegister": 12,
-            "syscallRegister": 17, "returnRegister": 10,
-            "observedPolicy": "positive-until-final-zero-eof",
-        })
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
@@ -82,7 +75,7 @@ class Level2AdmissionTests(unittest.TestCase):
     def test_rejects_forged_fixed_write(self):
         evidence = copy.deepcopy(self.documents[1])
         row = next(row for vector in evidence["vectors"] if vector["label"] == "minimal"
-                   for row in vector["instances"] if row["id"] == "fi:2:4054")
+                   for row in vector["instances"] if row["id"] == "fi:1:3d4e")
         row["hostWrites"][0]["bytes"] = "0053535a0101"
         with self.assertRaisesRegex(ValueError, "fixed source write mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
@@ -90,7 +83,7 @@ class Level2AdmissionTests(unittest.TestCase):
     def test_rejects_forged_fixed_pointer_binding(self):
         evidence = copy.deepcopy(self.documents[1])
         row = next(row for vector in evidence["vectors"] if vector["label"] == "minimal"
-                   for row in vector["instances"] if row["id"] == "fi:2:407d")
+                   for row in vector["instances"] if row["id"] == "fi:1:3d77")
         row["entryRegisters"][0]["values"][10] += 1
         with self.assertRaisesRegex(ValueError, "fixed source pointer binding mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
@@ -98,7 +91,7 @@ class Level2AdmissionTests(unittest.TestCase):
     def test_rejects_forged_boolean_value_binding(self):
         evidence = copy.deepcopy(self.documents[1])
         row = next(row for vector in evidence["vectors"] if vector["label"] == "minimal"
-                   for row in vector["instances"] if row["id"] == "fi:2:457c")
+                   for row in vector["instances"] if row["id"] == "fi:1:4276")
         row["occurrences"][0]["entryRegisters"]["values"][10] ^= 1
         with self.assertRaisesRegex(ValueError, "boolean entry/output binding mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
@@ -106,29 +99,12 @@ class Level2AdmissionTests(unittest.TestCase):
     def test_rejects_forged_byte_slice_pointer_binding(self):
         evidence = copy.deepcopy(self.documents[1])
         rows = (row for vector in evidence["vectors"] for row in vector["instances"]
-                if row["id"] == "fi:2:4639")
+                if row["id"] == "fi:1:4333")
         occurrence = next(occurrence for row in rows for occurrence in row["occurrences"]
-                          if len(occurrence["hostWrites"]) == 2)
+                          if occurrence["entryRegisters"]["values"][11] > 0)
         occurrence["entryRegisters"]["values"][10] += 1
         with self.assertRaisesRegex(ValueError, "byte-slice pointer/length binding mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
-
-    def test_rejects_zero_read_before_eof(self):
-        evidence = copy.deepcopy(self.documents[1])
-        row = next(row for vector in evidence["vectors"] if vector["label"] == "minimal"
-                   for row in vector["instances"] if row["id"] == "fi:1:57d")
-        row["occurrences"][0]["afterRegisters"]["values"][10] = 0
-        with self.assertRaisesRegex(ValueError, "lacks pre-EOF progress"):
-            self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
-
-    def test_rejects_forged_read_retry_pointer(self):
-        evidence = copy.deepcopy(self.documents[1])
-        row = next(row for vector in evidence["vectors"] if vector["label"] == "minimal"
-                   for row in vector["instances"] if row["id"] == "fi:1:57d")
-        row["occurrences"][1]["afterRegisters"]["values"][11] += 1
-        with self.assertRaisesRegex(ValueError, "retry binding mismatch"):
-            self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
-
 
 if __name__ == "__main__":
     unittest.main()

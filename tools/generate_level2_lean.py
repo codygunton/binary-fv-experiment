@@ -27,10 +27,6 @@ UNIQUE_NAMES = {
 def source_name(row: dict, cfg_instances: dict[str, dict]) -> str:
     qualified = row["qualified"]
     stack = row["functionInstanceIdentity"]["inlineStack"]
-    if qualified == "syscall3":
-        caller = stack[-1]["caller"]["qualifiedName"]
-        return {"read_input": "readInputSyscall",
-                "zkvm_exit": "zkvmExitSyscall"}[caller]
     if qualified == "ssz_decode_observation.Encoder.raw":
         caller = cfg_instances[row["parentInstanceIds"][0]]["name"]
         line = stack[-1]["callSite"]["line"]
@@ -42,8 +38,8 @@ def source_name(row: dict, cfg_instances: dict[str, dict]) -> str:
 def generate(manifest: dict, cfg: dict) -> str:
     if cfg["artifact"] != manifest["artifact"]:
         raise ValueError("CFG and Level 2 manifest describe different ELFs")
-    if len(manifest["instances"]) != 22:
-        raise ValueError("expected the reviewed 22-instance Level 2 inventory")
+    if len(manifest["instances"]) != 20:
+        raise ValueError("expected the reviewed 20-instance bare-metal Level 2 inventory")
     cfg_instances = {row["id"]: row for row in cfg["functionInstances"]}
     names = [source_name(row, cfg_instances) for row in manifest["instances"]]
     if len(names) != len(set(names)):

@@ -61,22 +61,14 @@ def fixture() -> tuple[dict, dict]:
 
 
 class GenerateLevel1LeanTests(unittest.TestCase):
-    def test_generates_exact_syscall_pcs(self):
+    def test_generates_bare_metal_context_addresses(self):
         manifest, cfg = fixture()
         output = generate(manifest, cfg)
-        self.assertIn("def readInputEcallPc : Nat := 0x1000", output)
-        self.assertIn("def writeOutputEcallPc : Nat := 0x2000", output)
-        self.assertIn("def zkvmExitEcallPc : Nat := 0x1020", output)
+        self.assertIn("def inputBufferAddress : Nat := 0x2001a000", output)
+        self.assertIn("def ioContextAddress : Nat := 0x2401a0b8", output)
         self.assertIn("def mainGlueInstructionCount : Nat := 24", output)
         self.assertIn("(0x1004, 0x00000013)", output)
         self.assertIn("def mainGlueWordAt1004 : Nat := 0x00000013", output)
-
-    def test_rejects_noncanonical_ecall(self):
-        manifest, cfg = fixture()
-        changed = copy.deepcopy(cfg)
-        changed["functions"][0]["blocks"][0]["instructions"][0]["bytes"] = "00000000"
-        with self.assertRaisesRegex(ValueError, "canonical ecall"):
-            generate(manifest, changed)
 
     def test_rejects_artifact_mismatch(self):
         manifest, cfg = fixture()

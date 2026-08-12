@@ -21,8 +21,7 @@ class GenerateLevel2LeanTests(unittest.TestCase):
 
     def test_exact_reviewed_inventory(self):
         output = generate(self.manifest, self.cfg)
-        self.assertIn("def level2InstanceCount : Nat := 22", output)
-        self.assertIn("def readInputSyscallEntry : Nat := 0x10158", output)
+        self.assertIn("def level2InstanceCount : Nat := 20", output)
         self.assertIn("def writeSuccessRawLine131Entry : Nat := 0x14e00", output)
         self.assertIn("def writeFailureRawLine127Entry : Nat := 0x161c0", output)
 
@@ -35,7 +34,7 @@ class GenerateLevel2LeanTests(unittest.TestCase):
     def test_rejects_missing_instance(self):
         manifest = copy.deepcopy(self.manifest)
         manifest["instances"].pop()
-        with self.assertRaisesRegex(ValueError, "22-instance"):
+        with self.assertRaisesRegex(ValueError, "20-instance"):
             generate(manifest, self.cfg)
 
 
