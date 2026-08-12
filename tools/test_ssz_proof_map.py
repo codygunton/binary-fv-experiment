@@ -12,8 +12,10 @@ sys.argv[:] = sys.argv[:1]
 class ProofMapTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if len(INPUTS) != 5:
-            raise RuntimeError("expected CFG FLAME MANIFEST EVIDENCE BINDINGS")
+        if len(INPUTS) != 8:
+            raise RuntimeError(
+                "expected CFG FLAME L1_MANIFEST L1_EVIDENCE L1_BINDINGS "
+                "L2_MANIFEST L2_EVIDENCE L2_BINDINGS")
         cls.documents = [json.loads(Path(path).read_text()) for path in INPUTS]
         module_path = Path(__file__).with_name("build_ssz_proof_map.py")
         spec = importlib.util.spec_from_file_location("proof_map", module_path)
@@ -35,8 +37,18 @@ class ProofMapTest(unittest.TestCase):
         self.assertEqual(decode["contractStatus"], "specified_assumption")
         self.assertTrue(all(row["evidenceStatus"] == "captured"
                             for row in result["boundaries"]))
+        level1_boundaries = [row for row in result["boundaries"]
+                             if row["id"].startswith("level1-")]
+        level2_boundaries = [row for row in result["boundaries"]
+                             if row["id"].startswith("level2-")]
+        self.assertEqual(len(level1_boundaries), 6)
+        self.assertEqual(len(level2_boundaries), 22)
         self.assertTrue(all(row["contractStatus"] == "specified_assumption"
-                            for row in result["boundaries"]))
+                            for row in level1_boundaries))
+        self.assertTrue(all(row["contractStatus"] == "not_specified"
+                            for row in level2_boundaries))
+        self.assertTrue(all(row["parentInstanceIds"]
+                            for row in level2_boundaries))
         consumed = {row["qualified"] for row in result["boundaries"]
                     if row["level0UseStatus"] == "consumed"}
         self.assertEqual(consumed,
@@ -57,12 +69,19 @@ class ProofMapTest(unittest.TestCase):
         self.assertEqual(progress[main["id"]], "conditionally_proven")
         self.assertEqual({progress[row["id"]] for row in self.documents[2]["instances"]},
                          {"contracted"})
-        self.assertEqual(len(progress), 7)
+        self.assertEqual({progress[row["id"]] for row in self.documents[5]["instances"]},
+                         {"contract_not_specified"})
+        self.assertEqual(len(progress), 29)
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
         documents[4]["artifact"]["sha256"] = "forged"
         with self.assertRaisesRegex(ValueError, "artifact identities differ"):
+            self.module.build(*documents)
+
+        documents = copy.deepcopy(self.documents)
+        documents[7]["artifact"]["sha256"] = "forged"
+        with self.assertRaisesRegex(ValueError, "Level 2 artifact identities differ"):
             self.module.build(*documents)
 
 

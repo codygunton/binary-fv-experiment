@@ -8,7 +8,9 @@ import json
 from pathlib import Path
 
 
-def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict) -> dict:
+def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict,
+          level2_manifest: dict | None = None, level2_evidence: dict | None = None,
+          level2_bindings: dict | None = None) -> dict:
     if any(cfg["artifact"] != document["artifact"]
            for document in (manifest, evidence, bindings)):
         raise ValueError("CFG, manifest, evidence, and boundary-binding artifact identities differ")
@@ -113,6 +115,70 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         edges.append({"source": "spec", "target": node_id, "kind": "semantic-review"})
         edges.append({"source": node_id, "target": "conversion", "kind": "dependency"})
 
+    level2_states = []
+    if level2_manifest is not None or level2_evidence is not None or level2_bindings is not None:
+        if level2_manifest is None or level2_evidence is None or level2_bindings is None:
+            raise ValueError("Level 2 manifest, evidence, and bindings must be supplied together")
+        if any(cfg["artifact"] != document["artifact"]
+               for document in (level2_manifest, level2_evidence, level2_bindings)):
+            raise ValueError("CFG and Level 2 artifact identities differ")
+        level2_observed = {}
+        for vector in level2_evidence["vectors"]:
+            for measured in vector["instances"]:
+                slot = level2_observed.setdefault(measured["id"], {
+                    "vectors": [], "owned": set(), "extent": set(), "exits": set(),
+                })
+                if measured["entryReached"]:
+                    slot["vectors"].append(vector["label"])
+                slot["owned"].update(measured["executedOwnedPcs"])
+                slot["extent"].update(measured["executedExtentPcs"])
+                slot["exits"].update(tuple(edge) for edge in measured["observedExitTransitions"])
+        level2_bindings_by_id = {
+            row["id"]: row["bindings"] for row in level2_bindings["instances"]
+        }
+        for row in level2_manifest["instances"]:
+            capture = level2_observed[row["id"]]
+            source = row["functionInstanceIdentity"]["function"]["declaration"]
+            boundary_id = "level2-" + row["id"].replace(":", "-")
+            boundary_bindings = level2_bindings_by_id[row["id"]]
+            boundaries.append({
+                "id": boundary_id, "instanceId": row["id"], "qualified": row["qualified"],
+                "entryPc": row["entryPc"], "instructionPcs": row["instructionPcs"],
+                "executionPcs": row["executionPcs"],
+                "ownedInstructionCount": row["ownedInstructionCount"],
+                "subtreeInstructionCount": row["subtreeInstructionCount"],
+                "source": source, "parentInstanceIds": row["parentInstanceIds"],
+                "observedVectors": sorted(capture["vectors"]),
+                "observedOwnedInstructionCount": len(capture["owned"]),
+                "observedExtentInstructionCount": len(capture["extent"]),
+                "observedExitTransitions": [list(edge) for edge in sorted(capture["exits"])],
+                "dwarfBindings": boundary_bindings,
+                "evidenceStatus": "captured", "contractStatus": "not_specified",
+                "level0UseStatus": "not_applicable", "proofStatus": "not_started",
+                "kernelStatus": "not_started",
+            })
+            regions.append({
+                "id": boundary_id, "label": row["qualified"],
+                "authoringState": "contract_not_specified",
+                "blocker": "Source/spec review and measurable-clause admission are pending.",
+                "scope": "selected-child", "pcs": row["executionPcs"],
+                "boundaryIds": [boundary_id],
+                "evidence": "production entry registers, PCs, memory accesses, and exits captured",
+                "preparation": {
+                    "liveRegisters": [
+                        f"{binding['name']} = x{binding['machineRegister']}"
+                        for binding in boundary_bindings if binding["machineRegister"] is not None
+                    ],
+                    "protectedMemory": [],
+                    "prerequisites": ["typed source/spec boundary review"],
+                    "sourceIdentity": f"{source['file']}::{source['qualifiedName']}",
+                },
+            })
+            level2_states.append({
+                "owner": row["id"], "qualified": row["qualified"],
+                "status": "contract_not_specified",
+            })
+
     regions.append({
         "id": "level0-glue", "label": "main parent-owned glue", "authoringState": "local",
         "blocker": "None: the conditional Level 0 theorem and refinement edge are proved.",
@@ -162,6 +228,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
                 {"owner": main["id"], "qualified": "main", "status": "conditionally_proven"},
                 *({"owner": row["id"], "qualified": row["qualified"],
                    "status": "contracted"} for row in manifest["instances"]),
+                *level2_states,
             ],
         },
         "refinementGraph": {"nodes": nodes, "edges": edges},
@@ -172,9 +239,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     for name in ("cfg", "flame", "manifest", "evidence", "bindings", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
+    for name in ("level2-manifest", "level2-evidence", "level2-bindings"):
+        parser.add_argument("--" + name, type=Path)
     args = parser.parse_args()
-    result = build(*(json.loads(getattr(args, name).read_text())
-                     for name in ("cfg", "flame", "manifest", "evidence", "bindings")))
+    documents = [json.loads(getattr(args, name).read_text())
+                 for name in ("cfg", "flame", "manifest", "evidence", "bindings")]
+    documents.extend(json.loads(getattr(args, name.replace("-", "_")).read_text())
+                     if getattr(args, name.replace("-", "_")) else None
+                     for name in ("level2-manifest", "level2-evidence", "level2-bindings"))
+    result = build(*documents)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return 0
 

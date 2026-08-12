@@ -145,7 +145,8 @@ const proofState=d=>{const meta=META[keyOf(d)]||{};
   return PROGRESS.get(meta.owner)||PROGRESS.get(meta.qualified)||{status:'none'};};
 const proofColor=s=>({unconditionally_proven:'#3ddc84',
   conditionally_proven:'url(#conditionally-proven)',in_progress:'#e5b84b',
-  contracted:'url(#contract-specified)',none:'#d95757'})[s]||'#d95757';
+  contracted:'url(#contract-specified)',contract_not_specified:'#d95757',
+  none:'#d95757'})[s]||'#d95757';
 
 function build(){
   baseW = $('#chart').clientWidth - 100;
