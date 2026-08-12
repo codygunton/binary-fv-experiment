@@ -36,10 +36,10 @@ let
       cmp "$out/flame.json" "$TMPDIR/repeated/flame.json"
       cmp "$out/proof-map.json" "$TMPDIR/repeated/proof-map.json"
     '';
-  zesuCfg = makeCfg "zesu-rv64-cfg-e5f8c13" zesuRv64Object "obj/zesu.o";
-  zesuSszDecodeCfg = makeCfg "zesu-ssz-decode-rv64-cfg-e5f8c13" zesuSszDecodeRv64Elf "bin/zesu-ssz-decode";
+  zesuCfg = makeCfg "zesu-rv64-cfg-d67f28c" zesuRv64Object "obj/zesu.o";
+  zesuSszDecodeCfg = makeCfg "zesu-ssz-decode-rv64-cfg-d67f28c" zesuSszDecodeRv64Elf "bin/zesu-ssz-decode";
 
-  zesuSszDecodeLevel1Manifest = pkgs.runCommand "zesu-ssz-decode-level1-manifest-e5f8c13"
+  zesuSszDecodeLevel1Manifest = pkgs.runCommand "zesu-ssz-decode-level1-manifest-d67f28c"
     { nativeBuildInputs = [ python ]; } ''
       mkdir -p "$out"
       python ${../tools/generate_level_manifest.py} \
@@ -50,7 +50,7 @@ let
     '';
 
   zesuSszDecodeLevel1BoundaryBindings = pkgs.runCommand
-    "zesu-ssz-decode-level1-boundary-bindings-e5f8c13" { nativeBuildInputs = [ python ]; } ''
+    "zesu-ssz-decode-level1-boundary-bindings-d67f28c" { nativeBuildInputs = [ python ]; } ''
       mkdir -p "$out"
       python ${../tools/generate_level_boundary_bindings.py} \
         --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
@@ -59,7 +59,7 @@ let
       python ${../tools/test_level_boundary_bindings.py} "$out/level1-boundary-bindings.json"
     '';
 
-  zesuSszDecodeLevel1Lean = pkgs.runCommand "zesu-ssz-decode-level1-lean-e5f8c13"
+  zesuSszDecodeLevel1Lean = pkgs.runCommand "zesu-ssz-decode-level1-lean-d67f28c"
     { nativeBuildInputs = [ pkgs.python3 ]; } ''
       mkdir -p "$out/BinaryFv/Ssz/Generated"
       PYTHONPATH=${../tools} python ${../tools/test_generate_level1_lean.py}
@@ -72,7 +72,7 @@ let
     '';
 
   zesuSszDecodeStatelessInputLayout = pkgs.runCommand
-    "zesu-ssz-decode-stateless-input-layout-e5f8c13" { nativeBuildInputs = [ python ]; } ''
+    "zesu-ssz-decode-stateless-input-layout-d67f28c" { nativeBuildInputs = [ python ]; } ''
       mkdir -p "$out"
       python ${../tools/generate_zig_type_layout.py} \
         --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
@@ -84,7 +84,7 @@ let
     path = ../tools/level1_evidence;
     name = "zesu-level1-evidence-tools";
   };
-  zesuSszDecodeLevel1Evidence = pkgs.runCommand "zesu-ssz-decode-level1-evidence-e5f8c13" {
+  zesuSszDecodeLevel1Evidence = pkgs.runCommand "zesu-ssz-decode-level1-evidence-d67f28c" {
     nativeBuildInputs = [ pkgs.gcc pkgs.glib pkgs.pkg-config pkgs.python3 pkgs.qemu-user ];
   } ''
     set -euo pipefail
@@ -105,7 +105,7 @@ let
       --output "$out/level1-evidence.json"
   '';
 
-  zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-e5f8c13"
+  zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-d67f28c"
     { nativeBuildInputs = [ pkgs.python3 ]; } ''
     cp -R ${../tools/binary-regions-ui} "$out"
     chmod -R u+w "$out"

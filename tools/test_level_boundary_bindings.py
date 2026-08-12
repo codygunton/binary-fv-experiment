@@ -14,50 +14,40 @@ def register_map(instance: dict) -> dict[str, int | None]:
 
 def validate(report: dict) -> None:
     rows = {row["qualified"]: row for row in report["instances"]}
-    if len(rows) != 7:
-        raise ValueError("boundary report must contain the exact seven Level 1 instances")
+    if len(rows) != 6:
+        raise ValueError("boundary report must contain the exact six Level 1 instances")
     expected = {
         "read_input": {"buffer": 10, "size": 11},
         "zkvm_exit": {"code": 10},
-        "memcpy": {"dst": 10, "src": 11, "n": 12},
     }
-    expected_continuations = [{
-        "qualified": "ssz.decode", "pc": 83360, "value": "decoded",
-        "expression": "(DW_OP_fbreg: 1176)",
-    }]
-    if report.get("continuations") != expected_continuations:
-        raise ValueError("ssz.decode decoded continuation must be the exact DWARF frame location")
     for qualified, bindings in expected.items():
         actual = register_map(rows[qualified])
         for name, register in bindings.items():
             if actual.get(name) != register:
                 raise ValueError(f"{qualified}.{name} must be live in x{register}")
-    decode = register_map(rows["ssz.decode"])
-    if decode.get("input_ptr") != 23 or decode.get("input_size") != 18:
-        raise ValueError("ssz.decode input_ptr/input_size must be live in x23/x18")
-    if decode.get("alloc") is not None:
-        raise ValueError("the optimized ssz.decode allocator is not a direct register binding")
+    decode = {row["name"]: row for row in rows["ssz_decode_root.decodeInput"]["bindings"]}
+    if decode["alloc"]["addressRegister"] != 11:
+        raise ValueError("decodeInput allocator descriptor must be addressed by x11")
+    success = {row["name"]: row
+               for row in rows["ssz_decode_observation.writeSuccess"]["bindings"]}
+    if success["decoded"]["addressRegister"] != 10:
+        raise ValueError("writeSuccess decoded value must be addressed by x10")
 
 
 def main() -> int:
     report = json.loads(Path(sys.argv[1]).read_text())
     validate(report)
     mutated = json.loads(json.dumps(report))
-    decode = next(row for row in mutated["instances"] if row["qualified"] == "ssz.decode")
-    next(row for row in decode["bindings"] if row["name"] == "input_ptr")["machineRegister"] = 10
+    decode = next(row for row in mutated["instances"]
+                  if row["qualified"] == "ssz_decode_root.decodeInput")
+    next(row for row in decode["bindings"] if row["name"] == "alloc")["addressRegister"] = 10
     try:
         validate(mutated)
     except ValueError:
         pass
     else:
-        raise AssertionError("validator accepted a forged optimized input register")
-    mutated = json.loads(json.dumps(report))
-    mutated["continuations"][0]["expression"] = "(DW_OP_reg10 (r10))"
-    try:
-        validate(mutated)
-    except ValueError:
-        return 0
-    raise AssertionError("validator accepted a forged decoded-result continuation")
+        raise AssertionError("validator accepted a forged decode allocator register")
+    return 0
 
 
 if __name__ == "__main__":

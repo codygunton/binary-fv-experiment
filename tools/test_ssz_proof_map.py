@@ -24,13 +24,14 @@ class ProofMapTest(unittest.TestCase):
         result = self.module.build(*self.documents)
         contracts = [node for node in result["refinementGraph"]["nodes"]
                      if node["kind"] == "level1Contract"]
-        self.assertEqual(len(contracts), 7)
+        self.assertEqual(len(contracts), 6)
         self.assertEqual(sum(region["scope"] == "parent"
                              for region in result["authoringRegions"]), 1)
         self.assertEqual(result["phases"][0]["label"], "main parent-owned glue")
-        decode = next(row for row in result["boundaries"] if row["qualified"] == "ssz.decode")
-        direct = {row["name"]: row["machineRegister"] for row in decode["dwarfBindings"]}
-        self.assertEqual((direct["input_ptr"], direct["input_size"]), (23, 18))
+        decode = next(row for row in result["boundaries"]
+                      if row["qualified"] == "ssz_decode_root.decodeInput")
+        locations = {row["name"]: row for row in decode["dwarfBindings"]}
+        self.assertEqual(locations["alloc"]["addressRegister"], 11)
         self.assertEqual(decode["contractStatus"], "specified_assumption")
         self.assertTrue(all(row["evidenceStatus"] == "captured"
                             for row in result["boundaries"]))
@@ -40,8 +41,8 @@ class ProofMapTest(unittest.TestCase):
                     if node["kind"] == "parentGlue")
         self.assertEqual((glue["proofStatus"], glue["provedInstructionCount"]),
                          ("not_started", 0))
-        self.assertEqual(glue["instructionCount"], 117)
-        self.assertEqual(glue["absorbedInlineInstructionCount"], 53)
+        self.assertEqual(glue["instructionCount"], 24)
+        self.assertEqual(glue["absorbedInlineInstructionCount"], 2)
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)

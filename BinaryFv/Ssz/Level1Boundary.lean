@@ -6,10 +6,11 @@ import BinaryFv.Ssz.HostExecution
 import BinaryFv.RiscV.Logic.LoadedImage
 
 /-!
-# Typed boundary shared by the Level 1 decode and observation contracts
+# Typed boundary for the noinline Level 1 decoder
 
-This file states the semantic and machine values crossing the optimized inlined `ssz.decode`
-boundary. It deliberately does not claim a step bound or implementation theorem yet.
+The endpoint wrapper makes result materialization part of `ssz_decode_root.decodeInput`, avoiding a
+compiler-specific relation over scattered caller temporaries. This file deliberately does not claim
+a step bound or implementation theorem yet.
 -/
 
 namespace BinaryFv.Ssz
@@ -17,12 +18,12 @@ namespace BinaryFv.Ssz
 open PreSail LeanRV64DExecutable.Functions Register
 
 structure DecodeBoundaryArgs where
+  returnAddress : Nat
   inputAddress : Nat
   input : Array UInt8
   stackPointer : Nat
   allocatorStateAddress : Nat
   allocatorVtableAddress : Nat
-  savedFrame : Array UInt8
 
 inductive DecodeBoundaryOutcome where
   | failure
@@ -44,42 +45,50 @@ def DecodeMeaningModuloKnownBugs (args : DecodeBoundaryArgs) : DecodeBoundaryOut
       ((¬∃ sail, SailDecode args.input sail) ∧
         ∃ bug ∈ knownBugs, KnownBugApplies args.input zesu bug)
 
-/-- Same-ELF DWARF binds the inlined decode input pointer to `s7` and length to `s2`. -/
+/-- The actual noinline wrapper ABI: main supplies an 848-byte result slot in `a0`, an allocator
+descriptor address in `a1`, and the input slice in `a2`/`a3`. -/
 def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Prop :=
   state.stdin = args.input ∧
-  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.sszDecodeEntry) ∧
+  args.returnAddress ∈ Generated.decodeInputExitPcs ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.decodeInputEntry) ∧
   Generated.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
-  args.inputAddress < 2 ^ 64 ∧
-  state.machine.regs.get? x23 = some (BitVec.ofNat 64 args.inputAddress) ∧
-  state.machine.regs.get? x18 = some (BitVec.ofNat 64 args.input.size) ∧
+  args.stackPointer + 0x380 < 2 ^ 64 ∧
+  args.inputAddress + args.input.size ≤ 2 ^ 64 ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
-  UIntRep 8 state.machine.mem (args.stackPointer + 0x2a0) args.allocatorStateAddress ∧
-  UIntRep 8 state.machine.mem (args.stackPointer + 0x2a8) args.allocatorVtableAddress ∧
-  args.savedFrame.size = 0x68 ∧
-  BytesRep state.machine.mem (args.stackPointer + 0xed8) args.savedFrame ∧
+  state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
+  state.machine.regs.get? x10 = some (BitVec.ofNat 64 (args.stackPointer + 0x20)) ∧
+  state.machine.regs.get? x11 = some (BitVec.ofNat 64 (args.stackPointer + 0x10)) ∧
+  state.machine.regs.get? x12 = some (BitVec.ofNat 64 args.inputAddress) ∧
+  state.machine.regs.get? x13 = some (BitVec.ofNat 64 args.input.size) ∧
+  UIntRep 8 state.machine.mem args.stackPointer args.inputAddress ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 8) args.input.size ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 0x10) args.allocatorStateAddress ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 0x18) args.allocatorVtableAddress ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
   BytesRep state.machine.mem args.inputAddress args.input
 
-/-- The inlined decoder stops at the two exact parent continuations. Failure precedes the parent's
-call to `writeFailure`; success has materialized the concrete 848-byte result in main's
-DWARF-described stack slot before the parent loads its address and calls `writeSuccess`. -/
+/-- Both outcomes return to main at the same ABI continuation. The two-byte error-union tag selects
+the parent branch; success exposes the fully materialized 848-byte result in main's result slot. -/
 def DecodeBoundaryExit (args : DecodeBoundaryArgs) (outcome : DecodeBoundaryOutcome)
     (before state : EndpointState) : Prop :=
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.stdin = before.stdin ∧ state.stdinCursor = before.stdinCursor ∧
   state.stdout = before.stdout ∧ state.exitCode = before.exitCode ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
+  UIntRep 8 state.machine.mem args.stackPointer args.inputAddress ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 8) args.input.size ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
   BytesRep state.machine.mem args.inputAddress args.input ∧
-  BytesRep state.machine.mem (args.stackPointer + 0xed8) args.savedFrame ∧
   Generated.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   state.machine.choiceState = before.machine.choiceState ∧
   state.machine.tags = before.machine.tags ∧
   state.machine.sailOutput = before.machine.sailOutput ∧
     match outcome with
-    | .failure => state.machine.regs.get? PC =
-        some (BitVec.ofNat 64 Generated.sszDecodeFailureContinuation)
+    | .failure => ∃ status : Nat, status ≠ 0 ∧ status < 2 ^ 16 ∧
+        UIntRep 2 state.machine.mem (args.stackPointer + 0x370) status
     | .success decoded =>
-        state.machine.regs.get? PC =
-          some (BitVec.ofNat 64 Generated.sszDecodeSuccessContinuation) ∧
-        StatelessInputRep state.machine.mem (args.stackPointer + 0x498) decoded
+        UIntRep 2 state.machine.mem (args.stackPointer + 0x370) 0 ∧
+        StatelessInputRep state.machine.mem (args.stackPointer + 0x20) decoded
 
 /-- The strict contract shape. The reviewed Level 1 contract will instantiate its bound and widen
 only the fixed accept/reject domains represented by `knownBugs`. -/
@@ -100,11 +109,10 @@ def decodeContractModuloKnownBugs (stepBound : DecodeBoundaryArgs → Nat) :
     stepBound }
 
 def DecodeExecutionPc : BitVec 64 → Prop :=
-  pcInRanges Generated.sszDecodeExecutionPcRanges
+  pcInRanges Generated.decodeInputExecutionPcRanges
 
 def DecodeExitPc (pc : BitVec 64) : Prop :=
-  pc = BitVec.ofNat 64 Generated.sszDecodeFailureContinuation ∨
-    pc = BitVec.ofNat 64 Generated.sszDecodeSuccessContinuation
+  pcInList Generated.decodeInputExitPcs pc
 
 /-- The exact strict implementation obligation at the generated production boundary. -/
 abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : Prop :=

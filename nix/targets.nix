@@ -34,7 +34,7 @@ let
 
   zesuRv64Object = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-rv64im-object";
-    version = "e5f8c13";
+    version = "d67f28c";
     src = zesu;
     nativeBuildInputs = [ pkgs.zig riscvBinutils ];
     dontConfigure = true;
@@ -71,7 +71,7 @@ let
       ${riscvReadelf} -A "$out/obj/zesu.o" > "$out/meta/elf-attributes.txt"
       ${riscvNm} -u "$out/obj/zesu.o" > "$out/meta/undefined-symbols.txt"
       printf '%s\n' \
-        'zesu=codygunton/zesu@e5f8c13a691b61f8a6e67d7e7c646638c8bdf467' \
+        'zesu=codygunton/zesu@d67f28c' \
         'upstream-base=Consensys/zesu@d8071c422f0faf2c52d85b401192fdffc31fd5ac' \
         'optimize=ReleaseSmall; debug-metadata=retained-in-analyzed-object' \
         "zig=$(zig version)" > "$out/meta/provenance.txt"
@@ -91,7 +91,7 @@ let
 
   zesuSszDecodeRv64Elf = pkgs.stdenvNoCC.mkDerivation {
     pname = "zesu-ssz-decode-rv64im-elf";
-    version = "e5f8c13";
+    version = "d67f28c";
     dontUnpack = true;
     nativeBuildInputs = [ riscvBinutils ];
     dontFixup = true;
@@ -118,14 +118,14 @@ let
       ${riscvNm} -u "$out/bin/zesu-ssz-decode" > "$out/meta/undefined-symbols.txt"
       test ! -s "$out/meta/undefined-symbols.txt"
       printf '%s\n' \
-        'zesu=codygunton/zesu@e5f8c13a691b61f8a6e67d7e7c646638c8bdf467' \
+        'zesu=codygunton/zesu@d67f28c' \
         'runtime=runtime/riscv64; linux-riscv-syscall-abi; no-libc' \
         'optimize=ReleaseSmall; static=true; linked=true' > "$out/meta/provenance.txt"
       runHook postInstall
     '';
   };
 
-  zesuSszDecodeSmoke = pkgs.runCommand "zesu-ssz-decode-smoke-e5f8c13" {
+  zesuSszDecodeSmoke = pkgs.runCommand "zesu-ssz-decode-smoke-d67f28c" {
     nativeBuildInputs = [ pkgs.python3 ];
   } ''
     python ${repo}/tools/make_minimal_ssz.py minimal.ssz
@@ -184,7 +184,7 @@ let
 
   zesuSszDecodeSourceProbe = pkgs.stdenv.mkDerivation {
     pname = "zesu-ssz-decode-source-probe";
-    version = "e5f8c13";
+    version = "d67f28c";
     src = zesu;
     nativeBuildInputs = [ pkgs.zig pkgs.pkg-config ];
     buildInputs = [ pkgs.secp256k1 pkgs.openssl ];

@@ -77,7 +77,7 @@ let
     mkdir -p "$out"
     python ${repo}/tools/generate_program_image_lean.py \
       --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
-      --expected-sha256 3cffe6fb6ff4fcaf2bc17e47cf36f71f226bc9032612425b390cdedb4cf4c754 \
+      --expected-sha256 51db443cc29bbe4be81a989ad6a02ff89c1866f30155a7739a5c17ed9034ec20 \
       --output "$out/ZesuSszDecodeProgramImage.lean"
   '';
 

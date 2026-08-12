@@ -17,14 +17,12 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
     if level != 1:
         raise ValueError("the SSZ spike currently freezes only Level 1")
     rows = {row["id"]: row for row in cfg["functionInstances"]}
-    source_at_pc = {}
     instruction_at_pc = {}
     successors: dict[int, set[int]] = defaultdict(set)
     for function in cfg["functions"]:
         for block in function["blocks"]:
             instructions = block["instructions"]
             for instruction in instructions:
-                source_at_pc[instruction["pc"]] = (block["sourceFile"], block["sourceLine"])
                 instruction_at_pc[instruction["pc"]] = instruction
             for before, after in zip(instructions, instructions[1:]):
                 successors[before["pc"]].add(after["pc"])
@@ -98,6 +96,7 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
         raise ValueError("main concrete function instance is absent")
 
     inline_rows = [row for row in rows.values() if row["kind"] == "inlined"]
+    claimed_inline_pcs = set().union(*(set(candidate["pcs"]) for candidate in inline_rows))
 
     def call_owner(call: dict) -> str:
         containing = [row for row in inline_rows if call["source"] in row["pcs"]]
@@ -139,18 +138,17 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
         return set().union(*(local_pcs(current) for current in reachable))
 
     selected = []
-    claimed_inline_pcs = set().union(*(set(candidate["pcs"]) for candidate in inline_rows))
     for identifier in sorted((identifier for identifier, depth in depths.items() if depth == level),
                              key=lambda identifier: (rows[identifier]["entryPc"], identifier)):
         row = rows[identifier]
         owned_pcs = sorted(set(row["pcs"]) - inline_descendant_pcs(identifier))
         absorbed_pcs = []
         if row["kind"] == "inlined":
-            absorbed_pcs = sorted(
-                pc for pc, (source_file, source_line) in source_at_pc.items()
-                if pc not in claimed_inline_pcs and source_file == row["sourceFile"] and
-                source_line >= row["declLine"]
-            )
+            # Optimized inlined ranges may have short caller-attributed holes. Absorb only holes
+            # between this instance's first and last owned PC; never absorb trailing call setup.
+            absorbed_pcs = sorted(pc for pc in instruction_at_pc
+                                  if row["entryPc"] <= pc <= max(row["pcs"])
+                                  and pc not in claimed_inline_pcs)
         subtree = execution_pcs(identifier) | set(absorbed_pcs)
         exit_pcs = {
             target for pc in subtree for target in successors.get(pc, set()) if target not in subtree

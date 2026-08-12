@@ -48,6 +48,13 @@ def direct_register(expression: bytes) -> int | None:
     return None
 
 
+def direct_address_register(expression: bytes) -> int | None:
+    # DW_OP_breg0..DW_OP_breg31 followed by a zero signed-LEB offset.
+    if len(expression) == 2 and 0x70 <= expression[0] <= 0x8f and expression[1] == 0:
+        return expression[0] - 0x70
+    return None
+
+
 def generate(manifest: dict, elf_path: Path) -> dict:
     with elf_path.open("rb") as stream:
         elf = ELFFile(stream)
@@ -62,12 +69,7 @@ def generate(manifest: dict, elf_path: Path) -> dict:
                 raise ValueError(f"missing DWARF DIE for {instance['id']}")
             pc = instance["entryPc"]
             bindings = []
-            # Parameters belong to the selected DIE. Main's input_ptr/input_size are
-            # lexical variables whose loclists remain live at the inlined decode entry.
             candidates = list(die.iter_children())
-            if instance["qualified"] == "ssz.decode":
-                candidates.extend(candidate for candidate in dies.values()
-                                  if candidate.tag == "DW_TAG_variable")
             seen = set()
             for candidate in candidates:
                 if candidate.tag not in VARIABLE_TAGS:
@@ -77,9 +79,6 @@ def generate(manifest: dict, elf_path: Path) -> dict:
                 if name_attr is None or location_attr is None:
                     continue
                 name = name_attr.value.decode(errors="replace")
-                if instance["qualified"] == "ssz.decode" and candidate not in list(die.iter_children()) \
-                        and name not in {"input_ptr", "input_size"}:
-                    continue
                 location = locations.parse_from_attribute(
                     location_attr, candidate.cu["version"], candidate)
                 unit = candidate.cu.get_top_DIE()
@@ -97,6 +96,7 @@ def generate(manifest: dict, elf_path: Path) -> dict:
                     "expression": describe_DWARF_expr(expression, dwarf.structs,
                                                        candidate.cu.cu_offset),
                     "machineRegister": direct_register(expression),
+                    "addressRegister": direct_address_register(expression),
                 })
             bindings.sort(key=lambda row: (row["kind"], row["name"], row["expression"]))
             rows.append({
@@ -105,37 +105,11 @@ def generate(manifest: dict, elf_path: Path) -> dict:
                 "entryPc": pc,
                 "bindings": bindings,
             })
-        decode = next(row for row in manifest["instances"] if row["qualified"] == "ssz.decode")
-        success_pc = decode["exitPcs"][1]
-        decoded_locations = []
-        for candidate in dies.values():
-            if candidate.tag != "DW_TAG_variable":
-                continue
-            name_attr = inherited_attribute(candidate, "DW_AT_name")
-            location_attr = candidate.attributes.get("DW_AT_location")
-            if name_attr is None or name_attr.value != b"decoded" or location_attr is None:
-                continue
-            location = locations.parse_from_attribute(
-                location_attr, candidate.cu["version"], candidate)
-            unit = candidate.cu.get_top_DIE()
-            low_pc = unit.attributes.get("DW_AT_low_pc")
-            expression = active_expression(location, success_pc, low_pc.value if low_pc else 0)
-            if expression is not None:
-                decoded_locations.append(describe_DWARF_expr(
-                    expression, dwarf.structs, candidate.cu.cu_offset))
-        if decoded_locations != ["(DW_OP_fbreg: 1176)"]:
-            raise ValueError(f"unexpected decoded continuation locations: {decoded_locations}")
     return {
         "schemaVersion": 1,
         "artifact": manifest["artifact"],
         "level": manifest["level"],
         "instances": rows,
-        "continuations": [{
-            "qualified": "ssz.decode",
-            "pc": success_pc,
-            "value": "decoded",
-            "expression": decoded_locations[0],
-        }],
         "interpretation": "same-ELF DWARF locations live at the exact selected entry PC",
     }
 

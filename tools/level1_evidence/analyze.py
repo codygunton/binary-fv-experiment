@@ -111,67 +111,61 @@ def validate_bindings(manifest: dict, bindings: dict, vectors: list[dict],
     if actual != expected:
         raise ValueError("boundary bindings and manifest instances differ")
     decode_binding = next(row for row in bindings["instances"]
-                          if row["qualified"] == "ssz.decode")
-    registers = {row["name"]: row["machineRegister"]
-                 for row in decode_binding["bindings"]}
-    if registers.get("input_ptr") != 23 or registers.get("input_size") != 18:
-        raise ValueError("unexpected optimized ssz.decode input bindings")
-    if bindings.get("continuations") != [{
-        "qualified": "ssz.decode", "pc": 83360, "value": "decoded",
-        "expression": "(DW_OP_fbreg: 1176)",
-    }]:
-        raise ValueError("unexpected ssz.decode decoded-result continuation")
+                          if row["qualified"] == "ssz_decode_root.decodeInput")
+    locations = {row["name"]: row for row in decode_binding["bindings"]}
+    if locations.get("alloc", {}).get("addressRegister") != 11:
+        raise ValueError("unexpected decodeInput allocator binding")
     checks = []
     decoded_checks = []
     for vector in vectors:
         if vector["label"] not in inputs:
             raise ValueError(f"missing input fixture for {vector['label']}")
-        decode = next(row for row in vector["instances"] if row["qualified"] == "ssz.decode")
+        decode = next(row for row in vector["instances"]
+                      if row["qualified"] == "ssz_decode_root.decodeInput")
         if not decode["entryReached"]:
             continue
         size = inputs[vector["label"]].stat().st_size
         for snapshot in decode["entryRegisters"]:
-            pointer = snapshot["values"][23]
-            if snapshot["values"][18] != size:
-                raise ValueError(f"ssz.decode input_size mismatch for {vector['label']}")
+            pointer = snapshot["values"][12]
+            if snapshot["values"][13] != size:
+                raise ValueError(f"decodeInput input_size mismatch for {vector['label']}")
             if not any(access["kind"] == "load" and access["address"] == pointer
                        for access in decode["memoryAccesses"]):
-                raise ValueError(f"ssz.decode input_ptr was not observed as a load base for {vector['label']}")
+                raise ValueError(f"decodeInput input pointer was not observed as a load base for {vector['label']}")
         checks.append({
             "vector": vector["label"],
             "inputSize": size,
             "snapshots": len(decode["entryRegisters"]),
-            "inputPointerRegister": 23,
-            "inputSizeRegister": 18,
+            "inputPointerRegister": 12,
+            "inputSizeRegister": 13,
         })
         success = next((row for row in vector["instances"]
                         if row["qualified"] == "ssz_decode_observation.writeSuccess"), None)
         if success is not None and success["entryReached"]:
             if len(decode["entryRegisters"]) != 1 or len(success["entryRegisters"]) != 1:
                 raise ValueError(f"expected one decode/writeSuccess snapshot for {vector['label']}")
-            stack_pointer = decode["entryRegisters"][0]["values"][2]
+            result_slot = decode["entryRegisters"][0]["values"][10]
             result_address = success["entryRegisters"][0]["values"][10]
-            if result_address != stack_pointer + 1176:
-                raise ValueError(f"decoded-result stack location mismatch for {vector['label']}")
+            if result_address != result_slot:
+                raise ValueError(f"decoded-result ABI slot mismatch for {vector['label']}")
             decoded_checks.append({
                 "vector": vector["label"],
-                "stackPointerRegister": 2,
+                "decodeResultRegister": 10,
                 "writeSuccessArgumentRegister": 10,
-                "decodedOffset": 1176,
             })
-    return {"source": "same-ELF DWARF checked against QEMU entry snapshots and loads",
-            "sszDecodeInputBindings": checks,
-            "sszDecodeResultBindings": decoded_checks}
+    return {"source": "same-ELF DWARF and ABI callsite checked against QEMU snapshots and loads",
+            "decodeInputBindings": checks,
+            "decodeResultBindings": decoded_checks}
 
 
 def validate_decode_runs(manifest: dict, traces: list[tuple[str, dict]]) -> list[dict]:
     """Check the observed decode entry-to-outcome interval without claiming universality."""
     entries = {row["qualified"]: row["entryPc"] for row in manifest["instances"]}
-    required = {"ssz.decode", "ssz_decode_observation.writeSuccess",
+    required = {"ssz_decode_root.decodeInput", "ssz_decode_observation.writeSuccess",
                 "ssz_decode_observation.writeFailure"}
     if not required <= entries.keys():
         raise ValueError("manifest lacks the typed ssz.decode outcome boundaries")
-    decode_pc = entries["ssz.decode"]
+    decode_pc = entries["ssz_decode_root.decodeInput"]
     success_pc = entries["ssz_decode_observation.writeSuccess"]
     failure_pc = entries["ssz_decode_observation.writeFailure"]
     reports = []
@@ -180,11 +174,11 @@ def validate_decode_runs(manifest: dict, traces: list[tuple[str, dict]]) -> list
         try:
             start = executed.index(decode_pc)
         except ValueError as error:
-            raise ValueError(f"ssz.decode entry absent from {label}") from error
+            raise ValueError(f"decodeInput entry absent from {label}") from error
         outcomes = [(index, pc) for index, pc in enumerate(executed[start + 1:], start + 1)
                     if pc in {success_pc, failure_pc}]
         if not outcomes:
-            raise ValueError(f"ssz.decode outcome boundary absent from {label}")
+            raise ValueError(f"decodeInput outcome boundary absent from {label}")
         finish, outcome_pc = outcomes[0]
         entry_snapshots = trace["registers"].get(decode_pc, [])
         exit_snapshots = trace["registers"].get(outcome_pc, [])

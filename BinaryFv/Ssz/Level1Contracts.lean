@@ -3,7 +3,7 @@ import BinaryFv.Ssz.Level1Boundary
 /-!
 # Level 1 contract assumptions for the SSZ endpoint
 
-These are the seven contracts selected by the generated Level 1 manifest. They bind source values
+These are the six contracts selected by the generated Level 1 manifest. They bind source values
 to the production registers and memory, state exact generated execution and exit sets, and expose
 the register, memory, and endpoint-state frames needed by the Level 0 proof. This file states the
 assumptions; later refinement levels discharge them.
@@ -82,6 +82,7 @@ def ReadInputInstanceContract : Prop :=
     (pcInList Generated.readInputExitPcs)
 
 structure AllocatorGetArgs where
+  returnAddress : Nat
   stackPointer : Nat
   inputAddress : Nat
   input : Array UInt8
@@ -92,31 +93,32 @@ structure AllocatorGetOutcome where
   vtableAddress : Nat
 
 def AllocatorGetEntry (args : AllocatorGetArgs) (state : EndpointState) : Prop :=
+  args.returnAddress ∈ Generated.allocatorGetExitPcs ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.allocatorGetEntry) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
-  UIntRep 8 state.machine.mem (args.stackPointer + 0x290) args.inputAddress ∧
-  UIntRep 8 state.machine.mem (args.stackPointer + 0x298) args.input.size ∧
-  args.savedFrame.size = 0x68 ∧
-  BytesRep state.machine.mem (args.stackPointer + 0xed8) args.savedFrame ∧
+  UIntRep 8 state.machine.mem args.stackPointer args.inputAddress ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 8) args.input.size ∧
+  args.savedFrame.size = 8 ∧
+  BytesRep state.machine.mem (args.stackPointer + 0x378) args.savedFrame ∧
   BytesRep state.machine.mem args.inputAddress args.input ∧
   Generated.programImage.fileBytesLoadedFaithfully state.machine.mem
 
 def AllocatorGetExit (args : AllocatorGetArgs) (outcome : AllocatorGetOutcome)
     (before after : EndpointState) : Prop :=
-  after.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.sszDecodeEntry) ∧
+  after.machine.regs.get? PC = some (BitVec.ofNat 64 args.returnAddress) ∧
   after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   after.machine.regs.get? x10 = some (BitVec.ofNat 64 outcome.stateAddress) ∧
   after.machine.regs.get? x11 = some (BitVec.ofNat 64 outcome.vtableAddress) ∧
   after.machine.regs.get? x12 = some (BitVec.ofNat 64 3) ∧
   after.machine.regs.get? x18 = some (BitVec.ofNat 64 args.input.size) ∧
   after.machine.regs.get? x23 = some (BitVec.ofNat 64 args.inputAddress) ∧
-  UIntRep 8 after.machine.mem (args.stackPointer + 0x2a0) outcome.stateAddress ∧
-  UIntRep 8 after.machine.mem (args.stackPointer + 0x2a8) outcome.vtableAddress ∧
-  BytesRep after.machine.mem (args.stackPointer + 0xed8) args.savedFrame ∧
+  UIntRep 8 after.machine.mem (args.stackPointer + 0x10) outcome.stateAddress ∧
+  UIntRep 8 after.machine.mem (args.stackPointer + 0x18) outcome.vtableAddress ∧
+  BytesRep after.machine.mem (args.stackPointer + 0x378) args.savedFrame ∧
   BytesRep after.machine.mem args.inputAddress args.input ∧
   WritesOnlyWithin
-    (Region.union (byteRange (args.stackPointer + 0x2a0) 8)
-      (byteRange (args.stackPointer + 0x2a8) 8)) before.machine after.machine ∧
+    (Region.union (byteRange (args.stackPointer + 0x10) 8)
+      (byteRange (args.stackPointer + 0x18) 8)) before.machine after.machine ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.stdout = before.stdout ∧ after.exitCode = before.exitCode ∧
   Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
@@ -135,46 +137,6 @@ def AllocatorGetInstanceContract : Prop :=
   ∃ stepBound, (allocatorGetContract stepBound).Implements EndpointStep EndpointPc
     (pcInRanges Generated.allocatorGetExecutionPcRanges)
     (pcInList Generated.allocatorGetExitPcs)
-
-structure MemcpyArgs where
-  returnAddress : Nat
-  destination : Nat
-  source : Nat
-  bytes : Array UInt8
-
-def MemcpyEntry (args : MemcpyArgs) (state : EndpointState) : Prop :=
-  args.returnAddress ∈ Generated.memcpyExitPcs ∧
-  (args.destination + args.bytes.size ≤ args.source ∨
-    args.source + args.bytes.size ≤ args.destination) ∧
-  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.memcpyEntry) ∧
-  state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
-  state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.destination) ∧
-  state.machine.regs.get? x11 = some (BitVec.ofNat 64 args.source) ∧
-  state.machine.regs.get? x12 = some (BitVec.ofNat 64 args.bytes.size) ∧
-  BytesRep state.machine.mem args.source args.bytes ∧
-  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem
-
-def MemcpyExit (args : MemcpyArgs) (_outcome : Unit)
-    (before after : EndpointState) : Prop :=
-  after.machine.regs.get? PC = some (BitVec.ofNat 64 args.returnAddress) ∧
-  after.machine.regs.get? x10 = some (BitVec.ofNat 64 args.destination) ∧
-  BytesRep after.machine.mem args.destination args.bytes ∧
-  WritesOnlyWithin (byteRange args.destination args.bytes.size) before.machine after.machine ∧
-  after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
-  after.stdout = before.stdout ∧ after.exitCode = before.exitCode ∧
-  EndpointCallFrame before after
-
-def memcpyContract (stepBound : MemcpyArgs → Nat) :
-    RelationalMachineContract EndpointState MemcpyArgs Unit :=
-  { allows := fun _ _ => True
-    entry := MemcpyEntry
-    exit := MemcpyExit
-    stepBound }
-
-def MemcpyInstanceContract : Prop :=
-  ∃ stepBound, (memcpyContract stepBound).Implements EndpointStep EndpointPc
-    (pcInRanges Generated.memcpyExecutionPcRanges)
-    (pcInList Generated.memcpyExitPcs)
 
 structure WriteSuccessArgs where
   returnAddress : Nat
@@ -275,7 +237,6 @@ def ZkvmExitInstanceContract : Prop :=
 structure Level1ContractAssumptions : Prop where
   readInput : ReadInputInstanceContract
   zkvmExit : ZkvmExitInstanceContract
-  memcpy : MemcpyInstanceContract
   allocatorGet : AllocatorGetInstanceContract
   sszDecode : DecodeInstanceContractModuloKnownBugs
   writeSuccess : WriteSuccessInstanceContract

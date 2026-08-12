@@ -10,10 +10,9 @@ from pathlib import Path
 
 EXPECTED = {
     "alt_fl_alloc.get",
-    "ssz.decode",
+    "ssz_decode_root.decodeInput",
     "read_input",
     "zkvm_exit",
-    "memcpy",
     "ssz_decode_observation.writeSuccess",
     "ssz_decode_observation.writeFailure",
 }
@@ -39,14 +38,14 @@ def main() -> int:
         assert row["entryPc"] in row["executionPcs"]
     by_name = {row["qualified"]: row for row in rows}
     allocator = by_name["alt_fl_alloc.get"]
-    assert len(allocator["absorbedInstructionPcs"]) == 3
-    assert allocator["exitPcs"] == [74208]
-    decode = by_name["ssz.decode"]
-    assert len(decode["absorbedInstructionPcs"]) == 50
-    assert decode["exitPcs"] == [74688, 83360]
+    assert len(allocator["absorbedInstructionPcs"]) == 2
+    assert allocator["exitPcs"] == [85228]
+    decode = by_name["ssz_decode_root.decodeInput"]
+    assert not decode["absorbedInstructionPcs"]
+    assert decode["exitPcs"] == [85244]
     assert by_name["zkvm_exit"]["exitPcs"] == [66000]
-    assert by_name["ssz_decode_observation.writeSuccess"]["exitPcs"] == [83720]
-    assert by_name["ssz_decode_observation.writeFailure"]["exitPcs"] == [74696]
+    assert by_name["ssz_decode_observation.writeSuccess"]["exitPcs"] == [85264]
+    assert by_name["ssz_decode_observation.writeFailure"]["exitPcs"] == [85284]
     return 0
 
 

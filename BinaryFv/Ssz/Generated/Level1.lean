@@ -4,7 +4,14 @@ namespace BinaryFv.Ssz.Generated
 /-- A half-open, four-byte-aligned interval of production instruction addresses. -/
 abbrev PcRange := Nat × Nat
 
-def artifactSha256 : String := "3cffe6fb6ff4fcaf2bc17e47cf36f71f226bc9032612425b390cdedb4cf4c754"
+def artifactSha256 : String := "51db443cc29bbe4be81a989ad6a02ff89c1866f30155a7739a5c17ed9034ec20"
+
+def mainEntry : Nat := 0x14cb0
+def mainGlueInstructionCount : Nat := 24
+def mainGluePcRanges : List PcRange := [
+  (0x14cb0, 0x14ccc),
+  (0x14cec, 0x14d30)
+]
 
 def readInputEntry : Nat := 0x10140
 def readInputOwnedInstructionCount : Nat := 15
@@ -17,7 +24,7 @@ def readInputOwnedPcRanges : List PcRange := [
 def readInputExecutionPcRanges : List PcRange := [
   (0x10140, 0x10190)
 ]
-def readInputExitPcs : List Nat := [0x121bc]
+def readInputExitPcs : List Nat := [0x14ccc]
 
 def zkvmExitEntry : Nat := 0x101c4
 def zkvmExitOwnedInstructionCount : Nat := 0
@@ -29,133 +36,71 @@ def zkvmExitExecutionPcRanges : List PcRange := [
 ]
 def zkvmExitExitPcs : List Nat := [0x101d0]
 
-def memcpyEntry : Nat := 0x101d4
-def memcpyOwnedInstructionCount : Nat := 9
-def memcpyAbsorbedInstructionCount : Nat := 0
-def memcpyExecutionInstructionCount : Nat := 9
-def memcpyOwnedPcRanges : List PcRange := [
-  (0x101d4, 0x101f8)
-]
-def memcpyExecutionPcRanges : List PcRange := [
-  (0x101d4, 0x101f8)
-]
-def memcpyExitPcs : List Nat := [0x10950, 0x10a0c, 0x11374, 0x11e78, 0x12040, 0x120bc, 0x12120, 0x12884, 0x1317c, 0x13cb0, 0x13cf0, 0x13d14, 0x14424, 0x145a0, 0x145b4, 0x145c8, 0x145dc, 0x145f0, 0x146cc, 0x146f0, 0x1475c, 0x14804, 0x14bdc, 0x14f80, 0x15084, 0x1607c, 0x163e0, 0x16424, 0x1653c, 0x1666c, 0x166a8, 0x168c4, 0x16ba8]
-
-def allocatorGetEntry : Nat := 0x121bc
+def allocatorGetEntry : Nat := 0x14ccc
 def allocatorGetOwnedInstructionCount : Nat := 6
-def allocatorGetAbsorbedInstructionCount : Nat := 3
-def allocatorGetExecutionInstructionCount : Nat := 9
+def allocatorGetAbsorbedInstructionCount : Nat := 2
+def allocatorGetExecutionInstructionCount : Nat := 8
 def allocatorGetOwnedPcRanges : List PcRange := [
-  (0x121bc, 0x121c4),
-  (0x121c8, 0x121d0),
-  (0x121d8, 0x121e0)
+  (0x14ccc, 0x14cd4),
+  (0x14cdc, 0x14cec)
 ]
 def allocatorGetExecutionPcRanges : List PcRange := [
-  (0x121bc, 0x121e0)
+  (0x14ccc, 0x14cec)
 ]
-def allocatorGetExitPcs : List Nat := [0x121e0]
+def allocatorGetExitPcs : List Nat := [0x14cec]
 
-def sszDecodeEntry : Nat := 0x121e0
-def sszDecodeOwnedInstructionCount : Nat := 1426
-def sszDecodeAbsorbedInstructionCount : Nat := 50
-def sszDecodeExecutionInstructionCount : Nat := 5320
-def sszDecodeOwnedPcRanges : List PcRange := [
-  (0x121e0, 0x121e4),
-  (0x1220c, 0x1223c),
-  (0x1226c, 0x123c0),
-  (0x123fc, 0x124a8),
-  (0x124d0, 0x124e0),
-  (0x12508, 0x1254c),
-  (0x1255c, 0x12590),
-  (0x1259c, 0x125a0),
-  (0x125ac, 0x1266c),
-  (0x12670, 0x1267c),
-  (0x1268c, 0x1270c),
-  (0x1271c, 0x1279c),
-  (0x127c8, 0x12834),
-  (0x12844, 0x128ac),
-  (0x128d8, 0x1290c),
-  (0x12924, 0x12928),
-  (0x12938, 0x12948),
-  (0x129c4, 0x129d0),
-  (0x12a20, 0x12a2c),
-  (0x12a80, 0x12aac),
-  (0x12b0c, 0x12b28),
-  (0x12b8c, 0x1330c),
-  (0x13398, 0x133b8),
-  (0x133c4, 0x133d0),
-  (0x133d8, 0x133e0),
-  (0x13400, 0x13414),
-  (0x13418, 0x1341c),
-  (0x13438, 0x13444),
-  (0x134bc, 0x135e8),
-  (0x135f8, 0x136e0),
-  (0x13768, 0x13794),
-  (0x13798, 0x13890),
-  (0x13b54, 0x13bc8),
-  (0x13bd0, 0x13bd4),
-  (0x13cf4, 0x13d24),
-  (0x13dc8, 0x13e34),
-  (0x13e6c, 0x13e98),
-  (0x14050, 0x14058),
-  (0x1406c, 0x14070),
-  (0x14098, 0x140c8),
-  (0x140f0, 0x142c4),
-  (0x142f8, 0x14458),
-  (0x14474, 0x144a8),
-  (0x144c4, 0x144e0),
-  (0x144fc, 0x1450c),
-  (0x1451c, 0x1452c),
-  (0x14538, 0x14548)
+def decodeInputEntry : Nat := 0x12168
+def decodeInputOwnedInstructionCount : Nat := 249
+def decodeInputAbsorbedInstructionCount : Nat := 0
+def decodeInputExecutionInstructionCount : Nat := 5807
+def decodeInputOwnedPcRanges : List PcRange := [
+  (0x12168, 0x121ac),
+  (0x1230c, 0x126a4),
+  (0x14ca8, 0x14cb0)
 ]
-def sszDecodeExecutionPcRanges : List PcRange := [
-  (0x101d4, 0x12168),
-  (0x121e0, 0x123c0),
-  (0x123d4, 0x145a0),
-  (0x15bf4, 0x16bd4)
+def decodeInputExecutionPcRanges : List PcRange := [
+  (0x101d4, 0x14cb0),
+  (0x16218, 0x171f8)
 ]
-def sszDecodeExitPcs : List Nat := [0x123c0, 0x145a0]
+def decodeInputExitPcs : List Nat := [0x14cfc]
 
-def writeSuccessEntry : Nat := 0x1470c
+def writeSuccessEntry : Nat := 0x14d30
 def writeSuccessOwnedInstructionCount : Nat := 190
 def writeSuccessAbsorbedInstructionCount : Nat := 0
 def writeSuccessExecutionInstructionCount : Nat := 950
 def writeSuccessOwnedPcRanges : List PcRange := [
-  (0x1470c, 0x147dc),
-  (0x147f0, 0x14808),
-  (0x14814, 0x14818),
-  (0x14824, 0x14828),
-  (0x14834, 0x14838),
-  (0x14844, 0x14848),
-  (0x14854, 0x14858),
-  (0x14864, 0x148b4),
-  (0x148c0, 0x148d0),
-  (0x15044, 0x1505c),
-  (0x150c4, 0x1510c),
-  (0x15118, 0x15120),
-  (0x152bc, 0x153f0)
+  (0x14d30, 0x14e00),
+  (0x14e14, 0x14e2c),
+  (0x14e38, 0x14e3c),
+  (0x14e48, 0x14e4c),
+  (0x14e58, 0x14e5c),
+  (0x14e68, 0x14e6c),
+  (0x14e78, 0x14e7c),
+  (0x14e88, 0x14ed8),
+  (0x14ee4, 0x14ef4),
+  (0x15668, 0x15680),
+  (0x156e8, 0x15730),
+  (0x1573c, 0x15744),
+  (0x158e0, 0x15a14)
 ]
 def writeSuccessExecutionPcRanges : List PcRange := [
   (0x10190, 0x101c4),
   (0x101d4, 0x101f8),
-  (0x1470c, 0x153f0),
-  (0x15578, 0x15714)
+  (0x14d30, 0x15a14),
+  (0x15b9c, 0x15d38)
 ]
-def writeSuccessExitPcs : List Nat := [0x14708]
+def writeSuccessExitPcs : List Nat := [0x14d10]
 
-def writeFailureEntry : Nat := 0x15b9c
+def writeFailureEntry : Nat := 0x161c0
 def writeFailureOwnedInstructionCount : Nat := 0
 def writeFailureAbsorbedInstructionCount : Nat := 0
 def writeFailureExecutionInstructionCount : Nat := 18
 def writeFailureOwnedPcRanges : List PcRange := []
 def writeFailureExecutionPcRanges : List PcRange := [
   (0x10190, 0x101c4),
-  (0x15b9c, 0x15bb0)
+  (0x161c0, 0x161d4)
 ]
-def writeFailureExitPcs : List Nat := [0x123c8]
-
-def sszDecodeFailureContinuation : Nat := 0x123c0
-def sszDecodeSuccessContinuation : Nat := 0x145a0
+def writeFailureExitPcs : List Nat := [0x14d24]
 
 def zkvmExitTerminalPc : Nat := 0x101d0
 

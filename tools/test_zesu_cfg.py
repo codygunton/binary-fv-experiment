@@ -46,13 +46,13 @@ def validate(path: Path) -> None:
     assert decode["self"] > 0
     if len(data["functions"]) < 100:
         assert decode["callFile"] == "deps/zesu/src/zkvm/ssz_decode_root.zig"
-        assert decode["machineInstructionCount"] == 2233
+        assert decode["machineInstructionCount"] == 2521
         tx_key, tx = next((key, row) for key, row in flame["meta"].items()
                           if row["qualified"] == "rlp_decode.decodeTxFields")
         assert "|ssz.decode [" in tx_key and "|rlp_decode.decodeSingleTx [" in tx_key
         assert tx_key.index("|ssz.decode [") < tx_key.index("|rlp_decode.decodeSingleTx [")
         assert tx["displayAnchorName"] == "rlp_decode.decodeSingleTx"
-        assert tx["displayCallsites"] == [0x13c28, 0x13c90]
+        assert tx["displayCallsites"] == [0x142d8, 0x14358]
 
     proof = json.loads(path.with_name("proof-map.json").read_text())
     validate_proof(proof)
@@ -114,7 +114,7 @@ def validate_instances(data: dict) -> None:
             assert set(row["pcs"]) <= set(by_id[row["parent"]]["pcs"])
     decode = next(row for row in instances if row["name"] == "ssz.decode" and row["kind"] == "inlined")
     if len(data["functions"]) < 100:
-        assert decode["instructionCount"] == 2233
+        assert decode["instructionCount"] == 2521
     assert decode["sourceFile"] == "deps/zesu/src/stateless/stateless/ssz.zig"
 
 
@@ -147,20 +147,19 @@ def validate_flame(data: dict, flame: dict) -> None:
                             if row["refinementLevel"] == 1)
         assert level_one == Counter({
             "alt_fl_alloc.get": 1,
-            "ssz.decode": 1,
+            "ssz_decode_root.decodeInput": 1,
             "ssz_decode_observation.writeSuccess": 1,
             "ssz_decode_observation.writeFailure": 1,
             "read_input": 1,
             "zkvm_exit": 1,
-            "memcpy": 1,
         })
         write_output = next(row for row in flame["meta"].values()
                             if row["qualified"] == "write_output")
         assert write_output["refinementLevel"] == 4, write_output["refinementLevel"]
-        allocator_leaf = next(row for row in flame["meta"].values()
-                              if row["qualified"] ==
-                              "mem.Allocator.allocBytesWithAlignment__anon_2076")
-        assert allocator_leaf["refinementLevel"] > 1
+        allocator_leaves = [row for row in flame["meta"].values()
+                            if row["qualified"].startswith(
+                                "mem.Allocator.allocBytesWithAlignment__anon_")]
+        assert allocator_leaves and all(row["refinementLevel"] > 1 for row in allocator_leaves)
         observations = [row for row in flame["meta"].values()
                         if row["qualified"].startswith("ssz_decode_observation.")]
         assert observations

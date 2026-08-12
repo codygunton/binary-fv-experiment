@@ -72,22 +72,17 @@ class EvidenceTest(unittest.TestCase):
     def test_rejects_forged_decode_input_size(self):
         from analyze import validate_bindings
         manifest = copy.deepcopy(self.manifest)
-        manifest["instances"][0]["qualified"] = "ssz.decode"
+        manifest["instances"][0]["qualified"] = "ssz_decode_root.decodeInput"
         bindings = {
             "artifact": manifest["artifact"],
-            "instances": [{"id": "fi:1", "qualified": "ssz.decode", "bindings": [
-                {"name": "input_ptr", "machineRegister": 23},
-                {"name": "input_size", "machineRegister": 18},
+            "instances": [{"id": "fi:1", "qualified": "ssz_decode_root.decodeInput", "bindings": [
+                {"name": "alloc", "addressRegister": 11},
             ]}],
-            "continuations": [{
-                "qualified": "ssz.decode", "pc": 83360, "value": "decoded",
-                "expression": "(DW_OP_fbreg: 1176)",
-            }],
         }
         snapshot = [0] * 32
-        snapshot[18], snapshot[23] = 4, 100
+        snapshot[13], snapshot[12] = 4, 100
         vector = {"label": "sample", "instances": [{
-            "qualified": "ssz.decode", "entryReached": True,
+            "qualified": "ssz_decode_root.decodeInput", "entryReached": True,
             "entryRegisters": [{"values": snapshot}],
             "memoryAccesses": [{"kind": "load", "address": 100}],
         }]}
@@ -100,25 +95,21 @@ class EvidenceTest(unittest.TestCase):
     def test_rejects_forged_decode_result_location(self):
         from analyze import validate_bindings
         manifest = {"artifact": {"sha256": "digest"}, "instances": [
-            {"id": "decode", "qualified": "ssz.decode"},
+            {"id": "decode", "qualified": "ssz_decode_root.decodeInput"},
             {"id": "success", "qualified": "ssz_decode_observation.writeSuccess"},
         ]}
         bindings = {"artifact": manifest["artifact"], "instances": [
-            {"id": "decode", "qualified": "ssz.decode", "bindings": [
-                {"name": "input_ptr", "machineRegister": 23},
-                {"name": "input_size", "machineRegister": 18},
+            {"id": "decode", "qualified": "ssz_decode_root.decodeInput", "bindings": [
+                {"name": "alloc", "addressRegister": 11},
             ]},
             {"id": "success", "qualified": "ssz_decode_observation.writeSuccess",
              "bindings": []},
-        ], "continuations": [{
-            "qualified": "ssz.decode", "pc": 83360, "value": "decoded",
-            "expression": "(DW_OP_fbreg: 1176)",
-        }]}
+        ]}
         decode_regs, success_regs = [0] * 32, [0] * 32
-        decode_regs[2], decode_regs[18], decode_regs[23] = 1000, 4, 100
+        decode_regs[10], decode_regs[13], decode_regs[12] = 1000, 4, 100
         success_regs[10] = 2177
         vector = {"label": "sample", "instances": [
-            {"qualified": "ssz.decode", "entryReached": True,
+            {"qualified": "ssz_decode_root.decodeInput", "entryReached": True,
              "entryRegisters": [{"values": decode_regs}],
              "memoryAccesses": [{"kind": "load", "address": 100}]},
             {"qualified": "ssz_decode_observation.writeSuccess", "entryReached": True,
@@ -127,12 +118,12 @@ class EvidenceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory) / "input"
             fixture.write_bytes(b"data")
-            with self.assertRaisesRegex(ValueError, "decoded-result stack location mismatch"):
+            with self.assertRaisesRegex(ValueError, "decoded-result ABI slot mismatch"):
                 validate_bindings(manifest, bindings, [vector], {"sample": fixture})
 
     def test_decode_run_records_exact_observed_interval(self):
         manifest = {"instances": [
-            {"qualified": "ssz.decode", "entryPc": 4},
+            {"qualified": "ssz_decode_root.decodeInput", "entryPc": 4},
             {"qualified": "ssz_decode_observation.writeSuccess", "entryPc": 20},
             {"qualified": "ssz_decode_observation.writeFailure", "entryPc": 24},
         ]}
@@ -149,7 +140,7 @@ class EvidenceTest(unittest.TestCase):
 
     def test_decode_run_rejects_missing_outcome(self):
         manifest = {"instances": [
-            {"qualified": "ssz.decode", "entryPc": 4},
+            {"qualified": "ssz_decode_root.decodeInput", "entryPc": 4},
             {"qualified": "ssz_decode_observation.writeSuccess", "entryPc": 20},
             {"qualified": "ssz_decode_observation.writeFailure", "entryPc": 24},
         ]}
