@@ -124,6 +124,7 @@ def census(segments, streams, frame, order_of, owner, is_transfer, total) -> pl.
                     occurrences += len(places)
                     for w in places:
                         touched.update(w)
+                commonest = max(groups.values(), key=len)
                 rows.append(
                     {
                         "level": level,
@@ -132,7 +133,9 @@ def census(segments, streams, frame, order_of, owner, is_transfer, total) -> pl.
                         "windows": len(allowed),
                         "distinct": len(groups),
                         "repeated": len(repeated),
-                        "maximumCount": max((len(v) for v in groups.values()), default=0),
+                        "seenOnce": sum(1 for v in groups.values() if len(v) == 1),
+                        "maximumCount": len(commonest),
+                        "commonest": describe(level, commonest[0], streams),
                         "repeatOccurrences": occurrences,
                         "instructionsTouched": len(touched),
                         "shareTouched": len(touched) / total,
@@ -255,9 +258,14 @@ def greedy(
     return pl.DataFrame(rows)
 
 
-def describe(level: str, window: list[int], streams) -> str:
-    stream = streams["L5_class" if level == "L3_alpha" else level]
-    return " ".join(str(stream[index]) for index in window)
+def describe(level: str, window: list[int], streams, limit: int = 8) -> str:
+    """A readable name for a window. The alpha level renames registers per window and has no
+    printable token, so it is shown by its mnemonic sequence -- the part of it that is visible."""
+    stream = streams["L4_mnemonic" if level == "L3_alpha" else level]
+    tokens = [str(stream[index]) for index in window]
+    if len(tokens) > limit:
+        tokens = tokens[: limit - 1] + [f"… (+{len(window) - limit + 1})"]
+    return " ".join(tokens)
 
 
 # --------------------------------------------------------------------------------------
@@ -460,8 +468,8 @@ def render(data: dict) -> str:
     class_lemma = census_frame.filter(
         (pl.col("level") == "L5_class") & (pl.col("policy") == "lemma")
     ).sort("n")
-    hist_rows = class_lemma.select(["n", "repeated", "distinct", "instructionsTouched",
-                                    "shareTouched", "maximumCount"]).to_dicts()
+    hist_rows = class_lemma.select(["n", "distinct", "repeated", "seenOnce", "maximumCount",
+                                    "commonest", "instructionsTouched", "shareTouched"]).to_dicts()
 
     greedy_class = greedy_frame.filter(
         (pl.col("level") == "L5_class") & (pl.col("policy") == "lemma")
@@ -522,9 +530,19 @@ contain no control transfer, which is what a <code>Seg</code> lemma can state.</
 </div>
 
 <div class="panel"><h3>Histogram — instruction class, lemma policy</h3>
-{table(pl.DataFrame(hist_rows), ['n', 'distinct', 'repeated', 'maximumCount', 'instructionsTouched', 'shareTouched'],
-       [plain, num, num, num, num, pct],
-       ['n', 'distinct', 'repeated', 'largest count', 'instructions touched', 'share'])}
+<p style="margin-top:0">Slide a window of n instructions along the code and write down the
+pattern inside it each time. <span class="big">distinct</span> is how many different patterns you
+saw. <span class="big">repeat</span> is how many of those you saw two or more times.
+<span class="big">seen once</span> is the rest, so distinct = repeat + seen once.
+<span class="big">most-used pattern</span> is the occurrence count of the single commonest one.
+Windows overlap, so a run of 8 loads yields 7 occurrences of <code>LOAD LOAD</code>, not 1. These
+are raw counts. The cascade below places <em>disjoint</em> occurrences instead, which is why its
+numbers are smaller.</p>
+{table(pl.DataFrame(hist_rows), ['n', 'distinct', 'repeated', 'seenOnce', 'maximumCount',
+                                 'commonest', 'instructionsTouched', 'shareTouched'],
+       [plain, num, num, num, num, mono, num, pct],
+       ['n', 'distinct', 'repeat', 'seen once', 'most-used pattern',
+        'that pattern', 'instructions touched', 'share'])}
 </div>
 
 <h2>2. Largest-n-first cascade</h2>
