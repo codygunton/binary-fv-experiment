@@ -158,6 +158,22 @@ let
       --output "$out/level2-evidence.json"
   '';
 
+  zesuSszDecodeLevel2Admission = pkgs.runCommand
+    "zesu-ssz-decode-level2-admission-d67f28c" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+      mkdir -p "$out"
+      PYTHONPATH=${../tools} python ${../tools/test_generate_level2_admission.py} \
+        ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+        ${zesuSszDecodeLevel2Evidence}/level2-evidence.json \
+        ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json \
+        ${zesuSszDecodeCfg}/zesu-cfg.json
+      PYTHONPATH=${../tools} python ${../tools/generate_level2_admission.py} \
+        --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+        --evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json \
+        --bindings ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json \
+        --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --output "$out/level2-admission.json"
+    '';
+
   zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-d67f28c"
     { nativeBuildInputs = [ pkgs.python3 ]; } ''
     cp -R ${../tools/binary-regions-ui} "$out"
@@ -168,6 +184,7 @@ let
     cp ${zesuSszDecodeLevel2Manifest}/level2-manifest.json "$out/"
     cp ${zesuSszDecodeLevel1Evidence}/level1-evidence.json "$out/"
     cp ${zesuSszDecodeLevel2Evidence}/level2-evidence.json "$out/"
+    cp ${zesuSszDecodeLevel2Admission}/level2-admission.json "$out/"
     cp ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json "$out/"
     cp ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json "$out/"
     cp ${zesuSszDecodeStatelessInputLayout}/stateless-input-layout.json "$out/"
@@ -190,7 +207,8 @@ in
       zesuSszDecodeLevel1Lean
       zesuSszDecodeLevel2Lean
       zesuSszDecodeStatelessInputLayout
-      zesuSszDecodeLevel1Evidence zesuSszDecodeLevel2Evidence zesuCfgUi;
+      zesuSszDecodeLevel1Evidence zesuSszDecodeLevel2Evidence
+      zesuSszDecodeLevel2Admission zesuCfgUi;
     machine-regions-ui = zesuCfgUi;
   };
 }
