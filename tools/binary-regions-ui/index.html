@@ -179,7 +179,7 @@ function renderLevelLabels(){
   const rows=new Map(), names=new Map();
   d3.selectAll('#chart g.frame').each(function(d){
     if(!d) return;
-    const level=META[keyOf(d)]?.refinementLevel ?? d.depth;
+    const level=META[keyOf(d)]?.displayTreeLevel ?? d.depth;
     if(!rows.has(level)){
       const rect=this.querySelector('rect'); if(!rect) return;
       const box=rect.getBoundingClientRect();
@@ -194,7 +194,7 @@ function renderLevelLabels(){
   rail.innerHTML='';
   [...rows].sort((a,b)=>a[0]-b[0]).forEach(([level,top])=>{
     const label=document.createElement('span');
-    label.className='level-label'; label.textContent=`Level ${level}`; label.style.top=`${top}px`;
+    label.className='level-label'; label.textContent=`Depth ${level}`; label.style.top=`${top}px`;
     label.onclick=ev=>{ ev.stopPropagation(); showLevel(level, names.get(level)||[]); };
     rail.appendChild(label);
   });
@@ -217,12 +217,12 @@ async function copyCurrent(){
 }
 
 function showLevel(level,names){
-  $('#dname').textContent=`Level ${level}`;
-  $('#dsub').textContent=`${names.length} functions`;
+  $('#dname').textContent=`Call depth ${level}`;
+  $('#dsub').textContent=`${names.length} displayed function instances`;
   setCopy(names.join(' | '));
   $('#rbody').innerHTML=names.length
     ? `<pre>${names.map(esc).join('\n')}</pre>`
-    : '<div class="muted">No named functions at this level.</div>';
+    : '<div class="muted">No named functions at this display depth.</div>';
 }
 
 function setZoom(z, anchorClientX){
@@ -277,7 +277,7 @@ function details(d){
   const qualified=m.qualified||d.data.name;
   $('#dname').textContent=qualified;
   setCopy(qualified);
-  $('#dsub').textContent=`${m.machineInstructionCount??d.data.self} instance instructions · ${d.data.value} including descendants`;
+  $('#dsub').textContent=`proof Level ${m.refinementLevel??'?'} · call depth ${m.displayTreeLevel??d.depth} · ${m.machineInstructionCount??d.data.self} instance instructions · ${d.data.value} including descendants`;
   const calls=(m.callees||[]).map(call=>`${esc(call.kind)} → ${esc(OWNER_META.get(call.callee)?.qualified||call.callee)}`);
   const tails=(m.tailDependencies||[]).map(t=>`${esc(t.qualified)}: 0x${t.transfer.source.toString(16)} → 0x${t.transfer.target.toString(16)}, completes at ${t.completionSourcePcs.map(x=>'0x'+x.toString(16)).join(', ')}`);
   const handoffs=(m.fragmentHandoffs||[]).map(e=>`0x${e.sourcePc.toString(16)} → 0x${e.targetPc.toString(16)}`);
