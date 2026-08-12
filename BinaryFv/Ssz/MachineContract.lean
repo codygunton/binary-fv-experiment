@@ -34,6 +34,34 @@ inductive ConfinedTrace {State : Type} (stepRelation : Nat → State → State �
       (rest : ConfinedTrace stepRelation statePc region (fromStep + 1) count middle after) :
       ConfinedTrace stepRelation statePc region fromStep (count + 1) before after
 
+theorem ConfinedTrace.weaken {State : Type} {stepRelation : Nat → State → State → Prop}
+    {statePc : State → Option (BitVec 64)} {narrow wide : BitVec 64 → Prop}
+    (subset : ∀ pc, narrow pc → wide pc) {fromStep count : Nat} {before after : State}
+    (trace : ConfinedTrace stepRelation statePc narrow fromStep count before after) :
+    ConfinedTrace stepRelation statePc wide fromStep count before after := by
+  induction trace with
+  | refl => exact .refl _ _
+  | step fromStep count pc before middle after atPc inside machineStep rest ih =>
+      exact .step fromStep count pc before middle after atPc (subset pc inside) machineStep ih
+
+theorem ConfinedTrace.append {State : Type} {stepRelation : Nat → State → State → Prop}
+    {statePc : State → Option (BitVec 64)} {region : BitVec 64 → Prop}
+    {fromStep firstCount secondCount : Nat} {before middle after : State}
+    (first : ConfinedTrace stepRelation statePc region fromStep firstCount before middle)
+    (second : ConfinedTrace stepRelation statePc region (fromStep + firstCount) secondCount
+      middle after) :
+    ConfinedTrace stepRelation statePc region fromStep (firstCount + secondCount) before after := by
+  induction first with
+  | refl => simpa using second
+  | step fromStep count pc before next middle atPc inside machineStep rest ih =>
+      have second' :
+          ConfinedTrace stepRelation statePc region ((fromStep + 1) + count) secondCount
+            middle after := by
+        simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using second
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        ConfinedTrace.step fromStep (count + secondCount) pc before next after atPc inside
+          machineStep (ih second')
+
 /-- A compiled instance whose reviewed semantics permits a fixed relation of outcomes. -/
 structure RelationalMachineContract (State Args Outcome : Type) where
   allows : Args → Outcome → Prop
