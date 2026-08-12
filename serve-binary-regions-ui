@@ -6,5 +6,36 @@ port="${1:-8420}"
 
 cd "$repo_root"
 nix build .#zesuCfgUi --out-link result-binary-regions-ui
-exec python3 tools/serve_static_no_cache.py "$port" --bind 0.0.0.0 \
+
+watch_inputs=(
+  BinaryFv/Zesu
+  BinaryFv/Specs/SSZ
+  tools/binary-regions-ui
+  tools/build_ssz_proof_map.py
+  tools/generate_zesu_cfg.py
+  tools/test_ssz_proof_map.py
+  tools/test_zesu_cfg.py
+  nix
+  flake.nix
+  flake.lock
+)
+
+watch_and_rebuild() {
+  while inotifywait --quiet --recursive --event close_write,create,delete,move "${watch_inputs[@]}"; do
+    # Editors commonly replace a file through several adjacent filesystem events.
+    sleep 0.2
+    echo "UI input changed; rebuilding .#zesuCfgUi ..."
+    if nix build .#zesuCfgUi --out-link result-binary-regions-ui; then
+      echo "UI updated; refresh the browser."
+    else
+      echo "UI rebuild failed; continuing to serve the last successful result." >&2
+    fi
+  done
+}
+
+watch_and_rebuild &
+watcher_pid=$!
+trap 'kill "$watcher_pid" 2>/dev/null || true' EXIT INT TERM
+
+python3 tools/serve_static_no_cache.py "$port" --bind 0.0.0.0 \
   --directory result-binary-regions-ui
