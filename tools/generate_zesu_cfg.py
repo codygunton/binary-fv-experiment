@@ -609,7 +609,8 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
         display_anchor_name = (None if display_anchor is None else
                                inline_by_id[display_anchor]["name"] if display_anchor in inline_by_id else
                                incoming["caller"])
-        meta[key] = {"owner": invocation_id, "machineOwner": concrete_id or name,
+        machine_owner = concrete_id or f"fn:0x{fn_by_name[name]['start']:x}"
+        meta[key] = {"owner": invocation_id, "machineOwner": machine_owner,
                      "qualified": name, "kind": "concreteCallsiteInstance",
                      "refinementLevel": level,
                      "displayTreeLevel": level,
@@ -635,7 +636,9 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
     displayed_instances = {row["machineOwner"] for row in meta.values()}
     expected_instances = {instance_id for instance_id, name in concrete_symbol.items() if name in reachable}
     expected_instances |= {instance_id for instance_id, name in inline_symbol.items() if name in reachable}
-    expected_instances |= {name for name in reachable if name not in concrete_for_name}
+    expected_instances |= {
+        f"fn:0x{fn_by_name[name]['start']:x}" for name in reachable if name not in concrete_for_name
+    }
     if not expected_instances <= displayed_instances:
         missing = sorted(expected_instances - displayed_instances)
         raise ValueError(
