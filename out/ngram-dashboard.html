@@ -111,7 +111,49 @@ more with fewer lemmas — and each lemma then has to discharge more side condit
 <th>coverage</th><th>lemmas</th><th>invocations removed</th></tr></thead>
 <tbody><tr><td>exact 32-bit word</td><td>14</td><td>28.8%</td><td>127</td><td>19.9%</td></tr><tr><td>mnemonic + operands</td><td>14</td><td>28.8%</td><td>127</td><td>19.9%</td></tr><tr><td>mnemonic + register names</td><td>32</td><td>51.1%</td><td>188</td><td>38.3%</td></tr><tr><td>mnemonic + register roles</td><td>46</td><td>68.5%</td><td>203</td><td>52.6%</td></tr><tr><td>opcode</td><td>51</td><td>72.2%</td><td>180</td><td>56.7%</td></tr><tr><td>instruction class</td><td>51</td><td>74.2%</td><td>149</td><td>58.8%</td></tr></tbody></table></div></div>
 
-<h2>3. Value-weighted greedy, for comparison</h2>
+<h2>3. Are the repeats inlined functions?</h2>
+<p>The artifact already maps every inline instance, so this question can be answered rather than
+guessed. Of 88 distinct function names, <strong>12 have two or more instances</strong>, and those
+instances hold 20.6% of the binary. The motif search knew nothing
+about any of this.</p>
+<div class="note">It found them anyway. The strongest motif in the study,
+<code class="mono">lbu lbu lbu lbu slli or slli slli or or</code>, is exactly the body of
+<code>mem.readInt</code>, which the compiler inlined 7 times with that shape, and of
+<code>ssz.readU32</code>, which wraps it 6 more times. Seven placements of the covering equal a
+whole <code>mem.readInt</code> body, instruction for instruction. An unsupervised search over
+instruction classes rediscovered a function.</div>
+
+<div class="panel"><h3>The 12 repeated function names — are their bodies the same?</h3>
+<p style="margin-top:0">One instance of a source function is not one shape of code. Inlining
+specialises each call site, so the columns below count how many <em>distinct</em> bodies the
+instances actually have, at three levels. Where the byte column is large and the class column is
+small, an exact-code lemma is useless and a class-level lemma works.</p>
+<div class="scroll"><table><thead><tr><th>function</th><th>instances</th><th>body sizes</th><th>byte shapes</th><th>register shapes</th><th>class shapes</th><th>instructions</th></tr></thead><tbody><tr><td><span class="mono">alt_fl_alloc.sizeClass</span></td><td>4</td><td>79, 83, 84</td><td>4</td><td>4</td><td>3</td><td>330</td></tr><tr><td><span class="mono">alt_fl_alloc.sizeClassOfBytes</span></td><td>4</td><td>78</td><td>4</td><td>4</td><td>1</td><td>312</td></tr><tr><td><span class="mono">mem.readInt</span></td><td>14</td><td>10, 11, 12, 14, 22</td><td>14</td><td>14</td><td>6</td><td>184</td></tr><tr><td><span class="mono">mem.Allocator.allocAdvancedWithRetAddr</span></td><td>8</td><td>10, 14, 16, 24, 25, 33</td><td>8</td><td>7</td><td>7</td><td>157</td></tr><tr><td><span class="mono">ssz_decode_root.put</span></td><td>10</td><td>9, 15, 16</td><td>10</td><td>10</td><td>5</td><td>147</td></tr><tr><td><span class="mono">mem.writeInt</span></td><td>10</td><td>9, 15, 16</td><td>10</td><td>10</td><td>5</td><td>147</td></tr><tr><td><span class="mono">ssz.readU32</span></td><td>10</td><td>10, 11, 12, 14</td><td>10</td><td>10</td><td>5</td><td>108</td></tr><tr><td><span class="mono">math.mul__anon_1716</span></td><td>9</td><td>3, 4, 5</td><td>7</td><td>7</td><td>5</td><td>38</td></tr><tr><td><span class="mono">ssz.decode__struct_1043.f</span></td><td>5</td><td>3, 4, 7, 8</td><td>5</td><td>5</td><td>5</td><td>30</td></tr><tr><td><span class="mono">mem.Allocator.rawRemap</span></td><td>3</td><td>6</td><td>3</td><td>2</td><td>1</td><td>18</td></tr><tr><td><span class="mono">mem.Allocator.rawFree</span></td><td>3</td><td>4, 5</td><td>3</td><td>2</td><td>2</td><td>14</td></tr><tr><td><span class="mono">mem.Allocator.rawAlloc</span></td><td>3</td><td>4</td><td>3</td><td>2</td><td>1</td><td>12</td></tr></tbody></table></div>
+</div>
+
+<div class="panel"><h3>Whole-body lemma candidates</h3>
+<p style="margin-top:0">A body earns a lemma when two or more instances share a class-level shape.
+Bodies nested inside a chosen one are skipped — <code>ssz.readU32</code> and the
+<code>mem.readInt</code> it wraps hold the same program counters.
+<span class="big">Seg</span> says whether a straight-line <code>Seg</code> lemma can state it; a
+body with control transfers needs a function-level lemma form instead.</p>
+<div class="scroll"><table><thead><tr><th>function</th><th>length</th><th>sites</th><th>instructions</th><th>share</th><th>transfers</th><th>Seg</th></tr></thead><tbody><tr><td><span class="mono">alt_fl_alloc.sizeClassOfBytes</span></td><td>78</td><td>4</td><td>312</td><td>7.0%</td><td>24</td><td>no</td></tr><tr><td><span class="mono">ssz_decode_root.put</span></td><td>15</td><td>6</td><td>90</td><td>2.0%</td><td>0</td><td>yes</td></tr><tr><td><span class="mono">mem.readInt</span></td><td>10</td><td>7</td><td>70</td><td>1.6%</td><td>0</td><td>yes</td></tr><tr><td><span class="mono">mem.readInt</span></td><td>22</td><td>3</td><td>66</td><td>1.5%</td><td>0</td><td>yes</td></tr><tr><td><span class="mono">mem.Allocator.allocAdvancedWithRetAddr</span></td><td>25</td><td>2</td><td>50</td><td>1.1%</td><td>4</td><td>no</td></tr><tr><td><span class="mono">mem.Allocator.rawRemap</span></td><td>6</td><td>3</td><td>18</td><td>0.4%</td><td>1</td><td>no</td></tr><tr><td><span class="mono">mem.Allocator.rawAlloc</span></td><td>4</td><td>3</td><td>12</td><td>0.3%</td><td>1</td><td>no</td></tr><tr><td><span class="mono">math.mul__anon_1716</span></td><td>5</td><td>2</td><td>10</td><td>0.2%</td><td>1</td><td>no</td></tr><tr><td><span class="mono">math.mul__anon_1716</span></td><td>5</td><td>2</td><td>10</td><td>0.2%</td><td>1</td><td>no</td></tr><tr><td><span class="mono">mem.Allocator.rawFree</span></td><td>5</td><td>2</td><td>10</td><td>0.2%</td><td>1</td><td>no</td></tr></tbody></table></div>
+<div class="note">One lemma for <code>alt_fl_alloc.sizeClassOfBytes</code> covers 7.0% of the
+binary on its own — 4 instances of 78 instructions, all one class shape. It is the single largest
+prize in the study, and it holds 24 control transfers, so no <code>Seg</code> lemma can state it.
+</div>
+</div>
+
+<div class="panel"><h3>Three strategies</h3>
+<div class="scroll"><table><thead><tr><th>strategy</th><th>lemmas</th><th>coverage</th><th>instructions / lemma</th></tr></thead><tbody><tr><td>n-gram motifs alone</td><td>149</td><td>74.2%</td><td>22.1</td></tr><tr><td>whole inlined bodies alone</td><td>10</td><td>14.6%</td><td>64.8</td></tr><tr><td>bodies first, then n-gram motifs</td><td>151</td><td>79.2%</td><td>23.3</td></tr></tbody></table></div>
+<div class="note">The two strategies are complementary, not rival. Whole-body lemmas are three
+times as productive per lemma, but they reach only the sixth of the binary that the compiler
+duplicated. Most repetition in this binary is <em>inside</em> one large function that occurs once
+— <code>rlp_decode.decodeTxFields</code> hosts 719 covered instructions from a single instance.
+Take the bodies first, then let the motif covering work on what is left.</div>
+</div>
+
+<h2>4. Value-weighted greedy, for comparison</h2>
 <p>Same corpus, different objective. Pick the motif maximising
 <span class="mono">uses × (n−1) − 20</span>, over mixed n. This buys far less coverage for far
 fewer lemmas, and it never selects anything long.</p>
@@ -119,12 +161,12 @@ fewer lemmas, and it never selects anything long.</p>
 <div class="scroll"><table><thead><tr><th>#</th><th>n</th><th>uses</th><th>owners</th><th>motif</th><th>coverage</th><th>invocations removed</th></tr></thead><tbody><tr><td>1</td><td>3</td><td>280</td><td>38</td><td><span class="mono">LOAD LOAD LOAD</span></td><td>10.8%</td><td>12.6%</td></tr><tr><td>2</td><td>3</td><td>187</td><td>38</td><td><span class="mono">STORE STORE STORE</span></td><td>18.8%</td><td>21.1%</td></tr><tr><td>3</td><td>2</td><td>366</td><td>68</td><td><span class="mono">ITYPE ITYPE</span></td><td>32.5%</td><td>29.3%</td></tr><tr><td>4</td><td>3</td><td>92</td><td>16</td><td><span class="mono">SHIFTIOP SHIFTIOP SHIFTIOP</span></td><td>36.0%</td><td>33.5%</td></tr><tr><td>5</td><td>4</td><td>60</td><td>5</td><td><span class="mono">LOAD STORE LOAD STORE</span></td><td>40.0%</td><td>37.5%</td></tr><tr><td>6</td><td>2</td><td>147</td><td>26</td><td><span class="mono">RTYPE RTYPE</span></td><td>45.1%</td><td>40.8%</td></tr><tr><td>7</td><td>4</td><td>30</td><td>17</td><td><span class="mono">SHIFTIOP RTYPE SHIFTIOP SHIFTIOP</span></td><td>47.8%</td><td>42.9%</td></tr><tr><td>8</td><td>2</td><td>77</td><td>40</td><td><span class="mono">LOAD LOAD</span></td><td>51.3%</td><td>44.6%</td></tr><tr><td>9</td><td>4</td><td>24</td><td>4</td><td><span class="mono">LUI ITYPE RTYPE ITYPE</span></td><td>53.5%</td><td>46.2%</td></tr><tr><td>10</td><td>2</td><td>57</td><td>34</td><td><span class="mono">STORE STORE</span></td><td>56.0%</td><td>47.5%</td></tr><tr><td>11</td><td>2</td><td>36</td><td>18</td><td><span class="mono">LOAD ITYPE</span></td><td>57.7%</td><td>48.3%</td></tr><tr><td>12</td><td>2</td><td>29</td><td>5</td><td><span class="mono">LUI ITYPE</span></td><td>59.0%</td><td>49.0%</td></tr><tr><td>13</td><td>3</td><td>13</td><td>2</td><td><span class="mono">LUI RTYPE LOAD</span></td><td>59.8%</td><td>49.6%</td></tr></tbody></table></div>
 </div>
 
-<h2>4. What the corpus is made of</h2>
+<h2>5. What the corpus is made of</h2>
 <p>Attribution is by innermost inline instance, then by that instance's source file.</p>
 <div class="panel"><div class="scroll"><table><thead><tr><th>source file</th>
 <th>instructions</th><th>share</th></tr></thead><tbody><tr><td class='mono'>rlp_decode.zig</td><td>2,028</td><td>45.7%</td></tr><tr><td class='mono'>ssz.zig</td><td>603</td><td>13.6%</td></tr><tr><td class='mono'>Allocator.zig</td><td>483</td><td>10.9%</td></tr><tr><td class='mono'>alt_fl_alloc.zig</td><td>411</td><td>9.3%</td></tr><tr><td class='mono'>array_list.zig</td><td>366</td><td>8.3%</td></tr><tr><td class='mono'>mem.zig</td><td>331</td><td>7.5%</td></tr><tr><td class='mono'>rlp.zig</td><td>137</td><td>3.1%</td></tr><tr><td class='mono'>math.zig</td><td>38</td><td>0.9%</td></tr><tr><td class='mono'>ssz_decode_root.zig</td><td>36</td><td>0.8%</td></tr><tr><td class='mono'>extern_io.zig</td><td>2</td><td>0.0%</td></tr></tbody></table></div></div>
 
-<h2>5. Reading this honestly</h2>
+<h2>6. Reading this honestly</h2>
 <div class="note">Coverage is not proof. A placed motif still needs a lemma written, and a
 class-level lemma merges several dataflow shapes, so it carries register-distinctness side
 conditions that this page does not price. The lemma cost of 20 steps in section 3 is a placeholder:

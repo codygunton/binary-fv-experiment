@@ -145,7 +145,8 @@ def census(segments, streams, frame, order_of, owner, is_transfer, total) -> pl.
 
 
 def cascade(
-    level, policy, segments, streams, frame, order_of, owner, is_transfer, total, minimum_uses=2
+    level, policy, segments, streams, frame, order_of, owner, is_transfer, total, minimum_uses=2,
+    preclaimed=None,
 ) -> pl.DataFrame:
     """Largest-n-first covering. At each n, repeatedly take the repeated n-gram with the most
     disjoint occurrences among still-uncovered instructions. Drop to n-1 when none repeats."""
@@ -163,7 +164,7 @@ def cascade(
         if kept:
             precomputed[n] = kept
 
-    covered = np.zeros(total, dtype=bool)
+    covered = np.zeros(total, dtype=bool) if preclaimed is None else preclaimed.copy()
     rows = []
     lemmas = 0
     saved = 0
@@ -215,6 +216,102 @@ def cascade(
                 }
             )
     return pl.DataFrame(rows)
+
+
+def instance_bodies(cfg, instructions, streams, total):
+    """The repeated inlined function instances, and whether their bodies are actually the same.
+
+    The artifact already maps every inline instance, so this asks the question the motif search
+    cannot: is a discovered repeat a whole function that the compiler inlined many times? A body
+    is a lemma candidate only when two or more instances share a class-level shape -- the same
+    source function inlines to different code at different call sites.
+    """
+    index_of = {row.address: k for k, row in enumerate(instructions)}
+    instances = {row["id"]: row for row in cfg["functionInstances"]}
+    by_name = collections.defaultdict(list)
+    for row in instances.values():
+        by_name[row["name"]].append(row)
+    repeated = {name: group for name, group in by_name.items() if len(group) >= 2}
+
+    shapes: dict[tuple, list[tuple]] = collections.defaultdict(list)
+    rows = []
+    for name, group in repeated.items():
+        bodies = []
+        for row in group:
+            body = tuple(sorted(index_of[pc] for pc in row["pcs"] if pc in index_of))
+            if body:
+                bodies.append(body)
+                shapes[(name, tuple(streams["L5_class"][j] for j in body))].append(body)
+        if not bodies:
+            continue
+        rows.append(
+            {
+                "name": name,
+                "instances": len(bodies),
+                "sizes": ", ".join(str(s) for s in sorted({len(b) for b in bodies})),
+                "byteShapes": len({tuple(streams["L0_word"][j] for j in b) for b in bodies}),
+                "registerShapes": len(
+                    {tuple(streams["L2_mnemonic_registers"][j] for j in b) for b in bodies}
+                ),
+                "classShapes": len({tuple(streams["L5_class"][j] for j in b) for b in bodies}),
+                "instructions": sum(len(b) for b in bodies),
+            }
+        )
+
+    # Selection, largest payoff first, skipping any body nested inside one already taken --
+    # `ssz.readU32` and the `mem.readInt` it wraps hold the same program counters.
+    claimed = np.zeros(total, dtype=bool)
+    picks = []
+    for (name, shape), places in sorted(
+        shapes.items(), key=lambda item: -len(item[0][1]) * len(item[1])
+    ):
+        if len(places) < 2:
+            continue
+        fresh = [body for body in places if not claimed[list(body)].any()]
+        if len(fresh) < 2:
+            continue
+        for body in fresh:
+            claimed[list(body)] = True
+        transfers = sum(
+            1
+            for j in fresh[0]
+            if CLASS_OF_MNEMONIC.get(instructions[j].mnemonic, "UNMAPPED") in TRANSFER_CLASSES
+        )
+        picks.append(
+            {
+                "name": name,
+                "length": len(shape),
+                "sites": len(fresh),
+                "instructions": len(shape) * len(fresh),
+                "share": len(shape) * len(fresh) / total,
+                "transfers": transfers,
+                "segLemmaPossible": transfers == 0,
+                "body": " ".join(str(t) for t in shape[:8])
+                + ("" if len(shape) <= 8 else f" … (+{len(shape) - 8})"),
+            }
+        )
+    inside = {j for group in repeated.values() for row in group
+              for pc in row["pcs"] if (j := index_of.get(pc)) is not None}
+    return (
+        pl.DataFrame(rows).sort("instructions", descending=True),
+        pl.DataFrame(picks).sort("instructions", descending=True),
+        claimed,
+        len(inside) / total,
+    )
+
+
+def cover_with(
+    level, policy, segments, streams, frame, order_of, owner, is_transfer, total, preclaimed
+) -> tuple[int, float]:
+    """The largest-n-first covering, started from instructions another strategy already claimed.
+    Returns its lemma count and the coverage the two strategies reach together, so strategies can
+    be composed rather than only compared."""
+    result = cascade(level, policy, segments, streams, frame, order_of, owner, is_transfer,
+                     total, preclaimed=preclaimed)
+    if result.is_empty():
+        return 0, float(preclaimed.sum()) / total
+    last = result.sort("n").row(0, named=True)
+    return last["lemmasCumulative"], last["coverCumulative"]
 
 
 def greedy(
@@ -576,7 +673,60 @@ more with fewer lemmas — and each lemma then has to discharge more side condit
 <th>coverage</th><th>lemmas</th><th>invocations removed</th></tr></thead>
 <tbody>{''.join(levels_summary)}</tbody></table></div></div>
 
-<h2>3. Value-weighted greedy, for comparison</h2>
+<h2>3. Are the repeats inlined functions?</h2>
+<p>The artifact already maps every inline instance, so this question can be answered rather than
+guessed. Of 88 distinct function names, <strong>12 have two or more instances</strong>, and those
+instances hold {pct(data['insideRepeatedInstance'])} of the binary. The motif search knew nothing
+about any of this.</p>
+<div class="note">It found them anyway. The strongest motif in the study,
+<code class="mono">lbu lbu lbu lbu slli or slli slli or or</code>, is exactly the body of
+<code>mem.readInt</code>, which the compiler inlined 7 times with that shape, and of
+<code>ssz.readU32</code>, which wraps it 6 more times. Seven placements of the covering equal a
+whole <code>mem.readInt</code> body, instruction for instruction. An unsupervised search over
+instruction classes rediscovered a function.</div>
+
+<div class="panel"><h3>The 12 repeated function names — are their bodies the same?</h3>
+<p style="margin-top:0">One instance of a source function is not one shape of code. Inlining
+specialises each call site, so the columns below count how many <em>distinct</em> bodies the
+instances actually have, at three levels. Where the byte column is large and the class column is
+small, an exact-code lemma is useless and a class-level lemma works.</p>
+{table(pl.DataFrame(data['instanceBodies']),
+       ['name', 'instances', 'sizes', 'byteShapes', 'registerShapes', 'classShapes',
+        'instructions'],
+       [mono, num, plain, num, num, num, num],
+       ['function', 'instances', 'body sizes', 'byte shapes', 'register shapes',
+        'class shapes', 'instructions'])}
+</div>
+
+<div class="panel"><h3>Whole-body lemma candidates</h3>
+<p style="margin-top:0">A body earns a lemma when two or more instances share a class-level shape.
+Bodies nested inside a chosen one are skipped — <code>ssz.readU32</code> and the
+<code>mem.readInt</code> it wraps hold the same program counters.
+<span class="big">Seg</span> says whether a straight-line <code>Seg</code> lemma can state it; a
+body with control transfers needs a function-level lemma form instead.</p>
+{table(pl.DataFrame(data['instancePicks']),
+       ['name', 'length', 'sites', 'instructions', 'share', 'transfers', 'segLemmaPossible'],
+       [mono, plain, num, num, pct, num, lambda v: "yes" if v else "no"],
+       ['function', 'length', 'sites', 'instructions', 'share', 'transfers', 'Seg'])}
+<div class="note">One lemma for <code>alt_fl_alloc.sizeClassOfBytes</code> covers 7.0% of the
+binary on its own — 4 instances of 78 instructions, all one class shape. It is the single largest
+prize in the study, and it holds 24 control transfers, so no <code>Seg</code> lemma can state it.
+</div>
+</div>
+
+<div class="panel"><h3>Three strategies</h3>
+{table(pl.DataFrame(data['strategies']),
+       ['strategy', 'lemmas', 'coverage', 'instructionsPerLemma'],
+       [plain, num, pct, lambda v: f"{v:.1f}"],
+       ['strategy', 'lemmas', 'coverage', 'instructions / lemma'])}
+<div class="note">The two strategies are complementary, not rival. Whole-body lemmas are three
+times as productive per lemma, but they reach only the sixth of the binary that the compiler
+duplicated. Most repetition in this binary is <em>inside</em> one large function that occurs once
+— <code>rlp_decode.decodeTxFields</code> hosts 719 covered instructions from a single instance.
+Take the bodies first, then let the motif covering work on what is left.</div>
+</div>
+
+<h2>4. Value-weighted greedy, for comparison</h2>
 <p>Same corpus, different objective. Pick the motif maximising
 <span class="mono">uses × (n−1) − 20</span>, over mixed n. This buys far less coverage for far
 fewer lemmas, and it never selects anything long.</p>
@@ -586,12 +736,12 @@ fewer lemmas, and it never selects anything long.</p>
        ['#', 'n', 'uses', 'owners', 'motif', 'coverage', 'invocations removed'])}
 </div>
 
-<h2>4. What the corpus is made of</h2>
+<h2>5. What the corpus is made of</h2>
 <p>Attribution is by innermost inline instance, then by that instance's source file.</p>
 <div class="panel"><div class="scroll"><table><thead><tr><th>source file</th>
 <th>instructions</th><th>share</th></tr></thead><tbody>{composition}</tbody></table></div></div>
 
-<h2>5. Reading this honestly</h2>
+<h2>6. Reading this honestly</h2>
 <div class="note">Coverage is not proof. A placed motif still needs a lemma written, and a
 class-level lemma merges several dataflow shapes, so it carries register-distinctness side
 conditions that this page does not price. The lemma cost of 20 steps in section 3 is a placeholder:
@@ -726,6 +876,29 @@ def main() -> int:
     greedy_frame = pl.concat([g for g in greedies if not g.is_empty()])
 
     cfg = json.loads(arguments.cfg.read_text())
+
+    # Do the discovered motifs correspond to functions the compiler inlined many times?
+    bodies_frame, picks_frame, body_mask, inside_share = instance_bodies(
+        cfg, instructions, streams, total
+    )
+    ngram_only = cascade("L5_class", "lemma", segments, streams, frame, order_of, owner,
+                         is_transfer, total).sort("n").row(0, named=True)
+    together_lemmas, together_cover = cover_with(
+        "L5_class", "lemma", segments, streams, frame, order_of, owner, is_transfer, total,
+        body_mask,
+    )
+    body_lemmas = len(picks_frame)
+    strategies = [
+        {"strategy": "n-gram motifs alone", "lemmas": ngram_only["lemmasCumulative"],
+         "coverage": ngram_only["coverCumulative"]},
+        {"strategy": "whole inlined bodies alone", "lemmas": body_lemmas,
+         "coverage": float(body_mask.sum()) / total},
+        {"strategy": "bodies first, then n-gram motifs",
+         "lemmas": body_lemmas + together_lemmas, "coverage": together_cover},
+    ]
+    for row in strategies:
+        row["instructionsPerLemma"] = row["coverage"] * total / max(row["lemmas"], 1)
+
     instance_file = {row["id"]: row.get("sourceFile") or "unknown" for row in cfg["functionInstances"]}
     tally = collections.Counter(instance_file.get(o, "unknown").split("/")[-1] for o in owner)
     composition = [
@@ -754,6 +927,10 @@ def main() -> int:
         "cascade": cascade_frame.to_dicts(),
         "greedy": greedy_frame.to_dicts(),
         "composition": composition,
+        "instanceBodies": bodies_frame.to_dicts(),
+        "instancePicks": picks_frame.to_dicts(),
+        "strategies": strategies,
+        "insideRepeatedInstance": inside_share,
     }
 
     if arguments.out_json:

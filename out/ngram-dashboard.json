@@ -23002,6 +23002,219 @@
    "uses": 13
   }
  ],
+ "insideRepeatedInstance": 0.2056369785794814,
+ "instanceBodies": [
+  {
+   "byteShapes": 4,
+   "classShapes": 3,
+   "instances": 4,
+   "instructions": 330,
+   "name": "alt_fl_alloc.sizeClass",
+   "registerShapes": 4,
+   "sizes": "79, 83, 84"
+  },
+  {
+   "byteShapes": 4,
+   "classShapes": 1,
+   "instances": 4,
+   "instructions": 312,
+   "name": "alt_fl_alloc.sizeClassOfBytes",
+   "registerShapes": 4,
+   "sizes": "78"
+  },
+  {
+   "byteShapes": 14,
+   "classShapes": 6,
+   "instances": 14,
+   "instructions": 184,
+   "name": "mem.readInt",
+   "registerShapes": 14,
+   "sizes": "10, 11, 12, 14, 22"
+  },
+  {
+   "byteShapes": 8,
+   "classShapes": 7,
+   "instances": 8,
+   "instructions": 157,
+   "name": "mem.Allocator.allocAdvancedWithRetAddr",
+   "registerShapes": 7,
+   "sizes": "10, 14, 16, 24, 25, 33"
+  },
+  {
+   "byteShapes": 10,
+   "classShapes": 5,
+   "instances": 10,
+   "instructions": 147,
+   "name": "ssz_decode_root.put",
+   "registerShapes": 10,
+   "sizes": "9, 15, 16"
+  },
+  {
+   "byteShapes": 10,
+   "classShapes": 5,
+   "instances": 10,
+   "instructions": 147,
+   "name": "mem.writeInt",
+   "registerShapes": 10,
+   "sizes": "9, 15, 16"
+  },
+  {
+   "byteShapes": 10,
+   "classShapes": 5,
+   "instances": 10,
+   "instructions": 108,
+   "name": "ssz.readU32",
+   "registerShapes": 10,
+   "sizes": "10, 11, 12, 14"
+  },
+  {
+   "byteShapes": 7,
+   "classShapes": 5,
+   "instances": 9,
+   "instructions": 38,
+   "name": "math.mul__anon_1716",
+   "registerShapes": 7,
+   "sizes": "3, 4, 5"
+  },
+  {
+   "byteShapes": 5,
+   "classShapes": 5,
+   "instances": 5,
+   "instructions": 30,
+   "name": "ssz.decode__struct_1043.f",
+   "registerShapes": 5,
+   "sizes": "3, 4, 7, 8"
+  },
+  {
+   "byteShapes": 3,
+   "classShapes": 1,
+   "instances": 3,
+   "instructions": 18,
+   "name": "mem.Allocator.rawRemap",
+   "registerShapes": 2,
+   "sizes": "6"
+  },
+  {
+   "byteShapes": 3,
+   "classShapes": 2,
+   "instances": 3,
+   "instructions": 14,
+   "name": "mem.Allocator.rawFree",
+   "registerShapes": 2,
+   "sizes": "4, 5"
+  },
+  {
+   "byteShapes": 3,
+   "classShapes": 1,
+   "instances": 3,
+   "instructions": 12,
+   "name": "mem.Allocator.rawAlloc",
+   "registerShapes": 2,
+   "sizes": "4"
+  }
+ ],
+ "instancePicks": [
+  {
+   "body": "BTYPE ITYPE BTYPE ITYPE BTYPE ITYPE ITYPE JAL \u2026 (+70)",
+   "instructions": 312,
+   "length": 78,
+   "name": "alt_fl_alloc.sizeClassOfBytes",
+   "segLemmaPossible": false,
+   "share": 0.07034949267192785,
+   "sites": 4,
+   "transfers": 24
+  },
+  {
+   "body": "SHIFTIOP SHIFTIOP SHIFTIOP SHIFTIOP SHIFTIOP SHIFTIOP SHIFTIOP STORE \u2026 (+7)",
+   "instructions": 90,
+   "length": 15,
+   "name": "ssz_decode_root.put",
+   "segLemmaPossible": true,
+   "share": 0.020293122886133032,
+   "sites": 6,
+   "transfers": 0
+  },
+  {
+   "body": "LOAD LOAD LOAD LOAD SHIFTIOP RTYPE SHIFTIOP SHIFTIOP \u2026 (+2)",
+   "instructions": 70,
+   "length": 10,
+   "name": "mem.readInt",
+   "segLemmaPossible": true,
+   "share": 0.015783540022547914,
+   "sites": 7,
+   "transfers": 0
+  },
+  {
+   "body": "LOAD LOAD LOAD LOAD LOAD LOAD LOAD LOAD \u2026 (+14)",
+   "instructions": 66,
+   "length": 22,
+   "name": "mem.readInt",
+   "segLemmaPossible": true,
+   "share": 0.014881623449830891,
+   "sites": 3,
+   "transfers": 0
+  },
+  {
+   "body": "MULDIV ITYPE STORE BTYPE ITYPE STORE ITYPE JAL \u2026 (+17)",
+   "instructions": 50,
+   "length": 25,
+   "name": "mem.Allocator.allocAdvancedWithRetAddr",
+   "segLemmaPossible": false,
+   "share": 0.011273957158962795,
+   "sites": 2,
+   "transfers": 4
+  },
+  {
+   "body": "LOAD ITYPE ITYPE ITYPE ITYPE JALR",
+   "instructions": 18,
+   "length": 6,
+   "name": "mem.Allocator.rawRemap",
+   "segLemmaPossible": false,
+   "share": 0.004058624577226606,
+   "sites": 3,
+   "transfers": 1
+  },
+  {
+   "body": "LOAD ITYPE ITYPE JALR",
+   "instructions": 12,
+   "length": 4,
+   "name": "mem.Allocator.rawAlloc",
+   "segLemmaPossible": false,
+   "share": 0.002705749718151071,
+   "sites": 3,
+   "transfers": 1
+  },
+  {
+   "body": "MULDIV ITYPE STORE BTYPE MULDIV",
+   "instructions": 10,
+   "length": 5,
+   "name": "math.mul__anon_1716",
+   "segLemmaPossible": false,
+   "share": 0.002254791431792559,
+   "sites": 2,
+   "transfers": 1
+  },
+  {
+   "body": "SHIFTIOP ITYPE STORE BTYPE SHIFTIOP",
+   "instructions": 10,
+   "length": 5,
+   "name": "math.mul__anon_1716",
+   "segLemmaPossible": false,
+   "share": 0.002254791431792559,
+   "sites": 2,
+   "transfers": 1
+  },
+  {
+   "body": "LOAD ITYPE ITYPE ITYPE JALR",
+   "instructions": 10,
+   "length": 5,
+   "name": "mem.Allocator.rawFree",
+   "segLemmaPossible": false,
+   "share": 0.002254791431792559,
+   "sites": 2,
+   "transfers": 1
+  }
+ ],
  "scope": {
   "instructions": 4435,
   "owners": 134,
@@ -23010,6 +23223,26 @@
   "segments": 761,
   "sha256": "a387cf567df0e97415c7f20d2b56fee05ab71167b11a5addfefa8e1f9df5420c"
  },
+ "strategies": [
+  {
+   "coverage": 0.7422773393461105,
+   "instructionsPerLemma": 22.093959731543624,
+   "lemmas": 149,
+   "strategy": "n-gram motifs alone"
+  },
+  {
+   "coverage": 0.14611048478015784,
+   "instructionsPerLemma": 64.8,
+   "lemmas": 10,
+   "strategy": "whole inlined bodies alone"
+  },
+  {
+   "coverage": 0.7923337091319053,
+   "instructionsPerLemma": 23.271523178807946,
+   "lemmas": 151,
+   "strategy": "bodies first, then n-gram motifs"
+  }
+ ],
  "totals": {
   "repeatedAllLevels": 11305,
   "repeatedClassLemma": 2393
