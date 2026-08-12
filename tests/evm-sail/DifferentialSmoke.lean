@@ -1,11 +1,15 @@
 import BinaryFv.Zesu.Contracts.DecodedResultRelation
+import BinaryFv.Zesu.DecodedValue.Encoder
 
 open BinaryFv.Specs.SSZ BinaryFv.Zesu
 
 private def readSuccess (path : System.FilePath) : IO ZesuDecodedResult := do
   let bytes ← IO.FS.readBinFile path
   match decodeZesuObservation bytes.data with
-  | some (.success decoded) => pure decoded
+  | some (.success decoded) =>
+      unless encodeZesuObservation (.success decoded) = bytes.data do
+        throw (IO.userError s!"Lean encoder disagrees with production observation: {path}")
+      pure decoded
   | _ => throw (IO.userError s!"invalid success observation: {path}")
 
 private def tryRunSail (input : Array UInt8) : Option SailDecoded :=
