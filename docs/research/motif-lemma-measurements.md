@@ -32,12 +32,16 @@ nothing else.
 | module | instructions | `native_decide` | wall clock | per call |
 |---|---|---|---|---|
 | Case A, one site | 10 | 50 | 4.9s | 98ms |
-| Case A, all 7 sites | 70 | 280 | 22.0s | 79ms |
 | Case F, 6 sites | 24 | 96 | 8.9s | 93ms |
+| Case A, all 7 sites | 70 | 280 | 22.0s | 79ms |
+| Case B, 6 sites | 90 | 360 | 30.0s | 83ms |
+| Case G, 5 sites | 160 | 640 | 54.4s | 85ms |
+| Case E, 4 sites | 312 | 1248 | 107.1s | 86ms |
+| **all five cases** | **656** | **2624** | **222.4s** | **84.8ms** |
 
-Between 79ms and 98ms per `native_decide`, and the rate holds as the module grows — 280 calls cost
-5.6× what 50 cost, against a 5.6× ratio in calls. **The cost is linear in instructions and it does
-not amortise.**
+The rate sits between 79ms and 93ms across a 13× range in module size, and the aggregate is
+**84.8ms**. The largest module, Case E at 1248 calls, costs 13.0× the smallest at 96 calls, against
+a 13.0× ratio in calls. **The cost is linear in instructions and it does not amortise.**
 
 `decode_run` measured separately: four decodes added 0.2s to a 4.9s module, so **~50ms each**.
 
@@ -60,10 +64,13 @@ paid whether or not a motif lemma is written.
 | case | motif | n | sites | instructions | `native_decide` | wall clock |
 |---|---|---|---|---|---|---|
 | A | `mem.readInt` | 10 | 7 | 70 | 280 | 22.0s |
-| B | `mem.writeInt` | 15 | 6 | 90 | 360 | *pending* |
-| E | `sizeClassOfBytes` | 78 | 4 | 312 | 1248 | *pending* |
+| B | `mem.writeInt` | 15 | 6 | 90 | 360 | 30.0s |
+| E | `sizeClassOfBytes` | 78 | 4 | 312 | 1248 | 107.1s |
 | F | `rawAlloc`/`rawRemap` | 4 | 6 | 24 | 96 | 8.9s |
-| G | `decodeTxFields` tail | 32 | 5 | 160 | 640 | *pending* |
+| G | `decodeTxFields` tail | 32 | 5 | 160 | 640 | 54.4s |
+
+Case E is the study's largest single prize — one lemma covering 7.0% of the binary — and it is also
+the largest fetch bill: **107 seconds that the lemma does not touch**.
 
 ## 4. What this does to the campaign's question
 
@@ -72,8 +79,10 @@ Every one of those instructions carries its own fetch and decode regardless. At 
 `native_decide`:
 
 ```
-3292 instructions × 4 native_decide × ~90ms  ≈  20 minutes
+3292 instructions × 4 native_decide × 84.8ms  =  1116s  =  18.6 minutes
 ```
+
+For the whole binary, 4435 instructions: **25.1 minutes**.
 
 of elaboration that no arrangement of motif lemmas can avoid. That is the floor for proving the
 covered part of this binary, before any semantic content is proved at all.
