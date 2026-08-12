@@ -45,7 +45,7 @@ class ProofMapTest(unittest.TestCase):
         self.assertEqual(len(level2_boundaries), 22)
         self.assertTrue(all(row["contractStatus"] == "specified_assumption"
                             for row in level1_boundaries))
-        self.assertTrue(all(row["contractStatus"] == "not_specified"
+        self.assertTrue(all(row["contractStatus"] == "specified"
                             for row in level2_boundaries))
         self.assertTrue(all(row["parentInstanceIds"]
                             for row in level2_boundaries))
@@ -67,10 +67,16 @@ class ProofMapTest(unittest.TestCase):
         main = next(row for row in self.documents[0]["functionInstances"]
                     if row["kind"] == "concrete" and row["entryPc"] == 0x14cb0)
         self.assertEqual(progress[main["id"]], "conditionally_proven")
-        self.assertEqual({progress[row["id"]] for row in self.documents[2]["instances"]},
-                         {"contracted"})
-        self.assertEqual({progress[row["id"]] for row in self.documents[5]["instances"]},
-                         {"contract_not_specified"})
+        self.assertEqual(progress["fi:1:57d"], "proof_in_progress")
+        self.assertEqual(progress["fi:1:3c7"], "unconditionally_proven")
+        self.assertEqual(progress["fi:1:31b"], "unconditionally_proven")
+        self.assertEqual({progress[row["id"]] for row in self.documents[5]["instances"]
+                          if row["id"] not in {"fi:1:57d", "fi:1:3c7", "fi:1:31b"}},
+                         {"contract_specified_assumption"})
+        read_input = next(row for row in level1_boundaries if row["qualified"] == "read_input")
+        zkvm_exit = next(row for row in level1_boundaries if row["qualified"] == "zkvm_exit")
+        self.assertEqual(read_input["proofStatus"], "in_progress")
+        self.assertEqual(zkvm_exit["proofStatus"], "proved_not_connected")
         self.assertEqual(len(progress), 29)
 
     def test_rejects_artifact_mismatch(self):
