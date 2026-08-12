@@ -127,8 +127,8 @@ let
     python -m unittest discover -s tools -p 'test_*.py'
     gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel1Manifest}/level1-manifest.json"))["instances"]; cfg=json.load(open("${zesuSszDecodeCfg}/zesu-cfg.json")); main=next(row for row in cfg["functionInstances"] if row["kind"] == "concrete" and row["name"] == "ssz_decode_root.main"); pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | set(main["pcs"])); print(",".join("snapshot="+str(pc) for pc in pcs))')
-    ${rv64.qemuRiscv64} -plugin ./trace.so,out=minimal.trace,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/minimal.ssz > /dev/null
-    ${rv64.qemuRiscv64} -plugin ./trace.so,out=invalid.trace,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/invalid.ssz > /dev/null
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=minimal.trace,capture_write=65972,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/minimal.ssz > /dev/null
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=invalid.trace,capture_write=65972,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/invalid.ssz > /dev/null
     mkdir -p "$out"
     python tools/analyze.py --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
       --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json \
@@ -148,8 +148,8 @@ let
     python -m unittest discover -s tools -p 'test_*.py'
     gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel2Manifest}/level2-manifest.json"))["instances"]; pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | {pc for row in rows for pc in row["exitPcs"]}); print(",".join("snapshot="+str(pc) for pc in pcs))')
-    ${rv64.qemuRiscv64} -plugin ./trace.so,out=minimal.trace,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/minimal.ssz > /dev/null
-    ${rv64.qemuRiscv64} -plugin ./trace.so,out=invalid.trace,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/invalid.ssz > /dev/null
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=minimal.trace,capture_write=65972,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/minimal.ssz > /dev/null
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=invalid.trace,capture_write=65972,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/invalid.ssz > /dev/null
     mkdir -p "$out"
     python tools/analyze.py --structural-only \
       --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \

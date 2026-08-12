@@ -21,7 +21,7 @@ class EvidenceTest(unittest.TestCase):
             "executed": [0, 4, 8, 12, 16],
             "executions": [
                 {"pc": pc, "registers": ({"available": 2 ** 32 - 1, "values": [0] * 32}
-                                           if pc in {4, 16} else None)}
+                                           if pc in {4, 16} else None), "hostWrites": []}
                 for pc in [0, 4, 8, 12, 16]
             ],
             "registers": {4: [{"available": 2 ** 32 - 1, "values": [0] * 32}]},
@@ -62,6 +62,14 @@ class EvidenceTest(unittest.TestCase):
             trace.write_text("R 4 0\n")
             with self.assertRaisesRegex(ValueError, "malformed"):
                 parse_trace(trace)
+
+    def test_parser_reads_host_write_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "trace"
+            trace.write_text("E 65972\nB 65972 4096 3 0102ff\n")
+            self.assertEqual(parse_trace(trace)["hostWrites"], [{
+                "pc": 65972, "address": 4096, "bytes": "0102ff",
+            }])
 
     def test_rejects_missing_exit_snapshot(self):
         trace = copy.deepcopy(self.trace)

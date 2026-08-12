@@ -9,6 +9,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 static FILE *out;
 static GHashTable *snapshot_pcs;
 static GPtrArray *vcpu_registers;
+static uint64_t capture_write_pc;
 
 struct registers { struct qemu_plugin_register *x[32]; GByteArray *buf; };
 
@@ -84,8 +85,22 @@ static struct registers *registers_for(unsigned vcpu) {
 static void execute(unsigned vcpu, void *data) {
   uint64_t pc = (uint64_t)(uintptr_t)data;
   fprintf(out, "E %" PRIu64 "\n", pc);
-  if (!g_hash_table_contains(snapshot_pcs, &pc)) return;
   struct registers *regs = registers_for(vcpu);
+  if (pc == capture_write_pc) {
+    uint64_t address = 0, length = 0;
+    GByteArray *bytes = g_byte_array_new();
+    if (!read_register(regs, 11, &address) || !read_register(regs, 12, &length) ||
+        length > 64 * 1024 * 1024 ||
+        (length != 0 && !qemu_plugin_read_memory_vaddr(address, bytes, (size_t)length))) {
+      fprintf(out, "B %" PRIu64 " unreadable\n", pc);
+    } else {
+      fprintf(out, "B %" PRIu64 " %" PRIu64 " %" PRIu64 " ", pc, address, length);
+      for (guint i = 0; i < bytes->len; ++i) fprintf(out, "%02x", bytes->data[i]);
+      fputc('\n', out);
+    }
+    g_byte_array_free(bytes, TRUE);
+  }
+  if (!g_hash_table_contains(snapshot_pcs, &pc)) return;
   uint32_t available = 0;
   uint64_t values[32];
   for (unsigned i = 0; i < 32; ++i) {
@@ -130,6 +145,8 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_
   const char *path = NULL;
   for (int i = 0; i < argc; ++i) {
     if (g_str_has_prefix(argv[i], "out=")) path = argv[i] + 4;
+    if (g_str_has_prefix(argv[i], "capture_write="))
+      capture_write_pc = g_ascii_strtoull(argv[i] + 14, NULL, 0);
   }
   out = path ? fopen(path, "w") : stderr;
   if (!out) return -1;

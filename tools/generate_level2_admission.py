@@ -37,6 +37,19 @@ SEMANTICS = {
     "writeFailureRawLine127": ("observation-write", "append ZSSZ v1 failure record", "ZSSZ format"),
 }
 
+FIXED_WRITE_BYTES = {
+    "writeSuccessRawLine131": bytes.fromhex("5a53535a0101"),
+    "writeSuccessRawLine135": bytes(32),
+    "writeSuccessRawLine136": bytes(20),
+    "writeSuccessRawLine137": bytes(32),
+    "writeSuccessRawLine138": bytes(32),
+    "writeSuccessRawLine139": bytes(256),
+    "writeSuccessRawLine140": bytes(32),
+    "writeSuccessRawLine147": bytes(32),
+    "writeSuccessRawLine156": bytes(32),
+    "writeFailureRawLine127": bytes.fromhex("5a53535a0100"),
+}
+
 
 def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
     if any(manifest["artifact"] != document["artifact"]
@@ -49,6 +62,7 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
         for row in vector["instances"]:
             slot = observations.setdefault(row["id"], {
                 "vectors": [], "entries": 0, "exits": set(), "loads": 0, "stores": 0,
+                "hostWrites": [],
             })
             if row["entryReached"]:
                 slot["vectors"].append(vector["label"])
@@ -56,12 +70,18 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
             slot["exits"].update(tuple(edge) for edge in row["observedExitTransitions"])
             slot["loads"] += sum(access["kind"] == "load" for access in row["memoryAccesses"])
             slot["stores"] += sum(access["kind"] == "store" for access in row["memoryAccesses"])
+            slot["hostWrites"].extend({"vector": vector["label"], **write}
+                                      for write in row["hostWrites"])
     rows = []
     for instance in manifest["instances"]:
         name = source_name(instance, cfg_instances)
         semantic_kind, semantic_clause, specification = SEMANTICS[name]
         observed = observations[instance["id"]]
         dwarf = binding_rows[instance["id"]]
+        if name in FIXED_WRITE_BYTES:
+            writes = observed["hostWrites"]
+            if len(writes) != 1 or bytes.fromhex(writes[0]["bytes"]) != FIXED_WRITE_BYTES[name]:
+                raise ValueError(f"fixed source write mismatch for {name}")
         rows.append({
             "id": instance["id"], "leanName": name, "qualified": instance["qualified"],
             "parentInstanceIds": instance["parentInstanceIds"],
@@ -75,6 +95,7 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
                 "entrySnapshotCount": observed["entries"],
                 "observedExitTransitions": [list(edge) for edge in sorted(observed["exits"])],
                 "loadCount": observed["loads"], "storeCount": observed["stores"],
+                "hostWrites": observed["hostWrites"],
                 "dwarfBindings": dwarf,
             },
             "unmeasured": [

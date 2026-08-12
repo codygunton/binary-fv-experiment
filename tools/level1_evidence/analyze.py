@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def parse_trace(path: Path) -> dict:
-    executed, executions, registers, loads, stores = [], [], {}, [], []
+    executed, executions, registers, loads, stores, host_writes = [], [], {}, [], [], []
     for number, line in enumerate(path.read_text().splitlines(), 1):
         parts = line.split()
         if not parts:
@@ -19,7 +19,7 @@ def parse_trace(path: Path) -> dict:
             if parts[0] == "E" and len(parts) == 2:
                 pc = int(parts[1])
                 executed.append(pc)
-                executions.append({"pc": pc, "registers": None})
+                executions.append({"pc": pc, "registers": None, "hostWrites": []})
             elif parts[0] == "R" and len(parts) == 35:
                 pc = int(parts[1])
                 snapshot = {
@@ -33,12 +33,22 @@ def parse_trace(path: Path) -> dict:
             elif parts[0] in {"L", "S"} and len(parts) == 5:
                 record = [int(value) for value in parts[1:]]
                 (loads if parts[0] == "L" else stores).append(record)
+            elif parts[0] == "B" and len(parts) == 5:
+                pc, address, length = map(int, parts[1:4])
+                payload = bytes.fromhex(parts[4]) if parts[4] else b""
+                if len(payload) != length:
+                    raise ValueError
+                write = {"pc": pc, "address": address, "bytes": payload.hex()}
+                if not executions or executions[-1]["pc"] != pc:
+                    raise ValueError
+                executions[-1]["hostWrites"].append(write)
+                host_writes.append(write)
             else:
                 raise ValueError
         except ValueError as error:
             raise ValueError(f"{path}:{number}: malformed trace record") from error
     return {"executed": executed, "executions": executions, "registers": registers,
-            "loads": loads, "stores": stores}
+            "loads": loads, "stores": stores, "hostWrites": host_writes}
 
 
 def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
@@ -52,6 +62,7 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
                 raise ValueError(f"unavailable register in snapshot for {instance['id']}")
         observed_owned, observed_extent = set(), set()
         transitions, exits = [], []
+        active_host_writes = []
         active = False
         executions = trace["executions"]
         for index, current in enumerate(executions):
@@ -64,6 +75,7 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             observed_extent.add(current["pc"])
             if current["pc"] in instance["instructionPcs"]:
                 observed_owned.add(current["pc"])
+            active_host_writes.extend(current.get("hostWrites", []))
             if index + 1 == len(executions):
                 if current["pc"] not in exits_expected:
                     raise ValueError(f"unterminated occurrence for {instance['id']}")
@@ -98,6 +110,7 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             "observedExitTransitions": [list(pair) for pair in sorted(set(transitions))],
             "observedExits": exits,
             "memoryAccesses": memory,
+            "hostWrites": active_host_writes,
         })
     return {"label": label, "instances": result}
 
