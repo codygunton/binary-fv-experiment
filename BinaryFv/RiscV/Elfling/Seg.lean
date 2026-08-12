@@ -261,26 +261,6 @@ theorem stepOf {V : RegSet} {kv' : List RegVal} {nextPc : BitVec 64}
 
 end Seg
 
-/-! ## The `afterRegisterWrite` frame facts a step needs
-
-`afterRegisterWrite_{writes, mem, retired_present, pc}` already exist in `RegisterWriteStep`. The
-destination read does not, and it is the one `Seg.step` cannot do without: the whole point of the
-positive accumulator is to carry the value the instruction just wrote.
--/
-
-/-- **The value a register-writing retirement left in its destination.**
-
-The two disequalities are the postlude's own writes: `tick_pc` overwrites `PC` and the retirement
-overwrites `minstret` *after* the execute wrote `destination`, so an instruction targeting either
-would not see its own value survive. Both are `by decide` at any concrete destination. -/
-theorem afterRegisterWrite_destination (state : State) (pc retired : BitVec 64)
-    (destination : Register) (value : RegisterType destination)
-    (notPc : destination ≠ PC) (notRetired : destination ≠ minstret) :
-    (afterRegisterWrite state pc retired destination value).regs.get? destination = some value := by
-  simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-    notPc.symm, notRetired.symm]
-
 /-! ## The jump-retirement frame facts a step needs
 
 `jumpRetirement_writes` in `Step/ControlFlow.lean` covers the register frame. `Seg.stepJump` also
@@ -368,7 +348,7 @@ theorem step (seg : Seg own exit childSummary W M kv a n base cur pc)
     (fun retired => advance ▸ afterRegisterWrite_pc cur pc retired dest value)
     (fun retired =>
       RegsHold.cons dest value
-        (afterRegisterWrite_destination cur pc retired dest value destNotPc destNotRetired)
+        (afterRegisterWrite_destination cur pc retired dest value destNotPc.symm destNotRetired.symm)
         (RegsHold.nil _))
     (fun r hr => hr.elim (bookkeeping r) (fun h => h ▸ destination))
     keep
@@ -399,7 +379,7 @@ theorem stepWitness (seg : Seg own exit childSummary W M kv a n base cur pc)
       retired := afterRegisterWrite_retired_present cur pc retired dest value
       atPc := advance ▸ afterRegisterWrite_pc cur pc retired dest value
       regs := (RegsHold.cons dest value
-        (afterRegisterWrite_destination cur pc retired dest value destNotPc destNotRetired)
+        (afterRegisterWrite_destination cur pc retired dest value destNotPc.symm destNotRetired.symm)
         (RegsHold.nil _)).append
         (seg.regs.through (afterRegisterWrite_writes cur pc retired dest value) keep) }
 

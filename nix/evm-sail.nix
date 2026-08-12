@@ -98,6 +98,9 @@ let
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.lean Level2Contracts.lean
     cp ${repo}/BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.lean Level2RuntimeLeaves.lean
     cp ${repo}/BinaryFv/Zesu/MachineExecution/MemcpyProof.lean MemcpyProof.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/InstructionClassSteps.lean InstructionClassSteps.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/ReadInputSteps.lean ReadInputSteps.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/ReadInputProof.lean ReadInputProof.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.lean Level0Contract.lean
     cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
     cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
@@ -117,6 +120,11 @@ let
     cp ${repo}/BinaryFv/RiscV/Instruction/DecodeTactic.lean DecodeTactic.lean
     cp ${repo}/BinaryFv/RiscV/Step/RegisterWrite.lean RegisterWrite.lean
     cp ${repo}/BinaryFv/RiscV/Elfling/FunctionTrace.lean FunctionTrace.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/Boundary.lean Boundary.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/Contract.lean ElflingContract.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/ProgramGeometry.lean ProgramGeometry.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/SequentialSplice.lean SequentialSplice.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/Seg.lean Seg.lean
     cp ${repo}/BinaryFv/RiscV/Instruction/Execute/Load.lean Load.lean
     cp ${repo}/BinaryFv/RiscV/Instruction/Execute/StoreByte.lean StoreByte.lean
     cp ${repo}/BinaryFv/RiscV/Instruction/Execute/Memory.lean Memory.lean
@@ -175,12 +183,20 @@ let
     lean -o compiled/BinaryFv/RiscV/Instruction/DecodeTactic.olean DecodeTactic.lean
     lean -o compiled/BinaryFv/RiscV/Step/RegisterWrite.olean RegisterWrite.lean
     lean -o compiled/BinaryFv/RiscV/Elfling/FunctionTrace.olean FunctionTrace.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/Boundary.olean Boundary.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/Contract.olean ElflingContract.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/ProgramGeometry.olean ProgramGeometry.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/SequentialSplice.olean SequentialSplice.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/Seg.olean Seg.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/HostExecution.olean HostExecution.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.olean Level1Boundary.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.olean Level1Contracts.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.olean Level2Contracts.lean
     lean -o compiled/BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.olean Level2RuntimeLeaves.lean
     lean -o compiled/BinaryFv/Zesu/MachineExecution/MemcpyProof.olean MemcpyProof.lean
+    lean -o compiled/BinaryFv/Zesu/MachineExecution/InstructionClassSteps.olean InstructionClassSteps.lean
+    lean -o compiled/BinaryFv/Zesu/MachineExecution/ReadInputSteps.olean ReadInputSteps.lean
+    lean -o compiled/BinaryFv/Zesu/MachineExecution/ReadInputProof.olean ReadInputProof.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.olean Level0Contract.lean
     lean -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
     lean -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean
