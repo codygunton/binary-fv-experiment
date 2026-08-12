@@ -42,11 +42,12 @@ class ProofMapTest(unittest.TestCase):
         self.assertEqual(consumed,
                          {"read_input", "zkvm_exit", "alt_fl_alloc.get",
                           "ssz_decode_root.decodeInput",
-                          "ssz_decode_observation.writeSuccess"})
+                          "ssz_decode_observation.writeSuccess",
+                          "ssz_decode_observation.writeFailure"})
         glue = next(node for node in result["refinementGraph"]["nodes"]
                     if node["kind"] == "parentGlue")
         self.assertEqual((glue["proofStatus"], glue["provedInstructionCount"]),
-                         ("in_progress", 19))
+                         ("in_progress", 24))
         self.assertEqual(glue["instructionCount"], 24)
         self.assertEqual(glue["absorbedInlineInstructionCount"], 2)
         progress = {row["owner"]: row["status"]

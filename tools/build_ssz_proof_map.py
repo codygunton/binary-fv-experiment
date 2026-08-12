@@ -46,11 +46,13 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
     consumed_level1 = {
         "read_input", "zkvm_exit", "alt_fl_alloc.get", "ssz_decode_root.decodeInput",
         "ssz_decode_observation.writeSuccess",
+        "ssz_decode_observation.writeFailure",
     }
     proved_level0_pcs = {
         0x14CB0, 0x14CB4, 0x14CB8, 0x14CBC, 0x14CC0, 0x14CC4, 0x14CC8,
         0x14CEC, 0x14CF0, 0x14CF4, 0x14CF8, 0x14CFC, 0x14D00,
         0x14D04, 0x14D08, 0x14D0C, 0x14D10, 0x14D14, 0x14D18,
+        0x14D1C, 0x14D20, 0x14D24, 0x14D28, 0x14D2C,
     }
 
     boundaries, regions, nodes, edges = [], [], [], []
@@ -113,7 +115,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
 
     regions.append({
         "id": "level0-glue", "label": "main parent-owned glue", "authoringState": "proof_in_progress",
-        "blocker": "Compose the remaining five failure-route instructions and writeFailure call.",
+        "blocker": "Level 0 is complete; prove exportedContracts_of_level1 and root_compliance.",
         "scope": "parent", "pcs": glue_pcs, "boundaryIds": [],
         "evidence": "production ELF structure and endpoint differential fixtures",
         "preparation": {"liveRegisters": [], "protectedMemory": [],

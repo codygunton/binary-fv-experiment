@@ -1669,4 +1669,182 @@ theorem main_exit_success_or_select_failure (hLevel1 : Level1ContractAssumptions
         · exact finalCursor.trans (by simpa [callState, state2, state1] using cursor)
         · exact finalStdout.trans (by simpa [callState, state2, state1] using stdout)
 
+/-- Complete Level 0 result: an exact confined endpoint trace, its semantic outcome, and `MainExit`. -/
+def MainResolvedHandoff (args : MainArgs) (fromStep : Nat) (before : EndpointState) : Prop :=
+  ∃ (used : Nat) (after : EndpointState) (outcome : MainOutcome),
+    ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep used before after ∧
+    MainMeaningModulo knownBugs args outcome ∧ MainExit args outcome before after
+
+/-- Compose the rejected-input writer and terminal exit. The successful route is already complete
+and is returned unchanged. -/
+theorem main_resolved_handoff (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+    (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
+    MainResolvedHandoff args fromStep before := by
+  obtain ⟨used, state, outcome, prefixTrace, meaning, selected⟩ :=
+    main_exit_success_or_select_failure hLevel1 args fromStep before entry
+  cases outcome with
+  | success decoded => exact ⟨used, state, .success decoded, prefixTrace, meaning, selected⟩
+  | failure =>
+      rcases selected with ⟨atPc, configured, code, stdin, cursor, stdout, exitCode⟩
+      obtain ⟨retired0, run0⟩ := main_write_failure_call_base_step (fromStep + used)
+        state.machine configured (by simpa [EndpointPc] using atPc) code
+      let machine1 := afterRegisterWrite state.machine 0x14d1c retired0 x1 0x15d1c
+      let state1 : EndpointState := { state with machine := machine1 }
+      have trace1 : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep (used + 1)
+          before state1 := by
+        simpa [Nat.add_assoc] using prefixTrace.append
+          (main_confined_sail_step (fromStep + used) state machine1 0x14d1c atPc
+            (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+            (by unfold LinuxSyscallPc; native_decide) run0)
+      have configured1 := ConfiguredMachinePre.afterRegisterWrite 0x14d1c retired0 x1 0x15d1c
+        configured (by simp [instructionPreserved])
+      have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+        state.machine 0x14d1c retired0 x1 0x15d1c code
+      have pc1 : EndpointPc state1 = some 0x14d20 := by
+        simpa [state1, EndpointPc, MachinePc, machine1] using
+          afterRegisterWrite_pc state.machine 0x14d1c retired0 x1 0x15d1c
+      have base1 : machine1.regs.get? x1 = some 0x15d1c := by
+        simpa [machine1] using
+          afterRegisterWrite_destination state.machine 0x14d1c retired0 x1 (0x15d1c : BitVec 64)
+            (by decide) (by decide)
+      obtain ⟨retired1, run1⟩ := main_write_failure_call_step (fromStep + used + 1) machine1
+        configured1 (by simpa [state1, EndpointPc] using pc1) base1 code1
+      let callMachine := tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement machine1) 0x14d20 0x161c0 x1 0x14d24)
+        0x161c0 retired1
+      let callState : EndpointState := { state1 with machine := callMachine }
+      have callTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep (used + 2)
+          before callState := by
+        have stepTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
+            (fromStep + (used + 1)) 1 state1 callState := by
+          simpa [callState, Nat.add_assoc] using
+            main_confined_sail_step (fromStep + used + 1) state1 callMachine 0x14d20 pc1
+              (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+              (by unfold LinuxSyscallPc; native_decide) run1
+        simpa [Nat.add_assoc] using trace1.append stepTrace
+      have callCode : Generated.programImage.fileBytesLoadedFaithfully callMachine.mem := by
+        simpa [callMachine, callLinkState, tryStepControlFlowAfterRetired,
+          tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code1
+      have failureEntry : WriteFailureEntry { returnAddress := 0x14d24 } callState := by
+        refine ⟨(by show 0x14d24 ∈ Generated.writeFailureExitPcs; native_decide), ?_, ?_, callCode⟩
+        · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
+            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.writeFailureEntry]
+        · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+      obtain ⟨failureBound, failureImplements⟩ := hLevel1.writeFailure
+      obtain ⟨failureCount, written, bytes, failurePositive, _failureBound, failureTrace,
+          _failureExit, _failureAllowed, failurePost⟩ := failureImplements
+        { returnAddress := 0x14d24 } (fromStep + (used + 2)) callState failureEntry
+      rcases failurePost with ⟨writtenPc, observed, writtenStdout, writtenStdin, writtenCursor,
+        writtenExitCode, writtenMemory, callFrame⟩
+      have wideFailure : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
+          (fromStep + (used + 2)) failureCount callState written :=
+        failureTrace.weaken (fun pc inside =>
+          Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl inside))))))
+      have writtenTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+          (used + 2 + failureCount) before written := by
+        simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using callTrace.append wideFailure
+      have writtenConfigured := ConfiguredMachinePre.of_endpointCallFrame
+        (ConfiguredMachinePre.afterCall 0x14d20 0x161c0 0x14d24 retired1 configured1) callFrame
+      have writtenCode := callFrame.2.2.1
+      have writtenStdoutEq : written.stdout = bytes := by
+        calc
+          written.stdout = callState.stdout ++ bytes := writtenStdout
+          _ = bytes := by simp [callState, state1, stdout]
+      have writtenStdinEq : written.stdin = args.input :=
+        writtenStdin.trans (by simpa [callState, state1] using stdin)
+      have writtenCursorEq : written.stdinCursor = args.input.size :=
+        writtenCursor.trans (by simpa [callState, state1] using cursor)
+      have writtenExitEq : written.exitCode = none :=
+        writtenExitCode.trans (by simpa [callState, state1] using exitCode)
+      let step2 := fromStep + (used + 2 + failureCount)
+      obtain ⟨retired2, run2⟩ := main_failure_exit_code_step step2 written.machine
+        writtenConfigured (by simpa [EndpointPc] using writtenPc) writtenCode
+      let machine3 := afterRegisterWrite written.machine 0x14d24 retired2 x10 0
+      let state3 : EndpointState := { written with machine := machine3 }
+      have trace3 : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+          (used + 3 + failureCount) before state3 := by
+        have stepTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
+            (fromStep + (used + 2 + failureCount)) 1 written state3 :=
+          main_confined_sail_step step2 written machine3 0x14d24 writtenPc
+            (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+            (by unfold LinuxSyscallPc; native_decide) run2
+        simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using writtenTrace.append stepTrace
+      have configured3 := ConfiguredMachinePre.afterRegisterWrite 0x14d24 retired2 x10 0
+        writtenConfigured x10_not_instructionPreserved
+      have code3 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+        written.machine 0x14d24 retired2 x10 0 writtenCode
+      have pc3 : EndpointPc state3 = some 0x14d28 := by
+        simpa [state3, EndpointPc, MachinePc, machine3] using
+          afterRegisterWrite_pc written.machine 0x14d24 retired2 x10 0
+      have zero3 : machine3.regs.get? x10 = some (0#64) := by
+        simpa [machine3] using
+          afterRegisterWrite_destination written.machine 0x14d24 retired2 x10 (0#64)
+            (by decide) (by decide)
+      obtain ⟨retired3, run3⟩ := main_failure_exit_call_base_step (step2 + 1) machine3
+        configured3 (by simpa [state3, EndpointPc] using pc3) code3
+      let machine4 := afterRegisterWrite machine3 0x14d28 retired3 x1 0xfd28
+      let state4 : EndpointState := { state3 with machine := machine4 }
+      have trace4 : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+          (used + 4 + failureCount) before state4 := by
+        have stepTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
+            (fromStep + (used + 3 + failureCount)) 1 state3 state4 := by
+          simpa [step2, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
+            main_confined_sail_step (step2 + 1) state3 machine4 0x14d28 pc3
+              (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+              (by unfold LinuxSyscallPc; native_decide) run3
+        simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace3.append stepTrace
+      have configured4 := ConfiguredMachinePre.afterRegisterWrite 0x14d28 retired3 x1 0xfd28
+        configured3 (by simp [instructionPreserved])
+      have code4 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+        machine3 0x14d28 retired3 x1 0xfd28 code3
+      have pc4 : EndpointPc state4 = some 0x14d2c := by
+        simpa [state4, EndpointPc, MachinePc, machine4] using
+          afterRegisterWrite_pc machine3 0x14d28 retired3 x1 0xfd28
+      have base4 : machine4.regs.get? x1 = some 0xfd28 := by
+        simpa [machine4] using
+          afterRegisterWrite_destination machine3 0x14d28 retired3 x1 (0xfd28 : BitVec 64)
+            (by decide) (by decide)
+      have zero4 : machine4.regs.get? x10 = some (0#64) :=
+        (afterRegisterWrite_writes machine3 0x14d28 retired3 x1 0xfd28).get x10
+          (by decide) |>.trans zero3
+      obtain ⟨retired4, run4⟩ := main_failure_exit_call_step (step2 + 2) machine4 configured4
+        (by simpa [state4, EndpointPc] using pc4) base4 code4
+      let exitMachine := tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement machine4) 0x14d2c 0x101c4 x1 0x14d30)
+        0x101c4 retired4
+      let exitState : EndpointState := { state4 with machine := exitMachine }
+      have exitWrites := callRetirement_writes machine4 0x14d2c 0x101c4 retired4 x1 0x14d30
+      have exitCallTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+          (used + 5 + failureCount) before exitState := by
+        have stepTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
+            (fromStep + (used + 4 + failureCount)) 1 state4 exitState := by
+          simpa [exitState, step2, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
+            main_confined_sail_step (step2 + 2) state4 exitMachine 0x14d2c pc4
+              (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+              (by unfold LinuxSyscallPc; native_decide) run4
+        simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace4.append stepTrace
+      have exitCodeLoaded : Generated.programImage.fileBytesLoadedFaithfully exitMachine.mem := by
+        simpa [exitMachine, callLinkState, tryStepControlFlowAfterRetired,
+          tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code4
+      have terminalEntry : ZkvmExitEntry { code := 0 } exitState := by
+        refine ⟨?_, (exitWrites.get x10 (by decide)).trans zero4, exitCodeLoaded⟩
+        simp [exitState, exitMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
+          tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.zkvmExitEntry]
+      obtain ⟨exitBound, exitImplements⟩ := hLevel1.zkvmExit
+      obtain ⟨exitCount, after, unit, exitPositive, _exitBound, exitTrace, _terminal,
+          _exitAllowed, exitPost⟩ := exitImplements { code := 0 }
+        (fromStep + (used + 5 + failureCount)) exitState terminalEntry
+      rcases exitPost with ⟨terminalPc, finalCode, finalStdin, finalCursor, finalStdout, _finalMem⟩
+      have wideExit : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
+          (fromStep + (used + 5 + failureCount)) exitCount exitState after :=
+        exitTrace.weaken (fun pc inside =>
+          Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr inside))))))
+      refine ⟨used + 5 + failureCount + exitCount, after, .failure, ?_, meaning, ?_⟩
+      · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using exitCallTrace.append wideExit
+      · refine ⟨terminalPc, ?_, ?_, finalCode, bytes, ?_, observed⟩
+        · exact finalStdin.trans (by simpa [exitState, state4, state3] using writtenStdinEq)
+        · exact finalCursor.trans (by simpa [exitState, state4, state3] using writtenCursorEq)
+        · exact finalStdout.trans (by simpa [exitState, state4, state3] using writtenStdoutEq)
+
 end BinaryFv.Ssz
