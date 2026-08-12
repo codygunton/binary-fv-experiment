@@ -23010,6 +23010,7 @@
    "instances": 4,
    "instructions": 330,
    "name": "alt_fl_alloc.sizeClass",
+   "opcodeShapes": 3,
    "registerShapes": 4,
    "sizes": "79, 83, 84"
   },
@@ -23019,6 +23020,7 @@
    "instances": 4,
    "instructions": 312,
    "name": "alt_fl_alloc.sizeClassOfBytes",
+   "opcodeShapes": 1,
    "registerShapes": 4,
    "sizes": "78"
   },
@@ -23028,6 +23030,7 @@
    "instances": 14,
    "instructions": 184,
    "name": "mem.readInt",
+   "opcodeShapes": 6,
    "registerShapes": 14,
    "sizes": "10, 11, 12, 14, 22"
   },
@@ -23037,6 +23040,7 @@
    "instances": 8,
    "instructions": 157,
    "name": "mem.Allocator.allocAdvancedWithRetAddr",
+   "opcodeShapes": 7,
    "registerShapes": 7,
    "sizes": "10, 14, 16, 24, 25, 33"
   },
@@ -23046,6 +23050,7 @@
    "instances": 10,
    "instructions": 147,
    "name": "ssz_decode_root.put",
+   "opcodeShapes": 5,
    "registerShapes": 10,
    "sizes": "9, 15, 16"
   },
@@ -23055,6 +23060,7 @@
    "instances": 10,
    "instructions": 147,
    "name": "mem.writeInt",
+   "opcodeShapes": 5,
    "registerShapes": 10,
    "sizes": "9, 15, 16"
   },
@@ -23064,6 +23070,7 @@
    "instances": 10,
    "instructions": 108,
    "name": "ssz.readU32",
+   "opcodeShapes": 5,
    "registerShapes": 10,
    "sizes": "10, 11, 12, 14"
   },
@@ -23073,6 +23080,7 @@
    "instances": 9,
    "instructions": 38,
    "name": "math.mul__anon_1716",
+   "opcodeShapes": 7,
    "registerShapes": 7,
    "sizes": "3, 4, 5"
   },
@@ -23082,6 +23090,7 @@
    "instances": 5,
    "instructions": 30,
    "name": "ssz.decode__struct_1043.f",
+   "opcodeShapes": 5,
    "registerShapes": 5,
    "sizes": "3, 4, 7, 8"
   },
@@ -23091,6 +23100,7 @@
    "instances": 3,
    "instructions": 18,
    "name": "mem.Allocator.rawRemap",
+   "opcodeShapes": 2,
    "registerShapes": 2,
    "sizes": "6"
   },
@@ -23100,6 +23110,7 @@
    "instances": 3,
    "instructions": 14,
    "name": "mem.Allocator.rawFree",
+   "opcodeShapes": 2,
    "registerShapes": 2,
    "sizes": "4, 5"
   },
@@ -23109,6 +23120,7 @@
    "instances": 3,
    "instructions": 12,
    "name": "mem.Allocator.rawAlloc",
+   "opcodeShapes": 2,
    "registerShapes": 2,
    "sizes": "4"
   }
@@ -23213,6 +23225,32 @@
    "share": 0.002254791431792559,
    "sites": 2,
    "transfers": 1
+  }
+ ],
+ "motifLeverage": [
+  {
+   "bucket": "across different functions",
+   "example": "LOAD LOAD",
+   "instructions": 2463,
+   "lemmas": 113,
+   "share": 0.5553551296505074,
+   "widest": 23
+  },
+  {
+   "bucket": "inside one instance",
+   "example": "LOAD LOAD LOAD LOAD LOAD LOAD LOAD \u2026 (+25)",
+   "instructions": 624,
+   "lemmas": 28,
+   "share": 0.1406989853438557,
+   "widest": 1
+  },
+  {
+   "bucket": "same function, several instances",
+   "example": "LOAD LOAD LOAD LOAD SHIFTIOP RTYPE SHIFTIOP \u2026 (+4)",
+   "instructions": 205,
+   "lemmas": 8,
+   "share": 0.046223224351747465,
+   "widest": 1
   }
  ],
  "scope": {

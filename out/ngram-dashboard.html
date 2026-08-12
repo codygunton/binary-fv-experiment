@@ -126,9 +126,11 @@ instruction classes rediscovered a function.</div>
 <div class="panel"><h3>The 12 repeated function names — are their bodies the same?</h3>
 <p style="margin-top:0">One instance of a source function is not one shape of code. Inlining
 specialises each call site, so the columns below count how many <em>distinct</em> bodies the
-instances actually have, at three levels. Where the byte column is large and the class column is
-small, an exact-code lemma is useless and a class-level lemma works.</p>
-<div class="scroll"><table><thead><tr><th>function</th><th>instances</th><th>body sizes</th><th>byte shapes</th><th>register shapes</th><th>class shapes</th><th>instructions</th></tr></thead><tbody><tr><td><span class="mono">alt_fl_alloc.sizeClass</span></td><td>4</td><td>79, 83, 84</td><td>4</td><td>4</td><td>3</td><td>330</td></tr><tr><td><span class="mono">alt_fl_alloc.sizeClassOfBytes</span></td><td>4</td><td>78</td><td>4</td><td>4</td><td>1</td><td>312</td></tr><tr><td><span class="mono">mem.readInt</span></td><td>14</td><td>10, 11, 12, 14, 22</td><td>14</td><td>14</td><td>6</td><td>184</td></tr><tr><td><span class="mono">mem.Allocator.allocAdvancedWithRetAddr</span></td><td>8</td><td>10, 14, 16, 24, 25, 33</td><td>8</td><td>7</td><td>7</td><td>157</td></tr><tr><td><span class="mono">ssz_decode_root.put</span></td><td>10</td><td>9, 15, 16</td><td>10</td><td>10</td><td>5</td><td>147</td></tr><tr><td><span class="mono">mem.writeInt</span></td><td>10</td><td>9, 15, 16</td><td>10</td><td>10</td><td>5</td><td>147</td></tr><tr><td><span class="mono">ssz.readU32</span></td><td>10</td><td>10, 11, 12, 14</td><td>10</td><td>10</td><td>5</td><td>108</td></tr><tr><td><span class="mono">math.mul__anon_1716</span></td><td>9</td><td>3, 4, 5</td><td>7</td><td>7</td><td>5</td><td>38</td></tr><tr><td><span class="mono">ssz.decode__struct_1043.f</span></td><td>5</td><td>3, 4, 7, 8</td><td>5</td><td>5</td><td>5</td><td>30</td></tr><tr><td><span class="mono">mem.Allocator.rawRemap</span></td><td>3</td><td>6</td><td>3</td><td>2</td><td>1</td><td>18</td></tr><tr><td><span class="mono">mem.Allocator.rawFree</span></td><td>3</td><td>4, 5</td><td>3</td><td>2</td><td>2</td><td>14</td></tr><tr><td><span class="mono">mem.Allocator.rawAlloc</span></td><td>3</td><td>4</td><td>3</td><td>2</td><td>1</td><td>12</td></tr></tbody></table></div>
+instances actually have, at four levels. The opcode column is the one that matters: where it is
+far below the instance count, the instances really do share an instruction sequence and an
+exact-code lemma is simply the wrong abstraction. Note how rarely the class column improves on
+the opcode column — for a repeated body, opcodes already do the work.</p>
+<div class="scroll"><table><thead><tr><th>function</th><th>instances</th><th>body sizes</th><th>byte shapes</th><th>register shapes</th><th>opcode shapes</th><th>class shapes</th><th>instructions</th></tr></thead><tbody><tr><td><span class="mono">alt_fl_alloc.sizeClass</span></td><td>4</td><td>79, 83, 84</td><td>4</td><td>4</td><td>3</td><td>3</td><td>330</td></tr><tr><td><span class="mono">alt_fl_alloc.sizeClassOfBytes</span></td><td>4</td><td>78</td><td>4</td><td>4</td><td>1</td><td>1</td><td>312</td></tr><tr><td><span class="mono">mem.readInt</span></td><td>14</td><td>10, 11, 12, 14, 22</td><td>14</td><td>14</td><td>6</td><td>6</td><td>184</td></tr><tr><td><span class="mono">mem.Allocator.allocAdvancedWithRetAddr</span></td><td>8</td><td>10, 14, 16, 24, 25, 33</td><td>8</td><td>7</td><td>7</td><td>7</td><td>157</td></tr><tr><td><span class="mono">ssz_decode_root.put</span></td><td>10</td><td>9, 15, 16</td><td>10</td><td>10</td><td>5</td><td>5</td><td>147</td></tr><tr><td><span class="mono">mem.writeInt</span></td><td>10</td><td>9, 15, 16</td><td>10</td><td>10</td><td>5</td><td>5</td><td>147</td></tr><tr><td><span class="mono">ssz.readU32</span></td><td>10</td><td>10, 11, 12, 14</td><td>10</td><td>10</td><td>5</td><td>5</td><td>108</td></tr><tr><td><span class="mono">math.mul__anon_1716</span></td><td>9</td><td>3, 4, 5</td><td>7</td><td>7</td><td>7</td><td>5</td><td>38</td></tr><tr><td><span class="mono">ssz.decode__struct_1043.f</span></td><td>5</td><td>3, 4, 7, 8</td><td>5</td><td>5</td><td>5</td><td>5</td><td>30</td></tr><tr><td><span class="mono">mem.Allocator.rawRemap</span></td><td>3</td><td>6</td><td>3</td><td>2</td><td>2</td><td>1</td><td>18</td></tr><tr><td><span class="mono">mem.Allocator.rawFree</span></td><td>3</td><td>4, 5</td><td>3</td><td>2</td><td>2</td><td>2</td><td>14</td></tr><tr><td><span class="mono">mem.Allocator.rawAlloc</span></td><td>3</td><td>4</td><td>3</td><td>2</td><td>2</td><td>1</td><td>12</td></tr></tbody></table></div>
 </div>
 
 <div class="panel"><h3>Whole-body lemma candidates</h3>
@@ -142,6 +144,18 @@ body with control transfers needs a function-level lemma form instead.</p>
 binary on its own — 4 instances of 78 instructions, all one class shape. It is the single largest
 prize in the study, and it holds 24 control transfers, so no <code>Seg</code> lemma can state it.
 </div>
+</div>
+
+<div class="panel"><h3>What kind of repetition does each lemma exploit?</h3>
+<p style="margin-top:0">A motif whose sites are all instances of one function tells us only that
+the compiler inlined that function twice — a whole-body lemma already says that, so the motif adds
+no leverage. Everything else does: a shape recurring across unrelated functions, or recurring
+inside a single instance, is a repeat the inline map cannot see.</p>
+<div class="scroll"><table><thead><tr><th>what repeats</th><th>lemmas</th><th>instructions</th><th>share of binary</th><th>most functions</th><th>widest motif</th></tr></thead><tbody><tr><td>across different functions</td><td>113</td><td>2,463</td><td>55.5%</td><td>23</td><td><span class="mono">LOAD LOAD</span></td></tr><tr><td>inside one instance</td><td>28</td><td>624</td><td>14.1%</td><td>1</td><td><span class="mono">LOAD LOAD LOAD LOAD LOAD LOAD LOAD … (+25)</span></td></tr><tr><td>same function, several instances</td><td>8</td><td>205</td><td>4.6%</td><td>1</td><td><span class="mono">LOAD LOAD LOAD LOAD SHIFTIOP RTYPE SHIFTIOP … (+4)</span></td></tr></tbody></table></div>
+<div class="note">Only 4.6% of the binary is
+covered by motifs that merely restate "these two instances are the same function". The motif
+search is not a roundabout way of finding duplicated code — the great majority of what it covers
+is shape shared between functions that have nothing to do with each other.</div>
 </div>
 
 <div class="panel"><h3>Three strategies</h3>

@@ -253,6 +253,7 @@ def instance_bodies(cfg, instructions, streams, total):
                 "registerShapes": len(
                     {tuple(streams["L2_mnemonic_registers"][j] for j in b) for b in bodies}
                 ),
+                "opcodeShapes": len({tuple(streams["L4_mnemonic"][j] for j in b) for b in bodies}),
                 "classShapes": len({tuple(streams["L5_class"][j] for j in b) for b in bodies}),
                 "instructions": sum(len(b) for b in bodies),
             }
@@ -298,6 +299,73 @@ def instance_bodies(cfg, instructions, streams, total):
         claimed,
         len(inside) / total,
     )
+
+
+def motif_leverage(level, policy, segments, streams, frame, order_of, owner, is_transfer,
+                   total, cfg, minimum_uses=2):
+    """Split the covering's lemmas by what kind of repetition each one exploits.
+
+    A motif whose sites are all instances of one function tells us only that the compiler
+    inlined that function twice, which a whole-body lemma already says. The question this answers
+    is how much of the covering is *not* that -- the same shape recurring across unrelated
+    functions, or recurring inside one function instance. Those are the repeats the inline map
+    cannot see.
+    """
+    name_of = {row["id"]: row["name"] for row in cfg["functionInstances"]}
+    stream = streams[level]
+    pool: dict[int, dict[object, list[list[int]]]] = {}
+    for n in range(2, max(len(s) for s in segments) + 1):
+        windows = [w for w in build_starts(segments, n)
+                   if admissible(w, policy, owner, is_transfer)]
+        if not windows:
+            continue
+        keys = window_keys(level, n, [w[0] for w in windows], streams, frame, order_of)
+        groups: dict[object, list[list[int]]] = collections.defaultdict(list)
+        for key, w in zip(keys, windows):
+            groups[key].append(w)
+        kept = {k: v for k, v in groups.items() if len(v) >= minimum_uses}
+        if kept:
+            pool[n] = kept
+
+    covered = np.zeros(total, dtype=bool)
+    tally: dict[str, dict] = {
+        b: {"bucket": b, "lemmas": 0, "instructions": 0, "widest": 0, "example": "—"}
+        for b in ("across different functions", "inside one instance",
+                  "same function, several instances")
+    }
+    for n in sorted(pool, reverse=True):
+        while True:
+            best, best_size = None, 0
+            for key, places in pool[n].items():
+                chosen, limit = [], -1
+                for w in places:
+                    if w[0] <= limit or covered[w].any():
+                        continue
+                    chosen.append(w)
+                    limit = w[-1]
+                if len(chosen) > best_size:
+                    best_size, best = len(chosen), chosen
+            if best is None or best_size < minimum_uses:
+                break
+            for w in best:
+                covered[w] = True
+            hosts = {owner[w[0]] for w in best}
+            names = {name_of.get(h, "?") for h in hosts}
+            bucket = ("inside one instance" if len(hosts) == 1
+                      else "same function, several instances" if len(names) == 1
+                      else "across different functions")
+            row = tally[bucket]
+            row["lemmas"] += 1
+            row["instructions"] += n * len(best)
+            if len(names) > row["widest"] or (
+                len(names) == row["widest"] and n * len(best) > 0 and row["example"] == "—"
+            ):
+                row["widest"] = len(names)
+                row["example"] = describe(level, best[0], streams)
+    rows = sorted(tally.values(), key=lambda r: -r["instructions"])
+    for row in rows:
+        row["share"] = row["instructions"] / total
+    return pl.DataFrame(rows)
 
 
 def cover_with(
@@ -688,14 +756,16 @@ instruction classes rediscovered a function.</div>
 <div class="panel"><h3>The 12 repeated function names — are their bodies the same?</h3>
 <p style="margin-top:0">One instance of a source function is not one shape of code. Inlining
 specialises each call site, so the columns below count how many <em>distinct</em> bodies the
-instances actually have, at three levels. Where the byte column is large and the class column is
-small, an exact-code lemma is useless and a class-level lemma works.</p>
+instances actually have, at four levels. The opcode column is the one that matters: where it is
+far below the instance count, the instances really do share an instruction sequence and an
+exact-code lemma is simply the wrong abstraction. Note how rarely the class column improves on
+the opcode column — for a repeated body, opcodes already do the work.</p>
 {table(pl.DataFrame(data['instanceBodies']),
-       ['name', 'instances', 'sizes', 'byteShapes', 'registerShapes', 'classShapes',
-        'instructions'],
-       [mono, num, plain, num, num, num, num],
+       ['name', 'instances', 'sizes', 'byteShapes', 'registerShapes', 'opcodeShapes',
+        'classShapes', 'instructions'],
+       [mono, num, plain, num, num, num, num, num],
        ['function', 'instances', 'body sizes', 'byte shapes', 'register shapes',
-        'class shapes', 'instructions'])}
+        'opcode shapes', 'class shapes', 'instructions'])}
 </div>
 
 <div class="panel"><h3>Whole-body lemma candidates</h3>
@@ -712,6 +782,21 @@ body with control transfers needs a function-level lemma form instead.</p>
 binary on its own — 4 instances of 78 instructions, all one class shape. It is the single largest
 prize in the study, and it holds 24 control transfers, so no <code>Seg</code> lemma can state it.
 </div>
+</div>
+
+<div class="panel"><h3>What kind of repetition does each lemma exploit?</h3>
+<p style="margin-top:0">A motif whose sites are all instances of one function tells us only that
+the compiler inlined that function twice — a whole-body lemma already says that, so the motif adds
+no leverage. Everything else does: a shape recurring across unrelated functions, or recurring
+inside a single instance, is a repeat the inline map cannot see.</p>
+{table(pl.DataFrame(data['motifLeverage']),
+       ['bucket', 'lemmas', 'instructions', 'share', 'widest', 'example'],
+       [plain, num, num, pct, num, mono],
+       ['what repeats', 'lemmas', 'instructions', 'share of binary', 'most functions', 'widest motif'])}
+<div class="note">Only {pct(next(r['share'] for r in data['motifLeverage'] if r['bucket'] == 'same function, several instances'))} of the binary is
+covered by motifs that merely restate "these two instances are the same function". The motif
+search is not a roundabout way of finding duplicated code — the great majority of what it covers
+is shape shared between functions that have nothing to do with each other.</div>
 </div>
 
 <div class="panel"><h3>Three strategies</h3>
@@ -887,6 +972,8 @@ def main() -> int:
         "L5_class", "lemma", segments, streams, frame, order_of, owner, is_transfer, total,
         body_mask,
     )
+    leverage_frame = motif_leverage("L5_class", "lemma", segments, streams, frame, order_of,
+                                    owner, is_transfer, total, cfg)
     body_lemmas = len(picks_frame)
     strategies = [
         {"strategy": "n-gram motifs alone", "lemmas": ngram_only["lemmasCumulative"],
@@ -929,6 +1016,7 @@ def main() -> int:
         "composition": composition,
         "instanceBodies": bodies_frame.to_dicts(),
         "instancePicks": picks_frame.to_dicts(),
+        "motifLeverage": leverage_frame.to_dicts(),
         "strategies": strategies,
         "insideRepeatedInstance": inside_share,
     }
