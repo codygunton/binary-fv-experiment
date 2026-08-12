@@ -78,10 +78,18 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
         semantic_kind, semantic_clause, specification = SEMANTICS[name]
         observed = observations[instance["id"]]
         dwarf = binding_rows[instance["id"]]
+        entry_binding = None
         if name in FIXED_WRITE_BYTES:
             writes = observed["hostWrites"]
             if len(writes) != 1 or bytes.fromhex(writes[0]["bytes"]) != FIXED_WRITE_BYTES[name]:
                 raise ValueError(f"fixed source write mismatch for {name}")
+            if name not in {"writeSuccessRawLine131", "writeFailureRawLine127"}:
+                snapshots = [snapshot for vector in evidence["vectors"]
+                             for row in vector["instances"] if row["id"] == instance["id"]
+                             for snapshot in row["entryRegisters"]]
+                if len(snapshots) != 1 or snapshots[0]["values"][10] != writes[0]["address"]:
+                    raise ValueError(f"fixed source pointer binding mismatch for {name}")
+                entry_binding = {"pointerRegister": 10, "width": len(FIXED_WRITE_BYTES[name])}
         rows.append({
             "id": instance["id"], "leanName": name, "qualified": instance["qualified"],
             "parentInstanceIds": instance["parentInstanceIds"],
@@ -96,6 +104,7 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
                 "observedExitTransitions": [list(edge) for edge in sorted(observed["exits"])],
                 "loadCount": observed["loads"], "storeCount": observed["stores"],
                 "hostWrites": observed["hostWrites"],
+                "validatedEntryBinding": entry_binding,
                 "dwarfBindings": dwarf,
             },
             "unmeasured": [

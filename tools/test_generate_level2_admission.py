@@ -35,6 +35,10 @@ class Level2AdmissionTests(unittest.TestCase):
         self.assertEqual(inline_raw["measured"]["dwarfBindings"], [])
         self.assertTrue(inline_raw["measured"]["hostWrites"])
         self.assertIn("source-value relation at optimized inline boundary", inline_raw["unmeasured"])
+        parent_hash = next(row for row in result["instances"]
+                           if row["leanName"] == "writeSuccessRawLine135")
+        self.assertEqual(parent_hash["measured"]["validatedEntryBinding"],
+                         {"pointerRegister": 10, "width": 32})
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
@@ -56,6 +60,14 @@ class Level2AdmissionTests(unittest.TestCase):
                    for row in vector["instances"] if row["id"] == "fi:2:4054")
         row["hostWrites"][0]["bytes"] = "0053535a0101"
         with self.assertRaisesRegex(ValueError, "fixed source write mismatch"):
+            self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
+
+    def test_rejects_forged_fixed_pointer_binding(self):
+        evidence = copy.deepcopy(self.documents[1])
+        row = next(row for vector in evidence["vectors"] if vector["label"] == "minimal"
+                   for row in vector["instances"] if row["id"] == "fi:2:407d")
+        row["entryRegisters"][0]["values"][10] += 1
+        with self.assertRaisesRegex(ValueError, "fixed source pointer binding mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
 
 
