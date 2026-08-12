@@ -188,6 +188,11 @@ def validate_flame(data: dict, flame: dict) -> None:
         write_output = next(row for row in flame["meta"].values()
                             if row["qualified"] == "write_output")
         assert write_output["refinementLevel"] == 4, write_output["refinementLevel"]
+        assert write_output["displayTreeLevel"] == 1, write_output["displayTreeLevel"]
+        assert write_output["displayHoisted"] is True, write_output
+        assert write_output["displayAnchorName"] == "main", write_output
+        assert all(row["caller"] != "main" for row in write_output["callers"]), write_output
+        assert "shared callee hoisted" in write_output["displayRelation"], write_output
         allocator_leaves = [row for row in flame["meta"].values()
                             if row["qualified"].startswith(
                                 "mem.Allocator.allocBytesWithAlignment__anon_")]

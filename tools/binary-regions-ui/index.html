@@ -195,7 +195,7 @@ function renderLevelLabels(){
   rail.innerHTML='';
   [...rows].sort((a,b)=>a[0]-b[0]).forEach(([level,top])=>{
     const label=document.createElement('span');
-    label.className='level-label'; label.textContent=`Depth ${level}`; label.style.top=`${top}px`;
+    label.className='level-label'; label.textContent=`Row ${level}`; label.style.top=`${top}px`;
     label.onclick=ev=>{ ev.stopPropagation(); showLevel(level, names.get(level)||[]); };
     rail.appendChild(label);
   });
@@ -218,7 +218,7 @@ async function copyCurrent(){
 }
 
 function showLevel(level,names){
-  $('#dname').textContent=`Call depth ${level}`;
+  $('#dname').textContent=`Display row ${level}`;
   $('#dsub').textContent=`${names.length} displayed function instances`;
   setCopy(names.join(' | '));
   $('#rbody').innerHTML=names.length
@@ -278,7 +278,7 @@ function details(d){
   const qualified=m.qualified||d.data.name;
   $('#dname').textContent=qualified;
   setCopy(qualified);
-  $('#dsub').textContent=`proof Level ${m.refinementLevel??'?'} · call depth ${m.displayTreeLevel??d.depth} · ${m.machineInstructionCount??d.data.self} instance instructions · ${d.data.value} including descendants`;
+  $('#dsub').textContent=`proof Level ${m.refinementLevel??'?'} · display row ${m.displayTreeLevel??d.depth} · ${m.machineInstructionCount??d.data.self} instance instructions · ${d.data.value} including descendants`;
   const calls=(m.callees||[]).map(call=>`${esc(call.kind)} → ${esc(OWNER_META.get(call.callee)?.qualified||call.callee)}`);
   const tails=(m.tailDependencies||[]).map(t=>`${esc(t.qualified)}: 0x${t.transfer.source.toString(16)} → 0x${t.transfer.target.toString(16)}, completes at ${t.completionSourcePcs.map(x=>'0x'+x.toString(16)).join(', ')}`);
   const handoffs=(m.fragmentHandoffs||[]).map(e=>`0x${e.sourcePc.toString(16)} → 0x${e.targetPc.toString(16)}`);
@@ -318,6 +318,7 @@ function details(d){
       <span>instance instructions</span><span>${m.machineInstructionCount??d.data.self}</span>
       <span>subtree instructions</span><span>${d.data.value}</span>
       <span>fragments</span><span>${m.frags>1?`<b style="color:var(--cur)">${m.frags}</b> (non-contiguous)`:'1 (contiguous)'}</span>
+      <span>tree placement</span><span>${esc(m.displayRelation||'actual call-tree placement')}${m.displayHoisted?' — inspect callers below; this card is not a direct call from its displayed parent':''}</span>
       <span>children</span><span>${(d.children||d._children||[]).length}</span>
       <span>entries</span><span>${(m.entries||[]).map(x=>'0x'+x.toString(16)).join(', ')||'none'}</span>
       <span>exits</span><span>${(m.exits||[]).length}</span>

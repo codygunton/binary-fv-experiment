@@ -605,7 +605,11 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
         return {"name": label, "value": len(subtree), "self": len(own), "children": child_nodes, "key": key}, subtree
 
     def node(name: str, parent_key: str | None, level: int) -> tuple[dict, set[int]]:
-        label = f"{name} [fn:0x{fn_by_name[name]['start']:x}]"
+        placement = concrete_placement.get(name, {"anchor": None, "callsites": []})
+        actual_callers = {row["caller"] for row in callers[name]}
+        display_hoisted = placement["anchor"] is not None and placement["anchor"] not in actual_callers
+        shared_suffix = " · shared/hoisted" if display_hoisted else ""
+        label = f"{name}{shared_suffix} [fn:0x{fn_by_name[name]['start']:x}]"
         key = label if parent_key is None else f"{parent_key}|{label}"
         own = concrete_self[name]
         child_nodes, subtree = [], set(own)
@@ -617,7 +621,6 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
         for child in anchored_children[name]:
             child_node, child_pcs = node(child, key, level + 1); child_nodes.append(child_node); subtree |= child_pcs
         fn = fn_by_name.get(name, {})
-        placement = concrete_placement.get(name, {"anchor": None, "callsites": []})
         anchor_name = inline_by_id[placement["anchor"]]["name"] if placement["anchor"] in inline_by_id else placement["anchor"]
         meta[key] = {"owner": concrete_id or name, "qualified": name, "kind": "concreteFunctionInstance",
                      "refinementLevel": proof_depths.get(name, level),
@@ -625,6 +628,9 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
                      "hierarchy": "callDominatorAnchoredAtDeepestCommonInlineCallsite", "runs": [], "frags": 1,
                      "machineInstructionCount": len(ownership[name]), "value": len(subtree), "self": len(own),
                      "displayAnchor": placement["anchor"], "displayAnchorName": anchor_name,
+                     "displayHoisted": display_hoisted,
+                     "displayRelation": ("shared callee hoisted to its call-tree dominator"
+                                         if display_hoisted else "actual call-tree placement"),
                      "displayCallsites": placement["callsites"],
                      "file": fn.get("sourceFile"), "line": fn.get("sourceLine", 0), "entries": [fn["start"]],
                      "exits": [], "loopSccs": [], "callers": callers[name], "callees": callees[name], "tailDependencies": [],
