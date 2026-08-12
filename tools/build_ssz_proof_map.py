@@ -156,7 +156,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             local_proof = level2_local_proofs.get(row["id"], "not_started")
             authoring_state = ("proof_revalidation_pending"
                                if local_proof == "proof_revalidation_pending"
-                               else "unconditionally_proven"
+                               else "proof_in_progress"
                                if local_proof == "proved_not_connected"
                                else "proof_in_progress" if local_proof == "in_progress"
                                else "contract_specified_assumption")
@@ -222,7 +222,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         {"id": "conversion", "label": "exportedContracts_of_level1", "kind": "conversion",
          "column": 2, "status": "proved", "proofStatus": "proved"},
         {"id": "root", "label": "root_compliance", "kind": "parent", "column": 3,
-         "status": "proved_conditional", "proofStatus": "proved_conditional_on_hLevel1"},
+         "status": "conditionally_proven", "proofStatus": "conditionally_proven"},
     ])
     edges.extend([
         {"source": "glue", "target": "conversion", "kind": "dependency"},
@@ -254,7 +254,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         "authoringRegions": regions,
         "flameProgress": {
             "states": [
-                {"owner": main["id"], "qualified": "main", "status": "proved_conditional"},
+                {"owner": main["id"], "qualified": "main", "status": "conditionally_proven"},
                 *({"owner": row["id"], "qualified": row["qualified"],
                    "status": "contracted"} for row in manifest["instances"]),
                 *level2_states,
