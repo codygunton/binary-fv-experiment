@@ -83,6 +83,8 @@ let
     mkdir -p compiled/BinaryFv/Zesu/{Contracts,DecodedValue,Elflings,Entrypoints/SszDecodeRoot}
     mkdir -p compiled/BinaryFv/RiscV/Logic
     mkdir -p compiled/BinaryFv/RiscV/Model
+    mkdir -p compiled/BinaryFv/RiscV/Elfling
+    mkdir -p compiled/BinaryFv/RiscV/Instruction
     mkdir -p compiled/BinaryFv/Binary
     export LEAN_PATH=$PWD/compiled:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
     cp ${repo}/BinaryFv/Specs/SSZ/Decode.lean Decode.lean
@@ -95,6 +97,7 @@ let
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.lean Level1Contracts.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.lean Level2Contracts.lean
     cp ${repo}/BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.lean Level2RuntimeLeaves.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/MemcpyProof.lean MemcpyProof.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.lean Level0Contract.lean
     cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
     cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
@@ -105,6 +108,18 @@ let
     cp ${repo}/BinaryFv/RiscV/Logic/MemoryWriteFrame.lean MemoryWriteFrame.lean
     cp ${repo}/BinaryFv/RiscV/Logic/RegisterAgree.lean RegisterAgree.lean
     cp ${repo}/BinaryFv/RiscV/Logic/LoadedImage.lean LoadedImage.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/SepLogic.lean SepLogic.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/Trace.lean Trace.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/LoopInduction.lean LoopInduction.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/BlockStep.lean BlockStep.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/MemFrame.lean MemFrame.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/SentinelTrace.lean SentinelTrace.lean
+    cp ${repo}/BinaryFv/RiscV/Instruction/DecodeTactic.lean DecodeTactic.lean
+    cp ${repo}/BinaryFv/RiscV/Step/RegisterWrite.lean RegisterWrite.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/FunctionTrace.lean FunctionTrace.lean
+    cp ${repo}/BinaryFv/RiscV/Instruction/Execute/Load.lean Load.lean
+    cp ${repo}/BinaryFv/RiscV/Instruction/Execute/StoreByte.lean StoreByte.lean
+    cp ${repo}/BinaryFv/RiscV/Instruction/Execute/Memory.lean Memory.lean
     cp ${repo}/BinaryFv/Binary/Address.lean BinaryAddress.lean
     cp ${repo}/BinaryFv/RiscV/Model/Address.lean RiscVAddress.lean
     cp ${repo}/BinaryFv/RiscV/Model/State.lean RiscVState.lean
@@ -148,11 +163,24 @@ let
     lean -o compiled/BinaryFv/RiscV/Logic/LoadedImage.olean LoadedImage.lean
     lean -o compiled/BinaryFv/RiscV/Logic/MemoryWriteFrame.olean MemoryWriteFrame.lean
     lean -o compiled/BinaryFv/RiscV/Logic/RegisterAgree.olean RegisterAgree.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/SepLogic.olean SepLogic.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/Trace.olean Trace.lean
+    lean -o compiled/BinaryFv/RiscV/Instruction/Execute/Load.olean Load.lean
+    lean -o compiled/BinaryFv/RiscV/Instruction/Execute/StoreByte.olean StoreByte.lean
+    lean -o compiled/BinaryFv/RiscV/Instruction/Execute/Memory.olean Memory.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/LoopInduction.olean LoopInduction.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/BlockStep.olean BlockStep.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/MemFrame.olean MemFrame.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/SentinelTrace.olean SentinelTrace.lean
+    lean -o compiled/BinaryFv/RiscV/Instruction/DecodeTactic.olean DecodeTactic.lean
+    lean -o compiled/BinaryFv/RiscV/Step/RegisterWrite.olean RegisterWrite.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/FunctionTrace.olean FunctionTrace.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/HostExecution.olean HostExecution.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.olean Level1Boundary.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.olean Level1Contracts.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.olean Level2Contracts.lean
     lean -o compiled/BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.olean Level2RuntimeLeaves.lean
+    lean -o compiled/BinaryFv/Zesu/MachineExecution/MemcpyProof.olean MemcpyProof.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.olean Level0Contract.lean
     lean -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
     lean -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean

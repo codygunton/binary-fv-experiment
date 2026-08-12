@@ -1,6 +1,9 @@
 import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Level1Contracts
 import BinaryFv.Zesu.Elflings.GeneratedLevel2
 import BinaryFv.Zesu.DecodedValue.Encoder
+import BinaryFv.RiscV.Step.ConfiguredMachine
+import BinaryFv.RiscV.Platform.PhysicalAccess
+import BinaryFv.RiscV.Platform.FetchMmio
 
 /-!
 # Level 2 contracts for the SSZ endpoint
@@ -14,6 +17,7 @@ callsites append source constants and therefore need no caller-provided pointer.
 namespace BinaryFv.Zesu
 
 open PreSail LeanRV64DExecutable.Functions Register
+open BinaryFv.RiscV
 
 structure RawEncoderArgs where
   sourceAddress : Nat
@@ -224,8 +228,24 @@ structure MemcpyArgs where
   source : Nat
   bytes : Array UInt8
 
+/-- Actual machine permissions needed by every byte-copy iteration. These are caller-derived facts
+about the concrete source and destination windows, not a semantic oracle or a Level 2 assumption. -/
+structure MemcpyMachineAccess (args : MemcpyArgs) (state : EndpointState) : Prop where
+  configured : ConfiguredMachinePre EndpointMachinePc state.machine
+  sourcePma : ∀ index, index < args.bytes.size →
+    LoadPmaAllows state.machine (BitVec.ofNat 64 (args.source + index)) 1
+  destinationPma : ∀ index, index < args.bytes.size →
+    StorePmaAllows state.machine (BitVec.ofNat 64 (args.destination + index)) 1
+  sourceNotMMIO : ∀ index, index < args.bytes.size →
+    LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.source + index)) 1
+  destinationNotMMIO : ∀ index, index < args.bytes.size →
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.destination + index)) 1
+  destinationNotCode : ∀ index, index < args.bytes.size →
+    Artifacts.programImage.readFileByte? (args.destination + index) = none
+
 def MemcpyEntry (args : MemcpyArgs) (state : EndpointState) : Prop :=
   args.returnAddress ∈ Elflings.memcpyExitPcs ∧
+  args.bytes.size < 2 ^ 64 ∧
   args.destination + args.bytes.size ≤ 2 ^ 64 ∧
   args.source + args.bytes.size ≤ 2 ^ 64 ∧
   (args.destination + args.bytes.size ≤ args.source ∨
@@ -236,7 +256,8 @@ def MemcpyEntry (args : MemcpyArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? x11 = some (BitVec.ofNat 64 args.source) ∧
   state.machine.regs.get? x12 = some (BitVec.ofNat 64 args.bytes.size) ∧
   BytesRep state.machine.mem args.source args.bytes ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  MemcpyMachineAccess args state
 
 def MemcpyExit (args : MemcpyArgs) (_outcome : Unit)
     (before after : EndpointState) : Prop :=
@@ -245,6 +266,7 @@ def MemcpyExit (args : MemcpyArgs) (_outcome : Unit)
   after.stdout = before.stdout ∧ after.exitCode = before.exitCode ∧
   BytesRep after.machine.mem args.destination args.bytes ∧
   BytesRep after.machine.mem args.source args.bytes ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
   BinaryFv.RiscV.WritesOnlyWithin
     (BinaryFv.RiscV.byteRange args.destination args.bytes.size) before.machine after.machine ∧
   EndpointCallFrame before after
