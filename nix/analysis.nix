@@ -43,6 +43,7 @@ let
     zesuSszDecodeLinuxRv64Elf "bin/zesu-ssz-decode";
   zesuSszDecodeBareMetalRetargetCheck = pkgs.runCommand
     "zesu-ssz-decode-bare-metal-retarget-check-d67f28c" { nativeBuildInputs = [ python ]; } ''
+      PYTHONPATH=${../tools} python ${../tools/test_validate_baremetal_retarget.py}
       python ${../tools/validate_baremetal_retarget.py} \
         --old-elf ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
         --new-elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \

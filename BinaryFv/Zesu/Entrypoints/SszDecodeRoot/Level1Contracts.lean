@@ -33,6 +33,7 @@ def ReadInputEntry (args : ReadInputArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.bufferSlot) ∧
   state.machine.regs.get? x11 = some (BitVec.ofNat 64 args.sizeSlot) ∧
+  BytesRep state.machine.mem Elflings.inputBufferAddress args.input ∧
   UIntRep 8 state.machine.mem args.savedFrameAddress args.savedReturnAddress ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   ConfiguredMachinePre EndpointMachinePc state.machine
@@ -47,8 +48,7 @@ def ReadInputExit (args : ReadInputArgs) (outcome : ReadInputOutcome)
   BytesRep after.machine.mem outcome.inputAddress args.input ∧
   UIntRep 8 after.machine.mem args.savedFrameAddress args.savedReturnAddress ∧
   WritesOnlyWithin
-    (Region.union (byteRange outcome.inputAddress args.input.size)
-      (Region.union (byteRange args.bufferSlot 8) (byteRange args.sizeSlot 8)))
+    (Region.union (byteRange args.bufferSlot 8) (byteRange args.sizeSlot 8))
     before.machine after.machine ∧
   EndpointCallFrame before after
 

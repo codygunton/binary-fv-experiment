@@ -75,7 +75,7 @@ let
   };
 
   combinedImport = pkgs.runCommand "binary-fv-evm-sail-combined-import" {
-    nativeBuildInputs = [ lean429 ];
+    nativeBuildInputs = [ lean429 pkgs.python3 ];
   } ''
     cp -R ${binaryFvLean}/lean compiled
     chmod -R u+w compiled
@@ -99,8 +99,6 @@ let
     cp ${repo}/BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.lean Level2RuntimeLeaves.lean
     cp ${repo}/BinaryFv/Zesu/MachineExecution/MemcpyProof.lean MemcpyProof.lean
     cp ${repo}/BinaryFv/Zesu/MachineExecution/InstructionClassSteps.lean InstructionClassSteps.lean
-    cp ${repo}/BinaryFv/Zesu/MachineExecution/ReadInputSteps.lean ReadInputSteps.lean
-    cp ${repo}/BinaryFv/Zesu/MachineExecution/ReadInputProof.lean ReadInputProof.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.lean Level0Contract.lean
     cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
     cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
@@ -195,11 +193,10 @@ let
     lean -o compiled/BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.olean Level2RuntimeLeaves.lean
     lean -o compiled/BinaryFv/Zesu/MachineExecution/MemcpyProof.olean MemcpyProof.lean
     lean -o compiled/BinaryFv/Zesu/MachineExecution/InstructionClassSteps.olean InstructionClassSteps.lean
-    lean -o compiled/BinaryFv/Zesu/MachineExecution/ReadInputSteps.olean ReadInputSteps.lean
-    lean -o compiled/BinaryFv/Zesu/MachineExecution/ReadInputProof.olean ReadInputProof.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.olean Level0Contract.lean
     lean -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
-    lean -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean
+    lean -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean 2>&1 | tee trust-audit.log
+    python ${repo}/tools/check_root_axioms.py trust-audit.log
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
     lean DifferentialSmoke.lean

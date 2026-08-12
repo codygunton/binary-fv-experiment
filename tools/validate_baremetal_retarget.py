@@ -13,6 +13,11 @@ PRESERVED_DATA = {
     "ZKVM_HEAP_TOP", "ZKVM_HEAP_POS", "heap_buffer", "input_buffer",
     "alt_fl_alloc.state",
 }
+SEMANTIC_ANCHORS = {
+    "read_input": (0x1015C, "ret"),
+    "write_output": (0x101A0, "ret"),
+    "zkvm_exit": (0x101CC, "sd"),
+}
 
 
 def symbols(path: Path):
@@ -44,6 +49,14 @@ def cfg_functions(path: Path):
     return {function["name"]: function for function in json.loads(path.read_text())["functions"]}
 
 
+def validate_semantic_anchors(control):
+    for name, (pc, mnemonic) in SEMANTIC_ANCHORS.items():
+        entry_block = control[name]["blocks"][0]
+        instruction = next((row for row in entry_block["instructions"] if row["pc"] == pc), None)
+        assert instruction is not None, f"unreachable semantic anchor {name}@{pc:#x}"
+        assert instruction["mnemonic"] == mnemonic, (name, instruction)
+
+
 def validate(old_elf: Path, new_elf: Path, old_cfg: Path, new_cfg: Path):
     old_functions, new_functions = functions(old_elf), functions(new_elf)
     assert old_functions.keys() == new_functions.keys()
@@ -57,6 +70,7 @@ def validate(old_elf: Path, new_elf: Path, old_cfg: Path, new_cfg: Path):
     old_control, new_control = cfg_functions(old_cfg), cfg_functions(new_cfg)
     assert old_control.keys() == new_control.keys()
     assert {name for name in old_control if old_control[name] != new_control[name]} == HOST_FUNCTIONS
+    validate_semantic_anchors(new_control)
     instructions = (instruction for function in new_control.values() for block in function["blocks"]
                     for instruction in block["instructions"])
     assert all(instruction["mnemonic"] != "ecall" for instruction in instructions)

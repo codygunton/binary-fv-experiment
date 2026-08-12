@@ -129,6 +129,10 @@ structure MainEntry (args : MainArgs) (state : EndpointState) : Prop where
   savedReturnNoMMIO :
     StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8
   inputSizeNoMMIO : StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 8)) 8
+  inputBytes : BytesRep state.machine.mem Elflings.inputBufferAddress args.input
+  inputOutsideStack : ∀ index, index < args.input.size →
+    Elflings.inputBufferAddress + index < args.stackPointer ∨
+      args.stackPointer + 0x380 ≤ Elflings.inputBufferAddress + index
   stackNotFileBacked : ∀ address, args.stackPointer ≤ address →
     address < args.stackPointer + 0x380 → Artifacts.programImage.readFileByte? address = none
 
@@ -327,6 +331,7 @@ def MainStackAllocatedHandoff (args : MainArgs) (fromStep : Nat)
     after.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
     StorePmaAllows after.machine (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8 ∧
     StorePmaAllows after.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
+    BytesRep after.machine.mem Elflings.inputBufferAddress args.input ∧
     after.stdin = args.input ∧ after.stdinCursor = 0 ∧ after.stdout = #[] ∧
     after.exitCode = none
 
@@ -401,6 +406,7 @@ theorem main_stack_allocate (args : MainArgs) (fromStep : Nat) (before : Endpoin
               (platformPreserved_disjoint.union
                 (RegSet.Disjoint.only (by simp [platformPreserved]))))
         exact entry.inputSizePma),
+      (by simpa [after, afterMachine, tryStepStackAddiAfterRetired_mem] using entry.inputBytes),
       (by simpa [after] using entry.stdin), (by simpa [after] using entry.stdinCursor),
       (by simpa [after] using entry.stdout), (by simpa [after] using entry.exitCode)⟩
 
@@ -416,6 +422,7 @@ def MainReturnSavedHandoff (args : MainArgs) (fromStep : Nat)
     after.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
     StorePmaAllows after.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
+    BytesRep after.machine.mem Elflings.inputBufferAddress args.input ∧
     after.stdin = args.input ∧ after.stdinCursor = 0 ∧ after.stdout = #[] ∧
     after.exitCode = none
 
@@ -423,7 +430,7 @@ def MainReturnSavedHandoff (args : MainArgs) (fromStep : Nat)
 theorem main_save_return_address (args : MainArgs) (fromStep : Nat) (before : EndpointState)
     (entry : MainEntry args before) : MainReturnSavedHandoff args fromStep before := by
   obtain ⟨stackState, stackTrace, configured, code, atPc, stackRead, returnRead,
-      savedReturnPma, inputSizePma, stdin, stdinCursor, stdout, exitCode⟩ :=
+      savedReturnPma, inputSizePma, inputBytes, stdin, stdinCursor, stdout, exitCode⟩ :=
     main_stack_allocate args fromStep before entry
   let premise := coreStoreNextState (tryStepStoreAfterIncrement stackState.machine) 0x14cb4
   have returnPremise : premise.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) :=
@@ -501,6 +508,19 @@ theorem main_save_return_address (args : MainArgs) (fromStep : Nat) (before : En
         rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt destinationBound]
         omega
     · simpa [premise, coreStoreNextState, tryStepStoreAfterIncrement] using code
+  have inputBytesAfter : BytesRep afterMachine.mem Elflings.inputBufferAddress args.input := by
+    refine ⟨inputBytes.1, ?_⟩
+    intro index inBounds
+    change (tryStepStoreAfterRetired afterWrite 0x14cb4 retired).mem.get?
+      (Elflings.inputBufferAddress + index) = _
+    rw [tryStepStoreAfterRetired, tryStepStoreAfterTick]
+    rw [afterWriteBytes_mem_get?_of_outside]
+    · exact inputBytes.2 index inBounds
+    · intro written
+      have writtenBound : written.val < 8 := written.isLt
+      rw [BitVec.toNat_ofNat,
+        Nat.mod_eq_of_lt (by omega : args.stackPointer + 0x378 < 2 ^ 64)]
+      rcases entry.inputOutsideStack index inBounds with below | above <;> omega
   refine ⟨after, stackTrace.append (main_confined_sail_step (fromStep + 1) stackState afterMachine
       0x14cb4 atPc (by refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
       main14cb4_not_syscall run),
@@ -519,6 +539,7 @@ theorem main_save_return_address (args : MainArgs) (fromStep : Nat) (before : En
       rw [tryStepStoreAfterRetired, tryStepStoreAfterTick]
       simpa [afterWrite, BitVec.toNat_ofNat, Nat.mod_eq_of_lt destinationBound] using written),
     storePmaAllows_of_agree platformAgree inputSizePma,
+    inputBytesAfter,
     (by simpa [after] using stdin), (by simpa [after] using stdinCursor),
     (by simpa [after] using stdout), (by simpa [after] using exitCode)⟩
 
@@ -533,6 +554,7 @@ def MainFrameInitializedHandoff (args : MainArgs) (fromStep : Nat)
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
+    BytesRep after.machine.mem Elflings.inputBufferAddress args.input ∧
     after.stdin = args.input ∧ after.stdinCursor = 0 ∧ after.stdout = #[] ∧
     after.exitCode = none
 
@@ -540,7 +562,7 @@ def MainFrameInitializedHandoff (args : MainArgs) (fromStep : Nat)
 theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : EndpointState)
     (entry : MainEntry args before) : MainFrameInitializedHandoff args fromStep before := by
   obtain ⟨savedState, savedTrace, configured, code, atPc, stackRead, returnRead, savedReturn,
-      inputSizePma, stdin, stdinCursor, stdout, exitCode⟩ :=
+      inputSizePma, inputBytes, stdin, stdinCursor, stdout, exitCode⟩ :=
     main_save_return_address args fromStep before entry
   let premise := coreStoreNextState (tryStepStoreAfterIncrement savedState.machine) 0x14cb8
   have dataRead : Runs (rX_bits (.Regidx 0#5)) premise premise 0 := rX_x0_run premise
@@ -610,6 +632,19 @@ theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : Endpo
         rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt destinationBound]
         omega
     · simpa [premise, coreStoreNextState, tryStepStoreAfterIncrement] using code
+  have inputBytesAfter : BytesRep afterMachine.mem Elflings.inputBufferAddress args.input := by
+    refine ⟨inputBytes.1, ?_⟩
+    intro index inBounds
+    change (tryStepStoreAfterRetired afterWrite 0x14cb8 retired).mem.get?
+      (Elflings.inputBufferAddress + index) = _
+    rw [tryStepStoreAfterRetired, tryStepStoreAfterTick]
+    rw [afterWriteBytes_mem_get?_of_outside]
+    · exact inputBytes.2 index inBounds
+    · intro written
+      have writtenBound : written.val < 8 := written.isLt
+      rw [BitVec.toNat_ofNat,
+        Nat.mod_eq_of_lt (by omega : args.stackPointer + 8 < 2 ^ 64)]
+      rcases entry.inputOutsideStack index inBounds with below | above <;> omega
   refine ⟨after, savedTrace.append (main_confined_sail_step (fromStep + 2) savedState afterMachine
       0x14cb8 atPc (by refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
       main14cb8_not_syscall run),
@@ -632,6 +667,7 @@ theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : Endpo
         rw [BitVec.toNat_ofNat,
           Nat.mod_eq_of_lt (by omega : args.stackPointer + 8 < 2 ^ 64)]
         omega),
+    inputBytesAfter,
     (by simpa [after] using stdin), (by simpa [after] using stdinCursor),
     (by simpa [after] using stdout), (by simpa [after] using exitCode)⟩
 
@@ -649,6 +685,7 @@ def MainReadInputCallReady (args : MainArgs) (fromStep : Nat)
     after.machine.regs.get? x10 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x11 = some (BitVec.ofNat 64 (args.stackPointer + 8)) ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
+    BytesRep after.machine.mem Elflings.inputBufferAddress args.input ∧
     after.stdin = args.input ∧ after.stdinCursor = 0 ∧ after.stdout = #[] ∧
     after.exitCode = none
 
@@ -657,7 +694,8 @@ theorem main_prepare_read_input_call (args : MainArgs) (fromStep : Nat)
     (before : EndpointState) (entry : MainEntry args before) :
     MainReadInputCallReady args fromStep before := by
   obtain ⟨frameState, frameTrace, configured0, code0, pc0, sp0, _ra0, _savedReturn,
-      stdin0, cursor0, stdout0, exit0⟩ := main_initialize_frame args fromStep before entry
+      inputBytes0, stdin0, cursor0, stdout0, exit0⟩ :=
+    main_initialize_frame args fromStep before entry
   obtain ⟨retired0, run0⟩ := main_input_buffer_address_step (fromStep + 3) frameState.machine
     configured0 (by simpa [EndpointPc] using pc0) code0 (MainAddiSource.stackPointer sp0)
   let value0 := iTypeResult .ADDI 0 (BitVec.ofNat 64 args.stackPointer)
@@ -742,6 +780,7 @@ theorem main_prepare_read_input_call (args : MainArgs) (fromStep : Nat)
         (afterRegisterWrite_destination machine1 0x14cc0 retired1 x11 value1
           (by decide) (by decide))),
     (by exact _savedReturn),
+    (by simpa [state3, state2, state1, machine3, machine2, machine1] using inputBytes0),
     (by simpa [state3, state2, state1] using stdin0),
     (by simpa [state3, state2, state1] using cursor0),
     (by simpa [state3, state2, state1] using stdout0),
@@ -770,7 +809,8 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
     MainReadInputHandoff contracts args fromStep before := by
   obtain ⟨ready, prefixTrace, configured, code, atPc, callBase, sp, a0, a1, savedReturn,
-      stdin, cursor, stdout, exitCode⟩ := main_prepare_read_input_call args fromStep before entry
+      inputBytes, stdin, cursor, stdout, exitCode⟩ :=
+    main_prepare_read_input_call args fromStep before entry
   obtain ⟨retired, run⟩ := main_read_input_call_step (fromStep + 6) ready.machine configured
     (by simpa [EndpointPc] using atPc) callBase code
   let callMachine := tryStepControlFlowAfterRetired
@@ -792,7 +832,7 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
         sizeSlot := args.stackPointer + 8, savedFrameAddress := args.stackPointer + 0x378,
         savedReturnAddress := args.returnAddress, input := args.input } callState := by
     refine ⟨readInputExitPc_14ccc,
-      entry.inputBound, ?_, ?_, ?_, ?_, ?_, ?_, ?_, callCode, callConfigured⟩
+      entry.inputBound, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, callCode, callConfigured⟩
     · simpa [callState] using stdin
     · simpa [callState] using cursor
     · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
@@ -801,6 +841,9 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
     · exact (callWrites.get x10 (by decide)).trans a0
     · exact (callWrites.get x11 (by decide)).trans a1
+    · simpa [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+        tryStepControlFlowAfterIncrement] using inputBytes
     · exact UIntRep.of_mem_eq savedReturn (by
         simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,

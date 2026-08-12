@@ -56,8 +56,8 @@ def EndpointCallFrame (before after : EndpointState) : Prop :=
   after.machine.tags = before.machine.tags ∧
   after.machine.sailOutput = before.machine.sailOutput
 
-abbrev readContextReturnPc : Nat := 0x1018c
-abbrev writeContextReturnPc : Nat := 0x101c0
+abbrev readContextReturnPc : Nat := 0x1015c
+abbrev writeContextReturnPc : Nat := 0x101a0
 abbrev exitContextStorePc : Nat := 0x101cc
 
 def BareMetalHostTransitionPc (pc : BitVec 64) : Prop :=
