@@ -99,10 +99,7 @@ class Operands:
     branch_target: int | None
 
 
-TRANSFER_CLASSES = {"BTYPE", "JAL"}
-
-
-def parse_operands(text: str, mnemonic: str | None = None) -> Operands:
+def parse_operands(text: str) -> Operands:
     body = text.split(" <", 1)[0].strip()
     if not body:
         return Operands((), (), None)
@@ -122,12 +119,9 @@ def parse_operands(text: str, mnemonic: str | None = None) -> Operands:
             continue
         if IMMEDIATE.match(field):
             value = int(field, 0)
-            # The last bare immediate of a branch or jump is its target. Classifying by opcode
-            # class rather than by magnitude keeps this correct for a relocatable object, whose
-            # program counters start at zero and would look like small immediates.
-            if mnemonic is not None and CLASS_OF_MNEMONIC.get(mnemonic) in TRANSFER_CLASSES:
-                target = value
-            elif mnemonic is None and value >= 0x10000:
+            # A bare immediate large enough to be a code address in a transfer operand is the
+            # branch target, not an immediate the lemma would take as an argument.
+            if value >= 0x10000:
                 target = value
             else:
                 immediates.append(value)
@@ -168,7 +162,7 @@ def load_regions(path: pathlib.Path) -> tuple[list[Instruction], dict]:
         Instruction(
             address=row["address"],
             mnemonic=row["mnemonic"],
-            operands=parse_operands(row["operands"], row["mnemonic"]),
+            operands=parse_operands(row["operands"]),
             reads=tuple(row["reads"]),
             writes=tuple(row["writes"]),
             memory=tuple((entry["kind"], entry["bytes"]) for entry in row["memory"]),
@@ -182,142 +176,6 @@ def load_regions(path: pathlib.Path) -> tuple[list[Instruction], dict]:
         )
         for row in rows
     ]
-    return instructions, database
-
-
-ACCESS_WIDTH = {
-    "lb": 1, "lbu": 1, "sb": 1, "lh": 2, "lhu": 2, "sh": 2,
-    "lw": 4, "lwu": 4, "sw": 4, "ld": 8, "sd": 8,
-}
-
-
-def derive_effects(mnemonic: str, operands: Operands) -> tuple[
-    tuple[str, ...], tuple[str, ...], tuple[tuple[str, int], ...], str
-]:
-    """Register and memory effects derived from the opcode class and operand positions.
-
-    The focused Zesu CFG records mnemonics and operands but not effects, so they are recovered
-    here rather than assumed. RISC-V puts the destination in operand slot 0 for every class that
-    writes a register; stores and branches write none.
-    """
-    klass = CLASS_OF_MNEMONIC.get(mnemonic, "UNMAPPED")
-    registers = operands.registers
-    writes: tuple[str, ...] = ()
-    reads: tuple[str, ...] = registers
-
-    if klass in {"ITYPE", "SHIFTIOP", "RTYPE", "MULDIV", "LOAD", "AUIPC", "LUI"}:
-        writes = registers[:1]
-        reads = registers[1:]
-    elif klass == "JAL":
-        writes = ("ra",) if mnemonic == "jal" else ()
-        reads = ()
-    elif klass == "JALR":
-        if mnemonic == "ret":
-            reads = ("ra",)
-        elif mnemonic == "jalr" and len(registers) >= 2:
-            writes = registers[:1]          # three-operand form: jalr rd, rs1, imm
-            reads = registers[1:]
-        # The one-register form is `jalr offset(rs1)`, whose only register is the base.
-
-    memory: tuple[tuple[str, int], ...] = ()
-    if klass == "LOAD":
-        memory = (("read", ACCESS_WIDTH.get(mnemonic, 8)),)
-    elif klass == "STORE":
-        memory = (("write", ACCESS_WIDTH.get(mnemonic, 8)),)
-
-    transfer = "ordinary"
-    if klass == "BTYPE":
-        transfer = "conditional"
-    elif klass == "JAL":
-        transfer = "directCall" if mnemonic == "jal" else "directJump"
-    elif klass == "JALR":
-        transfer = {"ret": "return", "jalr": "directCall"}.get(mnemonic, "indirectTransfer")
-
-    # x0 is a constant, not a dataflow source. LLVM omits it from reads and so must this, or
-    # every store of zero gains a spurious dependence.
-    reads = tuple(r for r in reads if r != "zero")
-    return tuple(sorted(set(reads))), tuple(sorted(set(writes))), memory, transfer
-
-
-def load_zesu_cfg(path: pathlib.Path) -> tuple[list[Instruction], dict]:
-    """Adapter for the focused Zesu SSZ CFG artifact.
-
-    Three facts about that artifact drive this code. Program counters are shared between
-    `main` and `ssz_decode_root.main`, which are one function under two names, so rows are
-    deduplicated by pc. An instruction belongs to several nested function instances at once, so
-    the owner is taken to be the innermost one -- the analogue of exact ownership in the older
-    database. Register and memory effects are absent and are derived, not assumed.
-    """
-    cfg = json.loads(path.read_text())
-
-    depth: dict[str, int] = {}
-    instances = {row["id"]: row for row in cfg["functionInstances"]}
-
-    def instance_depth(identifier: str) -> int:
-        if identifier not in depth:
-            parent = instances[identifier].get("parent")
-            depth[identifier] = 0 if not parent else instance_depth(parent) + 1
-        return depth[identifier]
-
-    owner_of: dict[int, str] = {}
-    for identifier, row in instances.items():
-        for pc in row["pcs"]:
-            current = owner_of.get(pc)
-            if current is None or instance_depth(identifier) > instance_depth(current):
-                owner_of[pc] = identifier
-
-    rows: dict[int, dict] = {}
-    successors: dict[int, list[int]] = {}
-    for function in cfg["functions"]:
-        for block in function["blocks"]:
-            body = block["instructions"]
-            for offset, entry in enumerate(body):
-                pc = entry["pc"]
-                if offset + 1 < len(body):
-                    nxt = [body[offset + 1]["pc"]]
-                else:
-                    nxt = [int(s, 0) for s in block.get("successors", [])]
-                if pc in rows:
-                    continue                      # the main/ssz_decode_root.main alias
-                rows[pc] = {"entry": entry, "symbol": function["name"]}
-                successors[pc] = nxt
-
-    instructions: list[Instruction] = []
-    for pc in sorted(rows):
-        entry = rows[pc]["entry"]
-        operands = parse_operands(entry["operands"], entry["mnemonic"])
-        reads, writes, memory, transfer = derive_effects(entry["mnemonic"], operands)
-        instructions.append(
-            Instruction(
-                address=pc,
-                mnemonic=entry["mnemonic"],
-                operands=operands,
-                reads=reads,
-                writes=writes,
-                memory=memory,
-                transfer=transfer,
-                owner=owner_of.get(pc, "unowned"),
-                symbol=rows[pc]["symbol"],
-                scc=-1,
-                loop=False,
-                live_out=(),
-                word=int.from_bytes(bytes.fromhex(entry["bytes"]), "little"),
-            )
-        )
-
-    database = {
-        "instructions": [
-            {"address": i.address, "successors": successors.get(i.address, [])}
-            for i in instructions
-        ],
-        "inputs": cfg["artifact"],
-        "summary": {
-            "instructionCount": len(instructions),
-            "binaryInstructionCount": cfg["totals"]["instructions"],
-            "unknownEffectCount": sum(1 for i in instructions if i.klass == "UNMAPPED"),
-        },
-        "totals": cfg["totals"],
-    }
     return instructions, database
 
 
@@ -1321,16 +1179,6 @@ def shuffled_corpus_control(
 
 def reconcile_scope(objdump_path: pathlib.Path | None, database: dict) -> dict:
     summary = database["summary"]
-    if "totals" in database:
-        return {
-            "instructionRows": summary["instructionCount"],
-            "artifactInstructionTotal": database["totals"]["instructions"],
-            "symbolInstructionReferences": database["totals"].get("symbolInstructionReferences"),
-            "functions": database["totals"].get("functions"),
-            "functionInstances": database["totals"].get("functionInstances"),
-            "inlinedFunctionInstances": database["totals"].get("inlinedFunctionInstances"),
-            "blocks": database["totals"].get("blocks"),
-        }
     scope = {
         "regionRows": summary["instructionCount"],
         "declaredRegionAddresses": summary["binaryInstructionCount"],
@@ -1350,9 +1198,7 @@ def reconcile_scope(objdump_path: pathlib.Path | None, database: dict) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--regions", type=pathlib.Path, default=None)
-    parser.add_argument("--cfg", type=pathlib.Path, default=None,
-                        help="focused Zesu SSZ CFG artifact (zesu-cfg.json)")
+    parser.add_argument("--regions", type=pathlib.Path, required=True)
     parser.add_argument("--out-json", type=pathlib.Path, required=True)
     parser.add_argument("--out-md", type=pathlib.Path, default=None)
     parser.add_argument("--objdump", type=pathlib.Path, default=None)
@@ -1365,12 +1211,7 @@ def main() -> int:
     arguments = parser.parse_args()
 
     rng = np.random.default_rng(arguments.seed)
-    if bool(arguments.regions) == bool(arguments.cfg):
-        parser.error("give exactly one of --regions or --cfg")
-    if arguments.cfg:
-        instructions, database = load_zesu_cfg(arguments.cfg)
-    else:
-        instructions, database = load_regions(arguments.regions)
+    instructions, database = load_regions(arguments.regions)
     segments = segment(instructions, database)
     owner_of = [instruction.owner for instruction in instructions]
 
@@ -1524,17 +1365,9 @@ def markdown(result: dict) -> str:
         f"{result['corpus']['segments']} straight-line segments across "
         f"{result['corpus']['owners']} function instances.",
         "",
-        (
-            f"Declared-region addresses {scope['declaredRegionAddresses']}, of which "
-            f"{scope['unownedInDeclaredRegions']} are unowned; "
-            f"objdump `.text` has {scope.get('objdumpTextInstructions', 'n/a')}."
-            if "declaredRegionAddresses" in scope
-            else
-            f"Artifact totals: {scope['artifactInstructionTotal']} instructions, "
-            f"{scope['functions']} functions, {scope['functionInstances']} function instances "
-            f"({scope['inlinedFunctionInstances']} inlined), {scope['blocks']} blocks; "
-            f"{scope['symbolInstructionReferences']} symbol instruction references."
-        ),
+        f"Declared-region addresses {scope['declaredRegionAddresses']}, of which "
+        f"{scope['unownedInDeclaredRegions']} are unowned; "
+        f"objdump `.text` has {scope.get('objdumpTextInstructions', 'n/a')}.",
         "",
         "## Motifs that could be one `Seg` lemma",
         "",
