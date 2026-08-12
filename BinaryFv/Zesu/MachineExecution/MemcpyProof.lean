@@ -1824,9 +1824,9 @@ private theorem memcpyBodyPc_generated {pc : BitVec 64} (inside : IsBodyPc pc) :
     exact ⟨(0x101d4, 0x101f8), by native_decide, by native_decide, by native_decide⟩
 
 private theorem memcpyBodyPc_not_syscall {pc : BitVec 64} (inside : IsBodyPc pc) :
-    ¬LinuxSyscallPc pc := by
+    ¬BareMetalHostTransitionPc pc := by
   rcases inside with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-    simp only [LinuxSyscallPc] <;> native_decide
+    simp only [BareMetalHostTransitionPc] <;> native_decide
 
 /-- Lift the preserved machine-only loop trace into the linked Linux endpoint without changing any
 host stream. -/

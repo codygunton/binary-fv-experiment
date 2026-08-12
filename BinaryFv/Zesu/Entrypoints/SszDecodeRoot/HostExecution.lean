@@ -8,12 +8,11 @@ import BinaryFv.RiscV.Logic.LoadedImage
 import BinaryFv.RiscV.Platform.NormalState
 
 /-!
-# Execution of the linked Linux endpoint
+# Execution of the linked bare-metal endpoint
 
-The production SSZ endpoint is a static Linux RV64 executable. Ordinary instructions use the
-extracted Sail-RISCV `try_step`; its three Linux syscall sites use the explicit relations below.
-Treating `ecall` as an ordinary Sail step would instead enter the bare-machine trap handler and does
-not describe the shipped program observed under QEMU user mode.
+Every instruction is an ordinary extracted Sail-RISCV step. Three distinguished instructions also
+update the semantic input/output/exit observation carried beside the machine: the `read_input`
+return, the `write_output` return, and the exit-code store before the terminal self-loop.
 -/
 
 namespace BinaryFv.Zesu
@@ -57,94 +56,58 @@ def EndpointCallFrame (before after : EndpointState) : Prop :=
   after.machine.tags = before.machine.tags ∧
   after.machine.sailOutput = before.machine.sailOutput
 
-abbrev readEcallPc : Nat := Elflings.readInputEcallPc
-abbrev writeEcallPc : Nat := Elflings.writeOutputEcallPc
-abbrev exitEcallPc : Nat := Elflings.zkvmExitEcallPc
+abbrev readContextReturnPc : Nat := 0x1018c
+abbrev writeContextReturnPc : Nat := 0x101c0
+abbrev exitContextStorePc : Nat := 0x101cc
 
-def LinuxSyscallPc (pc : BitVec 64) : Prop :=
-  pc.toNat = readEcallPc ∨ pc.toNat = writeEcallPc ∨ pc.toNat = exitEcallPc
-
-def hostWrittenRegisters : Register → Prop := fun register =>
-  register = PC ∨ register = nextPC ∨ register = x10 ∨ register = minstret
-
-/-- State components advanced or retained by one host-handled `ecall`. -/
-def HostMachineFrame (before after : MachineState) : Prop :=
-  WritesOnlyRegs hostWrittenRegisters before after ∧
-  after.choiceState = before.choiceState ∧
-  after.tags = before.tags ∧
-  after.cycleCount = before.cycleCount + 1 ∧
-  after.sailOutput = before.sailOutput
+def BareMetalHostTransitionPc (pc : BitVec 64) : Prop :=
+  pc.toNat = readContextReturnPc ∨ pc.toNat = writeContextReturnPc ∨
+    pc.toNat = exitContextStorePc
 
 def InputChunk (state : EndpointState) (count : Nat) : Array UInt8 :=
   state.stdin.extract state.stdinCursor (state.stdinCursor + count)
 
-/-- Linux `read(0, buffer, requested)` at the runtime's exact `ecall` instruction. A positive
-remaining input suffix must make progress, while zero is returned exactly at the modeled EOF. The
-relation still permits arbitrary positive partial reads, matching the loop that retries them. -/
-def LinuxReadStep (before after : EndpointState) : Prop :=
-  ∃ buffer requested count,
-    before.machine.regs.get? PC = some (BitVec.ofNat 64 readEcallPc) ∧
-    before.machine.regs.get? x17 = some (BitVec.ofNat 64 63) ∧
-    before.machine.regs.get? x10 = some (BitVec.ofNat 64 0) ∧
-    before.machine.regs.get? x11 = some (BitVec.ofNat 64 buffer) ∧
-    before.machine.regs.get? x12 = some (BitVec.ofNat 64 requested) ∧
-    count ≤ requested ∧ before.stdinCursor + count ≤ before.stdin.size ∧
-    (count = 0 ↔ before.stdinCursor = before.stdin.size) ∧
-    after.stdin = before.stdin ∧
-    after.stdinCursor = before.stdinCursor + count ∧
-    after.stdout = before.stdout ∧ after.exitCode = before.exitCode ∧
-    HostMachineFrame before.machine after.machine ∧
-    after.machine.regs.get? PC = some (BitVec.ofNat 64 (readEcallPc + 4)) ∧
-    after.machine.regs.get? x10 = some (BitVec.ofNat 64 count) ∧
-    BytesRep after.machine.mem buffer (InputChunk before count) ∧
-    WritesOnlyWithin (byteRange buffer count) before.machine after.machine
+def BareMetalReadStep (stepNo : Nat) (before after : EndpointState) : Prop :=
+  before.machine.regs.get? PC = some (BitVec.ofNat 64 readContextReturnPc) ∧
+  BytesRep before.machine.mem Elflings.inputBufferAddress before.stdin ∧
+  MachineStep stepNo before.machine after.machine ∧
+  after.stdin = before.stdin ∧ after.stdinCursor = before.stdin.size ∧
+  after.stdout = before.stdout ∧ after.exitCode = before.exitCode
 
-/-- Linux `write(1, buffer, requested)` at the runtime's exact `ecall` instruction. -/
-def LinuxWriteStep (before after : EndpointState) : Prop :=
-  ∃ buffer requested count chunk,
-    before.machine.regs.get? PC = some (BitVec.ofNat 64 writeEcallPc) ∧
-    before.machine.regs.get? x17 = some (BitVec.ofNat 64 64) ∧
-    before.machine.regs.get? x10 = some (BitVec.ofNat 64 1) ∧
-    before.machine.regs.get? x11 = some (BitVec.ofNat 64 buffer) ∧
-    before.machine.regs.get? x12 = some (BitVec.ofNat 64 requested) ∧
-    0 < count ∧ count ≤ requested ∧
+def BareMetalWriteStep (stepNo : Nat) (before after : EndpointState) : Prop :=
+  ∃ buffer count chunk,
+    before.machine.regs.get? PC = some (BitVec.ofNat 64 writeContextReturnPc) ∧
+    before.machine.regs.get? x10 = some (BitVec.ofNat 64 buffer) ∧
+    before.machine.regs.get? x11 = some (BitVec.ofNat 64 count) ∧
     chunk.size = count ∧ BytesRep before.machine.mem buffer chunk ∧
+    MachineStep stepNo before.machine after.machine ∧
     after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
-    after.stdout = before.stdout ++ chunk ∧
-    after.exitCode = before.exitCode ∧
-    HostMachineFrame before.machine after.machine ∧
-    after.machine.mem = before.machine.mem ∧
-    after.machine.regs.get? PC = some (BitVec.ofNat 64 (writeEcallPc + 4)) ∧
-    after.machine.regs.get? x10 = some (BitVec.ofNat 64 count)
+    after.stdout = before.stdout ++ chunk ∧ after.exitCode = before.exitCode
 
-/-- Linux `exit(code)`. The terminal state remains at the consumed `ecall` PC and records the code. -/
-def LinuxExitStep (before after : EndpointState) : Prop :=
+def BareMetalExitStep (stepNo : Nat) (before after : EndpointState) : Prop :=
   ∃ code,
-    before.machine.regs.get? PC = some (BitVec.ofNat 64 exitEcallPc) ∧
-    before.machine.regs.get? x17 = some (BitVec.ofNat 64 93) ∧
+    before.machine.regs.get? PC = some (BitVec.ofNat 64 exitContextStorePc) ∧
     before.machine.regs.get? x10 = some (BitVec.ofNat 64 code) ∧
+    MachineStep stepNo before.machine after.machine ∧
     after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
     after.stdout = before.stdout ∧ after.exitCode = some code ∧
-    HostMachineFrame before.machine after.machine ∧
-    after.machine.mem = before.machine.mem ∧
-    after.machine.regs.get? PC = some (BitVec.ofNat 64 exitEcallPc)
+    after.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.zkvmExitTerminalPc)
 
 inductive EndpointStep (stepNo : Nat) (before after : EndpointState) : Prop where
   | sail
-      (notSyscall : ∀ pc, EndpointPc before = some pc → ¬ LinuxSyscallPc pc)
+      (notSyscall : ∀ pc, EndpointPc before = some pc → ¬ BareMetalHostTransitionPc pc)
       (machineStep : MachineStep stepNo before.machine after.machine)
       (stdin : after.stdin = before.stdin)
       (stdinCursor : after.stdinCursor = before.stdinCursor)
       (stdout : after.stdout = before.stdout)
       (exitCode : after.exitCode = before.exitCode) : EndpointStep stepNo before after
-  | read (step : LinuxReadStep before after) : EndpointStep stepNo before after
-  | write (step : LinuxWriteStep before after) : EndpointStep stepNo before after
-  | exit (step : LinuxExitStep before after) : EndpointStep stepNo before after
+  | read (step : BareMetalReadStep stepNo before after) : EndpointStep stepNo before after
+  | write (step : BareMetalWriteStep stepNo before after) : EndpointStep stepNo before after
+  | exit (step : BareMetalExitStep stepNo before after) : EndpointStep stepNo before after
 
-/-- Lift an ordinary production instruction into the linked Linux endpoint while retaining every
-host component. Concrete Level 0 instruction wrappers supply the `try_step` run. -/
+/-- Lift an ordinary non-observation instruction while retaining the semantic I/O fields. -/
 theorem endpointStep_sail (stepNo : Nat) (before : EndpointState) (after : MachineState)
-    (notSyscall : ∀ pc, EndpointPc before = some pc → ¬ LinuxSyscallPc pc)
+    (notSyscall : ∀ pc, EndpointPc before = some pc → ¬ BareMetalHostTransitionPc pc)
     (step : MachineStep stepNo before.machine after) :
     EndpointStep stepNo before { before with machine := after } := by
   exact .sail notSyscall step rfl rfl rfl rfl

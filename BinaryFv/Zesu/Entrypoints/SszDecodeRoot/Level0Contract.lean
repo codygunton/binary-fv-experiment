@@ -27,52 +27,52 @@ def MainExecutionPc (pc : BitVec 64) : Prop :=
   pcInRanges Elflings.writeFailureExecutionPcRanges pc ∨
   pcInRanges Elflings.zkvmExitExecutionPcRanges pc
 
-private theorem mainEntry_not_syscall : ¬ LinuxSyscallPc Elflings.mainEntry := by
-  unfold LinuxSyscallPc
+private theorem mainEntry_not_syscall : ¬ BareMetalHostTransitionPc Elflings.mainEntry := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
-private theorem main14cb4_not_syscall : ¬ LinuxSyscallPc 0x14cb4 := by
-  unfold LinuxSyscallPc
+private theorem main14cb4_not_syscall : ¬ BareMetalHostTransitionPc 0x14cb4 := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
-private theorem main14cb8_not_syscall : ¬ LinuxSyscallPc 0x14cb8 := by
-  unfold LinuxSyscallPc
+private theorem main14cb8_not_syscall : ¬ BareMetalHostTransitionPc 0x14cb8 := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
-private theorem main14cbc_not_syscall : ¬ LinuxSyscallPc 0x14cbc := by
-  unfold LinuxSyscallPc
+private theorem main14cbc_not_syscall : ¬ BareMetalHostTransitionPc 0x14cbc := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
-private theorem main14cc0_not_syscall : ¬ LinuxSyscallPc 0x14cc0 := by
-  unfold LinuxSyscallPc
+private theorem main14cc0_not_syscall : ¬ BareMetalHostTransitionPc 0x14cc0 := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
-private theorem main14cc4_not_syscall : ¬ LinuxSyscallPc 0x14cc4 := by
-  unfold LinuxSyscallPc
+private theorem main14cc4_not_syscall : ¬ BareMetalHostTransitionPc 0x14cc4 := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
-private theorem main14cc8_not_syscall : ¬ LinuxSyscallPc 0x14cc8 := by
-  unfold LinuxSyscallPc
+private theorem main14cc8_not_syscall : ¬ BareMetalHostTransitionPc 0x14cc8 := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
-private theorem main14cec_not_syscall : ¬ LinuxSyscallPc 0x14cec := by
-  unfold LinuxSyscallPc
+private theorem main14cec_not_syscall : ¬ BareMetalHostTransitionPc 0x14cec := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
-private theorem main14cf0_not_syscall : ¬ LinuxSyscallPc 0x14cf0 := by
-  unfold LinuxSyscallPc
+private theorem main14cf0_not_syscall : ¬ BareMetalHostTransitionPc 0x14cf0 := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
-private theorem main14cf4_not_syscall : ¬ LinuxSyscallPc 0x14cf4 := by
-  unfold LinuxSyscallPc
+private theorem main14cf4_not_syscall : ¬ BareMetalHostTransitionPc 0x14cf4 := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
-private theorem main14cf8_not_syscall : ¬ LinuxSyscallPc 0x14cf8 := by
-  unfold LinuxSyscallPc
+private theorem main14cf8_not_syscall : ¬ BareMetalHostTransitionPc 0x14cf8 := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
-private theorem main14cfc_not_syscall : ¬ LinuxSyscallPc 0x14cfc := by
-  unfold LinuxSyscallPc
+private theorem main14cfc_not_syscall : ¬ BareMetalHostTransitionPc 0x14cfc := by
+  unfold BareMetalHostTransitionPc
   native_decide
 
 private theorem mainGluePcs_14cfc : mainGluePcs 0x14cfc := by
@@ -302,7 +302,7 @@ theorem ConfiguredMachinePre.afterCall {state : MachineState} (pc target returnP
 /-- One exact non-syscall Sail instruction, lifted into and confined by the complete Level 0 region. -/
 theorem main_confined_sail_step (stepNo : Nat) (before : EndpointState) (after : MachineState)
     (pc : BitVec 64) (atPc : EndpointPc before = some pc) (inside : mainGluePcs pc)
-    (notSyscall : ¬ LinuxSyscallPc pc) (step : MachineStep stepNo before.machine after) :
+    (notSyscall : ¬ BareMetalHostTransitionPc pc) (step : MachineStep stepNo before.machine after) :
     ConfinedTrace EndpointStep EndpointPc MainExecutionPc stepNo 1 before
       { before with machine := after } := by
   apply ConfinedTrace.step stepNo 0 pc before { before with machine := after }
@@ -1361,7 +1361,7 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
             0x14d00 atPc (by
               unfold mainGluePcs
               refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-            (by unfold LinuxSyscallPc; native_decide) run)
+            (by unfold BareMetalHostTransitionPc; native_decide) run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .failure, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_,
         ?_, ?_, ?_, ?_, readBounded, allocatorBounded, decodeBounded⟩
@@ -1402,7 +1402,7 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
             0x14d00 atPc (by
               unfold mainGluePcs
               refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-            (by unfold LinuxSyscallPc; native_decide) run)
+            (by unfold BareMetalHostTransitionPc; native_decide) run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .success decoded, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_,
         ?_, ?_, ?_, ?_, ?_, readBounded, allocatorBounded, decodeBounded⟩
@@ -1491,7 +1491,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
         simpa [step0, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
           prefixTrace.append (main_confined_sail_step step0 state machine1 0x14d04 atPc
             (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-            (by unfold LinuxSyscallPc; native_decide) run0)
+            (by unfold BareMetalHostTransitionPc; native_decide) run0)
       have configured1 := ConfiguredMachinePre.afterRegisterWrite 0x14d04 retired0 x10 value0
         configured x10_not_instructionPreserved
       have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
@@ -1510,7 +1510,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
           simpa [step0, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
             main_confined_sail_step (step0 + 1) state1 machine2 0x14d08 pc1
               (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-              (by unfold LinuxSyscallPc; native_decide) run1
+              (by unfold BareMetalHostTransitionPc; native_decide) run1
         simpa [step0, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
           trace1.append stepTrace
       have configured2 := ConfiguredMachinePre.afterRegisterWrite 0x14d08 retired1 x1 0x14d08
@@ -1537,7 +1537,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
           simpa [callState, step0, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
             main_confined_sail_step (step0 + 2) state2 callMachine 0x14d0c pc2
               (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-              (by unfold LinuxSyscallPc; native_decide) run2
+              (by unfold BareMetalHostTransitionPc; native_decide) run2
         simpa [callState, step0, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
           trace2.append stepTrace
       have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
@@ -1658,7 +1658,7 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
             state state1 :=
           main_confined_sail_step step0 state machine1 0x14d10 atPc
             (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-            (by unfold LinuxSyscallPc; native_decide) run0
+            (by unfold BareMetalHostTransitionPc; native_decide) run0
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
           normalizedPrefix.append stepTrace
       have configured1 := ConfiguredMachinePre.afterRegisterWrite 0x14d10 retired0 x10 0
@@ -1684,7 +1684,7 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
           simpa [step0, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
             main_confined_sail_step (step0 + 1) state1 machine2 0x14d14 pc1
               (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-              (by unfold LinuxSyscallPc; native_decide) run1
+              (by unfold BareMetalHostTransitionPc; native_decide) run1
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace1.append stepTrace
       have configured2 := ConfiguredMachinePre.afterRegisterWrite 0x14d14 retired1 x1 0xfd14
         configured1 (by simp [instructionPreserved])
@@ -1715,7 +1715,7 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
           simpa [callState, step0, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
             main_confined_sail_step (step0 + 2) state2 callMachine 0x14d18 pc2
               (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-              (by unfold LinuxSyscallPc; native_decide) run2
+              (by unfold BareMetalHostTransitionPc; native_decide) run2
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace2.append stepTrace
       have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
         simpa [callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -1785,7 +1785,7 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
         simpa [Nat.add_assoc] using prefixTrace.append
           (main_confined_sail_step (fromStep + used) state machine1 0x14d1c atPc
             (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-            (by unfold LinuxSyscallPc; native_decide) run0)
+            (by unfold BareMetalHostTransitionPc; native_decide) run0)
       have configured1 := ConfiguredMachinePre.afterRegisterWrite 0x14d1c retired0 x1 0x15d1c
         configured (by simp [instructionPreserved])
       have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
@@ -1810,7 +1810,7 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
           simpa [callState, Nat.add_assoc] using
             main_confined_sail_step (fromStep + used + 1) state1 callMachine 0x14d20 pc1
               (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-              (by unfold LinuxSyscallPc; native_decide) run1
+              (by unfold BareMetalHostTransitionPc; native_decide) run1
         simpa [Nat.add_assoc] using trace1.append stepTrace
       have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
         simpa [callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -1859,7 +1859,7 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
             (fromStep + (used + 2 + failureCount)) 1 written state3 :=
           main_confined_sail_step step2 written machine3 0x14d24 writtenPc
             (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-            (by unfold LinuxSyscallPc; native_decide) run2
+            (by unfold BareMetalHostTransitionPc; native_decide) run2
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using writtenTrace.append stepTrace
       have configured3 := ConfiguredMachinePre.afterRegisterWrite 0x14d24 retired2 x10 0
         writtenConfigured x10_not_instructionPreserved
@@ -1883,7 +1883,7 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
           simpa [step2, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
             main_confined_sail_step (step2 + 1) state3 machine4 0x14d28 pc3
               (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-              (by unfold LinuxSyscallPc; native_decide) run3
+              (by unfold BareMetalHostTransitionPc; native_decide) run3
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace3.append stepTrace
       have configured4 := ConfiguredMachinePre.afterRegisterWrite 0x14d28 retired3 x1 0xfd28
         configured3 (by simp [instructionPreserved])
@@ -1913,7 +1913,7 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
           simpa [exitState, step2, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
             main_confined_sail_step (step2 + 2) state4 exitMachine 0x14d2c pc4
               (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-              (by unfold LinuxSyscallPc; native_decide) run4
+              (by unfold BareMetalHostTransitionPc; native_decide) run4
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace4.append stepTrace
       have exitCodeLoaded : Artifacts.programImage.fileBytesLoadedFaithfully exitMachine.mem := by
         simpa [exitMachine, callLinkState, tryStepControlFlowAfterRetired,
