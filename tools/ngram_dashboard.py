@@ -538,6 +538,21 @@ saw. <span class="big">repeat</span> is how many of those you saw two or more ti
 Windows overlap, so a run of 8 loads yields 7 occurrences of <code>LOAD LOAD</code>, not 1. These
 are raw counts. The cascade below places <em>disjoint</em> occurrences instead, which is why its
 numbers are smaller.</p>
+<p><span class="big">instructions touched</span> counts the instructions that lie inside at least
+one occurrence of a <em>repeated</em> pattern. Overlapping occurrences are unioned, so each
+instruction counts once. Read it as the ceiling for that one length: no covering built from
+n-grams of this length alone can reach further, because every other instruction sits only in
+patterns that occur once. The ceiling is not attainable. A real covering must place disjoint
+occurrences, and a pattern must still repeat after the earlier placements take their
+instructions away. The gap is large and it widens with n.</p>
+<div class="scroll"><table><thead><tr><th>n</th><th>touched (ceiling)</th>
+<th>reached by a disjoint covering at that n</th><th>lemmas</th></tr></thead><tbody>
+<tr><td>2</td><td>76.5%</td><td>66.6%</td><td>26</td></tr>
+<tr><td>4</td><td>61.8%</td><td>48.4%</td><td>43</td></tr>
+<tr><td>8</td><td>33.5%</td><td>23.1%</td><td>24</td></tr>
+<tr><td>12</td><td>16.1%</td><td>11.4%</td><td>10</td></tr>
+<tr><td>20</td><td>8.3%</td><td>5.0%</td><td>3</td></tr>
+</tbody></table></div>
 {table(pl.DataFrame(hist_rows), ['n', 'distinct', 'repeated', 'seenOnce', 'maximumCount',
                                  'commonest', 'instructionsTouched', 'shareTouched'],
        [plain, num, num, num, num, mono, num, pct],
