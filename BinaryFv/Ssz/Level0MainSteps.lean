@@ -66,6 +66,14 @@ structure MainAddiSource (state : State) (pc : BitVec 64) (source : regidx) wher
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) value
 
+/-- The data-side read performed by the Level 0 decoder-status `lhu`. -/
+structure MainHalfLoadAccess (state : State) (pc : BitVec 64) (imm : BitVec 12)
+    (source : regidx) where
+  data : BitVec 16
+  read : Runs (vmem_read source (sign_extend (m := 64) imm) 2 (Load Data) false false false)
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) (.Ok data)
+
 private theorem main_xreg_write_callback_run (state : State) (register : regidx)
     (data : BitVec 64) : (xreg_write_callback register data).run state = .ok () state := by
   rcases register with ⟨index⟩
@@ -73,6 +81,24 @@ private theorem main_xreg_write_callback_run (state : State) (register : regidx)
     encdec_reg_forwards, encdec_reg_forwards_matches, get_config_use_abi_names,
     EStateM.run, EStateM.bind, EStateM.pure, EStateM.instMonad,
     LeanRV64DExecutable.Functions.not]
+  rfl
+
+private theorem main_assert_true_run (state : State) (condition : Bool) (message : String)
+    (holds : condition = true) : Runs (PreSail.assert condition message) state state () := by
+  unfold PreSail.assert Runs
+  simp only [holds, ↓reduceIte]
+  rfl
+
+private theorem main_execute_load_half_run (state after : State) (imm : BitVec 12)
+    (source destination : regidx) (data : BitVec 16)
+    (read : Runs (vmem_read source (sign_extend (m := 64) imm) 2 (Load Data) false false false)
+      state state (.Ok data))
+    (write : Runs (wX_bits destination (extend_value true data)) state after ()) :
+    Runs (execute_LOAD imm source destination true 2) state after (.Retire_Success ()) := by
+  unfold execute_LOAD
+  refine Runs.bind (main_assert_true_run state _ _ (by decide)) ?_
+  refine Runs.bind read ?_
+  refine Runs.bind write ?_
   rfl
 
 private theorem main_wX_bits_run_x10 (state : State) (value : BitVec 64) :
@@ -101,6 +127,55 @@ private theorem main_wX_bits_run_x11 (state : State) (value : BitVec 64) :
     xreg_write_callback (.Regidx 11#5) value) state _ ()
   exact Runs.bind (by simpa using writeReg_run state x11 value)
     (main_xreg_write_callback_run _ _ _)
+
+private theorem main_load_half_step (stepNo : Nat) (state : State) (pc : Nat)
+    (imm : BitVec 12) (byte0 byte1 byte2 byte3 : UInt8)
+    (configured : ConfiguredMachinePre mainGluePcs state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (inside : mainGluePcs (BitVec.ofNat 64 pc))
+    (loaded : Generated.programImage.fileBytesLoadedFaithfully state.mem)
+    (pcFits : pc < 2 ^ 64)
+    (read0 : Generated.programImage.readFileByte? pc = some byte0)
+    (read1 : Generated.programImage.readFileByte? (pc + 1) = some byte1)
+    (read2 : Generated.programImage.readFileByte? (pc + 2) = some byte2)
+    (read3 : Generated.programImage.readFileByte? (pc + 3) = some byte3)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (imm, stackPointer, .Regidx 10#5, true, 2)))
+    (access : MainHalfLoadAccess state (BitVec.ofNat 64 pc) imm stackPointer) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc) with
+          regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pc)).regs.insert x10 (extend_value true access.data) }
+        (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
+  obtain ⟨retired, counters⟩ := configured.counters
+  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
+    configured.stepContext (BitVec.ofNat 64 pc) atPc inside
+  have loadedAfter : Generated.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Generated.programImage
+    (tryStepControlFlowAfterIncrement state) pc pcFits loadedAfter byte0 byte1 byte2 byte3
+      read0 read1 read2 read3
+  have execute : Runs (execute (.LOAD (imm, stackPointer, .Regidx 10#5, true, 2)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc))
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc) with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+          (BitVec.ofNat 64 pc)).regs.insert x10 (extend_value true access.data) }
+      (.Retire_Success ()) := by
+    change Runs (execute_LOAD imm stackPointer (.Regidx 10#5) true 2) _ _ _
+    exact main_execute_load_half_run _ _ imm stackPointer (.Regidx 10#5) access.data access.read
+      (main_wX_bits_run_x10 _ _)
+  refine ⟨retired, tryStepFallThroughWriteRegRetires stepNo state (BitVec.ofNat 64 pc) retired
+    0 0 (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
+    (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)
+    (.LOAD (imm, stackPointer, .Regidx 10#5, true, 2)) x10 (extend_value true access.data)
+    platform noMMIO bytes interrupts base decode notExpected execute (by decide) (by decide)
+    (by decide) (by decide) counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1
+    counters.2.2.2.2.1 counters.2.2.2.2.2⟩
 
 private theorem main_store_dword_step (stepNo : Nat) (state afterWrite : State)
     (pc : Nat) (imm : BitVec 12) (rs2 : regidx)
@@ -839,6 +914,50 @@ theorem main_decode_call_step (stepNo : Nat) (state : State)
         platform noMMIO bytes interrupts (by rfl) decode notExpected helpElp hlink hrs1
         (by native_decide) hzca counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1
         counters.2.2.2.2.1 counters.2.2.2.2.2)
+
+/-- Production `0x14cfc: lhu a0, 0x370(sp)`, loading the decoder status. -/
+theorem main_decode_status_step (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre mainGluePcs state)
+    (atPc : state.regs.get? PC = some 0x14cfc)
+    (loaded : Generated.programImage.fileBytesLoadedFaithfully state.mem)
+    (access : MainHalfLoadAccess state 0x14cfc 0x370 stackPointer) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cfc with
+          regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cfc).regs.insert
+            x10 (extend_value true access.data) }
+        0x14d00 retired) false := by
+  apply main_load_half_step stepNo state 0x14cfc 0x370 0x03 0x55 0x01 0x37 configured atPc
+    (by refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide) loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, seccfgRead⟩ := configured.seccfgPresent
+    have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+        some Privilege.Machine := by
+      calc
+        _ = state.regs.get? cur_privilege := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+        _ = some Privilege.Machine := configured.normal.2.1
+    have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+        some seccfgBits := by
+      calc
+        _ = state.regs.get? mseccfg := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+        _ = some seccfgBits := seccfgRead
+    unfold Runs
+    rw [extDecode_eq]
+    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
+      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
+      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
+      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
+    rfl
 
 /-- Production `0x14cb0: addi sp, sp, -896`, including generated fetch and retirement. -/
 theorem main_stack_allocate_step (stepNo : Nat) (state : State) (stackValue : BitVec 64)
