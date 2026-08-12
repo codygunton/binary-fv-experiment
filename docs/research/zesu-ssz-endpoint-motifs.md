@@ -86,6 +86,25 @@ and no copying. Parsing a transaction is the opposite: typed envelopes, and sepa
 field lists (940), access lists (310), authorization lists (222), hash lists (175) and addresses
 (63).
 
+### What the endpoint leaves undecoded
+
+The second stage runs on transactions only. Recording this matters because it bounds what the
+endpoint's correctness theorem can claim: after this endpoint, `transactions` are structured
+`Transaction` values, while `witness.nodes` and `witness.headers` are still undifferentiated bytes.
+"Fully deserializes `StatelessInput`" would overclaim.
+
+| field | stage 1 (de-SSZ) | stage 2 | result |
+|---|---|---|---|
+| `transactions` | `decodeByteListList` | **`rlp_decode.decodeSingleTx`** | structured |
+| `withdrawals` | fixed 44-byte records → `decodeWithdrawal` | n/a (SSZ, not RLP) | structured |
+| `witness.nodes` | `decodeByteListList` | none | raw bytes, RLP undecoded |
+| `witness.headers` | `decodeByteListList` | none | raw bytes, RLP undecoded |
+| `witness.codes` | `decodeByteListList` | none | raw bytecode, never RLP |
+| `public_keys` | `decodeByteListList` | none | raw keys |
+
+The witness is RLP-encoded data that this endpoint hands onward untouched. Decoding it lives in
+`deps/zesu/src/stateless/mpt/main.zig` (`verifyWitness`), outside this target.
+
 ## 3. Geometry: less inlined, so long motifs are worth less
 
 | | new target | archived grafted target |
@@ -154,20 +173,164 @@ opportunities available. **This is the clearest way the retarget changed an answ
 
 ## 5. Coverage strategy
 
-Greedy tiling, minimising lemma count plus residual, where value = uses × (n−1):
+Reported by `tools/ngram_dashboard.py`, which is a separate tool from `ngram_motifs.py`.
+`ngram_motifs.py` asks which motifs are statistically real. This asks how much of the binary
+motifs can cover, and at what price in lemmas. The dashboard renders every table in this section
+and section 5a; regenerate it with
 
-| level | lemmas | coverage | invocations removed |
+```
+python3 tools/ngram_dashboard.py --cfg result-zesu-ssz-decode-cfg/zesu-cfg.json \
+    --out-json out/ngram-dashboard.json --out-html out/ngram-dashboard.html
+```
+
+### 5.0 Do not report a per-length repeat census
+
+An earlier revision of this section did, and it overcounts twice over. A run of three loads yields
+**two** overlapping `LOAD LOAD` windows, and the same run is counted again at every shorter length,
+inside every longer pattern containing it. `LOAD LOAD` appears in 459 raw windows; a covering
+places it **30** times. Any statistic that counts windows per length independently inflates the
+same code by an order of magnitude, and the inflation is worst exactly where the code is most
+repetitive.
+
+Everything below comes from one **covering** run, which attributes each instruction to exactly one
+pattern at exactly one length. Column sums are therefore meaningful.
+
+### 5.1 The covering
+
+Start at the largest repeated length. Place its occurrences, disjointly. Take those instructions
+off the table. Drop to n−1 and repeat, down to n=2. A pattern must still occur twice *after* the
+longer patterns took their instructions, or it is not placed. Windows are restricted to what a
+`Seg` lemma can state: inside one basic block, inside one function instance, no control transfer.
+
+| sizes used | coverage | lemmas spent |
+|---|---|---|
+| n ≥ 12 | 13.9% | 12 |
+| n ≥ 8 | 29.5% | 40 |
+| n ≥ 5 | 45.8% | 86 |
+| n ≥ 2 | **74.2%** | 149 |
+
+**Uses per lemma decides the tail, not rarity.** A lemma pays for itself by being applied at many
+sites: 11.2 sites at n=2, 6.3 at n=4, 3.1 at n=5, and **exactly 2.0 at every length from 14 up**.
+The long motifs are used the minimum number of times that still counts as a repeat, so a
+51-instruction lemma applied twice cannot repay its authoring cost under any cost model.
+
+Per level, same covering:
+
+| level | largest repeat | coverage | lemmas | invocations removed |
+|---|---|---|---|---|
+| exact 32-bit word | 14 | 28.8% | 127 | 19.9% |
+| mnemonic + operands | 14 | 28.8% | 127 | 19.9% |
+| mnemonic + register names | 32 | 51.1% | 188 | 38.3% |
+| mnemonic + register roles (α) | 46 | 68.5% | 203 | 52.6% |
+| opcode | 51 | 72.2% | 180 | 56.7% |
+| **instruction class** | **51** | **74.2%** | **149** | **58.8%** |
+
+The class level wins on coverage and on lemma count at once, which is why the rest of this section
+uses it. That ordering reproduces the archived target's.
+
+### 5.2 A previous defect in this section
+
+The table this section used to carry — 15 lemmas, 62.6%, 35.6% — came from an ad-hoc script that
+ranked candidates by `uses` rather than by the `uses × (n−1)` it claimed to use. It therefore took
+`LOAD LOAD` (n=2, 300 uses, value 300) ahead of `LOAD LOAD LOAD` (n=3, 280 uses, value 560). The
+level ordering it reported was right; its numbers were not. The greedy now lives in
+`ngram_dashboard.py` and is reproducible.
+
+## 5a. What kind of repetition is this?
+
+The artifact maps every inline instance, so "is a discovered repeat just a function the compiler
+inlined twice?" is answerable rather than a guess. Of 88 distinct function names, **12 have two or
+more instances**, and those instances hold 20.6% of the binary.
+
+### The search rediscovered a function
+
+The strongest motif in the study, `lbu lbu lbu lbu slli or slli slli or or`, is exactly the body of
+`mem.readInt`, which the compiler inlined 7 times with that shape. **Seven placements of the
+covering equal a whole `mem.readInt` body, instruction for instruction.** Nothing told the search
+that functions exist.
+
+Do not also count `ssz.readU32`: all 10 of its instances are **pc-identical** to the `mem.readInt`
+they inline, so it is a pure wrapper contributing no code of its own. Ten of the 14 `mem.readInt`
+instances sit inside one.
+
+### One source function is not one shape of code
+
+| function | instances | byte shapes | register shapes | opcode shapes | class shapes |
+|---|---|---|---|---|---|
+| `mem.readInt` | 14 | 14 | 14 | **6** | 6 |
+| `ssz.readU32` | 10 | 10 | 10 | 5 | 5 |
+| `mem.writeInt` | 10 | 10 | 10 | 5 | 5 |
+| `alt_fl_alloc.sizeClassOfBytes` | 4 | 4 | 4 | **1** | 1 |
+| `mem.Allocator.rawAlloc` | 3 | 3 | 2 | 2 | 1 |
+
+Inlining specialises each call site, so an exact-code lemma is the wrong abstraction even for one
+source function: `mem.readInt` has 14 instances and 14 distinct byte sequences. The opcode
+sequence *is* shared — by 7 instances at a time, not by all 14. The six shapes differ for real
+reasons: u32 against u64 (10 instructions against 22), a signed `lb` variant, and call sites where
+a following store or compare landed inside the inline range.
+
+Note how rarely the class column improves on the opcode column. **For a repeated function body,
+opcodes already do the work**; the class abstraction earns its keep on cross-function motifs.
+
+### Whole-body lemma candidates
+
+A body earns a lemma when two or more instances share a class-level shape. Bodies nested inside a
+chosen one are skipped.
+
+| function | length | sites | instructions | share | `Seg` possible |
+|---|---|---|---|---|---|
+| **`alt_fl_alloc.sizeClassOfBytes`** | 78 | 4 | 312 | **7.0%** | no — 24 transfers |
+| `ssz_decode_root.put` | 15 | 6 | 90 | 2.0% | yes |
+| `mem.readInt` | 10 | 7 | 70 | 1.6% | yes |
+| `mem.readInt` (u64 form) | 22 | 3 | 66 | 1.5% | yes |
+| `mem.Allocator.allocAdvancedWithRetAddr` | 25 | 2 | 50 | 1.1% | no — 4 transfers |
+
+`alt_fl_alloc.sizeClassOfBytes` is the largest single prize in the study: **one lemma, 7.0% of the
+binary**, four instances of 78 instructions all sharing one class shape. It holds 24 control
+transfers, so no `Seg` lemma can state it. It needs a function-level lemma form.
+
+### How much leverage is more than "these instances are the same function"?
+
+Each lemma in the covering is classified by where its sites sit.
+
+| what repeats | lemmas | instructions | share of binary |
 |---|---|---|---|
-| α (register roles) | 17 | 39.2% | 24.0% |
-| opcode only | 19 | 52.2% | 32.0% |
-| **instruction class** | **15** | **62.6%** | **35.6%** |
+| same function, several instances | **8** | 205 | **4.6%** |
+| across different functions | 113 | 2463 | 55.5% |
+| inside one instance | 28 | 624 | 14.1% |
 
-Instruction-class level wins on all three measures at once, reproducing the ordering found on the
-old target (11 lemmas, 68.2%, 36.1%). The class-level picks are blunt: `LOAD LOAD` at 300 uses,
-`STORE STORE` at 205, `ITYPE ITYPE AUIPC` at 139, `SHIFTIOP SHIFTIOP RTYPE RTYPE` at 52.
+**Only 4.6% of the binary is coverage that merely restates "these instances are the same
+function".** That is the part a whole-body lemma subsumes. The rest is leverage the inline map
+cannot give:
 
-The unresolved cost is unchanged: a class-level lemma merges several dataflow shapes and needs
-register-distinctness hypotheses, which this model does not price.
+- `ld ld` at 30 sites across **23 distinct functions**;
+- `addi mv mv auipc` at 23 sites across 15 functions;
+- a 32-instruction motif placed 5 times **inside a single instance** of `rlp_decode.decodeTxFields`.
+
+The four-byte read is an example of the useful kind rather than the trivial kind. Its 14 sites span
+three function names — 8 in `mem.readInt`, 5 in `ssz.decode`, 1 in `ssz.decodeByteListList` — and
+the last two open-code the idiom instead of calling it. A whole-body `readInt` lemma would miss six
+of the fourteen.
+
+### The strategies compose
+
+| strategy | lemmas | coverage | instructions / lemma |
+|---|---|---|---|
+| n-gram motifs alone | 149 | 74.2% | 22.1 |
+| whole inlined bodies alone | 10 | 14.6% | **64.8** |
+| **bodies first, then motifs** | 151 | **79.2%** | 23.3 |
+
+Whole-body lemmas are three times as productive per lemma, but they reach only the sixth of the
+binary the compiler duplicated. Most repetition here is *inside* one large single-instance
+function: `rlp_decode.decodeTxFields` hosts 719 covered instructions on its own. Take the bodies
+first, then let the motif covering work on the remainder — **two extra lemmas buy five points of
+coverage.**
+
+### The unresolved cost
+
+Unchanged, and now the only thing standing between this ranking and a decision: a class-level
+lemma merges several dataflow shapes and needs register-distinctness hypotheses, which no model
+here prices. Section 9 proposes the experiment that would price it.
 
 ## 6. Controls
 
@@ -221,3 +384,79 @@ every small branch target was being recorded as an immediate. The rule is now cl
 - **Motifs are linear.** Windows are consecutive instructions inside one basic block; nothing here
   searches CFG paths.
 - **Nothing is proved.** This ranks candidates.
+
+## 9. Proposed validation spike
+
+Every number above is structural. None of it says a motif lemma *saves work*, because nothing here
+has been written in Lean. One unpriced quantity decides the whole question: **what a motif lemma
+costs to author and to apply, against applying the existing per-instruction class lemmas n times.**
+The payoff model assumed that cost was a constant; it has never been measured on this proof layer.
+
+The spike is small and it is falsifiable. Three cases, chosen because they fail in different ways
+if the idea is wrong.
+
+### Case A — the clean whole body: `mem.readInt`, n=10, 7 sites
+
+One `Seg` lemma for `lbu lbu lbu lbu slli or slli slli or or`, the little-endian u32 read. No
+control transfer, no memory write, one free immediate (section 4's immediate structure: three
+constant shifts of 8, 16, 24 and one varying base). This is the most favourable case in the binary.
+**If a motif lemma does not pay here, it pays nowhere, and the study ends with a negative result.**
+
+### Case B — the systematic small motif: `LOAD LOAD LOAD`, n=3, 280 uses, 38 owners
+
+The covering's first pick, and the representative of the 2–5-gram mass that carries most of the
+coverage. It is a class-level motif, so it merges several dataflow shapes and needs the
+register-distinctness side conditions nobody has priced. **This case measures that price.** It also
+decides the question in section 10 below, because a short motif is exactly where a tactic might
+beat a lemma.
+
+### Case C — the function-level lemma: `alt_fl_alloc.sizeClassOfBytes`, 78 instructions, 4 sites
+
+7.0% of the binary from one lemma, and it cannot be a `Seg` lemma — it holds 24 control transfers.
+This case tests whether a *function-level* lemma form is worth building at all. It is the highest
+prize and the highest risk: if the four instances need four separate proofs of their branch
+structure, the shared class shape buys nothing.
+
+### What to measure
+
+For each case, three numbers, all from the real proof, none estimated:
+
+1. **authoring cost** — lines and wall-clock to state and prove the motif lemma once;
+2. **application cost** — lines per site, against the lines the same site costs today with n
+   class-lemma applications;
+3. **the side conditions that actually appear** — which register-distinctness or aliasing
+   hypotheses the lemma really needs, and whether the caller can discharge them by `decide` or has
+   to prove them.
+
+Break-even follows directly: a lemma pays when
+`sites × (costToday − costWithLemma) > authoringCost`. The study currently guesses the left-hand
+side and ignores the right. After the spike it guesses neither.
+
+**Report the negative result if it is negative.** A finding that class-level motif lemmas cost
+more than they save is worth as much as the opposite, and it is cheap to obtain now.
+
+## 10. The 2–5-grams: lemma, or tactic?
+
+Sections 5.1 and 5a establish that the short motifs carry the coverage — n=2 to n=5 take 81 lemmas
+and claim 34% of the binary at 3 to 11 uses each — and that a lemma at those lengths is a thin
+wrapper around a handful of class-lemma applications. That raises a question the covering cannot
+answer: **should a 3-gram be a lemma at all, or should it be a tactic that chains the three class
+lemmas that already exist?**
+
+The two options differ in where the cost lands.
+
+- **A lemma per motif** pays once at authoring, then once per site. It gives a named, stable fact
+  and a stated interface, and each one must be maintained against changes in the class lemmas.
+- **A tactic that grinds** pays once, for all motifs of all lengths, and nothing per motif. It
+  gives no reusable name and its cost per site is elaboration time rather than lines.
+
+The deciding measurement is Case B, and it is a single comparison: the lines and time for one site
+of `LOAD LOAD LOAD` proved by a bespoke 3-gram lemma, against the same site proved by a tactic that
+chains `decoderLoadStep` three times. **If the tactic is within a small factor, the 81 short-motif
+lemmas should not be written at all** — the covering's short tail is then an argument for
+automation, not for a lemma library, and the lemma effort should go entirely to the long motifs and
+to the whole bodies in section 5a, where a tactic has nothing to chain.
+
+This is the natural reading of the uses-per-lemma curve. At n=2 a lemma is applied 11.2 times and
+saves one class-lemma invocation per application; at n=51 it is applied twice and saves fifty. The
+curve says the short end wants throughput and the long end wants lemmas.

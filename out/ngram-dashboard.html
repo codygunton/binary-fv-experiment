@@ -116,12 +116,15 @@ more with fewer lemmas — and each lemma then has to discharge more side condit
 guessed. Of 88 distinct function names, <strong>12 have two or more instances</strong>, and those
 instances hold 20.6% of the binary. The motif search knew nothing
 about any of this.</p>
-<div class="note">It found them anyway. The strongest motif in the study,
+<div class="note">It found one anyway. The strongest motif in the study,
 <code class="mono">lbu lbu lbu lbu slli or slli slli or or</code>, is exactly the body of
-<code>mem.readInt</code>, which the compiler inlined 7 times with that shape, and of
-<code>ssz.readU32</code>, which wraps it 6 more times. Seven placements of the covering equal a
-whole <code>mem.readInt</code> body, instruction for instruction. An unsupervised search over
-instruction classes rediscovered a function.</div>
+<code>mem.readInt</code>, which the compiler inlined 7 times with that shape. Seven placements of
+the covering equal a whole <code>mem.readInt</code> body, instruction for instruction. An
+unsupervised search over instruction classes rediscovered a function.
+<br><br>Beware of counting <code>ssz.readU32</code> as well: all 10 of its instances are
+<em>pc-identical</em> to the <code>mem.readInt</code> they inline, so it is a pure wrapper that
+contributes no code of its own. Ten of the 14 <code>mem.readInt</code> instances sit inside one.
+</div>
 
 <div class="panel"><h3>The 12 repeated function names — are their bodies the same?</h3>
 <p style="margin-top:0">One instance of a source function is not one shape of code. Inlining
