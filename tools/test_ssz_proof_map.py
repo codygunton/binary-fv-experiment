@@ -59,17 +59,17 @@ class ProofMapTest(unittest.TestCase):
         glue = next(node for node in result["refinementGraph"]["nodes"]
                     if node["kind"] == "parentGlue")
         self.assertEqual((glue["proofStatus"], glue["provedInstructionCount"]),
-                         ("proof_revalidation_pending", 24))
+                         ("proved", 24))
         self.assertEqual(glue["instructionCount"], 24)
         self.assertEqual(glue["absorbedInlineInstructionCount"], 2)
         progress = {row["owner"]: row["status"]
                     for row in result["flameProgress"]["states"]}
         main = next(row for row in self.documents[0]["functionInstances"]
                     if row["kind"] == "concrete" and row["entryPc"] == 0x14cb0)
-        self.assertEqual(progress[main["id"]], "proof_revalidation_pending")
+        self.assertEqual(progress[main["id"]], "proved_conditional")
         memcpy = next(row for row in self.documents[5]["instances"]
                       if row["qualified"] == "memcpy")
-        self.assertEqual(progress[memcpy["id"]], "proof_revalidation_pending")
+        self.assertEqual(progress[memcpy["id"]], "unconditionally_proven")
         self.assertEqual({progress[row["id"]] for row in self.documents[5]["instances"]
                           if row["id"] != memcpy["id"]},
                          {"contract_specified_assumption"})
