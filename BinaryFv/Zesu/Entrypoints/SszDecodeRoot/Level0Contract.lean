@@ -1,5 +1,5 @@
-import BinaryFv.Ssz.Level0MainSteps
-import BinaryFv.Ssz.Level1Contracts
+import BinaryFv.Zesu.MachineExecution.Level0MainSteps
+import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Level1Contracts
 import BinaryFv.RiscV.Step.RegisterWrite
 
 /-!
@@ -10,7 +10,9 @@ The first declarations establish the common execution region and the frame trans
 returning opaque call.
 -/
 
-namespace BinaryFv.Ssz
+namespace BinaryFv.Zesu
+
+open BinaryFv.Specs.SSZ
 
 open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.RiscV
@@ -18,14 +20,14 @@ open BinaryFv.RiscV
 /-- Every instruction selected at Level 0: parent-owned glue or one of its six opaque callees. -/
 def MainExecutionPc (pc : BitVec 64) : Prop :=
   mainGluePcs pc ∨
-  pcInRanges Generated.readInputExecutionPcRanges pc ∨
-  pcInRanges Generated.allocatorGetExecutionPcRanges pc ∨
+  pcInRanges Elflings.readInputExecutionPcRanges pc ∨
+  pcInRanges Elflings.allocatorGetExecutionPcRanges pc ∨
   DecodeExecutionPc pc ∨
-  pcInRanges Generated.writeSuccessExecutionPcRanges pc ∨
-  pcInRanges Generated.writeFailureExecutionPcRanges pc ∨
-  pcInRanges Generated.zkvmExitExecutionPcRanges pc
+  pcInRanges Elflings.writeSuccessExecutionPcRanges pc ∨
+  pcInRanges Elflings.writeFailureExecutionPcRanges pc ∨
+  pcInRanges Elflings.zkvmExitExecutionPcRanges pc
 
-private theorem mainEntry_not_syscall : ¬ LinuxSyscallPc Generated.mainEntry := by
+private theorem mainEntry_not_syscall : ¬ LinuxSyscallPc Elflings.mainEntry := by
   unfold LinuxSyscallPc
   native_decide
 
@@ -115,12 +117,12 @@ structure MainEntry (args : MainArgs) (state : EndpointState) : Prop where
   stackFits : args.stackPointer + 0x380 < 2 ^ 64
   stackAligned : args.stackPointer % 16 = 0
   returnAddressFits : args.returnAddress < 2 ^ 64
-  atPc : state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.mainEntry)
+  atPc : state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.mainEntry)
   stackRegister :
     state.machine.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer + 0x380))
   returnRegister : state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress)
   configured : ConfiguredMachinePre mainGluePcs state.machine
-  code : Generated.programImage.fileBytesLoadedFaithfully state.machine.mem
+  code : Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
   savedReturnPma :
     StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8
   inputSizePma : StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8
@@ -128,11 +130,11 @@ structure MainEntry (args : MainArgs) (state : EndpointState) : Prop where
     StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8
   inputSizeNoMMIO : StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 8)) 8
   stackNotFileBacked : ∀ address, args.stackPointer ≤ address →
-    address < args.stackPointer + 0x380 → Generated.programImage.readFileByte? address = none
+    address < args.stackPointer + 0x380 → Artifacts.programImage.readFileByte? address = none
 
 def MainExit (args : MainArgs) (outcome : MainOutcome)
     (_before after : EndpointState) : Prop :=
-  after.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.zkvmExitTerminalPc) ∧
+  after.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.zkvmExitTerminalPc) ∧
   after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
   after.exitCode = some 0 ∧
   ∃ bytes, after.stdout = bytes ∧
@@ -150,7 +152,7 @@ def mainContractModulo (bugs : List KnownBug) (stepBound : MainArgs → Nat) :
 /-- The complete shipped endpoint implements the reviewed semantics modulo exactly `bugs`. -/
 def ComplianceModulo (bugs : List KnownBug) : Prop :=
   ∃ stepBound, (mainContractModulo bugs stepBound).Implements EndpointStep EndpointPc
-    MainExecutionPc (pcInList [Generated.zkvmExitTerminalPc])
+    MainExecutionPc (pcInList [Elflings.zkvmExitTerminalPc])
 
 /-- The parent contract derived by resolving Level 0 against its six selected children. -/
 abbrev ExportedContractAssumptions : Prop := ComplianceModulo knownBugs
@@ -160,27 +162,27 @@ termination bound while reusing the corresponding implementation proofs. -/
 structure Level1ResolvedContracts where
   readInputBound : Nat → Nat
   readInput : (readInputContract (fun args => readInputBound args.input.size)).Implements
-    EndpointStep EndpointPc (pcInRanges Generated.readInputExecutionPcRanges)
-      (pcInList Generated.readInputExitPcs)
+    EndpointStep EndpointPc (pcInRanges Elflings.readInputExecutionPcRanges)
+      (pcInList Elflings.readInputExitPcs)
   allocatorGetBound : Nat → Nat
   allocatorGet : (allocatorGetContract (fun args => allocatorGetBound args.input.size)).Implements
-    EndpointStep EndpointPc (pcInRanges Generated.allocatorGetExecutionPcRanges)
-      (pcInList Generated.allocatorGetExitPcs)
+    EndpointStep EndpointPc (pcInRanges Elflings.allocatorGetExecutionPcRanges)
+      (pcInList Elflings.allocatorGetExitPcs)
   decodeBound : Nat → Nat
   sszDecode : (decodeContractModuloKnownBugs (fun args => decodeBound args.input.size)).Implements
     EndpointStep EndpointPc DecodeExecutionPc DecodeExitPc
   writeSuccessBound : Nat → Nat
   writeSuccess : (writeSuccessContract (fun args => writeSuccessBound args.inputSize)).Implements
-    EndpointStep EndpointPc (pcInRanges Generated.writeSuccessExecutionPcRanges)
-      (pcInList Generated.writeSuccessExitPcs)
+    EndpointStep EndpointPc (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+      (pcInList Elflings.writeSuccessExitPcs)
   writeFailureBound : Nat
   writeFailure : (writeFailureContract (fun _ => writeFailureBound)).Implements
-    EndpointStep EndpointPc (pcInRanges Generated.writeFailureExecutionPcRanges)
-      (pcInList Generated.writeFailureExitPcs)
+    EndpointStep EndpointPc (pcInRanges Elflings.writeFailureExecutionPcRanges)
+      (pcInList Elflings.writeFailureExitPcs)
   zkvmExitBound : Nat
   zkvmExit : (zkvmExitContract (fun _ => zkvmExitBound)).Implements
-    EndpointStep EndpointPc (pcInRanges Generated.zkvmExitExecutionPcRanges)
-      (pcInList Generated.zkvmExitExitPcs)
+    EndpointStep EndpointPc (pcInRanges Elflings.zkvmExitExecutionPcRanges)
+      (pcInList Elflings.zkvmExitExitPcs)
 
 noncomputable def Level1ContractAssumptions.resolve (h : Level1ContractAssumptions) :
     Level1ResolvedContracts :=
@@ -332,7 +334,7 @@ def MainStackAllocatedHandoff (args : MainArgs) (fromStep : Nat)
   ∃ after : EndpointState,
     ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep 1 before after ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
-    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     EndpointPc after = some 0x14cb4 ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
@@ -348,7 +350,7 @@ theorem main_stack_allocate (args : MainArgs) (fromStep : Nat) (before : Endpoin
     (BitVec.ofNat 64 (args.stackPointer + 0x380)) entry.configured entry.atPc
     entry.stackRegister entry.code
   let afterMachine := tryStepStackAddiAfterRetired before.machine
-    (BitVec.ofNat 64 Generated.mainEntry) (BitVec.ofNat 12 0xc80)
+    (BitVec.ofNat 64 Elflings.mainEntry) (BitVec.ofNat 12 0xc80)
     (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired
   let after : EndpointState := { before with machine := afterMachine }
   have machineStep : MachineStep fromStep before.machine afterMachine := run
@@ -373,7 +375,7 @@ theorem main_stack_allocate (args : MainArgs) (fromStep : Nat) (before : Endpoin
       Nat.mod_eq_of_lt (by omega : args.stackPointer < 2 ^ 64)]
   refine ⟨after,
       main_confined_sail_step fromStep before afterMachine
-        (BitVec.ofNat 64 Generated.mainEntry) (by simpa [EndpointPc] using entry.atPc)
+        (BitVec.ofNat 64 Elflings.mainEntry) (by simpa [EndpointPc] using entry.atPc)
         (by refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
       mainEntry_not_syscall machineStep,
       ConfiguredMachinePre.afterStackAddi _ _ _ _ entry.configured,
@@ -382,24 +384,24 @@ theorem main_stack_allocate (args : MainArgs) (fromStep : Nat) (before : Endpoin
         simp [after, afterMachine, EndpointPc, MachinePc, tryStepStackAddiAfterRetired,
           tryStepStackAddiAfterTick, tryStepStackAddiAfterActive, stackAddiRetiredState,
           stackAddiNextState, tryStepStackAddiAfterIncrement, Std.ExtDHashMap.get?_insert,
-          Generated.mainEntry]
+          Elflings.mainEntry]
         native_decide),
       (by
         simpa [after, afterMachine, stackResult] using
           tryStepStackAddiAfterRetired_stackPointer before.machine
-            (BitVec.ofNat 64 Generated.mainEntry) (BitVec.ofNat 12 0xc80)
+            (BitVec.ofNat 64 Elflings.mainEntry) (BitVec.ofNat 12 0xc80)
             (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired),
       (by
         calc
           after.machine.regs.get? x1 = before.machine.regs.get? x1 :=
             (stackAddiRetirement_writes before.machine
-              (BitVec.ofNat 64 Generated.mainEntry) (BitVec.ofNat 12 0xc80)
+              (BitVec.ofNat 64 Elflings.mainEntry) (BitVec.ofNat 12 0xc80)
               (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired).get x1 (by decide)
           _ = some (BitVec.ofNat 64 args.returnAddress) := entry.returnRegister),
       (by
         apply storePmaAllows_of_agree
           ((stackAddiRetirement_writes before.machine
-            (BitVec.ofNat 64 Generated.mainEntry) (BitVec.ofNat 12 0xc80)
+            (BitVec.ofNat 64 Elflings.mainEntry) (BitVec.ofNat 12 0xc80)
             (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired).agree
               (platformPreserved_disjoint.union
                 (RegSet.Disjoint.only (by simp [platformPreserved]))))
@@ -407,7 +409,7 @@ theorem main_stack_allocate (args : MainArgs) (fromStep : Nat) (before : Endpoin
       (by
         apply storePmaAllows_of_agree
           ((stackAddiRetirement_writes before.machine
-            (BitVec.ofNat 64 Generated.mainEntry) (BitVec.ofNat 12 0xc80)
+            (BitVec.ofNat 64 Elflings.mainEntry) (BitVec.ofNat 12 0xc80)
             (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired).agree
               (platformPreserved_disjoint.union
                 (RegSet.Disjoint.only (by simp [platformPreserved]))))
@@ -421,7 +423,7 @@ def MainReturnSavedHandoff (args : MainArgs) (fromStep : Nat)
   ∃ after : EndpointState,
     ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep 2 before after ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
-    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     EndpointPc after = some 0x14cb8 ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
@@ -497,8 +499,8 @@ theorem main_save_return_address (args : MainArgs) (fromStep : Nat) (before : En
   have writes := main_store_retirement_writes 0x14cb4 retired writeRegs
   have platformAgree : Agree platformPreserved stackState.machine afterMachine :=
     writes.agree platformPreserved_disjoint
-  have codeWrite : Generated.programImage.fileBytesLoadedFaithfully afterWrite.mem := by
-    apply fileBytesLoadedFaithfully_afterWriteBytes Generated.programImage premise
+  have codeWrite : Artifacts.programImage.fileBytesLoadedFaithfully afterWrite.mem := by
+    apply fileBytesLoadedFaithfully_afterWriteBytes Artifacts.programImage premise
       (BitVec.ofNat 64 (args.stackPointer + 0x378)).toNat
       (BitVec.ofNat 64 args.returnAddress)
     · intro index
@@ -539,7 +541,7 @@ def MainFrameInitializedHandoff (args : MainArgs) (fromStep : Nat)
   ∃ after : EndpointState,
     ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep 3 before after ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
-    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     EndpointPc after = some 0x14cbc ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
@@ -607,8 +609,8 @@ theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : Endpo
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement savedState.machine) 0x14cb8).regs :=
     afterWriteBytes_regs premise _ _
   have writes := main_store_retirement_writes 0x14cb8 retired writeRegs
-  have codeWrite : Generated.programImage.fileBytesLoadedFaithfully afterWrite.mem := by
-    apply fileBytesLoadedFaithfully_afterWriteBytes Generated.programImage premise
+  have codeWrite : Artifacts.programImage.fileBytesLoadedFaithfully afterWrite.mem := by
+    apply fileBytesLoadedFaithfully_afterWriteBytes Artifacts.programImage premise
       (BitVec.ofNat 64 (args.stackPointer + 8)).toNat 0
     · intro index
       have destinationBound : args.stackPointer + 8 < 2 ^ 64 := by
@@ -653,7 +655,7 @@ def MainReadInputCallReady (args : MainArgs) (fromStep : Nat)
   ∃ after : EndpointState,
     ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep 6 before after ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
-    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     EndpointPc after = some 0x14cc8 ∧
     after.machine.regs.get? x1 = some 0xfcc4 ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
@@ -685,8 +687,8 @@ theorem main_prepare_read_input_call (args : MainArgs) (fromStep : Nat)
   have configured1 : ConfiguredMachinePre mainGluePcs machine1 :=
     ConfiguredMachinePre.afterRegisterWrite 0x14cbc retired0 x10 value0 configured0 (by
       simp [instructionPreserved, platformPreserved])
-  have code1 : Generated.programImage.fileBytesLoadedFaithfully machine1.mem := by
-    exact fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+  have code1 : Artifacts.programImage.fileBytesLoadedFaithfully machine1.mem := by
+    exact fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
       frameState.machine 0x14cbc retired0 x10 value0 code0
   have pc1 : EndpointPc state1 = some 0x14cc0 := by
     simpa [state1, EndpointPc, MachinePc, machine1] using
@@ -715,8 +717,8 @@ theorem main_prepare_read_input_call (args : MainArgs) (fromStep : Nat)
   have configured2 : ConfiguredMachinePre mainGluePcs machine2 :=
     ConfiguredMachinePre.afterRegisterWrite 0x14cc0 retired1 x11 value1 configured1 (by
       simp [instructionPreserved, platformPreserved])
-  have code2 : Generated.programImage.fileBytesLoadedFaithfully machine2.mem := by
-    exact fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+  have code2 : Artifacts.programImage.fileBytesLoadedFaithfully machine2.mem := by
+    exact fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
       machine1 0x14cc0 retired1 x11 value1 code1
   have pc2 : EndpointPc state2 = some 0x14cc4 := by
     simpa [state2, EndpointPc, MachinePc, machine2] using
@@ -735,7 +737,7 @@ theorem main_prepare_read_input_call (args : MainArgs) (fromStep : Nat)
       main14cc4_not_syscall run2),
     ConfiguredMachinePre.afterRegisterWrite 0x14cc4 retired2 x1 callBase configured2 (by
       simp [instructionPreserved]),
-    fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+    fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
       machine2 0x14cc4 retired2 x1 callBase code2,
     (by simpa [state3, EndpointPc, MachinePc, machine3] using
       afterRegisterWrite_pc machine2 0x14cc4 retired2 x1 callBase),
@@ -766,7 +768,7 @@ def MainReadInputHandoff (contracts : Level1ResolvedContracts) (args : MainArgs)
     ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep (7 + childCount) before after ∧
     0 < childCount ∧ EndpointPc after = some 0x14ccc ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
-    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
@@ -793,7 +795,7 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
     prefixTrace.append (main_confined_sail_step (fromStep + 6) ready callMachine 0x14cc8 atPc
       mainGluePcs_14cc8
       main14cc8_not_syscall run)
-  have callCode : Generated.programImage.fileBytesLoadedFaithfully callMachine.mem := by
+  have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
     simpa [callMachine, callLinkState, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code
   have readEntry : ReadInputEntry
@@ -805,7 +807,7 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
     · simpa [callState] using stdin
     · simpa [callState] using cursor
     · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
-        tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.readInputEntry]
+        tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.readInputEntry]
     · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
     · exact (callWrites.get x10 (by decide)).trans a0
@@ -847,7 +849,7 @@ def MainAllocatorGetHandoff (contracts : Level1ResolvedContracts) (args : MainAr
       (7 + readCount + allocatorCount) before after ∧
     0 < readCount ∧ 0 < allocatorCount ∧ EndpointPc after = some 0x14cec ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
-    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x10 = some (BitVec.ofNat 64 allocatorOutcome.stateAddress) ∧
     after.machine.regs.get? x11 = some (BitVec.ofNat 64 allocatorOutcome.vtableAddress) ∧
@@ -881,7 +883,7 @@ theorem main_call_allocator_get (contracts : Level1ResolvedContracts) (args : Ma
   have allocatorEntry : AllocatorGetEntry allocatorArgs readState := by
     refine ⟨allocatorGetExitPc_14cec, ?_, stackPointer,
       inputAddressRep, inputSizeRep, savedReturnRep, inputRep, code⟩
-    simpa [allocatorArgs, EndpointPc, Generated.allocatorGetEntry] using readPc
+    simpa [allocatorArgs, EndpointPc, Elflings.allocatorGetEntry] using readPc
   let stepBound := contracts.allocatorGetBound
   let implements := contracts.allocatorGet
   obtain ⟨allocatorCount, after, allocatorOutcome, allocatorPositive, allocatorBounded,
@@ -913,7 +915,7 @@ def MainDecodeCallReady (contracts : Level1ResolvedContracts) (args : MainArgs) 
       (10 + readCount + allocatorCount) before after ∧
     0 < readCount ∧ 0 < allocatorCount ∧ EndpointPc after = some 0x14cf8 ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
-    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     after.machine.regs.get? x1 = some 0x11cf4 ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x10 = some (BitVec.ofNat 64 (args.stackPointer + 0x20)) ∧
@@ -964,7 +966,7 @@ theorem main_prepare_decode_call (contracts : Level1ResolvedContracts) (args : M
   have configured1 : ConfiguredMachinePre mainGluePcs machine1 :=
     ConfiguredMachinePre.afterRegisterWrite 0x14cec retired0 x10 value0 configured0 (by
       simp [instructionPreserved, platformPreserved])
-  have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+  have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
     allocatorState.machine 0x14cec retired0 x10 value0 code0
   have pc1 : EndpointPc state1 = some 0x14cf0 := by
     simpa [state1, EndpointPc, MachinePc, machine1] using
@@ -992,7 +994,7 @@ theorem main_prepare_decode_call (contracts : Level1ResolvedContracts) (args : M
         mainGluePcs_14cf0 main14cf0_not_syscall run1)
   have configured2 := ConfiguredMachinePre.afterRegisterWrite 0x14cf0 retired1 x11 value1
     configured1 (by simp [instructionPreserved, platformPreserved])
-  have code2 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+  have code2 := fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
     machine1 0x14cf0 retired1 x11 value1 code1
   have pc2 : EndpointPc state2 = some 0x14cf4 := by
     simpa [state2, EndpointPc, MachinePc, machine2] using
@@ -1018,7 +1020,7 @@ theorem main_prepare_decode_call (contracts : Level1ResolvedContracts) (args : M
       afterRegisterWrite_pc machine2 0x14cf4 retired2 x1 callBase),
     ConfiguredMachinePre.afterRegisterWrite 0x14cf4 retired2 x1 callBase configured2 (by
       simp [instructionPreserved]),
-    fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+    fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
       machine2 0x14cf4 retired2 x1 callBase code2,
     (by simpa [state3, machine3, callBaseEq] using
       (afterRegisterWrite_destination machine2 0x14cf4 retired2 x1 callBase
@@ -1067,7 +1069,7 @@ def MainDecodeHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (f
       decodeOutcome ∧
     EndpointPc after = some 0x14cfc ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
-    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     UIntRep 8 after.machine.mem args.stackPointer readOutcome.inputAddress ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 8) args.input.size ∧
@@ -1110,7 +1112,7 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
     simpa [callState, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
       prefixTrace.append (main_confined_sail_step callStep ready callMachine 0x14cf8 atPc
         mainGluePcs_14cf8 main14cf8_not_syscall run)
-  have callCode : Generated.programImage.fileBytesLoadedFaithfully callMachine.mem := by
+  have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
     simpa [callMachine, callLinkState, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code
   have callMemory : callMachine.mem = ready.machine.mem := by
@@ -1127,7 +1129,7 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
     refine ⟨(by simpa [callState] using stdin), decodeInputExitPc_14cfc, ?_, callCode,
       entry.stackFits, inputRep.1, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
-        tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.decodeInputEntry]
+        tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.decodeInputEntry]
     · exact (callWrites.get x2 (by decide)).trans sp
     · change callMachine.regs.get? x1 = some (BitVec.ofNat 64 decodeArgs.returnAddress)
       simp [decodeArgs, callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -1191,7 +1193,7 @@ def MainStatusLoadedHandoff (contracts : Level1ResolvedContracts) (args : MainAr
       decodeOutcome ∧
     EndpointPc after = some 0x14d00 ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
-    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
@@ -1302,7 +1304,7 @@ def MainStatusBranchedHandoff (contracts : Level1ResolvedContracts) (args : Main
         allocatorVtableAddress := allocatorOutcome.vtableAddress }
       decodeOutcome ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
-    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
@@ -1444,7 +1446,7 @@ def MainOutputSelectedHandoff (contracts : Level1ResolvedContracts) (args : Main
         allocatorVtableAddress := allocatorOutcome.vtableAddress }
       decodeOutcome ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
-    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.exitCode = none ∧
@@ -1499,7 +1501,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
             (by unfold LinuxSyscallPc; native_decide) run0)
       have configured1 := ConfiguredMachinePre.afterRegisterWrite 0x14d04 retired0 x10 value0
         configured x10_not_instructionPreserved
-      have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+      have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
         state.machine 0x14d04 retired0 x10 value0 code
       have pc1 : EndpointPc state1 = some 0x14d08 := by
         simpa [state1, EndpointPc, MachinePc, machine1] using
@@ -1520,7 +1522,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
           trace1.append stepTrace
       have configured2 := ConfiguredMachinePre.afterRegisterWrite 0x14d08 retired1 x1 0x14d08
         configured1 (by simp [instructionPreserved])
-      have code2 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+      have code2 := fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
         machine1 0x14d08 retired1 x1 0x14d08 code1
       have pc2 : EndpointPc state2 = some 0x14d0c := by
         simpa [state2, EndpointPc, MachinePc, machine2] using
@@ -1545,7 +1547,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
               (by unfold LinuxSyscallPc; native_decide) run2
         simpa [callState, step0, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
           trace2.append stepTrace
-      have callCode : Generated.programImage.fileBytesLoadedFaithfully callMachine.mem := by
+      have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
         simpa [callMachine, callLinkState, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code2
       have callMemory : callMachine.mem = state.machine.mem := by
@@ -1556,10 +1558,10 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
         { returnAddress := 0x14d10, stackPointer := args.stackPointer,
           decodedAddress := args.stackPointer + 0x20, decoded, inputSize := args.input.size }
       have writeEntry : WriteSuccessEntry writeArgs callState := by
-        refine ⟨(by show 0x14d10 ∈ Generated.writeSuccessExitPcs; native_decide),
+        refine ⟨(by show 0x14d10 ∈ Elflings.writeSuccessExitPcs; native_decide),
           entry.stackLower, ?_, ?_, ?_, ?_, ?_, callCode⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
-            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.writeSuccessEntry]
+            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.writeSuccessEntry]
         · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, writeArgs]
         · exact (callWrites.get x2 (by decide)).trans
@@ -1617,7 +1619,7 @@ def MainSuccessExitedHandoff (contracts : Level1ResolvedContracts) (args : MainA
     match outcome with
     | .failure => EndpointPc after = some 0x14d1c ∧
         ConfiguredMachinePre mainGluePcs after.machine ∧
-        Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+        Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
         after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
         after.stdout = #[] ∧ after.exitCode = none ∧
         used + 5 + contracts.writeFailureBound + contracts.zkvmExitBound ≤
@@ -1668,7 +1670,7 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
           normalizedPrefix.append stepTrace
       have configured1 := ConfiguredMachinePre.afterRegisterWrite 0x14d10 retired0 x10 0
         configured x10_not_instructionPreserved
-      have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+      have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
         state.machine 0x14d10 retired0 x10 0 code
       have pc1 : EndpointPc state1 = some 0x14d14 := by
         simpa [state1, EndpointPc, MachinePc, machine1] using
@@ -1693,7 +1695,7 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace1.append stepTrace
       have configured2 := ConfiguredMachinePre.afterRegisterWrite 0x14d14 retired1 x1 0xfd14
         configured1 (by simp [instructionPreserved])
-      have code2 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+      have code2 := fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
         machine1 0x14d14 retired1 x1 0xfd14 code1
       have pc2 : EndpointPc state2 = some 0x14d18 := by
         simpa [state2, EndpointPc, MachinePc, machine2] using
@@ -1722,13 +1724,13 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
               (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
               (by unfold LinuxSyscallPc; native_decide) run2
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace2.append stepTrace
-      have callCode : Generated.programImage.fileBytesLoadedFaithfully callMachine.mem := by
+      have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
         simpa [callMachine, callLinkState, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code2
       have exitEntry : ZkvmExitEntry { code := 0 } callState := by
         refine ⟨?_, ?_, callCode⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
-            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.zkvmExitEntry]
+            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.zkvmExitEntry]
         · exact (callWrites.get x10 (by decide)).trans zero2
       let stepBound := contracts.zkvmExitBound
       let implements := contracts.zkvmExit
@@ -1791,7 +1793,7 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
             (by unfold LinuxSyscallPc; native_decide) run0)
       have configured1 := ConfiguredMachinePre.afterRegisterWrite 0x14d1c retired0 x1 0x15d1c
         configured (by simp [instructionPreserved])
-      have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+      have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
         state.machine 0x14d1c retired0 x1 0x15d1c code
       have pc1 : EndpointPc state1 = some 0x14d20 := by
         simpa [state1, EndpointPc, MachinePc, machine1] using
@@ -1815,13 +1817,13 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
               (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
               (by unfold LinuxSyscallPc; native_decide) run1
         simpa [Nat.add_assoc] using trace1.append stepTrace
-      have callCode : Generated.programImage.fileBytesLoadedFaithfully callMachine.mem := by
+      have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
         simpa [callMachine, callLinkState, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code1
       have failureEntry : WriteFailureEntry { returnAddress := 0x14d24 } callState := by
-        refine ⟨(by show 0x14d24 ∈ Generated.writeFailureExitPcs; native_decide), ?_, ?_, callCode⟩
+        refine ⟨(by show 0x14d24 ∈ Elflings.writeFailureExitPcs; native_decide), ?_, ?_, callCode⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
-            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.writeFailureEntry]
+            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.writeFailureEntry]
         · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
       let failureBound := contracts.writeFailureBound
@@ -1866,7 +1868,7 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using writtenTrace.append stepTrace
       have configured3 := ConfiguredMachinePre.afterRegisterWrite 0x14d24 retired2 x10 0
         writtenConfigured x10_not_instructionPreserved
-      have code3 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+      have code3 := fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
         written.machine 0x14d24 retired2 x10 0 writtenCode
       have pc3 : EndpointPc state3 = some 0x14d28 := by
         simpa [state3, EndpointPc, MachinePc, machine3] using
@@ -1890,7 +1892,7 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace3.append stepTrace
       have configured4 := ConfiguredMachinePre.afterRegisterWrite 0x14d28 retired3 x1 0xfd28
         configured3 (by simp [instructionPreserved])
-      have code4 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+      have code4 := fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
         machine3 0x14d28 retired3 x1 0xfd28 code3
       have pc4 : EndpointPc state4 = some 0x14d2c := by
         simpa [state4, EndpointPc, MachinePc, machine4] using
@@ -1918,13 +1920,13 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
               (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
               (by unfold LinuxSyscallPc; native_decide) run4
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace4.append stepTrace
-      have exitCodeLoaded : Generated.programImage.fileBytesLoadedFaithfully exitMachine.mem := by
+      have exitCodeLoaded : Artifacts.programImage.fileBytesLoadedFaithfully exitMachine.mem := by
         simpa [exitMachine, callLinkState, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code4
       have terminalEntry : ZkvmExitEntry { code := 0 } exitState := by
         refine ⟨?_, (exitWrites.get x10 (by decide)).trans zero4, exitCodeLoaded⟩
         simp [exitState, exitMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
-          tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.zkvmExitEntry]
+          tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.zkvmExitEntry]
       let exitBound := contracts.zkvmExitBound
       let exitImplements := contracts.zkvmExit
       obtain ⟨exitCount, after, unit, exitPositive, exitBounded, exitTrace, _terminal,
@@ -1947,23 +1949,4 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
         · exact finalStdout.trans (by simpa [exitState, state4, state3] using writtenStdoutEq)
       · omega
 
-/-- Resolve the six reviewed Level 1 contracts into the complete Level 0 endpoint contract. -/
-theorem exportedContracts_of_level1
-    (hLevel1 : Level1ContractAssumptions) : ExportedContractAssumptions := by
-  let contracts := hLevel1.resolve
-  refine ⟨fun args => level0ResolvedStepBound contracts args.input.size, ?_⟩
-  intro args fromStep before entry
-  obtain ⟨used, after, outcome, trace, usedPositive, meaning, exit, bounded⟩ :=
-    main_resolved_handoff contracts args fromStep before entry
-  refine ⟨used, after, outcome, usedPositive, bounded, trace, ?_, meaning, exit⟩
-  exact ⟨Generated.zkvmExitTerminalPc, (by simpa [EndpointPc] using exit.1), by
-    unfold pcInList
-    native_decide⟩
-
-/-- The shipped endpoint satisfies the fixed SSZ/RLP compliance relation if its six immediate
-Level 1 machine contracts hold. -/
-theorem root_compliance
-    (hLevel1 : Level1ContractAssumptions) : ComplianceModulo knownBugs :=
-  exportedContracts_of_level1 hLevel1
-
-end BinaryFv.Ssz
+end BinaryFv.Zesu

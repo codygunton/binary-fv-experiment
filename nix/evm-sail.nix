@@ -79,22 +79,25 @@ let
   } ''
     cp -R ${binaryFvLean}/lean compiled
     chmod -R u+w compiled
-    mkdir -p compiled/BinaryFv/Ssz
-    mkdir -p compiled/BinaryFv/Ssz/Generated
+    mkdir -p compiled/BinaryFv/Specs/SSZ
+    mkdir -p compiled/BinaryFv/Zesu/{Contracts,DecodedValue,Elflings,Entrypoints/SszDecodeRoot}
     mkdir -p compiled/BinaryFv/RiscV/Logic
     mkdir -p compiled/BinaryFv/RiscV/Model
     mkdir -p compiled/BinaryFv/Binary
     export LEAN_PATH=$PWD/compiled:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
-    cp ${repo}/BinaryFv/Ssz/Specification.lean Specification.lean
-    cp ${repo}/BinaryFv/Ssz/ZesuObservation.lean ZesuObservation.lean
-    cp ${repo}/BinaryFv/Ssz/ZigRepresentation.lean ZigRepresentation.lean
-    cp ${repo}/BinaryFv/Ssz/Relation.lean Relation.lean
-    cp ${repo}/BinaryFv/Ssz/Level1Boundary.lean Level1Boundary.lean
-    cp ${repo}/BinaryFv/Ssz/Level1Contracts.lean Level1Contracts.lean
-    cp ${repo}/BinaryFv/Ssz/Level0MainContract.lean Level0MainContract.lean
-    cp ${repo}/BinaryFv/Ssz/Generated/Level1.lean Level1Generated.lean
-    cp ${repo}/BinaryFv/Ssz/MachineContract.lean MachineContract.lean
-    cp ${repo}/BinaryFv/Ssz/HostExecution.lean HostExecution.lean
+    cp ${repo}/BinaryFv/Specs/SSZ/Decode.lean Decode.lean
+    cp ${repo}/BinaryFv/Zesu/DecodedValue/Observers.lean Observers.lean
+    cp ${repo}/BinaryFv/Zesu/DecodedValue/Representation.lean Representation.lean
+    cp ${repo}/BinaryFv/Zesu/Contracts/KnownBugs.lean KnownBugs.lean
+    cp ${repo}/BinaryFv/Zesu/Contracts/DecodedResultRelation.lean DecodedResultRelation.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.lean Level1Boundary.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.lean Level1Contracts.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.lean Level0Contract.lean
+    cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
+    cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
+    cp ${repo}/BinaryFv/Zesu/Elflings/GeneratedLevel1.lean GeneratedLevel1.lean
+    cp ${repo}/BinaryFv/Zesu/Contracts/Machine.lean Machine.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/HostExecution.lean HostExecution.lean
     cp ${repo}/BinaryFv/RiscV/Logic/MemoryWriteFrame.lean MemoryWriteFrame.lean
     cp ${repo}/BinaryFv/RiscV/Logic/RegisterAgree.lean RegisterAgree.lean
     cp ${repo}/BinaryFv/RiscV/Logic/LoadedImage.lean LoadedImage.lean
@@ -126,22 +129,25 @@ let
       --replace-fail '@KEYS_SUCCESS@' '${zesuSszDecodeSmoke}/public-key-overflow.out' \
       --replace-fail '@HASHES_INPUT@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.ssz' \
       --replace-fail '@HASHES_SUCCESS@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.out'
-    lean -o compiled/BinaryFv/Ssz/Specification.olean Specification.lean
-    lean -o compiled/BinaryFv/Ssz/ZesuObservation.olean ZesuObservation.lean
-    lean -o compiled/BinaryFv/Ssz/ZigRepresentation.olean ZigRepresentation.lean
-    lean -o compiled/BinaryFv/Ssz/Relation.olean Relation.lean
-    lean -o compiled/BinaryFv/Ssz/Generated/Level1.olean Level1Generated.lean
-    lean -o compiled/BinaryFv/Ssz/MachineContract.olean MachineContract.lean
+    lean -o compiled/BinaryFv/Specs/SSZ/Decode.olean Decode.lean
+    lean -o compiled/BinaryFv/Zesu/DecodedValue/Observers.olean Observers.lean
+    lean -o compiled/BinaryFv/Zesu/DecodedValue/Representation.olean Representation.lean
+    lean -o compiled/BinaryFv/Zesu/Contracts/KnownBugs.olean KnownBugs.lean
+    lean -o compiled/BinaryFv/Zesu/Contracts/DecodedResultRelation.olean DecodedResultRelation.lean
+    lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel1.olean GeneratedLevel1.lean
+    lean -o compiled/BinaryFv/Zesu/Contracts/Machine.olean Machine.lean
     lean -o compiled/BinaryFv/Binary/Address.olean BinaryAddress.lean
     lean -o compiled/BinaryFv/RiscV/Model/Address.olean RiscVAddress.lean
     lean -o compiled/BinaryFv/RiscV/Model/State.olean RiscVState.lean
     lean -o compiled/BinaryFv/RiscV/Logic/LoadedImage.olean LoadedImage.lean
     lean -o compiled/BinaryFv/RiscV/Logic/MemoryWriteFrame.olean MemoryWriteFrame.lean
     lean -o compiled/BinaryFv/RiscV/Logic/RegisterAgree.olean RegisterAgree.lean
-    lean -o compiled/BinaryFv/Ssz/HostExecution.olean HostExecution.lean
-    lean -o compiled/BinaryFv/Ssz/Level1Boundary.olean Level1Boundary.lean
-    lean -o compiled/BinaryFv/Ssz/Level1Contracts.olean Level1Contracts.lean
-    lean -o compiled/BinaryFv/Ssz/Level0MainContract.olean Level0MainContract.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/HostExecution.olean HostExecution.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.olean Level1Boundary.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.olean Level1Contracts.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.olean Level0Contract.lean
+    lean -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
+    lean -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
     lean DifferentialSmoke.lean

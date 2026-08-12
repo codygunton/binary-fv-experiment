@@ -8,7 +8,7 @@ file keeps the required interface small: actual Sail `try_step` execution, exact
 positive bounded trace, an allowed semantic outcome, and a machine exit relation.
 -/
 
-namespace BinaryFv.Ssz
+namespace BinaryFv.Zesu
 
 open PreSail LeanRV64DExecutable.Functions Register
 
@@ -91,4 +91,4 @@ def pcInRanges (ranges : List (Nat × Nat)) (pc : BitVec 64) : Prop :=
 def pcInList (pcs : List Nat) (pc : BitVec 64) : Prop :=
   pc.toNat ∈ pcs
 
-end BinaryFv.Ssz
+end BinaryFv.Zesu

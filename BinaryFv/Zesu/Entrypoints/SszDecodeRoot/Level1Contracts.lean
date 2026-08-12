@@ -1,4 +1,4 @@
-import BinaryFv.Ssz.Level1Boundary
+import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Level1Boundary
 
 /-!
 # Level 1 contract assumptions for the SSZ endpoint
@@ -9,7 +9,7 @@ the register, memory, and endpoint-state frames needed by the Level 0 proof. Thi
 assumptions; later refinement levels discharge them.
 -/
 
-namespace BinaryFv.Ssz
+namespace BinaryFv.Zesu
 
 open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.RiscV
@@ -26,15 +26,15 @@ structure ReadInputOutcome where
   inputAddress : Nat
 
 def ReadInputEntry (args : ReadInputArgs) (state : EndpointState) : Prop :=
-  args.returnAddress ∈ Generated.readInputExitPcs ∧
+  args.returnAddress ∈ Elflings.readInputExitPcs ∧
   args.input.size ≤ 64 * 1024 * 1024 ∧
   state.stdin = args.input ∧ state.stdinCursor = 0 ∧
-  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.readInputEntry) ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.readInputEntry) ∧
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.bufferSlot) ∧
   state.machine.regs.get? x11 = some (BitVec.ofNat 64 args.sizeSlot) ∧
   UIntRep 8 state.machine.mem args.savedFrameAddress args.savedReturnAddress ∧
-  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
 def ReadInputExit (args : ReadInputArgs) (outcome : ReadInputOutcome)
     (before after : EndpointState) : Prop :=
@@ -61,10 +61,10 @@ def readInputContract (stepBound : ReadInputArgs → Nat) :
 def ReadInputInstanceContract : Prop :=
   ∃ stepBound : Nat → Nat,
     (readInputContract (fun args => stepBound args.input.size)).Implements EndpointStep EndpointPc
-    (pcInRanges Generated.readInputExecutionPcRanges)
-    (pcInList Generated.readInputExitPcs)
+    (pcInRanges Elflings.readInputExecutionPcRanges)
+    (pcInList Elflings.readInputExitPcs)
 
-theorem readInputExitPc_14ccc : 0x14ccc ∈ Generated.readInputExitPcs := by native_decide
+theorem readInputExitPc_14ccc : 0x14ccc ∈ Elflings.readInputExitPcs := by native_decide
 
 structure AllocatorGetArgs where
   returnAddress : Nat
@@ -78,14 +78,14 @@ structure AllocatorGetOutcome where
   vtableAddress : Nat
 
 def AllocatorGetEntry (args : AllocatorGetArgs) (state : EndpointState) : Prop :=
-  args.returnAddress ∈ Generated.allocatorGetExitPcs ∧
-  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.allocatorGetEntry) ∧
+  args.returnAddress ∈ Elflings.allocatorGetExitPcs ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.allocatorGetEntry) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   UIntRep 8 state.machine.mem args.stackPointer args.inputAddress ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 8) args.input.size ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.savedReturnAddress ∧
   BytesRep state.machine.mem args.inputAddress args.input ∧
-  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
 def AllocatorGetExit (args : AllocatorGetArgs) (outcome : AllocatorGetOutcome)
     (before after : EndpointState) : Prop :=
@@ -120,10 +120,10 @@ def allocatorGetContract (stepBound : AllocatorGetArgs → Nat) :
 def AllocatorGetInstanceContract : Prop :=
   ∃ stepBound : Nat → Nat,
     (allocatorGetContract (fun args => stepBound args.input.size)).Implements EndpointStep EndpointPc
-    (pcInRanges Generated.allocatorGetExecutionPcRanges)
-    (pcInList Generated.allocatorGetExitPcs)
+    (pcInRanges Elflings.allocatorGetExecutionPcRanges)
+    (pcInList Elflings.allocatorGetExitPcs)
 
-theorem allocatorGetExitPc_14cec : 0x14cec ∈ Generated.allocatorGetExitPcs := by native_decide
+theorem allocatorGetExitPc_14cec : 0x14cec ∈ Elflings.allocatorGetExitPcs := by native_decide
 
 structure WriteSuccessArgs where
   returnAddress : Nat
@@ -133,13 +133,13 @@ structure WriteSuccessArgs where
   inputSize : Nat
 
 def WriteSuccessEntry (args : WriteSuccessArgs) (state : EndpointState) : Prop :=
-  args.returnAddress ∈ Generated.writeSuccessExitPcs ∧ 0x7d0 ≤ args.stackPointer ∧
-  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.writeSuccessEntry) ∧
+  args.returnAddress ∈ Elflings.writeSuccessExitPcs ∧ 0x7d0 ≤ args.stackPointer ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.writeSuccessEntry) ∧
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.decodedAddress) ∧
   StatelessInputRep state.machine.mem args.decodedAddress args.decoded ∧
-  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
 def WriteSuccessExit (args : WriteSuccessArgs) (bytes : Array UInt8)
     (before after : EndpointState) : Prop :=
@@ -162,17 +162,17 @@ def writeSuccessContract (stepBound : WriteSuccessArgs → Nat) :
 def WriteSuccessInstanceContract : Prop :=
   ∃ stepBound : Nat → Nat,
     (writeSuccessContract (fun args => stepBound args.inputSize)).Implements EndpointStep EndpointPc
-    (pcInRanges Generated.writeSuccessExecutionPcRanges)
-    (pcInList Generated.writeSuccessExitPcs)
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+    (pcInList Elflings.writeSuccessExitPcs)
 
 structure WriteFailureArgs where
   returnAddress : Nat
 
 def WriteFailureEntry (args : WriteFailureArgs) (state : EndpointState) : Prop :=
-  args.returnAddress ∈ Generated.writeFailureExitPcs ∧
-  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.writeFailureEntry) ∧
+  args.returnAddress ∈ Elflings.writeFailureExitPcs ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.writeFailureEntry) ∧
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
-  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
 def WriteFailureExit (args : WriteFailureArgs) (bytes : Array UInt8)
     (before after : EndpointState) : Prop :=
@@ -193,20 +193,20 @@ def writeFailureContract (stepBound : WriteFailureArgs → Nat) :
 def WriteFailureInstanceContract : Prop :=
   ∃ stepBound : Nat,
     (writeFailureContract (fun _ => stepBound)).Implements EndpointStep EndpointPc
-    (pcInRanges Generated.writeFailureExecutionPcRanges)
-    (pcInList Generated.writeFailureExitPcs)
+    (pcInRanges Elflings.writeFailureExecutionPcRanges)
+    (pcInList Elflings.writeFailureExitPcs)
 
 structure ZkvmExitArgs where
   code : Nat
 
 def ZkvmExitEntry (args : ZkvmExitArgs) (state : EndpointState) : Prop :=
-  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.zkvmExitEntry) ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.zkvmExitEntry) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.code) ∧
-  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
 def ZkvmExitPost (args : ZkvmExitArgs) (_outcome : Unit)
     (before after : EndpointState) : Prop :=
-  after.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.zkvmExitTerminalPc) ∧
+  after.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.zkvmExitTerminalPc) ∧
   after.exitCode = some args.code ∧ after.stdin = before.stdin ∧
   after.stdinCursor = before.stdinCursor ∧ after.stdout = before.stdout ∧
   after.machine.mem = before.machine.mem
@@ -221,8 +221,8 @@ def zkvmExitContract (stepBound : ZkvmExitArgs → Nat) :
 def ZkvmExitInstanceContract : Prop :=
   ∃ stepBound : Nat,
     (zkvmExitContract (fun _ => stepBound)).Implements EndpointStep EndpointPc
-    (pcInRanges Generated.zkvmExitExecutionPcRanges)
-    (pcInList Generated.zkvmExitExitPcs)
+    (pcInRanges Elflings.zkvmExitExecutionPcRanges)
+    (pcInList Elflings.zkvmExitExitPcs)
 
 /-- The sole proof-progress argument of the initial conditional compliance theorem. -/
 structure Level1ContractAssumptions : Prop where
@@ -233,4 +233,4 @@ structure Level1ContractAssumptions : Prop where
   writeSuccess : WriteSuccessInstanceContract
   writeFailure : WriteFailureInstanceContract
 
-end BinaryFv.Ssz
+end BinaryFv.Zesu

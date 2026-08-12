@@ -1,7 +1,7 @@
-import BinaryFv.Ssz.MachineContract
-import BinaryFv.Ssz.ZigRepresentation
-import BinaryFv.Ssz.Generated.Level1
-import BinaryFv.Ssz.Generated.ProgramImage
+import BinaryFv.Zesu.Contracts.Machine
+import BinaryFv.Zesu.DecodedValue.Representation
+import BinaryFv.Zesu.Elflings.GeneratedLevel1
+import BinaryFv.Zesu.Artifacts.Image
 import BinaryFv.RiscV.Logic.MemoryWriteFrame
 import BinaryFv.RiscV.Logic.RegisterAgree
 import BinaryFv.RiscV.Logic.LoadedImage
@@ -16,7 +16,7 @@ Treating `ecall` as an ordinary Sail step would instead enter the bare-machine t
 not describe the shipped program observed under QEMU user mode.
 -/
 
-namespace BinaryFv.Ssz
+namespace BinaryFv.Zesu
 
 open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.RiscV
@@ -48,14 +48,14 @@ def abiCalleePreserved : Register → Prop := fun register =>
 def EndpointCallFrame (before after : EndpointState) : Prop :=
   Agree abiCalleePreserved before.machine after.machine ∧
   RetiredCounterPresent after.machine ∧
-  Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
   after.machine.choiceState = before.machine.choiceState ∧
   after.machine.tags = before.machine.tags ∧
   after.machine.sailOutput = before.machine.sailOutput
 
-abbrev readEcallPc : Nat := Generated.readInputEcallPc
-abbrev writeEcallPc : Nat := Generated.writeOutputEcallPc
-abbrev exitEcallPc : Nat := Generated.zkvmExitEcallPc
+abbrev readEcallPc : Nat := Elflings.readInputEcallPc
+abbrev writeEcallPc : Nat := Elflings.writeOutputEcallPc
+abbrev exitEcallPc : Nat := Elflings.zkvmExitEcallPc
 
 def LinuxSyscallPc (pc : BitVec 64) : Prop :=
   pc.toNat = readEcallPc ∨ pc.toNat = writeEcallPc ∨ pc.toNat = exitEcallPc
@@ -142,4 +142,4 @@ theorem endpointStep_sail (stepNo : Nat) (before : EndpointState) (after : Machi
     EndpointStep stepNo before { before with machine := after } := by
   exact .sail notSyscall step rfl rfl rfl rfl
 
-end BinaryFv.Ssz
+end BinaryFv.Zesu

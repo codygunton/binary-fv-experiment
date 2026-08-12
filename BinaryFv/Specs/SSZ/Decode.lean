@@ -2,7 +2,7 @@ import BinaryFv
 import Evm.Lib.Ssz.StatelessInput
 
 /-!
-# SSZ spike specification boundary
+# EVM-Sail SSZ decoding specification
 
 The reference decoder is the pinned EVM-Sail computation itself.  This file does not restate SSZ:
 `SailDecode` records successful execution of `decode_stateless_input_ref` followed by
@@ -10,7 +10,7 @@ The reference decoder is the pinned EVM-Sail computation itself.  This file does
 `decode_transaction` pairwise when the common decoded-result relation is introduced.
 -/
 
-namespace BinaryFv.Ssz
+namespace BinaryFv.Specs.SSZ
 
 open Sail Evm Evm.Defs Evm.Functions
 
@@ -97,25 +97,6 @@ def SailDecode (input : Array UInt8) (decoded : SailDecoded) : Prop :=
     ((sailDecodeAction input.size).run initial).run default =
       .ok (decoded, finalHost) finalSailState
 
-/-- Reviewed divergence classes between the pinned Zesu and EVM-Sail revisions. -/
-inductive KnownBug where
-  | chainIdZeroNormalization
-  | legacyRequestTableArity
-  | legacyPayloadSize
-  | futureForkActivation
-  | extraDataLength
-  | publicKeyCount
-  | versionedHashCount
-  deriving DecidableEq, Repr
-
-/-- The fixed exception set.  Callers of `root_compliance` cannot add exceptions. -/
-def knownBugs : List KnownBug :=
-  [.chainIdZeroNormalization, .legacyRequestTableArity, .legacyPayloadSize,
-    .futureForkActivation, .extraDataLength, .publicKeyCount, .versionedHashCount]
-
-theorem mem_knownBugs (bug : KnownBug) : bug ∈ knownBugs := by
-  cases bug <;> decide
-
 /-- The four-byte Ere length prefix is transport framing, not a semantic exception. -/
 def stripErePrefix (input : Array UInt8) : Option (Array UInt8) := do
   if input.size < 4 then none else
@@ -123,4 +104,4 @@ def stripErePrefix (input : Array UInt8) : Option (Array UInt8) := do
     65536 * (input[2]!).toNat + 16777216 * (input[3]!).toNat
   if length = input.size - 4 then some (input.extract 4 input.size) else none
 
-end BinaryFv.Ssz
+end BinaryFv.Specs.SSZ

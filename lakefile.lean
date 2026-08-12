@@ -15,8 +15,8 @@ lean_lib LeanRV64DExecutable where
 lean_lib ZesuSszDecodeProgramImage where
   roots := #[`ZesuSszDecodeProgramImage]
 
-lean_lib BinaryFvSszGeneratedProgramImage where
-  roots := #[`BinaryFv.Ssz.Generated.ProgramImage]
+lean_lib BinaryFvZesuArtifactsImage where
+  roots := #[`BinaryFv.Zesu.Artifacts.Image]
 
 @[default_target]
 lean_lib BinaryFv where

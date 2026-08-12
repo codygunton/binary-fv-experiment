@@ -1,6 +1,6 @@
-import BinaryFv.Ssz.ZesuObservation
+import BinaryFv.Zesu.DecodedValue.Observers
 
-open BinaryFv.Ssz
+open BinaryFv.Zesu
 
 private def readObservation (path : System.FilePath) : IO ZesuObservation := do
   let bytes ← IO.FS.readBinFile path

@@ -1,8 +1,11 @@
-import BinaryFv.Ssz.ZesuObservation
+import BinaryFv.Zesu.DecodedValue.Observers
+import BinaryFv.Zesu.Contracts.KnownBugs
 
 /-! The common decoded-result surface shared by Zesu and EVM-Sail. -/
 
-namespace BinaryFv.Ssz
+namespace BinaryFv.Zesu
+
+open BinaryFv.Specs.SSZ
 
 def sailSliceBytes (source : Array UInt8) : Evm.Defs.StatelessInputSlice → Array UInt8
   | ⟨offset, ⟨length, _⟩⟩ => source.extract offset (offset + length)
@@ -173,4 +176,4 @@ instance (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded) 
     recipientMatches withdrawalMatches arrayRel
   infer_instance
 
-end BinaryFv.Ssz
+end BinaryFv.Zesu

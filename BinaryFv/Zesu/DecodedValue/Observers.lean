@@ -1,8 +1,8 @@
-import BinaryFv.Ssz.Specification
+import BinaryFv
 
 /-! Typed decoder for the version-one `ZSSZ` endpoint observation stream. -/
 
-namespace BinaryFv.Ssz
+namespace BinaryFv.Zesu
 
 structure AccessListEntry where
   address : Array UInt8
@@ -249,4 +249,4 @@ def decodeZesuObservation (input : Array UInt8) : Option ZesuObservation := do
   guard (position = input.size)
   pure observation
 
-end BinaryFv.Ssz
+end BinaryFv.Zesu

@@ -1,9 +1,9 @@
-import BinaryFv.Ssz.Relation
-import BinaryFv.Ssz.ZigRepresentation
-import BinaryFv.Ssz.Generated.Level1
-import BinaryFv.Ssz.Generated.ProgramImage
-import BinaryFv.Ssz.HostExecution
-import BinaryFv.Ssz.Level0MainSteps
+import BinaryFv.Zesu.Contracts.DecodedResultRelation
+import BinaryFv.Zesu.DecodedValue.Representation
+import BinaryFv.Zesu.Elflings.GeneratedLevel1
+import BinaryFv.Zesu.Artifacts.Image
+import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.HostExecution
+import BinaryFv.Zesu.MachineExecution.Level0MainSteps
 import BinaryFv.RiscV.Logic.LoadedImage
 import BinaryFv.RiscV.Model.Abi
 
@@ -15,9 +15,10 @@ compiler-specific relation over scattered caller temporaries. This file delibera
 a step bound or implementation theorem yet.
 -/
 
-namespace BinaryFv.Ssz
+namespace BinaryFv.Zesu
 
 open PreSail LeanRV64DExecutable.Functions Register
+open BinaryFv.Specs.SSZ
 
 structure DecodeBoundaryArgs where
   returnAddress : Nat
@@ -52,9 +53,9 @@ def DecodeMeaningModuloKnownBugs (args : DecodeBoundaryArgs) : DecodeBoundaryOut
 descriptor address in `a1`, and the input slice in `a2`/`a3`. -/
 def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Prop :=
   state.stdin = args.input ∧
-  args.returnAddress ∈ Generated.decodeInputExitPcs ∧
-  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.decodeInputEntry) ∧
-  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  args.returnAddress ∈ Elflings.decodeInputExitPcs ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.decodeInputEntry) ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   args.stackPointer + 0x380 < 2 ^ 64 ∧
   args.inputAddress + args.input.size ≤ 2 ^ 64 ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
@@ -87,7 +88,7 @@ def DecodeBoundaryExit (args : DecodeBoundaryArgs) (outcome : DecodeBoundaryOutc
   UIntRep 8 state.machine.mem (args.stackPointer + 8) args.input.size ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.savedReturnAddress ∧
   BytesRep state.machine.mem args.inputAddress args.input ∧
-  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   state.machine.choiceState = before.machine.choiceState ∧
   state.machine.tags = before.machine.tags ∧
   state.machine.sailOutput = before.machine.sailOutput ∧
@@ -120,12 +121,12 @@ def decodeContractModuloKnownBugs (stepBound : DecodeBoundaryArgs → Nat) :
     stepBound }
 
 def DecodeExecutionPc : BitVec 64 → Prop :=
-  pcInRanges Generated.decodeInputExecutionPcRanges
+  pcInRanges Elflings.decodeInputExecutionPcRanges
 
 def DecodeExitPc (pc : BitVec 64) : Prop :=
-  pcInList Generated.decodeInputExitPcs pc
+  pcInList Elflings.decodeInputExitPcs pc
 
-theorem decodeInputExitPc_14cfc : 0x14cfc ∈ Generated.decodeInputExitPcs := by native_decide
+theorem decodeInputExitPc_14cfc : 0x14cfc ∈ Elflings.decodeInputExitPcs := by native_decide
 
 /-- The exact strict implementation obligation at the generated production boundary. -/
 abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : Prop :=
@@ -138,4 +139,4 @@ def DecodeInstanceContractModuloKnownBugs : Prop :=
     (decodeContractModuloKnownBugs (fun args => stepBound args.input.size)).Implements
       EndpointStep EndpointPc DecodeExecutionPc DecodeExitPc
 
-end BinaryFv.Ssz
+end BinaryFv.Zesu

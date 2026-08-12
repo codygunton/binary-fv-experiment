@@ -1,6 +1,6 @@
-import BinaryFv.Ssz.Relation
+import BinaryFv.Zesu.Contracts.DecodedResultRelation
 
-open BinaryFv.Ssz
+open BinaryFv.Specs.SSZ BinaryFv.Zesu
 
 private def readSuccess (path : System.FilePath) : IO ZesuDecodedResult := do
   let bytes ← IO.FS.readBinFile path

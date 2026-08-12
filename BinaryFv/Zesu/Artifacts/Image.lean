@@ -1,14 +1,14 @@
 import ZesuSszDecodeProgramImage
-import BinaryFv.Ssz.Generated.Level1
+import BinaryFv.Zesu.Elflings.GeneratedLevel1
 
-namespace BinaryFv.Ssz.Generated
+namespace BinaryFv.Zesu.Artifacts
 
 open BinaryFv.Binary
 
 /-- The exact file-backed load image generated from the production SSZ endpoint ELF. -/
 abbrev programImage : ProgramImage := Program.image
 
-theorem programImage_artifactSha256 : Program.artifactSha256 = artifactSha256 := by
+theorem programImage_artifactSha256 : Program.artifactSha256 = Elflings.artifactSha256 := by
   decide
 
-end BinaryFv.Ssz.Generated
+end BinaryFv.Zesu.Artifacts
