@@ -25,6 +25,69 @@ def MainExecutionPc (pc : BitVec 64) : Prop :=
   pcInRanges Generated.writeFailureExecutionPcRanges pc ∨
   pcInRanges Generated.zkvmExitExecutionPcRanges pc
 
+structure MainArgs where
+  input : Array UInt8
+  stackPointer : Nat
+  returnAddress : Nat
+
+inductive MainOutcome where
+  | failure
+  | success (decoded : ZesuDecodedResult)
+
+/-- SSZ/RLP meaning of the complete endpoint. The exception list is fixed to `knownBugs` at the
+public theorem; this parameter only makes that dependency syntactically visible. -/
+def MainMeaningModulo (bugs : List KnownBug) (args : MainArgs) : MainOutcome → Prop
+  | .failure => ¬∃ decoded, SailDecode args.input decoded
+  | .success zesu =>
+      (∃ sail, SailDecode args.input sail ∧
+        decodedResultRelModuloKnownBugs args.input zesu sail) ∨
+      ((¬∃ sail, SailDecode args.input sail) ∧
+        ∃ bug ∈ bugs, KnownBugApplies args.input zesu bug)
+
+/-- Concrete Linux/RV64 entry state for the exported endpoint. The two PMA/MMIO clauses are the
+actual stack stores at offsets `0x378` and `8`; no generated instruction run is assumed here. -/
+def MainEntry (args : MainArgs) (state : EndpointState) : Prop :=
+  state.stdin = args.input ∧ state.stdinCursor = 0 ∧ state.stdout = #[] ∧
+  state.exitCode = none ∧ args.input.size ≤ 64 * 1024 * 1024 ∧
+  args.stackPointer + 0x380 < 2 ^ 64 ∧ args.stackPointer % 16 = 0 ∧
+  args.returnAddress < 2 ^ 64 ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.mainEntry) ∧
+  state.machine.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer + 0x380)) ∧
+  state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
+  ConfiguredMachinePre mainGluePcs state.machine ∧
+  Generated.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8 ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
+  StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8 ∧
+  StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
+  (∀ address, args.stackPointer ≤ address → address < args.stackPointer + 0x380 →
+    Generated.programImage.readFileByte? address = none)
+
+def MainExit (args : MainArgs) (outcome : MainOutcome)
+    (_before after : EndpointState) : Prop :=
+  after.machine.regs.get? PC = some (BitVec.ofNat 64 Generated.zkvmExitTerminalPc) ∧
+  after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
+  after.exitCode = some 0 ∧
+  ∃ bytes, after.stdout = bytes ∧
+    match outcome with
+    | .failure => decodeZesuObservation bytes = some .failure
+    | .success decoded => decodeZesuObservation bytes = some (.success decoded)
+
+def mainContractModulo (bugs : List KnownBug) (stepBound : MainArgs → Nat) :
+    RelationalMachineContract EndpointState MainArgs MainOutcome :=
+  { allows := MainMeaningModulo bugs
+    entry := MainEntry
+    exit := MainExit
+    stepBound }
+
+/-- The complete shipped endpoint implements the reviewed semantics modulo exactly `bugs`. -/
+def ComplianceModulo (bugs : List KnownBug) : Prop :=
+  ∃ stepBound, (mainContractModulo bugs stepBound).Implements EndpointStep EndpointPc
+    MainExecutionPc (pcInList [Generated.zkvmExitTerminalPc])
+
+/-- The parent contract derived by resolving Level 0 against its six selected children. -/
+abbrev ExportedContractAssumptions : Prop := ComplianceModulo knownBugs
+
 private theorem instructionPreserved_abiCalleePreserved (register : Register)
     (preserved : instructionPreserved register) : abiCalleePreserved register := by
   rcases preserved.1 with
