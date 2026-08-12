@@ -153,4 +153,56 @@ theorem readInputBufferBaseHighStep (stepNo : Nat) (state : State)
     (.UTYPE (0x2000a#20, .Regidx 14#5, .AUIPC)) 0x17 0xa7 0x00 0x20 configured atPc loaded
     decode execute (base := by rfl)
 
+/-- Production `0x10150: addi a4, a4, -332`. -/
+theorem readInputBufferBaseLowStep (stepNo : Nat) (state : State) (value : BitVec 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x10150)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (source : state.regs.get? x14 = some value) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x10150 retired x14 (iTypeResult .ADDI 0xeb4 value)) false := by
+  obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := readInputDecodeReads state configured
+  have decode : Runs (ext_decode (fetchWord 0x13 0x07 0x47 0xeb))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (0xeb4, .Regidx 14#5, .Regidx 14#5, .ADDI)) := by
+    decode_run
+  have execute : Runs (execute (.ITYPE (0xeb4, .Regidx 14#5, .Regidx 14#5, .ADDI)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x10150)
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x10150 with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x10150).regs.insert
+          x14 (iTypeResult .ADDI 0xeb4 value) }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0xeb4 (.Regidx 14#5) (.Regidx 14#5) .ADDI) _ _ _
+    exact execute_ITYPE_run _ _ 0xeb4 (.Regidx 14#5) (.Regidx 14#5) .ADDI value
+      (rX_x14_run _ _ (coreRegisterRead state 0x10150 source)) (wX_x14_run _ _)
+  exact configuredRegisterWriteStep stepNo 0x10150 state x14 (iTypeResult .ADDI 0xeb4 value)
+    (.ITYPE (0xeb4, .Regidx 14#5, .Regidx 14#5, .ADDI)) 0x13 0x07 0x47 0xeb configured atPc loaded
+    decode execute (base := by rfl)
+
+/-- Production `0x10154: lui a3, 0x4000`. -/
+theorem readInputBufferCapacityStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x10154)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x10154 retired x13
+        (sign_extend (m := 64) (0x04000#20 ++ 0x000#12))) false := by
+  obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := readInputDecodeReads state configured
+  have decode : Runs (ext_decode (fetchWord 0xb7 0x06 0x00 0x04))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.UTYPE (0x04000#20, .Regidx 13#5, .LUI)) := by
+    decode_run
+  have execute : Runs (execute (.UTYPE (0x04000#20, .Regidx 13#5, .LUI)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x10154)
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x10154 with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x10154).regs.insert
+          x13 (sign_extend (m := 64) (0x04000#20 ++ 0x000#12)) }
+      (.Retire_Success ()) := by
+    change Runs (execute_UTYPE 0x04000#20 (.Regidx 13#5) .LUI) _ _ _
+    exact execute_UTYPE_lui_run _ _ 0x04000#20 (.Regidx 13#5) (wX_x13_run _ _)
+  exact configuredRegisterWriteStep stepNo 0x10154 state x13
+    (sign_extend (m := 64) (0x04000#20 ++ 0x000#12))
+    (.UTYPE (0x04000#20, .Regidx 13#5, .LUI)) 0xb7 0x06 0x00 0x04 configured atPc loaded
+    decode execute (base := by rfl)
+
 end BinaryFv.Zesu.MachineExecution

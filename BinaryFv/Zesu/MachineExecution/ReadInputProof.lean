@@ -14,7 +14,8 @@ open BinaryFv BinaryFv.Binary BinaryFv.Binary.Elfling BinaryFv.RiscV BinaryFv.Ri
 open PreSail LeanRV64DExecutable.Functions Register
 
 private def readInputSetupWrites : RegSet := fun register =>
-  stepBookkeeping register ∨ register = x6 ∨ register = x16 ∨ register = x15 ∨ register = x14
+  stepBookkeeping register ∨ register = x6 ∨ register = x16 ∨ register = x15 ∨ register = x14 ∨
+    register = x13
 
 private def readInputBufferBaseHigh : BitVec 64 :=
   0x1014c + sign_extend (m := 64) (0x2000a#20 ++ 0x000#12)
@@ -22,7 +23,7 @@ private def readInputBufferBaseHigh : BitVec 64 :=
 private theorem readInputSetup_preserved :
     RegSet.Disjoint instructionPreserved readInputSetupWrites := by
   intro register preserved written
-  rcases written with bookkeeping | rfl | rfl | rfl | rfl
+  rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl
   · exact platformPreserved_disjoint register preserved.1 bookkeeping
   all_goals simp [instructionPreserved, platformPreserved] at preserved
 
@@ -38,6 +39,12 @@ private theorem readInputPc_10148 : pcInRanges Elflings.readInputExecutionPcRang
 private theorem readInputPc_1014c : pcInRanges Elflings.readInputExecutionPcRanges 0x1014c := by
   exact ⟨(0x10140, 0x10190), by native_decide, by native_decide, by native_decide⟩
 
+private theorem readInputPc_10150 : pcInRanges Elflings.readInputExecutionPcRanges 0x10150 := by
+  exact ⟨(0x10140, 0x10190), by native_decide, by native_decide, by native_decide⟩
+
+private theorem readInputPc_10154 : pcInRanges Elflings.readInputExecutionPcRanges 0x10154 := by
+  exact ⟨(0x10140, 0x10190), by native_decide, by native_decide, by native_decide⟩
+
 private theorem readInputNotExit (pc : BitVec 64)
     (notCaller : pc.toNat ≠ 0x14ccc := by native_decide) :
     ¬pcInList Elflings.readInputExitPcs pc := by
@@ -46,18 +53,19 @@ private theorem readInputNotExit (pc : BitVec 64)
   apply notCaller
   simpa [Elflings.readInputExitPcs] using exit
 
-/-- The first three production instructions retain the caller slots and initialize the byte count. -/
+/-- The six-instruction prefix retains the caller slots and initializes the read-loop registers. -/
 theorem readInput_setup_prefix (args : ReadInputArgs) (fromStep : Nat) (before : EndpointState)
     (entry : ReadInputEntry args before) :
     ∃ after : State,
       Seg (pcInRanges Elflings.readInputExecutionPcRanges)
         (pcInList Elflings.readInputExitPcs) (fun _ _ _ _ _ => False)
         readInputSetupWrites noMemory
-        [⟨x14, readInputBufferBaseHigh⟩,
+        [⟨x13, sign_extend (m := 64) (0x04000#20 ++ 0x000#12)⟩,
+          ⟨x14, iTypeResult .ADDI 0xeb4 readInputBufferBaseHigh⟩,
           ⟨x15, iTypeResult .ADDI 0 0⟩,
           ⟨x16, iTypeResult .ADDI 0 (BitVec.ofNat 64 args.sizeSlot)⟩,
           ⟨x6, iTypeResult .ADDI 0 (BitVec.ofNat 64 args.bufferSlot)⟩]
-        fromStep 4 before.machine after 0x10150 := by
+        fromStep 6 before.machine after 0x10158 := by
   rcases entry with
     ⟨_returnPc, _inputBound, _stdin, _cursor, atPc, _returnRegister, bufferRegister,
       sizeRegister, _savedReturn, code, configured⟩
@@ -102,8 +110,33 @@ theorem readInput_setup_prefix (args : ReadInputArgs) (fromStep : Nat) (before :
     x14 readInputBufferBaseHigh 0x10150
     (readInputBufferBaseHighStep (fromStep + 3) state3 configured3 seg3.atPc code3)
     (by decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
-    (Or.inr (Or.inr (Or.inr (Or.inr rfl)))) (by decide) (by decide)
+    (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))) (by decide) (by decide)
     (by simp [RegsOutside, stepBookkeeping, RegSet.union, RegSet.only])
-  exact ⟨state4, seg4⟩
+  have seg4' := seg4.forget (kv' :=
+    [⟨x15, iTypeResult .ADDI 0 0⟩,
+      ⟨x16, iTypeResult .ADDI 0 (BitVec.ofNat 64 args.sizeSlot)⟩,
+      ⟨x6, iTypeResult .ADDI 0 (BitVec.ofNat 64 args.bufferSlot)⟩]) (by simp)
+  have configured4 := configured.mono (seg4'.agree readInputSetup_preserved) seg4'.retired
+  have code4 : Artifacts.programImage.fileBytesLoadedFaithfully state4.mem := by
+    rw [seg4'.memEq noMemory_empty]
+    exact code
+  obtain ⟨state5, seg5⟩ := seg4'.step readInputPc_10150 (readInputNotExit 0x10150)
+    x14 (iTypeResult .ADDI 0xeb4 readInputBufferBaseHigh) 0x10154
+    (readInputBufferBaseLowStep (fromStep + 4) state4 readInputBufferBaseHigh
+      configured4 seg4'.atPc code4 (seg4.regs ⟨x14, readInputBufferBaseHigh⟩ (by simp)))
+    (by decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping, RegSet.union, RegSet.only])
+  have configured5 := configured.mono (seg5.agree readInputSetup_preserved) seg5.retired
+  have code5 : Artifacts.programImage.fileBytesLoadedFaithfully state5.mem := by
+    rw [seg5.memEq noMemory_empty]
+    exact code
+  obtain ⟨state6, seg6⟩ := seg5.step readInputPc_10154 (readInputNotExit 0x10154)
+    x13 (sign_extend (m := 64) (0x04000#20 ++ 0x000#12)) 0x10158
+    (readInputBufferCapacityStep (fromStep + 5) state5 configured5 seg5.atPc code5)
+    (by decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr rfl))))) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping, RegSet.union, RegSet.only])
+  exact ⟨state6, seg6⟩
 
 end BinaryFv.Zesu.MachineExecution
