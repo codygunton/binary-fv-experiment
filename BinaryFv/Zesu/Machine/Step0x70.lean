@@ -86,4 +86,18 @@ theorem step_0x70 (stepNo : Nat) (state : State)
     inst destination value premises (fetch_0x70 _ loaded) (by unfold BaseInstructionEncoding; decide)
     decode execute notNextPc notHart notIncrement notRetired
 
+/-! ## Discharging the decode
+
+`03 45 16 00` is `lbu a0, 1(a2)`: `LOAD` with `imm = 1`, `rs1 = a2 = x12`, `rd = a0 = x10`,
+unsigned, width 1. -/
+
+theorem decode_0x70 (state : State) (mseccfgBits : BitVec 64)
+    (privRead : state.regs.get? cur_privilege = some Privilege.Machine)
+    (seccfgRead : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (ext_decode (fetchWord
+        (BitVec.ofNat 8 (0x03 : UInt8).toNat) (BitVec.ofNat 8 (0x45 : UInt8).toNat)
+        (BitVec.ofNat 8 (0x16 : UInt8).toNat) (BitVec.ofNat 8 (0x00 : UInt8).toNat)))
+      state state (.LOAD (1#12, .Regidx 12#5, .Regidx 10#5, true, 1)) := by
+  decode_run
+
 end BinaryFv.Zesu.Machine
