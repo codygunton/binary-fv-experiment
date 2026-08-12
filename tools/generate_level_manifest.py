@@ -14,8 +14,8 @@ INSTANCE = re.compile(r"^(?P<qualified>.+) \[(?P<id>(?:fi|fn):[^]]+)\]$")
 
 
 def generate(cfg: dict, flame: dict, level: int) -> dict:
-    if level != 1:
-        raise ValueError("the SSZ spike currently freezes only Level 1")
+    if level < 1:
+        raise ValueError("a refinement manifest must select Level 1 or deeper")
     rows = {row["id"]: row for row in cfg["functionInstances"]}
     instruction_at_pc = {}
     successors: dict[int, set[int]] = defaultdict(set)
@@ -83,6 +83,14 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
             "inlineStack": sites,
         }
 
+    def concrete_ancestor(identifier: str) -> str:
+        current = rows[identifier]
+        while current["kind"] != "concrete":
+            if current["parent"] is None:
+                raise ValueError(f"inlined instance {identifier} has no concrete ancestor")
+            current = rows[current["parent"]]
+        return current["id"]
+
     concrete_by_entry: dict[int, list[str]] = defaultdict(list)
     for row in rows.values():
         if row["kind"] == "concrete":
@@ -94,6 +102,24 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
             concrete_by_name[function["name"]] = candidates[0]
     if "main" not in concrete_by_name:
         raise ValueError("main concrete function instance is absent")
+
+    return_targets: dict[str, set[int]] = defaultdict(set)
+    tail_calls: list[tuple[str, str]] = []
+    for call in cfg.get("calls", []):
+        instruction = instruction_at_pc[call["source"]]
+        if instruction["mnemonic"] in {"jal", "jalr"} and \
+                instruction["operands"].startswith("ra,"):
+            return_targets[call["callee"]].add(call["source"] + 4)
+        else:
+            tail_calls.append((call["caller"], call["callee"]))
+    changed = True
+    while changed:
+        changed = False
+        for caller, callee in tail_calls:
+            inherited = return_targets[caller] - return_targets[callee]
+            if inherited:
+                return_targets[callee].update(inherited)
+                changed = True
 
     inline_rows = [row for row in rows.values() if row["kind"] == "inlined"]
     claimed_inline_pcs = set().union(*(set(candidate["pcs"]) for candidate in inline_rows))
@@ -159,16 +185,28 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
                 call_instruction["operands"].startswith("ra,")
             if call["source"] in subtree and links and call["source"] + 4 not in subtree:
                 exit_pcs.add(call["source"] + 4)
-            if row["kind"] == "concrete" and row["name"] != "zkvm_exit" and \
-                    call["callee"] == row["name"]:
-                exit_pcs.add(call["source"] + 4)
+        if row["kind"] == "concrete" and row["name"] != "zkvm_exit":
+            exit_pcs.update(return_targets[row["name"]])
         if row["name"] == "zkvm_exit":
             exit_pcs = {
                 pc for pc in subtree if instruction_at_pc[pc]["mnemonic"] == "ecall"
             }
+        else:
+            exit_pcs.update(
+                pc for pc in subtree
+                if instruction_at_pc[pc]["mnemonic"] == "ecall" and not successors.get(pc)
+            )
+        if row["kind"] == "inlined" and any(
+                instruction_at_pc[pc]["mnemonic"] == "ret" for pc in subtree):
+            ancestor = rows[concrete_ancestor(identifier)]
+            exit_pcs.update(return_targets[ancestor["name"]])
         subtree_pcs = sorted(subtree)
         selected.append({
             "id": identifier,
+            "parentInstanceIds": sorted(
+                parent for parent, child_ids in edges.items()
+                if depths.get(parent) == level - 1 and identifier in child_ids
+            ),
             "qualified": row["name"],
             "kind": row["kind"],
             "functionInstanceIdentity": stable_identity(identifier),

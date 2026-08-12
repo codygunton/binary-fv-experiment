@@ -36,6 +36,7 @@ def main() -> int:
         assert row["subtreeInstructionCount"] == len(row["executionPcs"])
         assert set(row["instructionPcs"]) <= set(row["executionPcs"])
         assert row["entryPc"] in row["executionPcs"]
+        assert row["parentInstanceIds"] == ["fi:2:3eac"]
     by_name = {row["qualified"]: row for row in rows}
     allocator = by_name["alt_fl_alloc.get"]
     assert len(allocator["absorbedInstructionPcs"]) == 2

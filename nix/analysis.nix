@@ -49,6 +49,16 @@ let
       python ${../tools/test_level_manifest.py} "$out/level1-manifest.json"
     '';
 
+  zesuSszDecodeLevel2Manifest = pkgs.runCommand "zesu-ssz-decode-level2-manifest-d67f28c"
+    { nativeBuildInputs = [ python ]; } ''
+      mkdir -p "$out"
+      python ${../tools/generate_level_manifest.py} \
+        --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --flame ${zesuSszDecodeCfg}/flame.json \
+        --level 2 --output "$out/level2-manifest.json"
+      python ${../tools/test_level2_manifest.py} "$out/level2-manifest.json"
+    '';
+
   zesuSszDecodeLevel1BoundaryBindings = pkgs.runCommand
     "zesu-ssz-decode-level1-boundary-bindings-d67f28c" { nativeBuildInputs = [ python ]; } ''
       mkdir -p "$out"
@@ -57,6 +67,16 @@ let
         --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
         --output "$out/level1-boundary-bindings.json"
       python ${../tools/test_level_boundary_bindings.py} "$out/level1-boundary-bindings.json"
+    '';
+
+  zesuSszDecodeLevel2BoundaryBindings = pkgs.runCommand
+    "zesu-ssz-decode-level2-boundary-bindings-d67f28c" { nativeBuildInputs = [ python ]; } ''
+      mkdir -p "$out"
+      python ${../tools/generate_level_boundary_bindings.py} \
+        --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+        --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+        --output "$out/level2-boundary-bindings.json"
+      python ${../tools/test_level2_boundary_bindings.py} "$out/level2-boundary-bindings.json"
     '';
 
   zesuSszDecodeLevel1Lean = pkgs.runCommand "zesu-ssz-decode-level1-lean-d67f28c"
@@ -105,6 +125,25 @@ let
       --output "$out/level1-evidence.json"
   '';
 
+  zesuSszDecodeLevel2Evidence = pkgs.runCommand "zesu-ssz-decode-level2-evidence-d67f28c" {
+    nativeBuildInputs = [ pkgs.gcc pkgs.glib pkgs.pkg-config pkgs.python3 pkgs.qemu-user ];
+  } ''
+    set -euo pipefail
+    cp -R ${level1EvidenceTools} tools
+    chmod -R u+w tools
+    python -m unittest discover -s tools -p 'test_*.py'
+    gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
+    snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel2Manifest}/level2-manifest.json"))["instances"]; pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | {pc for row in rows for pc in row["exitPcs"]}); print(",".join("snapshot="+str(pc) for pc in pcs))')
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=minimal.trace,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/minimal.ssz > /dev/null
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=invalid.trace,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode < ${targets.public.zesuSszDecodeSmoke}/invalid.ssz > /dev/null
+    mkdir -p "$out"
+    python tools/analyze.py --structural-only \
+      --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+      --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      --trace minimal=minimal.trace --trace invalid=invalid.trace \
+      --output "$out/level2-evidence.json"
+  '';
+
   zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-d67f28c"
     { nativeBuildInputs = [ pkgs.python3 ]; } ''
     cp -R ${../tools/binary-regions-ui} "$out"
@@ -112,8 +151,11 @@ let
     cp ${zesuSszDecodeCfg}/zesu-cfg.json "$out/zesu-cfg.json"
     cp ${zesuSszDecodeCfg}/flame.json "$out/"
     cp ${zesuSszDecodeLevel1Manifest}/level1-manifest.json "$out/"
+    cp ${zesuSszDecodeLevel2Manifest}/level2-manifest.json "$out/"
     cp ${zesuSszDecodeLevel1Evidence}/level1-evidence.json "$out/"
+    cp ${zesuSszDecodeLevel2Evidence}/level2-evidence.json "$out/"
     cp ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json "$out/"
+    cp ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json "$out/"
     cp ${zesuSszDecodeStatelessInputLayout}/stateless-input-layout.json "$out/"
     cp ${../tools/build_ssz_proof_map.py} build_ssz_proof_map.py
     cp ${../tools/test_ssz_proof_map.py} test_ssz_proof_map.py
@@ -129,10 +171,11 @@ in
 {
   public = {
     inherit dump stats zesuCfg zesuSszDecodeCfg zesuSszDecodeLevel1Manifest
-      zesuSszDecodeLevel1BoundaryBindings
+      zesuSszDecodeLevel2Manifest
+      zesuSszDecodeLevel1BoundaryBindings zesuSszDecodeLevel2BoundaryBindings
       zesuSszDecodeLevel1Lean
       zesuSszDecodeStatelessInputLayout
-      zesuSszDecodeLevel1Evidence zesuCfgUi;
+      zesuSszDecodeLevel1Evidence zesuSszDecodeLevel2Evidence zesuCfgUi;
     machine-regions-ui = zesuCfgUi;
   };
 }

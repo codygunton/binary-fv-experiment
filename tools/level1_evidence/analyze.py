@@ -199,7 +199,8 @@ def validate_decode_runs(manifest: dict, traces: list[tuple[str, dict]]) -> list
 
 
 def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
-                bindings: dict | None = None, inputs: dict[str, Path] | None = None) -> dict:
+                bindings: dict | None = None, inputs: dict[str, Path] | None = None,
+                structural_only: bool = False) -> dict:
     digest = hashlib.sha256(elf.read_bytes()).hexdigest()
     if digest != manifest["artifact"]["sha256"]:
         raise ValueError("manifest and observed ELF digests differ")
@@ -212,14 +213,13 @@ def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
     expected = {instance["id"] for instance in manifest["instances"]}
     if reached != expected:
         missing = sorted(expected - reached)
-        raise ValueError(f"Level 1 entry coverage is incomplete: {missing}")
+        raise ValueError(f"Level {manifest.get('level', 1)} entry coverage is incomplete: {missing}")
     report = {
         "schemaVersion": 1,
         "artifact": manifest["artifact"],
-        "level": 1,
+        "level": manifest.get("level", 1),
         "vectors": vectors,
         "entryCoverage": {"observed": sorted(reached), "complete": True},
-        "sszDecodeObservedRuns": validate_decode_runs(manifest, parsed_traces),
         "unmeasuredClauses": [
             "universal path coverage",
             "universal step bounds",
@@ -228,7 +228,9 @@ def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
             "semantic result relation",
         ],
     }
-    if bindings is not None:
+    if not structural_only:
+        report["sszDecodeObservedRuns"] = validate_decode_runs(manifest, parsed_traces)
+    if bindings is not None and not structural_only:
         report["boundaryBindingValidation"] = validate_bindings(
             manifest, bindings, vectors, inputs or {})
     return report
@@ -243,6 +245,7 @@ def main() -> int:
     parser.add_argument("--bindings", type=Path)
     parser.add_argument("--input", action="append", default=[], help="LABEL=PATH")
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--structural-only", action="store_true")
     args = parser.parse_args()
     traces = []
     for value in args.trace:
@@ -258,7 +261,7 @@ def main() -> int:
         inputs[label] = Path(path)
     bindings = json.loads(args.bindings.read_text()) if args.bindings else None
     report = make_report(json.loads(args.manifest.read_text()), args.elf, traces,
-                         bindings, inputs)
+                         bindings, inputs, args.structural_only)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return 0
 
