@@ -10,6 +10,7 @@ import BinaryFv.RiscV.Step.Store
 import BinaryFv.RiscV.Step.TryStepStackAddiMemory
 import BinaryFv.Zesu.Artifacts.Image
 import BinaryFv.Zesu.Contracts.Machine
+import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.HostExecution
 
 /-!
 # Concrete Level 0 instructions of the SSZ endpoint
@@ -27,6 +28,15 @@ open MemoryAccessType mem_payload page_based_mem_type
 
 /-- The exact generated Level 0 instruction addresses. -/
 def mainGluePcs (pc : BitVec 64) : Prop := pcInRanges Elflings.mainGluePcRanges pc
+
+private theorem endpointStepContext {state : State}
+    (configured : ConfiguredMachinePre EndpointMachinePc state) (pc : BitVec 64)
+    (atPc : state.regs.get? PC = some pc) (_inside : mainGluePcs pc) :
+    FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc ∧
+      FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc ∧
+      InterruptDisabled (tryStepControlFlowAfterIncrement state) ∧
+      LandingPadNotExpected (tryStepControlFlowAfterIncrement state) :=
+  configured.stepContext pc atPc trivial
 
 theorem mainGluePcs_14cbc : mainGluePcs 0x14cbc := by
   unfold mainGluePcs
@@ -96,7 +106,7 @@ structure MainDwordStoreAccess (state afterWrite : State) (pc : BitVec 64)
 register bindings. The resulting memory state is the exact generated little-endian byte write. -/
 def MainDwordStoreAccess.of_stack (state : State) (pc : BitVec 64) (imm : BitVec 12)
     (rs2 : regidx) (stackValue dataValue destination mstatusBits mseccfgBits : BitVec 64)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some pc) (inside : mainGluePcs pc)
     (stackRead : state.regs.get? x2 = some stackValue)
     (dataRead : Runs (rX_bits rs2)
@@ -228,7 +238,7 @@ private theorem main_wX_bits_run_x11 (state : State) (value : BitVec 64) :
 
 private theorem main_load_half_step (stepNo : Nat) (state : State) (pc : Nat)
     (imm : BitVec 12) (byte0 byte1 byte2 byte3 : UInt8)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
     (inside : mainGluePcs (BitVec.ofNat 64 pc))
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
@@ -251,7 +261,7 @@ private theorem main_load_half_step (stepNo : Nat) (state : State) (pc : Nat)
         (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc inside
+    endpointStepContext configured (BitVec.ofNat 64 pc) atPc inside
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -277,7 +287,7 @@ private theorem main_load_half_step (stepNo : Nat) (state : State) (pc : Nat)
 
 private theorem main_auipc_step (stepNo : Nat) (state : State) (pc : Nat)
     (imm : BitVec 20) (byte0 byte1 byte2 byte3 : UInt8)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
     (inside : mainGluePcs (BitVec.ofNat 64 pc))
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
@@ -300,7 +310,7 @@ private theorem main_auipc_step (stepNo : Nat) (state : State) (pc : Nat)
         (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc inside
+    endpointStepContext configured (BitVec.ofNat 64 pc) atPc inside
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -334,7 +344,7 @@ private theorem main_auipc_step (stepNo : Nat) (state : State) (pc : Nat)
     counters.2.2.2.2.2⟩
 
 private theorem main_li_zero_step (stepNo : Nat) (state : State) (pc : Nat)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
     (inside : mainGluePcs (BitVec.ofNat 64 pc))
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
@@ -351,7 +361,7 @@ private theorem main_li_zero_step (stepNo : Nat) (state : State) (pc : Nat)
         (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc inside
+    endpointStepContext configured (BitVec.ofNat 64 pc) atPc inside
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -406,7 +416,7 @@ private theorem main_li_zero_step (stepNo : Nat) (state : State) (pc : Nat)
 private theorem main_jalr_call_step (stepNo : Nat) (state : State) (pc : Nat)
     (callBase : BitVec 64) (imm : BitVec 12) (target returnPc : BitVec 64)
     (byte0 byte1 byte2 byte3 : UInt8)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
     (baseRead : state.regs.get? x1 = some callBase)
     (inside : mainGluePcs (BitVec.ofNat 64 pc))
@@ -431,7 +441,7 @@ private theorem main_jalr_call_step (stepNo : Nat) (state : State) (pc : Nat)
   subst target
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc inside
+    endpointStepContext configured (BitVec.ofNat 64 pc) atPc inside
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -487,7 +497,7 @@ private theorem main_jalr_call_step (stepNo : Nat) (state : State) (pc : Nat)
 private theorem main_store_dword_step (stepNo : Nat) (state afterWrite : State)
     (pc : Nat) (imm : BitVec 12) (rs2 : regidx)
     (byte0 byte1 byte2 byte3 : UInt8)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
     (inside : mainGluePcs (BitVec.ofNat 64 pc))
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
@@ -506,7 +516,7 @@ private theorem main_store_dword_step (stepNo : Nat) (state afterWrite : State)
       (tryStepStoreAfterRetired afterWrite (BitVec.ofNat 64 pc) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noFetchMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc inside
+    endpointStepContext configured (BitVec.ofNat 64 pc) atPc inside
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepStoreAfterIncrement state).mem := by
     simpa [tryStepStoreAfterIncrement] using loaded
@@ -527,7 +537,7 @@ private theorem main_store_dword_step (stepNo : Nat) (state afterWrite : State)
 
 /-- Production `0x14cb4: sd ra, 888(sp)`. -/
 theorem main_save_return_address_step (stepNo : Nat) (state afterWrite : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x14cb4))
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (access : MainDwordStoreAccess state afterWrite 0x14cb4 0x378 (.Regidx 1#5)) :
@@ -570,7 +580,7 @@ theorem main_save_return_address_step (stepNo : Nat) (state afterWrite : State)
 
 /-- Production `0x14cb8: sd zero, 8(sp)`. -/
 theorem main_clear_input_slot_step (stepNo : Nat) (state afterWrite : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x14cb8))
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (access : MainDwordStoreAccess state afterWrite 0x14cb8 0x008 (.Regidx 0#5)) :
@@ -613,7 +623,7 @@ theorem main_clear_input_slot_step (stepNo : Nat) (state afterWrite : State)
 
 /-- Production `0x14cbc: addi a0, sp, 0`. -/
 theorem main_input_buffer_address_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14cbc)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (source : MainAddiSource state 0x14cbc stackPointer) :
@@ -625,7 +635,7 @@ theorem main_input_buffer_address_step (stepNo : Nat) (state : State)
         0x14cc0 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14cbc atPc (by
+    endpointStepContext configured 0x14cbc atPc (by
       refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -680,7 +690,7 @@ theorem main_input_buffer_address_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14cc0: addi a1, sp, 8`. -/
 theorem main_input_size_slot_address_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14cc0)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (source : MainAddiSource state 0x14cc0 stackPointer) :
@@ -692,7 +702,7 @@ theorem main_input_size_slot_address_step (stepNo : Nat) (state : State)
         0x14cc4 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14cc0 atPc (by
+    endpointStepContext configured 0x14cc0 atPc (by
       refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -747,7 +757,7 @@ theorem main_input_size_slot_address_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14cc4: auipc ra, -5`, producing the base used by the `read_input` call. -/
 theorem main_read_input_call_base_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14cc4)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
@@ -758,7 +768,7 @@ theorem main_read_input_call_base_step (stepNo : Nat) (state : State)
         0x14cc8 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14cc4 atPc (by
+    endpointStepContext configured 0x14cc4 atPc (by
       refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -825,7 +835,7 @@ theorem main_read_input_call_base_value :
 /-- Production `0x14cc8: jalr ra, 0x47c(ra)`, entering `read_input` at `0x10140` and
 saving the return address `0x14ccc` in `ra`. -/
 theorem main_read_input_call_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14cc8)
     (callBase : state.regs.get? x1 = some 0xfcc4)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
@@ -835,7 +845,7 @@ theorem main_read_input_call_step (stepNo : Nat) (state : State)
         0x10140 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14cc8 atPc (by
+    endpointStepContext configured 0x14cc8 atPc (by
       refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -916,7 +926,7 @@ theorem main_read_input_call_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14cec: addi a0, sp, 32`, selecting main's decoded-result slot. -/
 theorem main_decode_result_address_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14cec)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (source : MainAddiSource state 0x14cec stackPointer) :
@@ -929,7 +939,7 @@ theorem main_decode_result_address_step (stepNo : Nat) (state : State)
         0x14cf0 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14cec atPc (by
+    endpointStepContext configured 0x14cec atPc (by
       refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -985,7 +995,7 @@ theorem main_decode_result_address_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14cf0: addi a1, sp, 16`, selecting the allocator descriptor slot. -/
 theorem main_decode_allocator_address_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14cf0)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (source : MainAddiSource state 0x14cf0 stackPointer) :
@@ -998,7 +1008,7 @@ theorem main_decode_allocator_address_step (stepNo : Nat) (state : State)
         0x14cf4 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14cf0 atPc (by
+    endpointStepContext configured 0x14cf0 atPc (by
       refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -1054,7 +1064,7 @@ theorem main_decode_allocator_address_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14cf4: auipc ra, -3`, producing the base used by the `decodeInput` call. -/
 theorem main_decode_call_base_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14cf4)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
@@ -1066,7 +1076,7 @@ theorem main_decode_call_base_step (stepNo : Nat) (state : State)
         0x14cf8 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14cf4 atPc (by
+    endpointStepContext configured 0x14cf4 atPc (by
       refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -1133,7 +1143,7 @@ theorem main_decode_call_base_value :
 
 /-- Production `0x14cf8: jalr ra, 0x474(ra)`, entering `decodeInput` at `0x12168`. -/
 theorem main_decode_call_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14cf8)
     (callBase : state.regs.get? x1 = some 0x11cf4)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
@@ -1143,7 +1153,7 @@ theorem main_decode_call_step (stepNo : Nat) (state : State)
         0x12168 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14cf8 atPc (by
+    endpointStepContext configured 0x14cf8 atPc (by
       refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -1224,7 +1234,7 @@ theorem main_decode_call_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14cfc: lhu a0, 0x370(sp)`, loading the decoder status. -/
 theorem main_decode_status_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14cfc)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (access : MainHalfLoadAccess state 0x14cfc 0x370 stackPointer) :
@@ -1267,7 +1277,7 @@ theorem main_decode_status_step (stepNo : Nat) (state : State)
     rfl
 
 private theorem main_decode_status_branch_decode (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state) :
+    (configured : ConfiguredMachinePre EndpointMachinePc state) :
     Runs (ext_decode (fetchWord (0x63 : BitVec 8) (0x1e : BitVec 8) (0x05 : BitVec 8)
       (0x00 : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
@@ -1298,7 +1308,7 @@ private theorem main_decode_status_branch_decode (state : State)
 
 /-- Production `0x14d00: bnez a0,0x14d1c`, on the successful zero-status route. -/
 theorem main_decode_status_success_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d00)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (condition : Runs (bTypeTaken (.Regidx 0#5) (.Regidx 10#5) .BNE)
@@ -1310,7 +1320,7 @@ theorem main_decode_status_success_step (stepNo : Nat) (state : State)
         0x14d04 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14d00 atPc (by
+    endpointStepContext configured 0x14d00 atPc (by
       refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -1327,7 +1337,7 @@ theorem main_decode_status_success_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14d00: bnez a0,0x14d1c`, on a nonzero decoder status. -/
 theorem main_decode_status_failure_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d00)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (condition : Runs (bTypeTaken (.Regidx 0#5) (.Regidx 10#5) .BNE)
@@ -1339,7 +1349,7 @@ theorem main_decode_status_failure_step (stepNo : Nat) (state : State)
         0x14d1c retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14d00 atPc (by
+    endpointStepContext configured 0x14d00 atPc (by
       refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -1372,7 +1382,7 @@ theorem main_decode_status_failure_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14d04: addi a0,sp,32`, selecting the successful decoded result. -/
 theorem main_success_result_address_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d04)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (source : MainAddiSource state 0x14d04 stackPointer) :
@@ -1384,7 +1394,7 @@ theorem main_success_result_address_step (stepNo : Nat) (state : State)
         0x14d08 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14d04 atPc (by
+    endpointStepContext configured 0x14d04 atPc (by
       refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -1438,7 +1448,7 @@ theorem main_success_result_address_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14d08: auipc ra,0`, forming the `writeSuccess` call base. -/
 theorem main_write_success_call_base_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d08)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
@@ -1481,7 +1491,7 @@ theorem main_write_success_call_base_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14d0c: jalr ra,0x28(ra)`, entering `writeSuccess` at `0x14d30`. -/
 theorem main_write_success_call_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d0c)
     (callBase : state.regs.get? x1 = some 0x14d08)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
@@ -1491,7 +1501,7 @@ theorem main_write_success_call_step (stepNo : Nat) (state : State)
         0x14d30 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x14d0c atPc (by
+    endpointStepContext configured 0x14d0c atPc (by
       refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
@@ -1572,7 +1582,7 @@ theorem main_write_success_call_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14d10: li a0,0`, preparing the successful exit code. -/
 theorem main_success_exit_code_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d10)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
@@ -1586,7 +1596,7 @@ theorem main_success_exit_code_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14d24: li a0,0`, preparing the rejected-input exit code. -/
 theorem main_failure_exit_code_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d24)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
@@ -1599,7 +1609,7 @@ theorem main_failure_exit_code_step (stepNo : Nat) (state : State)
     (by refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide) loaded <;> native_decide
 
 private theorem main_auipc_neg5_decode (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state) :
+    (configured : ConfiguredMachinePre EndpointMachinePc state) :
     Runs (ext_decode (fetchWord 0x97 0xb0 0xff 0xff))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.UTYPE (0xffffb, .Regidx 1#5, .AUIPC)) := by
@@ -1628,7 +1638,7 @@ private theorem main_auipc_neg5_decode (state : State)
   rfl
 
 private theorem main_auipc_plus1_decode (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state) :
+    (configured : ConfiguredMachinePre EndpointMachinePc state) :
     Runs (ext_decode (fetchWord 0x97 0x10 0x00 0x00))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.UTYPE (1, .Regidx 1#5, .AUIPC)) := by
@@ -1658,7 +1668,7 @@ private theorem main_auipc_plus1_decode (state : State)
 
 /-- Production `0x14d14: auipc ra,-5`, forming the successful `zkvm_exit` call base. -/
 theorem main_success_exit_call_base_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d14)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
@@ -1679,7 +1689,7 @@ theorem main_success_exit_call_base_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14d1c: auipc ra,1`, forming the `writeFailure` call base. -/
 theorem main_write_failure_call_base_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d1c)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
@@ -1700,7 +1710,7 @@ theorem main_write_failure_call_base_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14d28: auipc ra,-5`, forming the failure-route `zkvm_exit` call base. -/
 theorem main_failure_exit_call_base_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d28)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
@@ -1720,7 +1730,7 @@ theorem main_failure_exit_call_base_step (stepNo : Nat) (state : State)
   · exact main_auipc_neg5_decode state configured
 
 private theorem main_jalr_decode (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (byte0 byte1 byte2 byte3 : BitVec 8) (imm : BitVec 12)
     (decoded : fetchWord byte0 byte1 byte2 byte3 = 0x000080e7#32 ∨
       fetchWord byte0 byte1 byte2 byte3 = 0x4b0080e7#32 ∨
@@ -1758,7 +1768,7 @@ private theorem main_jalr_decode (state : State)
 
 /-- Production `0x14d18: jalr ra,0x4b0(ra)`, entering `zkvm_exit` at `0x101c4`. -/
 theorem main_success_exit_call_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d18)
     (baseRead : state.regs.get? x1 = some 0xfd14)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
@@ -1783,7 +1793,7 @@ theorem main_success_exit_call_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14d20: jalr ra,0x4a4(ra)`, entering `writeFailure` at `0x161c0`. -/
 theorem main_write_failure_call_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d20)
     (baseRead : state.regs.get? x1 = some 0x15d1c)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
@@ -1808,7 +1818,7 @@ theorem main_write_failure_call_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14d2c: jalr ra,0x49c(ra)`, entering `zkvm_exit` at `0x101c4`. -/
 theorem main_failure_exit_call_step (stepNo : Nat) (state : State)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x14d2c)
     (baseRead : state.regs.get? x1 = some 0xfd28)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
@@ -1833,7 +1843,7 @@ theorem main_failure_exit_call_step (stepNo : Nat) (state : State)
 
 /-- Production `0x14cb0: addi sp, sp, -896`, including generated fetch and retirement. -/
 theorem main_stack_allocate_step (stepNo : Nat) (state : State) (stackValue : BitVec 64)
-    (configured : ConfiguredMachinePre mainGluePcs state)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 Elflings.mainEntry))
     (stackRead : state.regs.get? x2 = some stackValue)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
@@ -1842,7 +1852,7 @@ theorem main_stack_allocate_step (stepNo : Nat) (state : State) (stackValue : Bi
         (BitVec.ofNat 12 0xc80) stackValue retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 Elflings.mainEntry) atPc (by
+    endpointStepContext configured (BitVec.ofNat 64 Elflings.mainEntry) atPc (by
       refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepStackAddiAfterIncrement state).mem := by

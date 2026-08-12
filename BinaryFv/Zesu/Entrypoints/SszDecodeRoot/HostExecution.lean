@@ -31,6 +31,10 @@ structure EndpointState where
 def EndpointPc (state : EndpointState) : Option (BitVec 64) :=
   MachinePc state.machine
 
+/-- The linked Linux process may execute any mapped endpoint instruction selected at a later proof
+depth. Concrete instruction theorems still prove exact ownership separately. -/
+def EndpointMachinePc (_pc : BitVec 64) : Prop := True
+
 /-- Registers preserved by a returning RV64 ABI call, including the machine-platform registers used
 by the parent instruction proofs. -/
 def abiCalleePreserved : Register → Prop := fun register =>

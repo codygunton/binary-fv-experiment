@@ -34,7 +34,8 @@ def ReadInputEntry (args : ReadInputArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.bufferSlot) ∧
   state.machine.regs.get? x11 = some (BitVec.ofNat 64 args.sizeSlot) ∧
   UIntRep 8 state.machine.mem args.savedFrameAddress args.savedReturnAddress ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  ConfiguredMachinePre EndpointMachinePc state.machine
 
 def ReadInputExit (args : ReadInputArgs) (outcome : ReadInputOutcome)
     (before after : EndpointState) : Prop :=
@@ -203,7 +204,8 @@ structure ZkvmExitArgs where
 def ZkvmExitEntry (args : ZkvmExitArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.zkvmExitEntry) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.code) ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  ConfiguredMachinePre EndpointMachinePc state.machine
 
 def ZkvmExitPost (args : ZkvmExitArgs) (_outcome : Unit)
     (before after : EndpointState) : Prop :=
