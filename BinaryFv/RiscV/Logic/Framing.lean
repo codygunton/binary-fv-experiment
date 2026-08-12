@@ -45,10 +45,11 @@ theorem writeByte_run_memory_get (state : State) (address observed : Nat) (value
 theorem readByte_run (state : State) (address : Nat) (value : BitVec 8)
     (memory : state.mem.get? address = some value) :
     (readByte address : SailM (BitVec 8)).run state = .ok value state := by
-  simp only [simp_sail]
-  simp only [EStateM.run, EStateM.instMonad, EStateM.bind, instMonadStateOfMonadStateOf,
-    EStateM.instMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe]
-  unfold EStateM.get
+  unfold PreSail.readByte EStateM.run
+  change EStateM.instMonad.toBind.bind EStateM.get _ state = EStateM.Result.ok value state
+  change EStateM.bind EStateM.get _ state = EStateM.Result.ok value state
+  unfold EStateM.bind
+  rw [show EStateM.get state = EStateM.Result.ok state state by rfl]
   simp only
   rw [memory]
   rfl
@@ -62,9 +63,14 @@ theorem readByte_of_image (image : ProgramImage) (state : State) (address : Nat)
 theorem readReg_run (state : State) (register : Register) (value : RegisterType register)
     (stored : state.regs.get? register = some value) :
     (readReg register : SailM (RegisterType register)).run state = .ok value state := by
-  simp [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get, EStateM.pure,
-    EStateM.instMonad, EStateM.instMonadStateOf, instMonadStateOfMonadStateOf,
-    EStateM.instMonadExceptOfOfBacktrackable, getThe, stored]
+  unfold PreSail.readReg EStateM.run
+  change EStateM.instMonad.toBind.bind EStateM.get _ state = EStateM.Result.ok value state
+  change EStateM.bind EStateM.get _ state = EStateM.Result.ok value state
+  unfold EStateM.bind
+  rw [show EStateM.get state = EStateM.Result.ok state state by rfl]
+  simp only
+  rw [stored]
+  rfl
 
 /-- Register-presence and delegation facts sufficient to exclude generated interrupt dispatch. -/
 def InterruptDisabled (state : State) : Prop :=
@@ -81,8 +87,9 @@ theorem dispatchInterrupt_disabled (state : State) (priv : Privilege)
   rcases disabled with ⟨misaBits, mstatusBits, mipBits, meip, misaRead, mipRead, mieRead,
     midelegRead, meipRead, mstatusRead⟩
   simp [dispatchInterrupt, getPendingSet, read_mip, external_interrupts_pending, currentlyEnabled,
-    hartSupports, zeros, PreSail.assert, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
-    EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe, misaRead, mipRead,
+    hartSupports, zeros, PreSail.assert, PreSail.readReg, EStateM.run, Bind.bind, EStateM.bind,
+    Pure.pure, EStateM.pure, EStateM.get, MonadState.get, MonadStateOf.get,
+    getThe, misaRead, mipRead,
     mieRead, midelegRead, meipRead, mstatusRead]
 
 theorem writeByte_preserves_registers (state : State) (address : Nat) (value : BitVec 8) :
@@ -167,7 +174,7 @@ theorem runs_bind_pure_inv {α β : Type} {first : SailM α} {b : β} {s s' : St
       unfold EStateM.bind
       rw [show first s = EStateM.Result.error e smid from hf]
     unfold Runs at hbind; rw [hbad] at hbind
-    exact EStateM.Result.noConfusion hbind
+    cases hbind
   | ok val smid =>
     refine ⟨val, ?_⟩
     have hok : (first >>= fun _ => (pure b : SailM β)).run s = EStateM.Result.ok b smid := by

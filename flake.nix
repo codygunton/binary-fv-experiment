@@ -7,7 +7,7 @@
     # Target and audit sources are pinned independently of the proof stack.
     # Preserve the unmodified upstream source for the production baseline.
     zesu = {
-      url = "github:codygunton/zesu/6acdbd90e7d9f543863bf4030d0e649553704558";
+      url = "github:codygunton/zesu/d67f28c";
       flake = false;
     };
 
@@ -58,16 +58,19 @@
             inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit pkgs rv64 zesu;
+            inherit pkgs repo rv64 zesu;
           };
           analysis = import ./nix/analysis.nix {
             inherit pkgs rv64 targets;
           };
           proof = import ./nix/proof.nix {
-            inherit pkgs repo rv64 sailRiscv;
+            inherit leanSail pkgs repo rv64 sailRiscv;
+            inherit (targets.public) zesuSszDecodeRv64Elf;
           };
           evmSailSpec = import ./nix/evm-sail.nix {
-            inherit evmSail evmSailCompiler leanSail pkgs;
+            inherit evmSail evmSailCompiler leanSail pkgs repo;
+            inherit (proof.public) binaryFvLean;
+            inherit (targets.public) zesuSszDecodeSmoke;
           };
         in
         targets.public // analysis.public // proof.public // evmSailSpec.public;
@@ -92,10 +95,11 @@
             inherit pkgs;
           };
           targets = import ./nix/targets.nix {
-            inherit pkgs rv64 zesu;
+            inherit pkgs repo rv64 zesu;
           };
           proof = import ./nix/proof.nix {
-            inherit pkgs repo rv64 sailRiscv;
+            inherit leanSail pkgs repo rv64 sailRiscv;
+            inherit (targets.public) zesuSszDecodeRv64Elf;
           };
         in
         {

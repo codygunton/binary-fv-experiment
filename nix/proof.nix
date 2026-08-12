@@ -1,11 +1,11 @@
-{ pkgs, repo, rv64, sailRiscv }:
+{ leanSail, pkgs, repo, rv64, sailRiscv, zesuSszDecodeRv64Elf }:
 let
   pinnedLean = pkgs.stdenvNoCC.mkDerivation {
     pname = "lean4";
-    version = "4.26.0-nightly-2025-11-18";
+    version = "4.29.0";
     src = pkgs.fetchurl {
-      url = "https://github.com/leanprover/lean4-nightly/releases/download/nightly-2025-11-18/lean-4.26.0-nightly-2025-11-18-linux.tar.zst";
-      hash = "sha256-JSY4OYzDiI0CIdyZnw6uRpR9MytV6g7b77f4IQwpEXQ=";
+      url = "https://releases.lean-lang.org/lean4/v4.29.0/lean-4.29.0-linux.tar.zst";
+      hash = "sha256-CJ9+UT7T6UNtGR9JhjMMC1OAnIa1mX9et/JVUMN0+kg=";
     };
     nativeBuildInputs = [ pkgs.autoPatchelfHook pkgs.zstd ];
     buildInputs = [ pkgs.stdenv.cc.cc pkgs.zlib ];
@@ -23,11 +23,11 @@ let
   replSource = pkgs.fetchFromGitHub {
     owner = "leanprover-community";
     repo = "repl";
-    rev = "a9a6f5bac483d65d08f6226e0ed653f03c479fb7";
-    hash = "sha256-+8iF01UVXerfvRPUPDGk9L7CpPXUxrZMxvBG2CUC6PE=";
+    rev = "495777293cb9cc3c62787a8c11393da1a9dd9505";
+    hash = "sha256-0e3QHntg1kFAVVL6pQ9HH8zW8sxW0pYK2xG6ed3j6Qc=";
   };
 
-  sailRiscvLean = pkgs.stdenv.mkDerivation {
+  sailRiscvGenerated = pkgs.stdenv.mkDerivation {
     pname = "sail-riscv-lean-rv64";
     version = "0.12";
     src = sailRiscv;
@@ -55,6 +55,32 @@ let
     installPhase = ''cp -r model/Lean_RV64D_executable "$out"'';
   };
 
+  sailRiscvLean = pkgs.runCommand "sail-riscv-lean-rv64-4.29" { } ''
+    cp -R ${sailRiscvGenerated} "$out"
+    chmod -R u+w "$out"
+    rm -rf "$out/LeanRV64DExecutable/Sail"
+    mkdir "$out/Sail"
+    cp ${leanSail}/Sail.lean "$out/Sail.lean"
+    cp ${leanSail}/Sail/{Attr,BitVec,IntRange,Sail}.lean "$out/Sail/"
+    find "$out/LeanRV64DExecutable" -name '*.lean' -type f -exec sed -i \
+      's/import LeanRV64DExecutable\.Sail\./import Sail./g' {} +
+    substituteInPlace "$out/LeanRV64DExecutable/HexBitsSigned.lean" \
+      --replace-fail '(parse_hex_bits n (String.drop str 1))' \
+        '(parse_hex_bits n (String.drop str 1).toString)' \
+      --replace-fail '(valid_hex_bits n (String.drop str 1))' \
+        '(valid_hex_bits n (String.drop str 1).toString)'
+  '';
+
+  zesuSszDecodeProgramImageLean = pkgs.runCommand "zesu-ssz-decode-program-image-lean" {
+    nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.pyelftools ])) ];
+  } ''
+    mkdir -p "$out"
+    python ${repo}/tools/generate_program_image_lean.py \
+      --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      --expected-sha256 3e13afeae5719e10c65a89ea1b8a9afdb60b360e7e18faa81c31a71a44dcd8fb \
+      --output "$out/ZesuSszDecodeProgramImage.lean"
+  '';
+
   binaryFvLean = pkgs.runCommand "binary-fv-lean" {
     nativeBuildInputs = [ pinnedLean pkgs.coreutils pkgs.jq ];
   } ''
@@ -63,6 +89,7 @@ let
     cd source
     mkdir -p build .lake/packages/repl "$TMPDIR/home"
     ln -s ${sailRiscvLean} build/sail-riscv-lean
+    cp ${zesuSszDecodeProgramImageLean}/ZesuSszDecodeProgramImage.lean .
     cp -a ${replSource}/. .lake/packages/repl/
     chmod -R u+w .lake/packages/repl
     ${pkgs.jq}/bin/jq '
@@ -73,10 +100,11 @@ let
     ' lake-manifest.json > lake-manifest.nix.json
     mv lake-manifest.nix.json lake-manifest.json
     substituteInPlace lakefile.lean \
-      --replace-fail 'require repl from git "https://github.com/leanprover-community/repl.git" @ "v4.26.0"' \
+      --replace-fail 'require repl from git "https://github.com/leanprover-community/repl.git" @ "v4.29.0"' \
       'require repl from ".lake/packages/repl"'
     export HOME="$TMPDIR/home"
-    lake build BinaryFv
+    lake build Sail BinaryFv BinaryFvZesuArtifactsImage BinaryFv.Zesu.MachineExecution.Level0MainSteps \
+      BinaryFv.RiscV.Step.RegisterWrite
     mkdir -p "$out"
     cp -R .lake/build/lib/lean "$out/"
   '';

@@ -71,6 +71,15 @@ def normalize_source(source: str) -> str:
         return "deps/zesu/" + source.split(marker, 1)[1]
     if source.startswith("/build/source/"):
         return "deps/zesu/" + source.removeprefix("/build/source/")
+    runtime_marker = "-source/runtime/"
+    if runtime_marker in source:
+        return "runtime/" + source.split(runtime_marker, 1)[1]
+    isolated_runtime = "-binary-fv-riscv64-runtime/"
+    if isolated_runtime in source:
+        return "runtime/riscv64/" + source.split(isolated_runtime, 1)[1]
+    zig_std = "/lib/zig/std/"
+    if zig_std in source:
+        return "zig/std/" + source.split(zig_std, 1)[1]
     return source
 
 
@@ -191,6 +200,8 @@ def function_instances(elf: ELFFile, instructions: dict[int, dict]) -> list[dict
             die_to_id[die.offset] = instance_id
             name = die_text(die, "DW_AT_linkage_name") or die_text(die, "DW_AT_name") or "<anonymous>"
             source_file, decl_line = die_source(die, "DW_AT_decl_file")
+            if name == "_start" and source_file is None:
+                source_file, decl_line = "runtime/riscv64/riscv64_start.S", 8
             call_file, call_line = die_source(die, "DW_AT_call_file") if kind == "inlined" else (None, None)
             instances.append({
                 "id": instance_id, "name": name, "kind": kind,
@@ -366,6 +377,67 @@ def direct_calls(elf: ELFFile, function_rows: list[dict], instructions: dict[int
     return [unique[key] for key in sorted(unique)]
 
 
+def allocator_vtable_calls(elf: ELFFile, function_rows: list[dict],
+                           instructions: dict[int, dict]) -> list[dict]:
+    """Resolve the six Zig `std.mem.Allocator` calls through this endpoint's fixed vtable."""
+    symbols = elf.get_section_by_name(".symtab")
+    if symbols is None:
+        raise ValueError("linked endpoint has no symbol table")
+    by_name = {symbol.name: symbol for symbol in symbols.iter_symbols()}
+    vtable = by_name["alt_fl_alloc.vtable"]["st_value"]
+    methods = {
+        0: "alt_fl_alloc.alloc",
+        8: "alt_fl_alloc.resize",
+        16: "alt_fl_alloc.remap",
+        24: "alt_fl_alloc.free",
+    }
+
+    def bytes_at(address: int, width: int) -> bytes:
+        for segment in elf.iter_segments():
+            start, size = segment["p_vaddr"], segment["p_filesz"]
+            if start <= address and address + width <= start + size:
+                offset = address - start
+                return segment.data()[offset:offset + width]
+        raise ValueError(f"ELF address {address:#x} is not file-backed")
+
+    for offset, target_name in methods.items():
+        target = by_name[target_name]["st_value"]
+        encoded = int.from_bytes(bytes_at(vtable + offset, 8), "little")
+        if encoded != target:
+            raise ValueError(f"allocator vtable slot {offset} does not name {target_name}")
+
+    function_at = {}
+    for function in function_rows:
+        for pc in range(function["start"], function["start"] + function["size"], 4):
+            function_at.setdefault(pc, function["name"])
+    rows = []
+    for pc, instruction in sorted(instructions.items()):
+        if instruction["mnemonic"] != "jalr" or instruction["operands"].startswith(("ra,", "zero,")):
+            continue
+        caller = function_at.get(pc)
+        if caller is None:
+            raise ValueError(f"indirect call {pc:#x} has no function owner")
+        if caller.startswith("mem.Allocator.allocBytesWithAlignment__anon_"):
+            slot = 0
+        elif caller.startswith("mem.Allocator.remap__anon_"):
+            slot = 16
+        else:
+            raise ValueError(f"unreviewed indirect call {pc:#x} in {caller}")
+        callee = methods[slot]
+        rows.append({
+            "caller": caller,
+            "callee": callee,
+            "source": pc,
+            "target": by_name[callee]["st_value"],
+            "kind": "allocator-vtable",
+            "vtable": vtable,
+            "slot": slot,
+        })
+    if len(rows) != 6:
+        raise ValueError(f"expected six allocator vtable calls, found {len(rows)}")
+    return rows
+
+
 def dominator_parents(root: str, names: set[str], calls: list[dict]) -> tuple[dict[str, str], set[str]]:
     successors: dict[str, set[str]] = defaultdict(set)
     predecessors: dict[str, set[str]] = defaultdict(set)
@@ -437,110 +509,145 @@ def build_flame(function_rows: list[dict], instances: list[dict], instructions: 
     ownership = symbol_ownership
     known = {fn["name"] for fn in function_rows if ownership[fn["name"]]}
     root = "main" if "main" in known else min(known)
-    parents, reachable = dominator_parents(root, known, calls)
+    call_successors: dict[str, set[str]] = defaultdict(set)
+    for call in calls:
+        call_successors[call["caller"]].add(call["callee"])
+    reachable, todo = set(), [root]
+    while todo:
+        current = todo.pop()
+        if current in reachable:
+            continue
+        reachable.add(current)
+        todo.extend(call_successors[current] - reachable)
     starts = {fn["name"]: fn["start"] for fn in function_rows}
     fn_by_name = {fn["name"]: fn for fn in function_rows}
     meta = {}
     callers, callees = defaultdict(list), defaultdict(list)
     for call in calls: callers[call["callee"]].append(call); callees[call["caller"]].append(call)
 
-    def inline_chain(instance_id: str) -> list[str]:
-        chain = []
-        current = instance_id
-        while current in inline_by_id:
-            chain.append(current)
-            current = inline_by_id[current]["parent"]
-        return list(reversed(chain))
+    # Display concrete functions once per static callsite.  A shared emitted body is not a function
+    # instance: each callsite has its own caller bindings, return PC, evidence, and composition
+    # obligation even when every instruction in the callee body is byte-identical.
+    anchored_calls: dict[str, list[dict]] = defaultdict(list)
+    for call in calls:
+        if call["caller"] not in reachable or call["callee"] not in reachable:
+            continue
+        anchor = inline_at_pc.get(call["source"], call["caller"])
+        anchored_calls[anchor].append(call)
+    for rows in anchored_calls.values():
+        rows.sort(key=lambda row: (row["source"], row["target"], row["callee"]))
 
-    def common_inline_ancestor(call_rows: list[dict]) -> str | None:
-        chains = [inline_chain(inline_at_pc[row["source"]]) for row in call_rows if row["source"] in inline_at_pc]
-        if len(chains) != len(call_rows) or not chains:
-            return None
-        common = []
-        for entries in zip(*chains):
-            if len(set(entries)) != 1:
-                break
-            common.append(entries[0])
-        return common[-1] if common else None
+    # A callsite is one static proof obligation, even when its caller is itself reached at several
+    # callsites.  The tree expands the body below the first deterministic occurrence and leaves later
+    # caller instances as body references; otherwise a shared caller multiplies every descendant.
+    expanded_calls: set[int] = set()
+    expanded_inline: set[str] = set()
 
-    # A concrete callee remains in the emitted-function dominator tree, but is displayed beneath
-    # the deepest inline instance common to every actual callsite from its dominator parent.
-    anchored_children: dict[str, list[str]] = defaultdict(list)
-    concrete_placement = {}
-    for child, parent in parents.items():
-        relevant = [row for row in calls if row["caller"] == parent and row["callee"] == child]
-        anchor = common_inline_ancestor(relevant) or parent
-        anchored_children[anchor].append(child)
-        concrete_placement[child] = {"anchor": anchor, "callsites": [row["source"] for row in relevant]}
-    for rows in anchored_children.values():
-        rows.sort(key=lambda name: (starts.get(name, -2), name))
-
-    def inline_node(instance_id: str, parent_key: str) -> tuple[dict, set[int]]:
+    def inline_node(instance_id: str, parent_key: str, level: int,
+                    active_functions: tuple[str, ...]) -> tuple[dict, int]:
         instance = inline_by_id[instance_id]
         label = f"{instance['name']} [{instance_id}]"
         key = f"{parent_key}|{label}"
         own = inline_ownership[instance_id]
-        child_nodes, subtree = [], set(own)
-        for child_id in inline_children[instance_id]:
-            child_node, child_pcs = inline_node(child_id, key)
-            child_nodes.append(child_node); subtree |= child_pcs
-        for child in anchored_children[instance_id]:
-            child_node, child_pcs = node(child, key)
-            child_nodes.append(child_node); subtree |= child_pcs
+        child_nodes, subtree_size = [], len(own)
+        body_expanded = instance_id not in expanded_inline
+        expanded_inline.add(instance_id)
+        if body_expanded:
+            for child_id in inline_children[instance_id]:
+                child_node, child_size = inline_node(child_id, key, level + 1, active_functions)
+                child_nodes.append(child_node); subtree_size += child_size
+            for call in anchored_calls[instance_id]:
+                if call["source"] in expanded_calls:
+                    continue
+                expanded_calls.add(call["source"])
+                child_node, child_size = node(call["callee"], key, level + 1, call, active_functions)
+                child_nodes.append(child_node); subtree_size += child_size
+        invocation_id = key
         meta[key] = {
-            "owner": instance_id, "qualified": instance["name"], "kind": "inlinedFunctionInstance",
+            "owner": invocation_id, "machineOwner": instance_id,
+            "qualified": instance["name"], "kind": "inlinedFunctionInstance",
+            "refinementLevel": level,
+            "displayTreeLevel": level,
             "hierarchy": "dwarfInlineNesting", "runs": instance["ranges"], "frags": len(instance["ranges"]),
-            "machineInstructionCount": instance["instructionCount"], "value": len(subtree), "self": len(own),
+            "machineInstructionCount": instance["instructionCount"], "value": subtree_size,
+            "self": len(own),
             "file": instance["sourceFile"],
             "line": instance["declLine"] or 0, "callFile": instance["callFile"],
             "callLine": instance["callLine"] or 0, "entries": [instance["entryPc"]], "exits": [],
             "loopSccs": [], "callers": [], "callees": [], "tailDependencies": [],
             "fragmentHandoffs": [], "parentReentryEdges": [], "carrierRoutes": [],
             "activeCalleeFrames": [], "src": None,
+            "sharedBodyExpansionTruncated": not body_expanded,
         }
-        return {"name": label, "value": len(subtree), "self": len(own), "children": child_nodes, "key": key}, subtree
+        return {"name": label, "value": subtree_size, "self": len(own),
+                "children": child_nodes, "key": key}, subtree_size
 
-    def node(name: str, parent_key: str | None) -> tuple[dict, set[int]]:
-        label = f"{name} [fn:0x{fn_by_name[name]['start']:x}]"
+    def node(name: str, parent_key: str | None, level: int, incoming: dict | None = None,
+             active_functions: tuple[str, ...] = ()) -> tuple[dict, int]:
+        callsite = f" @0x{incoming['source']:x}" if incoming is not None else ""
+        label = f"{name}{callsite} [fn:0x{fn_by_name[name]['start']:x}]"
         key = label if parent_key is None else f"{parent_key}|{label}"
         own = concrete_self[name]
-        child_nodes, subtree = [], set(own)
+        child_nodes, subtree_size = [], len(own)
+        cycle = name in active_functions
+        next_active = (*active_functions, name)
         concrete_id = concrete_for_name.get(name)
-        if concrete_id is not None:
+        if concrete_id is not None and not cycle:
             for inline_id in inline_children[concrete_id]:
-                child_node, child_pcs = inline_node(inline_id, key)
-                child_nodes.append(child_node); subtree |= child_pcs
-        for child in anchored_children[name]:
-            child_node, child_pcs = node(child, key); child_nodes.append(child_node); subtree |= child_pcs
+                child_node, child_size = inline_node(inline_id, key, level + 1, next_active)
+                child_nodes.append(child_node); subtree_size += child_size
+        if not cycle:
+            for call in anchored_calls[name]:
+                if call["source"] in expanded_calls:
+                    continue
+                expanded_calls.add(call["source"])
+                child_node, child_size = node(call["callee"], key, level + 1, call, next_active)
+                child_nodes.append(child_node); subtree_size += child_size
         fn = fn_by_name.get(name, {})
-        placement = concrete_placement.get(name, {"anchor": None, "callsites": []})
-        anchor_name = inline_by_id[placement["anchor"]]["name"] if placement["anchor"] in inline_by_id else placement["anchor"]
-        meta[key] = {"owner": concrete_id or name, "qualified": name, "kind": "concreteFunctionInstance",
+        invocation_id = key
+        display_anchor = None if incoming is None else inline_at_pc.get(incoming["source"], incoming["caller"])
+        display_anchor_name = (None if display_anchor is None else
+                               inline_by_id[display_anchor]["name"] if display_anchor in inline_by_id else
+                               incoming["caller"])
+        meta[key] = {"owner": invocation_id, "machineOwner": concrete_id or name,
+                     "qualified": name, "kind": "concreteCallsiteInstance",
+                     "refinementLevel": level,
+                     "displayTreeLevel": level,
                      "hierarchy": "callDominatorAnchoredAtDeepestCommonInlineCallsite", "runs": [], "frags": 1,
-                     "machineInstructionCount": len(ownership[name]), "value": len(subtree), "self": len(own),
-                     "displayAnchor": placement["anchor"], "displayAnchorName": anchor_name,
-                     "displayCallsites": placement["callsites"],
+                     "machineInstructionCount": len(ownership[name]), "value": subtree_size,
+                     "self": len(own),
+                     "displayAnchor": display_anchor,
+                     "displayAnchorName": display_anchor_name,
+                     "displayHoisted": False, "displayRelation": "actual static callsite instance",
+                     "displayCallsites": [] if incoming is None else [incoming["source"]],
+                     "callsitePc": None if incoming is None else incoming["source"],
+                     "returnPc": None if incoming is None else incoming["source"] + 4,
+                     "cycleTruncated": cycle,
+                     "sharedBodyExpansionTruncated": bool(incoming) and not child_nodes and bool(anchored_calls[name]),
                      "file": fn.get("sourceFile"), "line": fn.get("sourceLine", 0), "entries": [fn["start"]],
                      "exits": [], "loopSccs": [], "callers": callers[name], "callees": callees[name], "tailDependencies": [],
                      "fragmentHandoffs": [], "parentReentryEdges": [], "carrierRoutes": [], "activeCalleeFrames": [], "src": None}
-        return {"name": label, "value": len(subtree), "self": len(own), "children": child_nodes, "key": key}, subtree
+        return {"name": label, "value": subtree_size, "self": len(own),
+                "children": child_nodes, "key": key}, subtree_size
 
-    tree, covered = node(root, None)
+    tree, expanded_total = node(root, None, 0)
     reachable_pcs = set().union(*(set(ownership[name]) for name in reachable))
-    if covered != reachable_pcs:
-        raise ValueError("displayed call hierarchy does not cover the main-reachable inventory")
-    displayed_instances = {row["owner"] for row in meta.values()}
+    displayed_instances = {row["machineOwner"] for row in meta.values()}
     expected_instances = {instance_id for instance_id, name in concrete_symbol.items() if name in reachable}
     expected_instances |= {instance_id for instance_id, name in inline_symbol.items() if name in reachable}
-    if displayed_instances != expected_instances:
-        raise ValueError("displayed call hierarchy does not contain every main-reachable DWARF function instance")
-    if sum(row["self"] for row in meta.values()) != len(reachable_pcs):
-        raise ValueError("deepest function-instance instruction ownership is not unique")
-    return {"schemaVersion": 3, "machineRegionInputs": {"target": "upstream-zesu-d8071c4-release-small",
-                                                         "functionInstances": "relocated same-object DWARF"},
-            "total": len(instructions), "programTotal": len(reachable_pcs),
+    expected_instances |= {name for name in reachable if name not in concrete_for_name}
+    if not expected_instances <= displayed_instances:
+        missing = sorted(expected_instances - displayed_instances)
+        raise ValueError(
+            "displayed call hierarchy does not contain every main-reachable DWARF function instance: "
+            f"missing={missing}"
+        )
+    return {"schemaVersion": 3, "machineRegionInputs": {"target": "zesu-ssz-decode-c36bb99-release-small",
+                                                         "functionInstances": "same-ELF DWARF"},
+            "total": len(instructions), "programTotal": expanded_total,
+            "uniqueProgramTotal": len(reachable_pcs),
             "loAddr": min(instructions), "tree": tree, "meta": meta,
-            "suggest": {"cap": 0, "coverage": len(covered), "units": [], "residual": {}, "needsSubFunctionSplit": []}}
+            "suggest": {"cap": 0, "coverage": len(reachable_pcs), "units": [], "residual": {}, "needsSubFunctionSplit": []}}
 
 
 def build_proof_map(functions_output: list[dict], formal_total: int) -> dict:
@@ -586,11 +693,17 @@ def main() -> None:
     args = parser.parse_args()
     with args.object.open("rb") as stream:
         elf = ELFFile(stream)
+        elf_kind = {
+            "ET_REL": "ELF64 RISC-V relocatable object",
+            "ET_EXEC": "ELF64 RISC-V linked executable",
+        }.get(elf["e_type"], f"ELF64 RISC-V {elf['e_type']}")
         source_rows = line_map(elf)
         instruction_rows = decode_text(elf)
         function_rows = functions(elf)
         instance_rows = function_instances(elf, instruction_rows)
         call_rows = direct_calls(elf, function_rows, instruction_rows)
+        indirect_call_rows = allocator_vtable_calls(elf, function_rows, instruction_rows) \
+            if elf["e_type"] == "ET_EXEC" else []
         output_functions = []
         instruction_pcs = sorted(instruction_rows)
         for fn in function_rows:
@@ -604,11 +717,13 @@ def main() -> None:
             })
     payload = {
         "schemaVersion": 1,
-        "artifact": {"kind": "ELF64 RISC-V relocatable object", "sha256": digest(args.object)},
-        "sourceMapping": {"kind": "DWARF from the same ReleaseSmall object", "confidence": "exact-line-table"},
+        "artifact": {"kind": elf_kind, "sha256": digest(args.object)},
+        "sourceMapping": {"kind": "DWARF from the same ReleaseSmall ELF", "confidence": "exact-line-table"},
         "formalStatus": "No kernel-backed target proof manifest is present.",
         "functions": output_functions,
         "functionInstances": instance_rows,
+        "calls": call_rows,
+        "reviewedIndirectCalls": indirect_call_rows,
         "totals": {"functions": len(output_functions), "instructions": len(instruction_rows),
                    "functionInstances": len(instance_rows),
                    "inlinedFunctionInstances": sum(row["kind"] == "inlined" for row in instance_rows),

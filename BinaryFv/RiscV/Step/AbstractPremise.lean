@@ -272,6 +272,7 @@ theorem witnessState_noMMIO (pc : BitVec 64) : FetchMemoryNoMMIO (witnessState p
   refine fetchMemoryNoMMIO_of_state_layout_excluded _ _ ⟨?_, ?_⟩
   · exact fetch_mmio_address_excluded_of_before_layout witnessPc (by decide) (by decide)
   · simp [witnessState, Std.ExtDHashMap.get?_insert]
+    rfl
 
 theorem witnessState_interrupts (pc : BitVec 64) : InterruptDisabled (witnessState pc) := by
   refine interruptDisabled_of_normal (mstatusBits := 0) (witnessState_normal pc) ?_ ⟨0, ?_⟩ <;>

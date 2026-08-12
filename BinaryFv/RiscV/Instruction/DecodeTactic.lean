@@ -20,8 +20,10 @@ macro "decode_run" : tactic =>
     (unfold Runs
      rw [extDecode_eq]
      simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-       PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get, EStateM.pure,
-       EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+       PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map,
+       EStateM.bind, EStateM.get, EStateM.pure, EStateM.instMonad,
+       EStateM.instMonadStateOf, instMonadStateOfMonadStateOf,
+       EStateM.instMonadExceptOfOfBacktrackable, getThe,
        MonadState.get, MonadStateOf.get, *]
      rfl))
 

@@ -26,9 +26,11 @@ theorem landingPad_notExpected (state : State) (notExpected : LandingPadNotExpec
   unfold LandingPadNotExpected at notExpected
   unfold Runs
   simp [is_landing_pad_expected, landing_pad_bits_backwards, PreSail.readReg, EStateM.run,
+    Bind.bind, Pure.pure, Functor.map,
     EStateM.bind, EStateM.get,
     EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-    instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+    instMonadStateOfMonadStateOf, MonadState.get, MonadStateOf.get,
+    EStateM.instMonadExceptOfOfBacktrackable, getThe,
     notExpected]
 
 /--
@@ -52,16 +54,23 @@ beyond the privilege level that selects the `mseccfg` branch.
 This is the `helpElp` premise of `tryStepRetRetires`, and `r` is left free rather than fixed to `x1`
 so that a caller returning through any link register uses the same lemma.
 -/
+theorem currentlyEnabledZicfilp_false_run (state : State) (mseccfgBits : BitVec 64)
+    (privilegeRead : state.regs.get? cur_privilege = some Privilege.Machine)
+    (seccfgRead : state.regs.get? mseccfg = some mseccfgBits) :
+    Runs (currentlyEnabled Ext_Zicfilp) state state false := by
+  unfold Runs
+  simp [currentlyEnabled, hartSupports, get_xLPE, PreSail.readReg, EStateM.run,
+    Bind.bind, Pure.pure, Functor.map, EStateM.bind,
+    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
+    instMonadStateOfMonadStateOf, MonadState.get, MonadStateOf.get,
+    EStateM.instMonadExceptOfOfBacktrackable, getThe,
+    privilegeRead, seccfgRead]
+
 theorem updateElpState_run (state : State) (r : regidx) (mseccfgBits : BitVec 64)
     (privilegeRead : state.regs.get? cur_privilege = some Privilege.Machine)
     (seccfgRead : state.regs.get? mseccfg = some mseccfgBits) :
     Runs (update_elp_state r) state state () := by
-  have gate : Runs (currentlyEnabled Ext_Zicfilp) state state false := by
-    unfold Runs
-    simp [currentlyEnabled, hartSupports, get_xLPE, PreSail.readReg, EStateM.run, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      privilegeRead, seccfgRead]
+  have gate := currentlyEnabledZicfilp_false_run state mseccfgBits privilegeRead seccfgRead
   unfold update_elp_state
   exact Runs.bind gate rfl
 
@@ -73,8 +82,10 @@ theorem not_updateElpState_run_of_privilege_absent (state : State) (r : regidx)
     ¬ Runs (update_elp_state r) state state () := by
   intro run
   unfold Runs update_elp_state at run
-  simp [currentlyEnabled, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
+  simp [currentlyEnabled, PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map,
+    EStateM.bind, EStateM.get,
     EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf, instMonadStateOfMonadStateOf,
-    getThe, absent, throw, throwThe, MonadExceptOf.throw, EStateM.throw] at run
+    MonadState.get, MonadStateOf.get, getThe, absent, throw, throwThe, MonadExceptOf.throw,
+    EStateM.throw] at run
 
 end BinaryFv.RiscV

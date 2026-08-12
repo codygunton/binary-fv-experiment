@@ -35,10 +35,8 @@ theorem activeHartStep_active (stepNo : Nat) (exitWait : Bool) (before after : S
     (result : Step) (hHart : before.regs.get? hart_state = some (.HART_ACTIVE ()))
     (hActive : Runs (run_hart_active stepNo) before after result) :
     Runs (activeHartStep stepNo exitWait) before after result := by
-  unfold Runs at hActive ⊢
-  simp only [activeHartStep, EStateM.run, EStateM.bind, EStateM.instMonad,
-    PreSail.readReg, EStateM.get, EStateM.pure, MonadState.get, MonadStateOf.get, getThe, hHart]
-  exact hActive
+  unfold activeHartStep
+  exact Runs.bind (readReg_run before hart_state (.HART_ACTIVE ()) hHart) hActive
 
 /--
 The authoritative `try_step` postlude for a **retiring** step, taking the hart-state selector's own
@@ -65,9 +63,7 @@ theorem tryStepRetiresOfSelected (stepNo : Nat)
       afterPc afterRetired PUnit.unit) :
     Runs (try_step stepNo false) before afterRetired false := by
   have hReadPrivilege : Runs (Sail.readReg cur_privilege) before before privilege := by
-    unfold Runs
-    simp only [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.instMonad,
-      EStateM.get, EStateM.pure, MonadState.get, MonadStateOf.get, getThe, hPrivilege]
+    exact readReg_run before cur_privilege privilege hPrivilege
   change Runs (do
     let currentPrivilege ← Sail.readReg cur_privilege
     let shouldIncrement ← should_inc_minstret currentPrivilege
@@ -80,22 +76,16 @@ theorem tryStepRetiresOfSelected (stepNo : Nat)
   apply Runs.bind hSelected
   simp only
   have hReadHart : Runs (Sail.readReg hart_state) afterActive afterActive (.HART_ACTIVE ()) := by
-    unfold Runs
-    simp only [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.instMonad,
-      EStateM.get, EStateM.pure, MonadState.get, MonadStateOf.get, getThe, hHartPost]
+    exact readReg_run afterActive hart_state (.HART_ACTIVE ()) hHartPost
   have hAssert : Runs (Sail.assert (hart_is_active (.HART_ACTIVE ()))
       "postlude/step.sail:219.74-219.75") afterActive afterActive () := by
     unfold Runs
-    simp [Sail.assert, PreSail.assert, EStateM.run, EStateM.instMonad, EStateM.pure,
-      hart_is_active]
+    change EStateM.pure () afterActive = EStateM.Result.ok () afterActive
+    rfl
   have hReadIncrement : Runs (Sail.readReg minstret_increment) afterPc afterPc true := by
-    unfold Runs
-    simp only [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.instMonad,
-      EStateM.get, EStateM.pure, MonadState.get, MonadStateOf.get, getThe, hIncrement]
+    exact readReg_run afterPc minstret_increment true hIncrement
   have hReadRetired : Runs (Sail.readReg minstret) afterPc afterPc retired := by
-    unfold Runs
-    simp only [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.instMonad,
-      EStateM.get, EStateM.pure, MonadState.get, MonadStateOf.get, getThe, hRetired]
+    exact readReg_run afterPc minstret retired hRetired
   apply Runs.bind hReadHart
   apply Runs.bind hAssert
   apply Runs.bind hReadHart
@@ -105,7 +95,8 @@ theorem tryStepRetiresOfSelected (stepNo : Nat)
   apply Runs.bind hReadRetired
   apply Runs.bind hWriteRetired
   unfold Runs
-  simp [get_config_rvfi, EStateM.run, EStateM.instMonad, EStateM.pure]
+  change EStateM.pure false afterRetired = EStateM.Result.ok false afterRetired
+  rfl
 
 /-- Lift a normal generated active-hart retirement through the authoritative `try_step` postlude. -/
 theorem tryStepRetires (stepNo : Nat) (before afterInc afterActive afterPc afterRetired : State)

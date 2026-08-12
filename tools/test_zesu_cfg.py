@@ -4,22 +4,27 @@
 import argparse
 import copy
 import json
+from collections import Counter
 from pathlib import Path
 
 
 def validate(path: Path) -> None:
     data = json.loads(path.read_text())
-    assert data["artifact"]["kind"] == "ELF64 RISC-V relocatable object"
+    assert data["artifact"]["kind"] in {
+        "ELF64 RISC-V relocatable object",
+        "ELF64 RISC-V linked executable",
+    }
     assert data["sourceMapping"]["confidence"] == "exact-line-table"
     assert data["formalStatus"].startswith("No kernel-backed")
     assert data["totals"]["functions"] == len(data["functions"])
     validate_instances(data)
+    validate_indirect_calls(data)
     assert data["totals"]["blocks"] == sum(len(fn["blocks"]) for fn in data["functions"])
     assert data["totals"]["symbolInstructionReferences"] == sum(fn["instructionCount"] for fn in data["functions"])
     assert any(fn["semanticGroup"] == "ssz" for fn in data["functions"])
     helper = next(fn for fn in data["functions"] if fn["name"] == "ssz.decodeByteListList")
     assert helper["sourceFile"] == "deps/zesu/src/stateless/stateless/ssz.zig"
-    assert helper["blocks"][0]["successors"] == ["0x40", "0x20"]
+    assert [int(pc, 16) - helper["start"] for pc in helper["blocks"][0]["successors"]] == [0x40, 0x20]
     for fn in data["functions"]:
         ids = {block["id"] for block in fn["blocks"]}
         assert fn["sourceFile"] and not fn["sourceFile"].startswith("/build/source/")
@@ -42,13 +47,18 @@ def validate(path: Path) -> None:
     assert decode["self"] > 0
     if len(data["functions"]) < 100:
         assert decode["callFile"] == "deps/zesu/src/zkvm/ssz_decode_root.zig"
-        assert decode["machineInstructionCount"] == 818
-        tx_key, tx = next((key, row) for key, row in flame["meta"].items()
-                          if row["qualified"] == "rlp_decode.decodeTxFields")
-        assert "|ssz.decode [" in tx_key and "|rlp_decode.decodeSingleTx [" in tx_key
-        assert tx_key.index("|ssz.decode [") < tx_key.index("|rlp_decode.decodeSingleTx [")
-        assert tx["displayAnchorName"] == "rlp_decode.decodeSingleTx"
-        assert tx["displayCallsites"] == [0x274c, 0x27a0]
+        assert decode["machineInstructionCount"] == 2521
+        tx_rows = [(key, row) for key, row in flame["meta"].items()
+                   if row["qualified"] == "rlp_decode.decodeTxFields"
+                   and row["callsitePc"] in {0x142d8, 0x14358}]
+        assert len(tx_rows) == 2
+        for tx_key, tx in tx_rows:
+            assert "|ssz.decode [" in tx_key and "|rlp_decode.decodeSingleTx [" in tx_key
+            assert tx_key.index("|ssz.decode [") < tx_key.index("|rlp_decode.decodeSingleTx [")
+        assert "rlp_decode.decodeSingleTx" in {tx["displayAnchorName"] for _, tx in tx_rows}
+        assert any(tx["displayAnchorName"].startswith("rlp_decode.decodeTxItem__anon_")
+                   for _, tx in tx_rows)
+        assert {tx["callsitePc"] for _, tx in tx_rows} == {0x142d8, 0x14358}
 
     proof = json.loads(path.with_name("proof-map.json").read_text())
     validate_proof(proof)
@@ -81,7 +91,8 @@ def validate(path: Path) -> None:
         raise AssertionError("forged inline function range was accepted")
 
     forged_anchor = copy.deepcopy(flame)
-    tx = next(row for row in forged_anchor["meta"].values() if row["qualified"] == "rlp_decode.decodeTxFields")
+    tx = next(row for row in forged_anchor["meta"].values()
+              if row["qualified"] == "rlp_decode.decodeTxFields")
     tx["displayCallsites"] = [0]
     try:
         validate_flame(data, forged_anchor)
@@ -89,6 +100,37 @@ def validate(path: Path) -> None:
         pass
     else:
         raise AssertionError("forged inline callsite anchor was accepted")
+
+    if data["reviewedIndirectCalls"]:
+        forged_indirect = copy.deepcopy(data)
+        forged_indirect["reviewedIndirectCalls"][0]["target"] += 4
+        try:
+            validate_indirect_calls(forged_indirect)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("forged allocator-vtable target was accepted")
+
+
+def validate_indirect_calls(data: dict) -> None:
+    if data["artifact"]["kind"] != "ELF64 RISC-V linked executable":
+        assert data["reviewedIndirectCalls"] == []
+        return
+    expected = {
+        0x16244: ("alt_fl_alloc.alloc", 0x15ffc, 0),
+        0x163b0: ("alt_fl_alloc.remap", 0x15d38, 16),
+        0x16430: ("alt_fl_alloc.alloc", 0x15ffc, 0),
+        0x1659c: ("alt_fl_alloc.remap", 0x15d38, 16),
+        0x16808: ("alt_fl_alloc.remap", 0x15d38, 16),
+        0x168f4: ("alt_fl_alloc.alloc", 0x15ffc, 0),
+    }
+    rows = data["reviewedIndirectCalls"]
+    assert len(rows) == len(expected)
+    for row in rows:
+        callee, target, slot = expected[row["source"]]
+        assert row["kind"] == "allocator-vtable"
+        assert row["callee"] == callee and row["target"] == target and row["slot"] == slot
+        assert row["vtable"] == 0x177a8
 
 
 def validate_instances(data: dict) -> None:
@@ -110,23 +152,76 @@ def validate_instances(data: dict) -> None:
             assert set(row["pcs"]) <= set(by_id[row["parent"]]["pcs"])
     decode = next(row for row in instances if row["name"] == "ssz.decode" and row["kind"] == "inlined")
     if len(data["functions"]) < 100:
-        assert decode["instructionCount"] == 818
+        assert decode["instructionCount"] == 2521
     assert decode["sourceFile"] == "deps/zesu/src/stateless/stateless/ssz.zig"
 
 
 def validate_flame(data: dict, flame: dict) -> None:
     instances = {row["id"]: row for row in data["functionInstances"]}
-    assert sum(row["self"] for row in flame["meta"].values()) == flame["programTotal"]
+    assert sum(row["self"] for row in flame["meta"].values()) <= flame["programTotal"]
     assert len({row["owner"] for row in flame["meta"].values()}) == len(flame["meta"])
+    seen_levels = {}
+
+    def record_levels(node: dict, level: int = 0) -> None:
+        seen_levels[node["key"]] = level
+        for child in node["children"]:
+            record_levels(child, level + 1)
+
+    record_levels(flame["tree"])
+    assert set(seen_levels) == set(flame["meta"])
     for row in flame["meta"].values():
         assert row["machineInstructionCount"] > 0
+        if row.get("callsitePc") is not None:
+            assert row["displayCallsites"] == [row["callsitePc"]]
+            assert row["returnPc"] == row["callsitePc"] + 4
         if row["kind"] == "inlinedFunctionInstance":
-            assert row["owner"] in instances
-            assert row["machineInstructionCount"] == instances[row["owner"]]["instructionCount"]
+            assert row["machineOwner"] in instances
+            assert row["machineInstructionCount"] == instances[row["machineOwner"]]["instructionCount"]
         elif row["displayAnchor"] and row["displayAnchor"].startswith("fi:"):
             assert row["displayAnchor"] in instances
             anchor_pcs = set(instances[row["displayAnchor"]]["pcs"])
             assert row["displayCallsites"] and set(row["displayCallsites"]) <= anchor_pcs
+    assert all(flame["meta"][key]["displayTreeLevel"] == level for key, level in seen_levels.items())
+    assert flame["meta"][flame["tree"]["key"]]["refinementLevel"] == 0
+    if len(data["functions"]) < 100:
+        level_one = Counter(row["qualified"] for row in flame["meta"].values()
+                            if row["refinementLevel"] == 1)
+        assert level_one == Counter({
+            "alt_fl_alloc.get": 1,
+            "ssz_decode_root.decodeInput": 1,
+            "ssz_decode_observation.writeSuccess": 1,
+            "ssz_decode_observation.writeFailure": 1,
+            "read_input": 1,
+            "zkvm_exit": 2,
+        })
+        write_outputs = [row for row in flame["meta"].values()
+                         if row["qualified"] == "write_output"]
+        expected_write_calls = [row for row in data["calls"] if row["callee"] == "write_output"]
+        assert len(write_outputs) == len(expected_write_calls)
+        assert {row["callsitePc"] for row in write_outputs} == {
+            row["source"] for row in expected_write_calls
+        }
+        assert all(row["displayTreeLevel"] > 1 for row in write_outputs)
+        assert all(row["displayRelation"] == "actual static callsite instance"
+                   for row in write_outputs)
+        memcpy_instances = [row for row in flame["meta"].values()
+                            if row["qualified"] == "memcpy"]
+        expected_memcpy_calls = [row for row in data["calls"] if row["callee"] == "memcpy"]
+        assert len(memcpy_instances) == len(expected_memcpy_calls) == 34
+        assert {row["callsitePc"] for row in memcpy_instances} == {
+            row["source"] for row in expected_memcpy_calls
+        }
+        assert all(row["displayTreeLevel"] > 1 for row in memcpy_instances)
+        allocator_leaves = [row for row in flame["meta"].values()
+                            if row["qualified"].startswith(
+                                "mem.Allocator.allocBytesWithAlignment__anon_")]
+        assert allocator_leaves and all(row["refinementLevel"] > 1 for row in allocator_leaves)
+        observations = [row for row in flame["meta"].values()
+                        if row["qualified"].startswith("ssz_decode_observation.")]
+        assert observations
+        success = next(row for row in observations
+                       if row["qualified"] == "ssz_decode_observation.writeSuccess")
+        assert success["file"] == "deps/zesu/src/zkvm/ssz_decode_observation.zig"
 
 
 def validate_proof(proof: dict) -> None:

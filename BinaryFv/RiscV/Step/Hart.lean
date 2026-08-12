@@ -14,11 +14,11 @@ theorem exceptTRunLiftBind {α : Type} (action : SailM α) (next : α → SailME
         let current ← action
         ExceptT.run (next current)) := by
   change ExceptT.run ((ExceptT.lift action) >>= next) = _
-  simp only [ExceptT.instMonad, Monad.toBind, ExceptT.bind, ExceptT.lift, ExceptT.mk,
-    ExceptT.run, EStateM.instMonad]
   funext state
-  cases hAction : action state <;>
-    simp [EStateM.bind, EStateM.map, ExceptT.bindCont, hAction]
+  change EStateM.bind (EStateM.map Except.ok action) (ExceptT.bindCont next) state =
+    EStateM.bind action (fun current => ExceptT.run (next current)) state
+  unfold EStateM.bind EStateM.map
+  cases hAction : action state <;> rfl
 
 /-- Eliminate the generated `SailME.run` wrapper around an ordinary Sail-action bind. -/
 theorem sailMERunLiftBind {α : Type} (action : SailM α) (next : α → SailME Step Step) :
@@ -58,13 +58,9 @@ theorem runHartActiveBaseRetires (stepNo : Nat) (before afterFetch afterNext aft
     Runs (run_hart_active stepNo) before afterExec
       (.Step_Execute (.Retire_Success (), zero_extend (m := 32) word)) := by
   have hReadPrivilege : Runs (Sail.readReg cur_privilege) before before privilege := by
-    unfold Runs
-    simp only [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.instMonad,
-      EStateM.get, EStateM.pure, MonadState.get, MonadStateOf.get, getThe, hPrivilege]
+    exact readReg_run before cur_privilege privilege hPrivilege
   have hReadPc : Runs (Sail.readReg PC) afterFetch afterFetch pc := by
-    unfold Runs
-    simp only [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.instMonad,
-      EStateM.get, EStateM.pure, MonadState.get, MonadStateOf.get, getThe, hPc]
+    exact readReg_run afterFetch PC pc hPc
   unfold run_hart_active
   refine runsSailMELift (action := Sail.readReg cur_privilege) (next := ?_)
     (before := before) (middle := before) (after := afterExec) (value := privilege)
@@ -99,7 +95,6 @@ theorem runHartActiveBaseRetires (stepNo : Nat) (before afterFetch afterNext aft
   simp
   unfold Runs Sail.SailME.run PreSail.PreSailME.run
   simp
-  rfl
 
 /-- The generated `nextPC` write has the standard register-update contract. -/
 theorem writeNextPc_run (state : State) (pc : BitVec 64) :

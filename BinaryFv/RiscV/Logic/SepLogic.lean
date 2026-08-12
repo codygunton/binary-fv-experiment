@@ -380,10 +380,8 @@ theorem leBytes_length (n : Nat) (value : BitVec (8 * n)) : (leBytes n value).le
   simp [leBytes]
 
 theorem leWord_single (v : BitVec 8) : leWord [v] = v := by
-  apply BitVec.eq_of_getLsbD_eq; intro i hi
-  simp only [leWord, BitVec.getLsbD_cast, BitVec.getLsbD_append]
-  have : i < 8 := by simpa using hi
-  simp [this]
+  have appended := @BitVec.setWidth_append_eq_right 0 8 (0#0) v
+  simpa only [leWord, BitVec.setWidth_eq] using appended
 
 private theorem extract_extract (n : Nat) (value : BitVec (8 * (n + 1))) (k : Nat) (hk : k < n) :
     value.extractLsb' (8 * (k + 1)) 8 = (value.extractLsb' 8 (8 * n)).extractLsb' (8 * k) 8 := by
@@ -541,7 +539,8 @@ theorem triple_readWord (S : StateAssertion) (a : Nat) (w : BitVec (8 * 8)) :
   have hw8 : leWord (leBytes 8 w) = w := by
     apply BitVec.eq_of_getLsbD_eq; intro j _; exact leWord_leBytes_getLsbD 8 w j
   exact triple_consequence (fun _ h => h) (fun _ h => h) (fun _ _ h => h)
-    (fun r h => fun hpair => ⟨by rw [hpair.1, hw8], hpair.2⟩)
+    (fun r h => fun hpair =>
+      ⟨hpair.1.trans (congrArg (fun value => (value, none)) hw8), hpair.2⟩)
     (triple_readBytes S a (leBytes 8 w))
 
 /-! ## Frame preservation and acceptance theorems -/

@@ -60,8 +60,9 @@ theorem RunsME.lift {ε α : Type} (action : SailM α) (before after : State) (v
   change Runs (ExceptT.run (liftM action : SailME ε α)) before after (Except.ok value)
   change Runs (Except.ok <$> action) before after (Except.ok value)
   unfold Runs at hAction ⊢
-  simp only [EStateM.run, EStateM.instMonad, EStateM.map] at hAction ⊢
-  rw [hAction]
+  simp only [EStateM.run, Functor.map, Applicative.toFunctor, Monad.toApplicative,
+    EStateM.instMonad, EStateM.map] at hAction ⊢
+  simp only [hAction]
 
 /-- Unwrap the generated `SailME.run` around a normally-completing action. -/
 theorem RunsME.run {α : Type} (action : SailME α α) (before after : State) (result : α)

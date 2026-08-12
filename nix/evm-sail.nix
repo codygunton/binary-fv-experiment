@@ -1,4 +1,4 @@
-{ evmSail, evmSailCompiler, leanSail, pkgs }:
+{ binaryFvLean, evmSail, evmSailCompiler, leanSail, pkgs, repo, zesuSszDecodeSmoke }:
 let
   customSail = pkgs.ocamlPackages.sail.overrideAttrs (_old: {
     pname = "sail-evm-sail";
@@ -73,10 +73,140 @@ let
       cp -R . "$out/"
     '';
   };
+
+  combinedImport = pkgs.runCommand "binary-fv-evm-sail-combined-import" {
+    nativeBuildInputs = [ lean429 pkgs.python3 ];
+  } ''
+    cp -R ${binaryFvLean}/lean compiled
+    chmod -R u+w compiled
+    mkdir -p compiled/BinaryFv/Specs/SSZ
+    mkdir -p compiled/BinaryFv/Zesu/{Contracts,DecodedValue,Elflings,Entrypoints/SszDecodeRoot}
+    mkdir -p compiled/BinaryFv/RiscV/Logic
+    mkdir -p compiled/BinaryFv/RiscV/Model
+    mkdir -p compiled/BinaryFv/RiscV/Elfling
+    mkdir -p compiled/BinaryFv/RiscV/Instruction
+    mkdir -p compiled/BinaryFv/Binary
+    export LEAN_PATH=$PWD/compiled:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
+    cp ${repo}/BinaryFv/Specs/SSZ/Decode.lean Decode.lean
+    cp ${repo}/BinaryFv/Zesu/DecodedValue/Observers.lean Observers.lean
+    cp ${repo}/BinaryFv/Zesu/DecodedValue/Encoder.lean Encoder.lean
+    cp ${repo}/BinaryFv/Zesu/DecodedValue/Representation.lean Representation.lean
+    cp ${repo}/BinaryFv/Zesu/Contracts/KnownBugs.lean KnownBugs.lean
+    cp ${repo}/BinaryFv/Zesu/Contracts/DecodedResultRelation.lean DecodedResultRelation.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.lean Level1Boundary.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.lean Level1Contracts.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.lean Level2Contracts.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.lean Level2RuntimeLeaves.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/MemcpyProof.lean MemcpyProof.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/InstructionClassSteps.lean InstructionClassSteps.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.lean Level0Contract.lean
+    cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
+    cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
+    cp ${repo}/BinaryFv/Zesu/Elflings/GeneratedLevel1.lean GeneratedLevel1.lean
+    cp ${repo}/BinaryFv/Zesu/Elflings/GeneratedLevel2.lean GeneratedLevel2.lean
+    cp ${repo}/BinaryFv/Zesu/Contracts/Machine.lean Machine.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/HostExecution.lean HostExecution.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/MemoryWriteFrame.lean MemoryWriteFrame.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/RegisterAgree.lean RegisterAgree.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/LoadedImage.lean LoadedImage.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/SepLogic.lean SepLogic.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/Trace.lean Trace.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/LoopInduction.lean LoopInduction.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/BlockStep.lean BlockStep.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/MemFrame.lean MemFrame.lean
+    cp ${repo}/BinaryFv/RiscV/Logic/SentinelTrace.lean SentinelTrace.lean
+    cp ${repo}/BinaryFv/RiscV/Instruction/DecodeTactic.lean DecodeTactic.lean
+    cp ${repo}/BinaryFv/RiscV/Step/RegisterWrite.lean RegisterWrite.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/FunctionTrace.lean FunctionTrace.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/Boundary.lean Boundary.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/Contract.lean ElflingContract.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/ProgramGeometry.lean ProgramGeometry.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/SequentialSplice.lean SequentialSplice.lean
+    cp ${repo}/BinaryFv/RiscV/Elfling/Seg.lean Seg.lean
+    cp ${repo}/BinaryFv/RiscV/Instruction/Execute/Load.lean Load.lean
+    cp ${repo}/BinaryFv/RiscV/Instruction/Execute/StoreByte.lean StoreByte.lean
+    cp ${repo}/BinaryFv/RiscV/Instruction/Execute/Memory.lean Memory.lean
+    cp ${repo}/BinaryFv/Binary/Address.lean BinaryAddress.lean
+    cp ${repo}/BinaryFv/RiscV/Model/Address.lean RiscVAddress.lean
+    cp ${repo}/BinaryFv/RiscV/Model/State.lean RiscVState.lean
+    cp ${repo}/tests/evm-sail/CombinedImportSmoke.lean CombinedImportSmoke.lean
+    cp ${repo}/tests/evm-sail/ObservationSmoke.lean ObservationSmoke.lean
+    cp ${repo}/tests/evm-sail/DifferentialSmoke.lean DifferentialSmoke.lean
+    substituteInPlace ObservationSmoke.lean \
+      --replace-fail '@SUCCESS@' '${zesuSszDecodeSmoke}/success.out' \
+      --replace-fail '@FAILURE@' '${zesuSszDecodeSmoke}/rejected.out' \
+      --replace-fail '@CHANGED@' '${zesuSszDecodeSmoke}/changed.out'
+    substituteInPlace DifferentialSmoke.lean \
+      --replace-fail '@INPUT@' '${zesuSszDecodeSmoke}/minimal.ssz' \
+      --replace-fail '@SUCCESS@' '${zesuSszDecodeSmoke}/success.out' \
+      --replace-fail '@CHANGED@' '${zesuSszDecodeSmoke}/changed.out' \
+      --replace-fail '@ZERO_INPUT@' '${zesuSszDecodeSmoke}/chain-id-zero.ssz' \
+      --replace-fail '@ZERO_SUCCESS@' '${zesuSszDecodeSmoke}/chain-id-zero.out' \
+      --replace-fail '@LEGACY_INPUT@' '${zesuSszDecodeSmoke}/legacy-requests.ssz' \
+      --replace-fail '@LEGACY_SUCCESS@' '${zesuSszDecodeSmoke}/legacy-requests.out' \
+      --replace-fail '@V3_INPUT@' '${zesuSszDecodeSmoke}/legacy-payload.ssz' \
+      --replace-fail '@V3_SUCCESS@' '${zesuSszDecodeSmoke}/legacy-payload.out' \
+      --replace-fail '@FUTURE_INPUT@' '${zesuSszDecodeSmoke}/future-activation.ssz' \
+      --replace-fail '@FUTURE_SUCCESS@' '${zesuSszDecodeSmoke}/future-activation.out' \
+      --replace-fail '@EXTRA_INPUT@' '${zesuSszDecodeSmoke}/extra-data-33.ssz' \
+      --replace-fail '@EXTRA_SUCCESS@' '${zesuSszDecodeSmoke}/extra-data-33.out' \
+      --replace-fail '@KEYS_INPUT@' '${zesuSszDecodeSmoke}/public-key-overflow.ssz' \
+      --replace-fail '@KEYS_SUCCESS@' '${zesuSszDecodeSmoke}/public-key-overflow.out' \
+      --replace-fail '@HASHES_INPUT@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.ssz' \
+      --replace-fail '@HASHES_SUCCESS@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.out'
+    lean -o compiled/BinaryFv/Specs/SSZ/Decode.olean Decode.lean
+    lean -o compiled/BinaryFv/Zesu/DecodedValue/Observers.olean Observers.lean
+    lean -o compiled/BinaryFv/Zesu/DecodedValue/Encoder.olean Encoder.lean
+    lean -o compiled/BinaryFv/Zesu/DecodedValue/Representation.olean Representation.lean
+    lean -o compiled/BinaryFv/Zesu/Contracts/KnownBugs.olean KnownBugs.lean
+    lean -o compiled/BinaryFv/Zesu/Contracts/DecodedResultRelation.olean DecodedResultRelation.lean
+    lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel1.olean GeneratedLevel1.lean
+    lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel2.olean GeneratedLevel2.lean
+    lean -o compiled/BinaryFv/Zesu/Contracts/Machine.olean Machine.lean
+    lean -o compiled/BinaryFv/Binary/Address.olean BinaryAddress.lean
+    lean -o compiled/BinaryFv/RiscV/Model/Address.olean RiscVAddress.lean
+    lean -o compiled/BinaryFv/RiscV/Model/State.olean RiscVState.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/LoadedImage.olean LoadedImage.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/MemoryWriteFrame.olean MemoryWriteFrame.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/RegisterAgree.olean RegisterAgree.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/SepLogic.olean SepLogic.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/Trace.olean Trace.lean
+    lean -o compiled/BinaryFv/RiscV/Instruction/Execute/Load.olean Load.lean
+    lean -o compiled/BinaryFv/RiscV/Instruction/Execute/StoreByte.olean StoreByte.lean
+    lean -o compiled/BinaryFv/RiscV/Instruction/Execute/Memory.olean Memory.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/LoopInduction.olean LoopInduction.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/BlockStep.olean BlockStep.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/MemFrame.olean MemFrame.lean
+    lean -o compiled/BinaryFv/RiscV/Logic/SentinelTrace.olean SentinelTrace.lean
+    lean -o compiled/BinaryFv/RiscV/Instruction/DecodeTactic.olean DecodeTactic.lean
+    lean -o compiled/BinaryFv/RiscV/Step/RegisterWrite.olean RegisterWrite.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/FunctionTrace.olean FunctionTrace.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/Boundary.olean Boundary.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/Contract.olean ElflingContract.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/ProgramGeometry.olean ProgramGeometry.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/SequentialSplice.olean SequentialSplice.lean
+    lean -o compiled/BinaryFv/RiscV/Elfling/Seg.olean Seg.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/HostExecution.olean HostExecution.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.olean Level1Boundary.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.olean Level1Contracts.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.olean Level2Contracts.lean
+    lean -o compiled/BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.olean Level2RuntimeLeaves.lean
+    lean -o compiled/BinaryFv/Zesu/MachineExecution/MemcpyProof.olean MemcpyProof.lean
+    lean -o compiled/BinaryFv/Zesu/MachineExecution/InstructionClassSteps.olean InstructionClassSteps.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.olean Level0Contract.lean
+    lean -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
+    lean -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean 2>&1 | tee trust-audit.log
+    python ${repo}/tools/check_root_axioms.py trust-audit.log
+    lean CombinedImportSmoke.lean
+    lean ObservationSmoke.lean
+    lean DifferentialSmoke.lean
+    touch "$out"
+  '';
 in
 {
   public = {
     evmSailCompiler = customSail;
     evmSailLeanExtraction = leanExtraction;
+    binaryFvEvmSailCombinedImport = combinedImport;
   };
 }

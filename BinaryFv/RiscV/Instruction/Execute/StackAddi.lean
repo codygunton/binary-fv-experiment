@@ -15,7 +15,8 @@ theorem execute_stack_addi (state : State) (immediate : BitVec 12) (value : BitV
         { state with regs := state.regs.insert x2 (value + sign_extend (m := 64) immediate) } := by
   have r2Nat : (Sail.BitVec.toNatInt 2#5).toNat = 2 := by decide
   simp [execute_ITYPE, stackPointer, rX_bits, rX, wX_bits, wX, PreSail.readReg,
-    PreSail.writeReg, r2Nat, stackRead, EStateM.run, EStateM.bind, EStateM.get,
+    PreSail.writeReg, r2Nat, stackRead, EStateM.run, Bind.bind, Pure.pure, Functor.map,
+    EStateM.bind, EStateM.get,
     EStateM.modifyGet, EStateM.pure, EStateM.instMonad, MonadState.get, MonadState.modifyGet,
     MonadStateOf.get, MonadStateOf.modifyGet, getThe, modify, xreg_write_callback,
     xreg_full_write_callback, reg_name_forwards, get_config_use_abi_names, encdec_reg_forwards,

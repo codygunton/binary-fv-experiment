@@ -92,7 +92,8 @@ private theorem pmpReadAddrReg_default (state : State) (index : Nat)
     Runs (pmpReadAddrReg index) state state (0 : BitVec 64) := by
   have matchType : Sail.BitVec.access (_get_Pmpcfg_ent_A 0#8) 1 = 0#1 := rfl
   unfold Runs pmpReadAddrReg
-  simp [PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get, EStateM.pure,
+  simp [PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map,
+    EStateM.bind, EStateM.get, EStateM.pure, MonadState.get, MonadStateOf.get,
     EStateM.instMonad, EStateM.instMonadStateOf, instMonadStateOfMonadStateOf,
     EStateM.instMonadExceptOfOfBacktrackable, getThe, sys_pmp_grain, configRead, addressRead,
     defaultPmpCfgEntry, defaultPmpAddrEntry]
@@ -110,11 +111,11 @@ private theorem runsExceptTLift {ε α β : Type} (action : SailM α)
   have runEq : ExceptT.run ((ExceptT.lift action) >>= next) = (do
       let current ← action
       ExceptT.run (next current)) := by
-    simp only [ExceptT.instMonad, Monad.toBind, ExceptT.bind, ExceptT.lift, ExceptT.mk,
-      ExceptT.run, EStateM.instMonad]
     funext state
-    cases hAction' : action state <;>
-      simp [EStateM.bind, EStateM.map, ExceptT.bindCont, hAction']
+    change EStateM.bind (EStateM.map Except.ok action) (ExceptT.bindCont next) state =
+      EStateM.bind action (fun current => ExceptT.run (next current)) state
+    unfold EStateM.bind EStateM.map
+    cases hAction' : action state <;> rfl
   rw [runEq]
   exact Runs.bind hAction hNext
 
@@ -216,8 +217,8 @@ private theorem loopInvariant
 termination_by (16 - index).toNat
 decreasing_by
   change (16 - (index + 1)).toNat < (16 - index).toNat
-  have bounds : (0 : Int) ≤ index ∧ index ≤ 15 := by
-    simpa [pmpLoopRange, sys_pmp_count, IntRange.instMemIntRange] using inRange
+  have upper : index ≤ 15 := by
+    exact inRange.1.2
   omega
 
 private theorem pmpLoop_default (state : State) (address : physaddr) (width : xlenbits)
@@ -236,10 +237,10 @@ private theorem runsSailMERunOfOk {α : Type} (action : SailME α α)
     (hAction : Runs (ExceptT.run action) before after (.ok result)) :
     Runs (SailME.run action) before after result := by
   unfold Runs at hAction
+  unfold EStateM.run at hAction
   unfold Runs Sail.SailME.run PreSail.PreSailME.run
-  simp only [EStateM.instMonad]
+  change EStateM.bind (ExceptT.run action) _ before = EStateM.Result.ok result after
   unfold EStateM.bind
-  unfold EStateM.run at hAction ⊢
   dsimp
   rw [hAction]
   rfl

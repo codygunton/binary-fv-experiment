@@ -75,7 +75,7 @@
  .legend{display:inline-flex;gap:10px;align-items:center;font-size:11px;color:var(--dim)}
  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
  .legend i.conditional{background:repeating-linear-gradient(135deg,#3ddc84 0 4px,#e5b84b 4px 8px)}
- .legend i.contracted{background:repeating-linear-gradient(135deg,#e5b84b 0 4px,#d95757 4px 8px)}
+ .legend i.contracted{background:repeating-linear-gradient(135deg,#62b5e5 0 4px,#283b48 4px 8px)}
  /* the frame label is a foreignObject painted over the rect and it swallows every
     click; without this nothing in the graph is clickable at all. */
  #chart foreignObject, #chart foreignObject *{pointer-events:none}
@@ -95,7 +95,8 @@
       <span><i class="conditional"></i>proven conditional on function contracts</span>
       <span><i style="background:#e5b84b"></i>proof in progress</span>
       <span><i class="contracted"></i>contract specified</span>
-      <span><i style="background:#d95757"></i>none</span></span>
+      <span><i style="background:#687385"></i>not selected at current proof level</span>
+      </span>
     <span class="muted"><b>scroll</b> = zoom · <b>drag</b> = pan · <b>double-click</b> = reset · click = details</span>
   </header>
   <div id="chart"><div id="levels"></div></div>
@@ -111,7 +112,7 @@
 <script src="vendor/d3.min.js"></script>
 <script src="vendor/d3-flamegraph.min.js"></script>
 <script>
-let D=null, META=null, OWNER_META=new Map(), TOTAL=0, PROGRAM_TOTAL=0, fg=null, PROGRESS=new Map();
+let D=null, META=null, OWNER_META=new Map(), MACHINE_META=new Map(), TOTAL=0, PROGRAM_TOTAL=0, fg=null, PROGRESS=new Map();
 let PROOF_MAP=null, PROOF_FILTER='all', PROOF_VIEW=false;
 let copyText='';
 const $=s=>document.querySelector(s);
@@ -125,8 +126,13 @@ Promise.all([fetch(FLAME_FILE).then(r=>r.json()),fetch('proof-progress.json').th
   fetch('proof-map.json').then(r=>r.ok?r.json():null)]).then(([d,p,proofMap])=>{
   D=d.tree; META=d.meta; TOTAL=d.total; PROGRAM_TOTAL=d.programTotal;
   PROOF_MAP=proofMap;
-  Object.values(META).forEach(m=>{if(m.owner) OWNER_META.set(m.owner,m)});
-  (p.states||[]).forEach(state=>PROGRESS.set(state.qualified,state));
+  Object.values(META).forEach(m=>{
+    if(m.owner) OWNER_META.set(m.owner,m);
+    if(m.machineOwner&&!MACHINE_META.has(m.machineOwner)) MACHINE_META.set(m.machineOwner,m);
+  });
+  (p.states||[]).forEach(state=>PROGRESS.set(state.owner||state.qualified,state));
+  (PROOF_MAP?.flameProgress?.states||[]).forEach(state=>
+    PROGRESS.set(state.owner||state.qualified,state));
   build();
   if(PROOF_MAP) $('#proof-toggle').hidden=false;
 });
@@ -139,10 +145,13 @@ function keyOf(node){
 }
 
 let Z=1, baseW=0;
-const proofState=d=>PROGRESS.get(META[keyOf(d)]?.qualified)||{status:'none'};
+const proofState=d=>{const meta=META[keyOf(d)]||{};
+  return PROGRESS.get(meta.owner)||PROGRESS.get(meta.machineOwner)||
+    PROGRESS.get(meta.qualified)||{status:'not_selected'};};
 const proofColor=s=>({unconditionally_proven:'#3ddc84',
   conditionally_proven:'url(#conditionally-proven)',in_progress:'#e5b84b',
-  contracted:'url(#contract-specified)',none:'#d95757'})[s]||'#d95757';
+  contracted:'url(#contract-specified)',contract_not_specified:'#d95757',
+  not_selected:'#687385',invalid_target_model:'#ff5f68'})[s]||'#d95757';
 
 function build(){
   baseW = $('#chart').clientWidth - 100;
@@ -165,8 +174,8 @@ function build(){
   const contracted=defs.append('pattern').attr('id','contract-specified')
     .attr('patternUnits','userSpaceOnUse').attr('width',8).attr('height',8)
     .attr('patternTransform','rotate(45)');
-  contracted.append('rect').attr('width',8).attr('height',8).attr('fill','#d95757');
-  contracted.append('rect').attr('width',4).attr('height',8).attr('fill','#e5b84b');
+  contracted.append('rect').attr('width',8).attr('height',8).attr('fill','#283b48');
+  contracted.append('rect').attr('width',4).attr('height',8).attr('fill','#62b5e5');
   wireMouse();
   renderLevelLabels();
 }
@@ -175,23 +184,24 @@ function renderLevelLabels(){
   const chart=$('#chart'), rail=$('#levels'), chartBox=chart.getBoundingClientRect();
   const rows=new Map(), names=new Map();
   d3.selectAll('#chart g.frame').each(function(d){
-    if(!d || d.depth<2) return;
-    if(!rows.has(d.depth)){
+    if(!d) return;
+    const level=META[keyOf(d)]?.displayTreeLevel ?? d.depth;
+    if(!rows.has(level)){
       const rect=this.querySelector('rect'); if(!rect) return;
       const box=rect.getBoundingClientRect();
-      rows.set(d.depth, box.top-chartBox.top+chart.scrollTop+box.height/2);
+      rows.set(level, box.top-chartBox.top+chart.scrollTop+box.height/2);
     }
     const qualified=META[keyOf(d)]?.qualified;
     if(qualified){
-      if(!names.has(d.depth)) names.set(d.depth, []);
-      if(!names.get(d.depth).includes(qualified)) names.get(d.depth).push(qualified);
+      if(!names.has(level)) names.set(level, []);
+      if(!names.get(level).includes(qualified)) names.get(level).push(qualified);
     }
   });
   rail.innerHTML='';
-  [...rows].sort((a,b)=>a[0]-b[0]).forEach(([depth,top])=>{
+  [...rows].sort((a,b)=>a[0]-b[0]).forEach(([level,top])=>{
     const label=document.createElement('span');
-    label.className='level-label'; label.textContent=`Level ${depth-1}`; label.style.top=`${top}px`;
-    label.onclick=ev=>{ ev.stopPropagation(); showLevel(depth-1, names.get(depth)||[]); };
+    label.className='level-label'; label.textContent=`Level ${level}`; label.style.top=`${top}px`;
+    label.onclick=ev=>{ ev.stopPropagation(); showLevel(level, names.get(level)||[]); };
     rail.appendChild(label);
   });
 }
@@ -214,11 +224,11 @@ async function copyCurrent(){
 
 function showLevel(level,names){
   $('#dname').textContent=`Level ${level}`;
-  $('#dsub').textContent=`${names.length} functions`;
+  $('#dsub').textContent=`${names.length} displayed function instances`;
   setCopy(names.join(' | '));
   $('#rbody').innerHTML=names.length
     ? `<pre>${names.map(esc).join('\n')}</pre>`
-    : '<div class="muted">No named functions at this level.</div>';
+    : '<div class="muted">No named functions at this display depth.</div>';
 }
 
 function setZoom(z, anchorClientX){
@@ -273,8 +283,8 @@ function details(d){
   const qualified=m.qualified||d.data.name;
   $('#dname').textContent=qualified;
   setCopy(qualified);
-  $('#dsub').textContent=`${m.machineInstructionCount??d.data.self} instance instructions · ${d.data.value} including descendants`;
-  const calls=(m.callees||[]).map(call=>`${esc(call.kind)} → ${esc(OWNER_META.get(call.callee)?.qualified||call.callee)}`);
+  $('#dsub').textContent=`Level ${m.refinementLevel??m.displayTreeLevel??d.depth} · ${m.machineInstructionCount??d.data.self} instance instructions · ${d.data.value} including descendants`;
+  const calls=(m.callees||[]).map(call=>`${esc(call.kind)} → ${esc(MACHINE_META.get(call.callee)?.qualified||call.callee)}`);
   const tails=(m.tailDependencies||[]).map(t=>`${esc(t.qualified)}: 0x${t.transfer.source.toString(16)} → 0x${t.transfer.target.toString(16)}, completes at ${t.completionSourcePcs.map(x=>'0x'+x.toString(16)).join(', ')}`);
   const handoffs=(m.fragmentHandoffs||[]).map(e=>`0x${e.sourcePc.toString(16)} → 0x${e.targetPc.toString(16)}`);
   const reentries=(m.parentReentryEdges||[]).map(e=>`0x${e.sourcePc.toString(16)} → 0x${e.targetPc.toString(16)}`);
@@ -292,12 +302,13 @@ function details(d){
     return [line,...frameTree(frame.activeCalleeFrames||[],depth+1)];
   });
   const activeFrames=frameTree(m.activeCalleeFrames||[]);
-  const callers=(m.callers||[]).map(call=>`${esc(call.kind)} ← ${esc(call.caller==='program'?'program':OWNER_META.get(call.caller)?.qualified||call.caller)}`);
+  const callers=(m.callers||[]).map(call=>`${esc(call.kind)} ← ${esc(call.caller==='program'?'program':MACHINE_META.get(call.caller)?.qualified||call.caller)}`);
   const displayCallsites=(m.displayCallsites||[]).map(pc=>'0x'+pc.toString(16)).join(', ');
   $('#rbody').innerHTML=
    `<div class="kv">
       <span>stack path</span><span>${esc(k.replace(/\|/g,' › '))}</span>
       <span>instance kind</span><span>${esc(m.kind||'?')}</span>
+      <span>callsite / return</span><span>${m.callsitePc==null?'program entry':`0x${m.callsitePc.toString(16)} / 0x${m.returnPc.toString(16)}`}</span>
       <span>proof status</span><span>${esc(progress.status.replaceAll('_',' '))}</span>
       <span>contract/theorem</span><span>${esc(progress.theorem||progress.contract||'none')}</span>
       <span>outstanding condition</span><span>${esc(progress.condition||'none')}</span>
@@ -313,6 +324,7 @@ function details(d){
       <span>instance instructions</span><span>${m.machineInstructionCount??d.data.self}</span>
       <span>subtree instructions</span><span>${d.data.value}</span>
       <span>fragments</span><span>${m.frags>1?`<b style="color:var(--cur)">${m.frags}</b> (non-contiguous)`:'1 (contiguous)'}</span>
+      <span>tree placement</span><span>${esc(m.displayRelation||'actual call-tree placement')}${m.cycleTruncated?' — recursive expansion stops here':''}</span>
       <span>children</span><span>${(d.children||d._children||[]).length}</span>
       <span>entries</span><span>${(m.entries||[]).map(x=>'0x'+x.toString(16)).join(', ')||'none'}</span>
       <span>exits</span><span>${(m.exits||[]).length}</span>
@@ -349,14 +361,14 @@ function renderProofMap(){
       <div>${esc(region.blocker)}</div></div>`).join('');
   $('#proof-map').innerHTML=`<div class="proof-summary">
       ${stat('kernel-linked local PCs',coverage.localPcCount,'#3ddc84')}
-      ${stat('connected into selected level',coverage.level4PcCount,'#41a9ff')}
+      ${stat('connected into selected level',coverage.level1PcCount??0,'#41a9ff')}
       ${stat('reachable from root_compliance',coverage.rootPcCount,'#b26cff')}</div>
     <div class="trust-legend"><span><i style="background:#3ddc84"></i>formal local</span>
       <span><i style="background:#3b424e;border:1px solid #687385"></i>production ELF only</span>
       <span><i style="background:#e5b84b"></i>authoring suggestion</span>
       <span>LLVM IR: ${esc(PROOF_MAP.compilerProvenance.state)}</span></div>
     <div class="proof-tools"><b>authoring regions</b>
-      ${['all','ready','blocked'].map(value=>`<button data-filter="${value}" ${PROOF_FILTER===value?'disabled':''}>${value}</button>`).join('')}</div>
+      ${['all',...new Set(PROOF_MAP.authoringRegions.map(row=>row.authoringState))].map(value=>`<button data-filter="${value}" ${PROOF_FILTER===value?'disabled':''}>${value.replaceAll('_',' ')}</button>`).join('')}</div>
     <div class="proof-grid">${regions}</div><div class="proof-tools"><b>Refinement dependency graph</b>
       <span class="muted">selected contracts + parent-owned glue instructions → parent contract</span></div>
     <div class="cfg-canvas" id="proof-cfg"></div>`;
@@ -376,10 +388,15 @@ function renderProofCfg(){
     const offset=(height-top-nodes.length*gap)/2;
     nodes.forEach((node,row)=>positions.set(node.id,{x:column*laneW+24,y:top+offset+row*gap,w:nodeW,h:nodeH,node}));
   }
-  const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],ready:['#473b1e','#e5b84b'],
-    blocked:['#472327','#d95757'],contract:['#30263b','#9c78c2']};
+  const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],
+    proved:['#173f30','#3ddc84'],conditionally_proven:['#173f30','#3ddc84'],
+    contract_specified_assumption:['#283b48','#62b5e5'],
+    contract_consumed:['#283b48','#62b5e5'],proof_in_progress:['#473b1e','#e5b84b'],
+    contract_preliminary_shape:['#473b1e','#e5b84b'],contract_not_specified:['#472327','#d95757'],
+    invalid_target_model:['#4c2026','#ff5f68'],
+    proof_not_started:['#202631','#687385'],not_started:['#202631','#687385']};
   const short=s=>s.length>34?s.slice(0,32)+'…':s;
-  const titles=['specification boundary','target machine regions','refinement theorem','compliance theorem'];
+  const titles=['reference semantics','Level 1 contracts + Level 0 glue','refinement theorem','compliance theorem'];
   const columns=titles.map((title,i)=>`<rect class="cfg-column" x="${i*laneW+4}" y="4" width="${laneW-8}" height="${height-8}" rx="6"/>
     <text class="cfg-column-title" x="${i*laneW+16}" y="25">${i+1}. ${esc(title)}</text>`).join('');
   const edges=graph.edges.map(edge=>{const a=positions.get(edge.source),b=positions.get(edge.target);if(!a||!b)return'';
@@ -387,8 +404,8 @@ function renderProofCfg(){
     return `<path class="cfg-link ${edge.kind}" marker-end="url(#cfg-arrow)" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"><title>${edge.kind}</title></path>`;}).join('');
   const nodes=[...positions.values()].map(({x,y,w,h,node})=>{const [fill,stroke]=colors[node.status]||colors.artifact;
     const sub=node.kind==='parentGlue'?`${node.provedInstructionCount}/${node.instructionCount} glue instructions proved`:
-      node.kind==='level4Contract'?`${node.instructionCount} child instructions · ${node.status}`:
-      node.kind==='conversion'?'must consume all contracts + glue':'Level 3 contract required by root proof';
+      node.kind==='level1Contract'?`${node.instructionCount} instructions · ${node.level0UseStatus==='consumed'?'consumed by Level 0; ':''}machine proof not started`:
+      node.kind==='conversion'?`proof ${node.proofStatus.replaceAll('_',' ')}`:`proof ${node.proofStatus.replaceAll('_',' ')}`;
     return `<g data-graph-id="${esc(node.id)}"><rect class="cfg-node-rect" x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" stroke="${stroke}"><title>${esc(node.label)}</title></rect>
       <text class="cfg-node-label" x="${x+7}" y="${y+16}">${esc(short(node.label))}</text><text class="cfg-node-sub" x="${x+7}" y="${y+31}">${esc(sub)}</text></g>`;}).join('');
   $('#proof-cfg').innerHTML=`<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}"><defs><marker id="cfg-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#657287"/></marker></defs>${columns}${edges}${nodes}</svg>`;
@@ -398,19 +415,21 @@ function renderProofCfg(){
 }
 
 function showRefinementNode(node){
-  if(node.kind==='level4Contract')return showProofBoundary(node.boundaryId);
+  if(node.kind==='level1Contract')return showProofBoundary(node.boundaryId);
   $('#dname').textContent=node.label; $('#dsub').textContent=node.kind; setCopy(node.id);
   if(node.kind==='parentGlue'){
     const phase=PROOF_MAP.phases.find(row=>row.id===node.phase);
     const phasePcs=new Set(phase.pcs),pcs=PROOF_MAP.instructions.filter(row=>phasePcs.has(row.pc));
     $('#rbody').innerHTML=`<div class="kv"><span>obligation</span><span>prove parent-owned machine instructions while consuming selected child contracts</span>
+      <span>proof status</span><span>${esc(node.proofStatus.replaceAll('_',' '))}</span>
       <span>progress</span><span>${node.provedInstructionCount}/${node.instructionCount} instructions kernel-linked</span>
+      <span>inline attribution</span><span>${node.absorbedInlineInstructionCount} DWARF-unclaimed instructions reviewed into inline Level 1 contracts</span>
       <span>phase</span><span>${esc(phase.label)}</span></div><pre>${pcs.map(row=>`0x${row.pc.toString(16)}  ${row.mnemonic.padEnd(7)} ${row.operands}`).join('\n')}</pre>`;
     return;
   }
   const text=node.kind==='conversion'?
-    'This named theorem must consume every Level4ContractAssumptions field and the three parent-glue proofs to derive the Level 3 compiledDecodeRawContract assumption. It is not yet complete.':
-    'This is the compiledDecodeRawContract required by the existing Level 3 refinement edge and ultimately root_compliance.';
+    'This theorem must consume every Level1ContractAssumptions field and prove main-owned instructions to derive ExportedContractAssumptions.':
+    'This is the single public compliance theorem, currently conditional on Level1ContractAssumptions.';
   $('#rbody').innerHTML=`<div class="kv"><span>status</span><span>${esc(node.status)}</span><span>role</span><span>${esc(text)}</span></div>`;
 }
 
@@ -456,12 +475,15 @@ function showProofBoundary(id){
   const boundary=PROOF_MAP.boundaries.find(row=>row.id===id);if(!boundary)return;
   const node=PROOF_MAP.refinementGraph.nodes.find(row=>row.id===`contract-${id}`);
   const annotation=PROOF_MAP.authoringRegions.find(row=>(row.boundaryIds||[]).includes(id));
-  $('#dname').textContent=boundary.qualified;$('#dsub').textContent=`selected child · ${node.status}`;setCopy(id);
+  $('#dname').textContent=boundary.qualified;$('#dsub').textContent='selected Level 1 instance';setCopy(id);
   $('#rbody').innerHTML=`<div class="kv"><span>source region</span><span>${esc(node.source)}</span>
     <span>entry</span><span>0x${boundary.entryPc.toString(16)}</span>
-    <span>instructions</span><span>${boundary.instructionCount}</span>
-    <span>returns</span><span>${esc((boundary.exits||[]).map(edge=>`0x${edge.source.toString(16)} → 0x${edge.target.toString(16)}`).join(', ')||'none')}</span>
-    <span>proof status</span><span>${esc(node.status)}</span>
+    <span>instructions</span><span>${boundary.ownedInstructionCount} owned; ${boundary.subtreeInstructionCount} execution closure</span>
+    <span>observed vectors</span><span>${esc(boundary.observedVectors.join(', ')||'none')}</span>
+    <span>observed exits</span><span>${esc(boundary.observedExitTransitions.map(edge=>`0x${edge[0].toString(16)} → 0x${edge[1].toString(16)}`).join(', ')||'none')}</span>
+    <span>evidence</span><span>${esc(boundary.evidenceStatus)}</span>
+    <span>contract</span><span>${esc(boundary.contractStatus.replaceAll('_',' '))}</span>
+    <span>machine proof</span><span>${esc(boundary.proofStatus.replaceAll('_',' '))}</span>
     <span>authoring blocker</span><span>${esc(annotation?.blocker||'no focused authoring annotation')}</span></div>`;
 }
 

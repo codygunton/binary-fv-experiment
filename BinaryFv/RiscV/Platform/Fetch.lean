@@ -58,9 +58,11 @@ theorem currentlyEnabledZca_run (state : State) (misaBits : BitVec 64)
     (misaRead : state.regs.get? misa = some misaBits) :
     Runs (currentlyEnabled Ext_Zca) state state (_get_Misa_C misaBits == 1#1) := by
   unfold Runs
-  simp [currentlyEnabled, hartSupports, PreSail.readReg, EStateM.run, EStateM.bind,
+  simp [currentlyEnabled, hartSupports, PreSail.readReg, EStateM.run,
+    Bind.bind, Pure.pure, Functor.map, EStateM.bind,
     EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-    instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+    instMonadStateOfMonadStateOf, MonadState.get, MonadStateOf.get,
+    EStateM.instMonadExceptOfOfBacktrackable, getThe,
     LeanRV64DExecutable.Functions.not, LeanRV64DExecutable.Functions.xlen, misaRead]
 
 /-- **The `misa` read is load-bearing.** Without it the gate does not merely fail to be provable at
@@ -70,8 +72,10 @@ theorem not_currentlyEnabledZca_run_of_misa_absent (state : State) (enabled : Bo
     ¬ Runs (currentlyEnabled Ext_Zca) state state enabled := by
   intro run
   unfold Runs at run
-  simp [currentlyEnabled, hartSupports, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
-    EStateM.instMonad, EStateM.instMonadStateOf, instMonadStateOfMonadStateOf, getThe, absent,
+  simp [currentlyEnabled, hartSupports, PreSail.readReg, EStateM.run,
+    Bind.bind, Pure.pure, Functor.map, EStateM.bind, EStateM.get,
+    EStateM.instMonad, EStateM.instMonadStateOf, instMonadStateOfMonadStateOf,
+    MonadState.get, MonadStateOf.get, getThe, absent,
     throw, throwThe, MonadExceptOf.throw, EStateM.throw] at run
 
 /-- State facts required by the generated direct Machine-mode base-fetch path. -/
@@ -129,9 +133,11 @@ theorem pmaCheck_fetch_allowed (state : State) (pc : BitVec 64)
       state state none := by
   rcases allowed with ⟨regions, region, regionsRead, matching, executable⟩
   unfold Runs
-  simp [pmaCheck, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get, EStateM.pure,
+  simp [pmaCheck, PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map,
+    EStateM.bind, EStateM.get, EStateM.pure,
     EStateM.instMonad, EStateM.instMonadStateOf, instMonadStateOfMonadStateOf,
-    EStateM.instMonadExceptOfOfBacktrackable, getThe, LeanRV64DExecutable.Functions.not,
+    MonadState.get, MonadStateOf.get, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+    LeanRV64DExecutable.Functions.not,
     override_PMA, regionsRead, matching, executable, aligned]
 
 theorem fetchExceptTRunLiftBind {α β : Type} (action : SailM α) (next : α → SailME β β) :
@@ -141,11 +147,11 @@ theorem fetchExceptTRunLiftBind {α β : Type} (action : SailM α) (next : α �
         let current ← action
         ExceptT.run (next current)) := by
   change ExceptT.run ((ExceptT.lift action) >>= next) = _
-  simp only [ExceptT.instMonad, Monad.toBind, ExceptT.bind, ExceptT.lift, ExceptT.mk,
-    ExceptT.run, EStateM.instMonad]
   funext state
-  cases hAction : action state <;>
-    simp [EStateM.bind, EStateM.map, ExceptT.bindCont, hAction]
+  change EStateM.bind (EStateM.map Except.ok action) (ExceptT.bindCont next) state =
+    EStateM.bind action (fun current => ExceptT.run (next current)) state
+  unfold EStateM.bind EStateM.map
+  cases hAction : action state <;> rfl
 
 theorem fetchSailMERunLiftBind {α β : Type} (action : SailM α) (next : α → SailME β β) :
     Sail.SailME.run (do
@@ -233,7 +239,6 @@ theorem fetch_base_of_fetchBytes (state : State) (pc : BitVec 64)
   simp [notRvc]
   unfold Runs Sail.SailME.run PreSail.PreSailME.run
   simp
-  rfl
 
 /-! ## The base-fetch platform, split at the `PC` read
 
@@ -302,12 +307,18 @@ theorem fetchAligned_of_mod_four {pc : BitVec 64} (aligned : pc.toNat % 4 = 0) :
       show pc.toNat % 2 = 0 by omega]
   · simp [Sail.BitVec.access, BitVec.getElem_eq_testBit_toNat, Nat.testBit,
       show pc.toNat >>> 1 % 2 = 0 by omega]
-  · simp only [is_aligned_vaddr, Sail.BitVec.toNatInt, Int.ofNat_eq_natCast, ← Int.ofNat_tmod,
-      aligned]
-    rfl
-  · simp only [is_aligned_paddr, Sail.BitVec.toNatInt, Int.ofNat_eq_natCast, ← Int.ofNat_tmod,
-      aligned]
-    rfl
+  · unfold is_aligned_vaddr
+    simp only
+    change (((pc.toNat : Int).tmod 4) == 0) = true
+    have h : (pc.toNat : Int).tmod 4 = 0 := by
+      exact congrArg Int.ofNat aligned
+    simp [h]
+  · unfold is_aligned_paddr
+    simp only
+    change (((pc.toNat : Int).tmod 4) == 0) = true
+    have h : (pc.toNat : Int).tmod 4 = 0 := by
+      exact congrArg Int.ofNat aligned
+    simp [h]
 
 /-- `FetchPmaAllows` from the region table and the region that matches. Which table a machine holds,
 and that it matches, is a target fact; that they are what the premise wants is not. -/
