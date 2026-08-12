@@ -125,6 +125,46 @@ let
     '';
   };
 
+  zesuSszDecodeBareMetalRv64Elf = pkgs.stdenvNoCC.mkDerivation {
+    pname = "zesu-ssz-decode-bare-metal-rv64im-elf";
+    version = "d67f28c";
+    dontUnpack = true;
+    nativeBuildInputs = [ riscvBinutils ];
+    dontFixup = true;
+    buildPhase = ''
+      runHook preBuild
+      ${riscvCc} ${cflags} -g -mcmodel=medany -DBINARY_FV_BARE_METAL -c \
+        ${runtimeSrc}/riscv64_runtime.c -o runtime.o
+      ${riscvCc} ${cflags} -g -mcmodel=medany -c \
+        ${runtimeSrc}/riscv64_baremetal_start.S -o start.o
+      ${riscvCc} ${cflags} -g -mcmodel=medany -c \
+        ${runtimeSrc}/riscv64_baremetal_host.S -o host.o
+      ${riscvCc} ${cflags} -g -mcmodel=medany -c \
+        ${runtimeSrc}/riscv64_baremetal_context.S -o context.o
+      ${riscvCc} -nostdlib -static -no-pie -Wl,--gc-sections -Wl,--build-id=none \
+        -Wl,-e,_start -Wl,-T,${runtimeSrc}/riscv64_baremetal_layout.ld \
+        -march=${rv64.riscvArch} -mabi=${rv64.riscvAbi} -mcmodel=medany \
+        start.o host.o runtime.o ${zesuSszDecodeRv64Object}/obj/zesu-ssz-decode.o context.o \
+        -o zesu-ssz-decode-bare-metal.elf
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/bin" "$out/meta"
+      cp zesu-ssz-decode-bare-metal.elf "$out/bin/zesu-ssz-decode"
+      ${riscvReadelf} -h "$out/bin/zesu-ssz-decode" > "$out/meta/elf-header.txt"
+      ${riscvReadelf} -A "$out/bin/zesu-ssz-decode" > "$out/meta/elf-attributes.txt"
+      ${riscvNm} -u "$out/bin/zesu-ssz-decode" > "$out/meta/undefined-symbols.txt"
+      test ! -s "$out/meta/undefined-symbols.txt"
+      ! ${riscvBinutils}/bin/riscv64-none-elf-objdump -d "$out/bin/zesu-ssz-decode" | grep -q '\becall\b'
+      printf '%s\n' \
+        'zesu=codygunton/zesu@d67f28c' \
+        'runtime=runtime/riscv64; memory-context-bare-metal; no-libc; no-ecall' \
+        'optimize=ReleaseSmall; static=true; linked=true' > "$out/meta/provenance.txt"
+      runHook postInstall
+    '';
+  };
+
   zesuSszDecodeSmoke = pkgs.runCommand "zesu-ssz-decode-smoke-d67f28c" {
     nativeBuildInputs = [ pkgs.python3 ];
   } ''
@@ -224,11 +264,13 @@ let
 in
 {
   public = {
-    inherit zesuRv64Object zesuSszDecodeRv64Object zesuSszDecodeRv64Elf zesuSszDecodeSmoke
+    inherit zesuRv64Object zesuSszDecodeRv64Object zesuSszDecodeRv64Elf
+      zesuSszDecodeBareMetalRv64Elf zesuSszDecodeSmoke
       zesuSszDecodeSourceProbe;
     zesu-rv64-object = zesuRv64Object;
     zesu-ssz-decode-rv64-object = zesuSszDecodeRv64Object;
     zesu-ssz-decode-rv64-elf = zesuSszDecodeRv64Elf;
+    zesu-ssz-decode-bare-metal-rv64-elf = zesuSszDecodeBareMetalRv64Elf;
     zesu-ssz-decode-smoke = zesuSszDecodeSmoke;
   };
 }
