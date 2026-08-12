@@ -130,9 +130,14 @@ Promise.all([fetch(FLAME_FILE).then(r=>r.json()),fetch('proof-progress.json').th
     if(m.owner) OWNER_META.set(m.owner,m);
     if(m.machineOwner&&!MACHINE_META.has(m.machineOwner)) MACHINE_META.set(m.machineOwner,m);
   });
-  (p.states||[]).forEach(state=>PROGRESS.set(state.owner||state.qualified,state));
-  (PROOF_MAP?.flameProgress?.states||[]).forEach(state=>
-    PROGRESS.set(state.owner||state.qualified,state));
+  (p.states||[]).forEach(state=>{
+    if(state.owner) PROGRESS.set(state.owner,state);
+    if(state.qualified) PROGRESS.set(state.qualified,state);
+  });
+  (PROOF_MAP?.flameProgress?.states||[]).forEach(state=>{
+    if(state.owner) PROGRESS.set(state.owner,state);
+    if(state.qualified) PROGRESS.set(state.qualified,state);
+  });
   build();
   if(PROOF_MAP) $('#proof-toggle').hidden=false;
 });
