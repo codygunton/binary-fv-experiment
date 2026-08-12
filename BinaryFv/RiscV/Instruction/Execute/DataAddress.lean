@@ -35,7 +35,8 @@ theorem get_transformed_data_addr_machine_data_run (access : DataPmaAccess) (sta
       cases access <;> exact ⟨by decide, by decide, by decide, rfl⟩
     cases access <;> simp only [DataPmaAccess.memoryAccess] at pointerMaskingBase ⊢
     all_goals unfold Runs transform_effective_address get_pmlen is_pmm_applicable get_pmm translationMode
-    all_goals simp [PreSail.readReg, EStateM.run, EStateM.bind,
+    all_goals simp [PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map,
+      Applicative.toFunctor, Monad.toApplicative, EStateM.map, EStateM.bind,
       EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
       MonadState.get, MonadStateOf.get, getThe, mstatusRead, privilegeRead, mseccfgRead, mprvZero,
       pmmDisabled, pointerMaskingBase, machineEq, bareEq, LeanRV64DExecutable.Functions.xlen,
