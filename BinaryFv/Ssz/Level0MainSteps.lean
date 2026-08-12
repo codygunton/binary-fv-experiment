@@ -30,19 +30,19 @@ def mainGluePcs (pc : BitVec 64) : Prop := pcInRanges Generated.mainGluePcRanges
 
 theorem mainGluePcs_14cbc : mainGluePcs 0x14cbc := by
   unfold mainGluePcs
-  native_decide
+  refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide
 
 theorem mainGluePcs_14cc0 : mainGluePcs 0x14cc0 := by
   unfold mainGluePcs
-  native_decide
+  refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide
 
 theorem mainGluePcs_14cc4 : mainGluePcs 0x14cc4 := by
   unfold mainGluePcs
-  native_decide
+  refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide
 
 theorem mainGluePcs_14cc8 : mainGluePcs 0x14cc8 := by
   unfold mainGluePcs
-  native_decide
+  refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide
 
 /-- The data-side premises for one concrete Level 0 double-word store. They are kept separate from
 the generated fetch/decode facts because the eventual `main` frame derives them from its stack

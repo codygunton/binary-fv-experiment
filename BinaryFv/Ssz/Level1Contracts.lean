@@ -18,6 +18,8 @@ structure ReadInputArgs where
   returnAddress : Nat
   bufferSlot : Nat
   sizeSlot : Nat
+  savedFrameAddress : Nat
+  savedReturnAddress : Nat
   input : Array UInt8
 
 structure ReadInputOutcome where
@@ -31,6 +33,7 @@ def ReadInputEntry (args : ReadInputArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.bufferSlot) ∧
   state.machine.regs.get? x11 = some (BitVec.ofNat 64 args.sizeSlot) ∧
+  UIntRep 8 state.machine.mem args.savedFrameAddress args.savedReturnAddress ∧
   Generated.programImage.fileBytesLoadedFaithfully state.machine.mem
 
 def ReadInputExit (args : ReadInputArgs) (outcome : ReadInputOutcome)
@@ -41,6 +44,7 @@ def ReadInputExit (args : ReadInputArgs) (outcome : ReadInputOutcome)
   UIntRep 8 after.machine.mem args.bufferSlot outcome.inputAddress ∧
   UIntRep 8 after.machine.mem args.sizeSlot args.input.size ∧
   BytesRep after.machine.mem outcome.inputAddress args.input ∧
+  UIntRep 8 after.machine.mem args.savedFrameAddress args.savedReturnAddress ∧
   WritesOnlyWithin
     (Region.union (byteRange outcome.inputAddress args.input.size)
       (Region.union (byteRange args.bufferSlot 8) (byteRange args.sizeSlot 8)))
@@ -59,12 +63,14 @@ def ReadInputInstanceContract : Prop :=
     (pcInRanges Generated.readInputExecutionPcRanges)
     (pcInList Generated.readInputExitPcs)
 
+theorem readInputExitPc_14ccc : 0x14ccc ∈ Generated.readInputExitPcs := by native_decide
+
 structure AllocatorGetArgs where
   returnAddress : Nat
   stackPointer : Nat
   inputAddress : Nat
   input : Array UInt8
-  savedFrame : Array UInt8
+  savedReturnAddress : Nat
 
 structure AllocatorGetOutcome where
   stateAddress : Nat
@@ -76,8 +82,7 @@ def AllocatorGetEntry (args : AllocatorGetArgs) (state : EndpointState) : Prop :
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   UIntRep 8 state.machine.mem args.stackPointer args.inputAddress ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 8) args.input.size ∧
-  args.savedFrame.size = 8 ∧
-  BytesRep state.machine.mem (args.stackPointer + 0x378) args.savedFrame ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.savedReturnAddress ∧
   BytesRep state.machine.mem args.inputAddress args.input ∧
   Generated.programImage.fileBytesLoadedFaithfully state.machine.mem
 
@@ -87,12 +92,15 @@ def AllocatorGetExit (args : AllocatorGetArgs) (outcome : AllocatorGetOutcome)
   after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   after.machine.regs.get? x10 = some (BitVec.ofNat 64 outcome.stateAddress) ∧
   after.machine.regs.get? x11 = some (BitVec.ofNat 64 outcome.vtableAddress) ∧
-  after.machine.regs.get? x12 = some (BitVec.ofNat 64 3) ∧
+  after.machine.regs.get? x12 = some (BitVec.ofNat 64 args.inputAddress) ∧
+  after.machine.regs.get? x13 = some (BitVec.ofNat 64 args.input.size) ∧
   after.machine.regs.get? x18 = some (BitVec.ofNat 64 args.input.size) ∧
   after.machine.regs.get? x23 = some (BitVec.ofNat 64 args.inputAddress) ∧
+  UIntRep 8 after.machine.mem args.stackPointer args.inputAddress ∧
+  UIntRep 8 after.machine.mem (args.stackPointer + 8) args.input.size ∧
   UIntRep 8 after.machine.mem (args.stackPointer + 0x10) outcome.stateAddress ∧
   UIntRep 8 after.machine.mem (args.stackPointer + 0x18) outcome.vtableAddress ∧
-  BytesRep after.machine.mem (args.stackPointer + 0x378) args.savedFrame ∧
+  UIntRep 8 after.machine.mem (args.stackPointer + 0x378) args.savedReturnAddress ∧
   BytesRep after.machine.mem args.inputAddress args.input ∧
   WritesOnlyWithin
     (Region.union (byteRange (args.stackPointer + 0x10) 8)
@@ -112,6 +120,8 @@ def AllocatorGetInstanceContract : Prop :=
   ∃ stepBound, (allocatorGetContract stepBound).Implements EndpointStep EndpointPc
     (pcInRanges Generated.allocatorGetExecutionPcRanges)
     (pcInList Generated.allocatorGetExitPcs)
+
+theorem allocatorGetExitPc_14cec : 0x14cec ∈ Generated.allocatorGetExitPcs := by native_decide
 
 structure WriteSuccessArgs where
   returnAddress : Nat

@@ -37,10 +37,13 @@ class ProofMapTest(unittest.TestCase):
                             for row in result["boundaries"]))
         self.assertTrue(all(row["contractStatus"] == "specified_assumption"
                             for row in result["boundaries"]))
+        consumed = {row["qualified"] for row in result["boundaries"]
+                    if row["level0UseStatus"] == "consumed"}
+        self.assertEqual(consumed, {"read_input", "alt_fl_alloc.get"})
         glue = next(node for node in result["refinementGraph"]["nodes"]
                     if node["kind"] == "parentGlue")
         self.assertEqual((glue["proofStatus"], glue["provedInstructionCount"]),
-                         ("not_started", 0))
+                         ("in_progress", 7))
         self.assertEqual(glue["instructionCount"], 24)
         self.assertEqual(glue["absorbedInlineInstructionCount"], 2)
 

@@ -43,6 +43,10 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             slot["extent"].update(row["executedExtentPcs"])
             slot["exits"].update(tuple(edge) for edge in row["observedExitTransitions"])
     bindings_by_id = {row["id"]: row["bindings"] for row in bindings["instances"]}
+    consumed_level1 = {"read_input", "alt_fl_alloc.get"}
+    proved_level0_pcs = {
+        0x14CB0, 0x14CB4, 0x14CB8, 0x14CBC, 0x14CC0, 0x14CC4, 0x14CC8,
+    }
 
     boundaries, regions, nodes, edges = [], [], [], []
     nodes.append({
@@ -66,11 +70,14 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             "observedExitTransitions": [list(edge) for edge in sorted(capture["exits"])],
             "dwarfBindings": boundary_bindings,
             "evidenceStatus": "captured", "contractStatus": contract_status,
+            "level0UseStatus": ("consumed" if row["qualified"] in consumed_level1
+                                else "pending"),
             "proofStatus": "not_started", "kernelStatus": "not_started",
         })
         regions.append({
             "id": boundary_id, "label": row["qualified"],
-            "authoringState": "contract_" + contract_status,
+            "authoringState": ("contract_consumed" if row["qualified"] in consumed_level1
+                               else "contract_" + contract_status),
             "blocker": "Machine proof is deferred to later refinement; Level 0 may use this assumption.",
             "scope": "selected-child", "pcs": row["executionPcs"], "boundaryIds": [boundary_id],
             "evidence": "production entry registers, PCs, memory accesses, and exits captured",
@@ -86,8 +93,12 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         node_id = "contract-" + boundary_id
         nodes.append({
             "id": node_id, "label": row["qualified"], "kind": "level1Contract",
-            "column": 1, "status": "contract_" + contract_status,
+            "column": 1,
+            "status": ("contract_consumed" if row["qualified"] in consumed_level1
+                       else "contract_" + contract_status),
             "evidenceStatus": "captured", "contractStatus": contract_status,
+            "level0UseStatus": ("consumed" if row["qualified"] in consumed_level1
+                                else "pending"),
             "proofStatus": "not_started", "boundaryId": boundary_id,
             "instructionCount": row["subtreeInstructionCount"],
             "source": source["file"],
@@ -96,8 +107,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         edges.append({"source": node_id, "target": "conversion", "kind": "dependency"})
 
     regions.append({
-        "id": "level0-glue", "label": "main parent-owned glue", "authoringState": "proof_not_started",
-        "blocker": "Prove these instructions while composing all selected Level 1 contracts.",
+        "id": "level0-glue", "label": "main parent-owned glue", "authoringState": "proof_in_progress",
+        "blocker": "Continue from allocatorGet return PC 0x14cec through decodeInput and both exits.",
         "scope": "parent", "pcs": glue_pcs, "boundaryIds": [],
         "evidence": "production ELF structure and endpoint differential fixtures",
         "preparation": {"liveRegisters": [], "protectedMemory": [],
@@ -106,10 +117,10 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
     })
     nodes.extend([
         {"id": "glue", "label": "main parent-owned glue", "kind": "parentGlue", "column": 1,
-         "status": "proof_not_started", "proofStatus": "not_started",
+         "status": "proof_in_progress", "proofStatus": "in_progress",
          "phase": "level0-glue", "instructionCount": len(glue_pcs),
          "absorbedInlineInstructionCount": absorbed,
-         "provedInstructionCount": 0},
+         "provedInstructionCount": len(proved_level0_pcs)},
         {"id": "conversion", "label": "exportedContracts_of_level1", "kind": "conversion",
          "column": 2, "status": "not_started", "proofStatus": "not_started"},
         {"id": "root", "label": "root_compliance", "kind": "parent", "column": 3,
@@ -134,7 +145,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         "schemaVersion": 2, "target": flame["machineRegionInputs"]["target"],
         "artifact": cfg["artifact"], "instructions": instructions, "blocks": [],
         "boundaries": boundaries, "manifests": [],
-        "formalCoverage": {"localPcCount": 0, "level1PcCount": 0, "rootPcCount": 0},
+        "formalCoverage": {"localPcCount": len(proved_level0_pcs),
+                           "level1PcCount": 0, "rootPcCount": 0},
         "compilerProvenance": {"state": "same-ELF DWARF"},
         "phases": [{"id": "level0-glue", "label": "main parent-owned glue", "pcs": glue_pcs}],
         "authoringRegions": regions,

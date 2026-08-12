@@ -5,6 +5,7 @@ import BinaryFv.RiscV.Step.ControlFlow
 namespace BinaryFv.RiscV
 
 open PreSail LeanRV64DExecutable.Functions Register
+open BinaryFv.Binary
 
 def afterRegisterWrite (state : State) (pc retired : BitVec 64) (destination : Register)
     (value : RegisterType destination) : State :=
@@ -61,5 +62,12 @@ theorem afterRegisterWrite_destination (state : State) (pc retired : BitVec 64)
   simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
     coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
     notPc, notRetired]
+
+theorem fileBytesLoadedFaithfully_afterRegisterWrite (image : ProgramImage)
+    (state : State) (pc retired : BitVec 64) (destination : Register)
+    (value : RegisterType destination) (code : image.fileBytesLoadedFaithfully state.mem) :
+    image.fileBytesLoadedFaithfully (afterRegisterWrite state pc retired destination value).mem := by
+  rw [afterRegisterWrite_mem]
+  exact code
 
 end BinaryFv.RiscV

@@ -1,4 +1,5 @@
 import BinaryFv.Ssz.ZesuObservation
+import BinaryFv.RiscV.Platform.StoreMemoryWrite
 import LeanRV64DExecutable
 
 /-!
@@ -20,6 +21,34 @@ def UIntRep (width : Nat) (mem : Std.ExtHashMap Nat (BitVec 8))
     (address value : Nat) : Prop :=
   value < 2 ^ (8 * width) ∧ address + width ≤ 2 ^ 64 ∧
     ∀ index, index < width → mem.get? (address + index) = some (byteAt value index)
+
+theorem UIntRep.of_mem_eq {width address value : Nat}
+    {before after : Std.ExtHashMap Nat (BitVec 8)} (rep : UIntRep width before address value)
+    (memory : after = before) : UIntRep width after address value := by
+  simpa [memory] using rep
+
+/-- An exact eight-byte Sail store establishes the corresponding little-endian integer
+representation. -/
+theorem uintRep_afterWriteBytes_eight (state : BinaryFv.RiscV.State)
+    (address value : Nat)
+    (valueFits : value < 2 ^ 64) (addressFits : address + 8 ≤ 2 ^ 64) :
+    UIntRep 8
+      (BinaryFv.RiscV.afterWriteBytes (width := 8) state address
+        (BitVec.ofNat 64 value)).mem address value := by
+  refine ⟨valueFits, addressFits, ?_⟩
+  intro index indexBound
+  have cases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨ index = 5 ∨
+      index = 6 ∨ index = 7 := by omega
+  rcases cases with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    simp [BinaryFv.RiscV.afterWriteBytes, BinaryFv.RiscV.afterByteWrites, byteAt,
+      Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem_insert]
+  all_goals apply BitVec.eq_of_toNat_eq
+  all_goals simp only [byteAt, BitVec.extractLsb'_toNat, BitVec.toNat_ofNat,
+    Nat.shiftRight_eq_div_pow, Nat.mod_eq_of_lt valueFits]
+  all_goals simp [show 2 ^ 8 = 256 by decide, show 2 ^ 16 = 65536 by decide,
+    show 2 ^ 24 = 16777216 by decide, show 2 ^ 32 = 4294967296 by decide,
+    show 2 ^ 40 = 1099511627776 by decide, show 2 ^ 48 = 281474976710656 by decide,
+    show 2 ^ 56 = 72057594037927936 by decide]
 
 def BytesRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
     (bytes : Array UInt8) : Prop :=
