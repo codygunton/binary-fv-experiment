@@ -103,7 +103,8 @@ let
       --replace-fail 'require repl from git "https://github.com/leanprover-community/repl.git" @ "v4.29.0"' \
       'require repl from ".lake/packages/repl"'
     export HOME="$TMPDIR/home"
-    lake build Sail BinaryFv BinaryFvSszGeneratedProgramImage BinaryFv.Ssz.Level0MainSteps
+    lake build Sail BinaryFv BinaryFvSszGeneratedProgramImage BinaryFv.Ssz.Level0MainSteps \
+      BinaryFv.RiscV.Step.RegisterWrite
     mkdir -p "$out"
     cp -R .lake/build/lib/lean "$out/"
   '';

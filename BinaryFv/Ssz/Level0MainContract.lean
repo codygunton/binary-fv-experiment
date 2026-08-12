@@ -1,5 +1,6 @@
 import BinaryFv.Ssz.Level0MainSteps
 import BinaryFv.Ssz.Level1Contracts
+import BinaryFv.RiscV.Step.RegisterWrite
 
 /-!
 # Level 0 endpoint contract
@@ -40,6 +41,54 @@ theorem ConfiguredMachinePre.of_endpointCallFrame {before after : EndpointState}
   configured.mono
     (frame.1.weaken instructionPreserved_abiCalleePreserved)
     frame.2.1
+
+private theorem instructionPreserved_disjoint_bookkeeping :
+    RegSet.Disjoint instructionPreserved stepBookkeeping :=
+  platformPreserved_disjoint.weaken (fun _ preserved => preserved.1)
+
+/-- Transport through the exact post-state of a Level 0 register-writing instruction. -/
+theorem ConfiguredMachinePre.afterRegisterWrite {state : MachineState} (pc retired : BitVec 64)
+    (destination : Register) (value : RegisterType destination)
+    (configured : ConfiguredMachinePre mainGluePcs state)
+    (destinationNotPreserved : ¬instructionPreserved destination) :
+    ConfiguredMachinePre mainGluePcs
+      (BinaryFv.RiscV.afterRegisterWrite state pc retired destination value) :=
+  configured.mono
+    ((afterRegisterWrite_writes state pc retired destination value).agree
+      (instructionPreserved_disjoint_bookkeeping.union
+        (RegSet.Disjoint.only destinationNotPreserved)))
+    (afterRegisterWrite_retired_present state pc retired destination value)
+
+/-- Transport through the exact post-state of `main`'s stack allocation. -/
+theorem ConfiguredMachinePre.afterStackAddi {state : MachineState} (pc : BitVec 64)
+    (immediate : BitVec 12) (stackValue retired : BitVec 64)
+    (configured : ConfiguredMachinePre mainGluePcs state) :
+    ConfiguredMachinePre mainGluePcs
+      (tryStepStackAddiAfterRetired state pc immediate stackValue retired) := by
+  apply configured.mono
+  · exact (stackAddiRetirement_writes state pc immediate stackValue retired).agree
+      (instructionPreserved_disjoint_bookkeeping.union (RegSet.Disjoint.only (by
+        simp [instructionPreserved, platformPreserved])))
+  · refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
+    simp [tryStepStackAddiAfterRetired]
+
+/-- Transport through either concrete Level 0 stack store. -/
+theorem ConfiguredMachinePre.afterStore {state afterWrite : MachineState}
+    (pc retired : BitVec 64) (configured : ConfiguredMachinePre mainGluePcs state)
+    (writeRegs : afterWrite.regs =
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs) :
+    ConfiguredMachinePre mainGluePcs (tryStepStoreAfterRetired afterWrite pc retired) := by
+  have storePrefix : WritesOnlyRegs stepBookkeeping state afterWrite :=
+    (stepPremiseState_writes state pc).congr_regs writeRegs
+  have complete : WritesOnlyRegs stepBookkeeping state
+      (tryStepStoreAfterRetired afterWrite pc retired) :=
+    storePrefix.trans_same ((tryStepControlFlowAfterRetired_writes afterWrite
+      (Sail.BitVec.addInt pc 4) retired).mono
+        (fun _ written => written.elim Or.inl (fun written => Or.inr (Or.inr (Or.inl written)))))
+  apply configured.mono
+  · exact complete.agree instructionPreserved_disjoint_bookkeeping
+  · simpa [tryStepStoreAfterRetired] using
+      tryStepControlFlowAfterRetired_retired_present afterWrite (Sail.BitVec.addInt pc 4) retired
 
 /-- One exact non-syscall Sail instruction, lifted into and confined by the complete Level 0 region. -/
 theorem main_confined_sail_step (stepNo : Nat) (before : EndpointState) (after : MachineState)
