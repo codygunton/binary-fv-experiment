@@ -3,7 +3,7 @@
 <title>Binary regions — proof progress</title>
 <link rel="stylesheet" href="vendor/d3-flamegraph.css">
 <style>
- :root{--bg:#0f1115;--panel:#161a21;--line:#262c36;--fg:#dfe4ec;--dim:#8a93a3;--sel:#3ddc84;--cur:#ffb454}
+ :root{--bg:#0f1115;--panel:#161a21;--line:#262c36;--fg:#dfe4ec;--dim:#8a93a3;--sel:#f2c94c;--cur:#f2c94c}
  *{box-sizing:border-box}
  body{margin:0;background:var(--bg);color:var(--fg);height:100vh;overflow:hidden;
       font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -51,9 +51,10 @@
 .cfg-node-label{fill:#e0e6ef;font-size:9px;pointer-events:none}.cfg-node-sub{fill:#8f9bad;font-size:8px;pointer-events:none}
  .source-map{margin:6px 0;padding:8px;border-left:3px solid #596579;background:#12171e}
  .pc-cells{display:flex;gap:3px;flex-wrap:wrap;margin-top:6px}
- .pc-cell{width:13px;height:13px;border-radius:2px;background:#3b424e;border:1px solid #687385;
-          position:relative}.pc-cell.local{background:#3ddc84}.pc-cell.level4{background:#41a9ff}
- .pc-cell.root{background:#b26cff}.pc-cell.authoring{outline:1px dashed #e5b84b;outline-offset:1px}
+ .pc-cell{width:13px;height:13px;border-radius:2px;background:#d95757;border:1px solid #d95757;
+          position:relative}.pc-cell.local{background:#3ddc84}.pc-cell.level4,.pc-cell.root{
+          background:repeating-linear-gradient(135deg,#3ddc84 0 4px,#f2c94c 4px 8px)}
+ .pc-cell.authoring{outline:1px dashed #f2c94c;outline-offset:1px}
  .trust-legend{display:flex;gap:12px;color:var(--dim);font-size:11px;flex-wrap:wrap}
  .trust-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
  #chart svg{display:block}
@@ -74,12 +75,13 @@
  #chart pattern rect{stroke:none;fill-opacity:1}
  .legend{display:inline-flex;gap:10px;align-items:center;font-size:11px;color:var(--dim)}
  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
- .legend i.conditional{background:repeating-linear-gradient(135deg,#3ddc84 0 4px,#e5b84b 4px 8px)}
- .legend i.contracted{background:repeating-linear-gradient(135deg,#62b5e5 0 4px,#283b48 4px 8px)}
+ .legend i.conditional{background:repeating-linear-gradient(135deg,#3ddc84 0 4px,#f2c94c 4px 8px)}
+ .legend i.contracted{background:repeating-linear-gradient(135deg,#f2c94c 0 4px,#d95757 4px 8px)}
  /* the frame label is a foreignObject painted over the rect and it swallows every
     click; without this nothing in the graph is clickable at all. */
  #chart foreignObject, #chart foreignObject *{pointer-events:none}
- #chart svg text{pointer-events:none}
+ #chart svg text{pointer-events:none;fill:#17130a!important;color:#17130a!important;
+                 font-weight:650;text-shadow:0 1px 0 rgba(255,255,255,.22)}
 </style>
 
 <div id="wrap">
@@ -91,11 +93,11 @@
     <button id="reset">reset zoom</button>
     <button id="proof-toggle" hidden>proof map</button>
     <a class="button" href="README.md" target="_blank">graph rules</a>
-    <span class="legend"><span><i style="background:#3ddc84"></i>unconditionally proven</span>
-      <span><i class="conditional"></i>proven conditional on function contracts</span>
-      <span><i style="background:#e5b84b"></i>proof in progress</span>
+    <span class="legend"><span><i style="background:#3ddc84"></i>proven unconditionally</span>
+      <span><i class="conditional"></i>proven conditionally on contracts</span>
+      <span><i style="background:#f2c94c"></i>proof in progress</span>
       <span><i class="contracted"></i>contract specified</span>
-      <span><i style="background:#687385"></i>not selected at current proof level</span>
+      <span><i style="background:#d95757"></i>no progress</span>
       </span>
     <span class="muted"><b>scroll</b> = zoom · <b>drag</b> = pan · <b>double-click</b> = reset · click = details</span>
   </header>
@@ -153,10 +155,12 @@ let Z=1, baseW=0;
 const proofState=d=>{const meta=META[keyOf(d)]||{};
   return PROGRESS.get(meta.owner)||PROGRESS.get(meta.machineOwner)||
     PROGRESS.get(meta.qualified)||{status:'not_selected'};};
-const proofColor=s=>({unconditionally_proven:'#3ddc84',
-  conditionally_proven:'url(#conditionally-proven)',in_progress:'#e5b84b',
-  contracted:'url(#contract-specified)',contract_not_specified:'#d95757',
-  not_selected:'#687385',invalid_target_model:'#ff5f68'})[s]||'#d95757';
+const proofColor=s=>({unconditionally_proven:'#3ddc84',proved:'#3ddc84',
+  conditionally_proven:'url(#conditionally-proven)',in_progress:'#f2c94c',proof_in_progress:'#f2c94c',
+  contracted:'url(#contract-specified)',contract_specified_assumption:'url(#contract-specified)',
+  contract_consumed:'url(#contract-specified)',contract_not_specified:'#d95757',
+  not_selected:'#d95757',not_started:'#d95757',proof_not_started:'#d95757',
+  invalid_target_model:'#d95757'})[s]||'#d95757';
 
 function build(){
   baseW = $('#chart').clientWidth - 100;
@@ -171,16 +175,16 @@ function build(){
     .setColorMapper(d=>proofColor(proofState(d).status));
   d3.select('#chart').datum(D).call(fg);
   const defs=d3.select('#chart svg').insert('defs',':first-child');
-  const pattern=defs.append('pattern').attr('id','conditionally-proven')
+  const conditional=defs.append('pattern').attr('id','conditionally-proven')
     .attr('patternUnits','userSpaceOnUse').attr('width',8).attr('height',8)
     .attr('patternTransform','rotate(45)');
-  pattern.append('rect').attr('width',8).attr('height',8).attr('fill','#e5b84b');
-  pattern.append('rect').attr('width',4).attr('height',8).attr('fill','#3ddc84');
+  conditional.append('rect').attr('width',8).attr('height',8).attr('fill','#f2c94c');
+  conditional.append('rect').attr('width',4).attr('height',8).attr('fill','#3ddc84');
   const contracted=defs.append('pattern').attr('id','contract-specified')
     .attr('patternUnits','userSpaceOnUse').attr('width',8).attr('height',8)
     .attr('patternTransform','rotate(45)');
-  contracted.append('rect').attr('width',8).attr('height',8).attr('fill','#283b48');
-  contracted.append('rect').attr('width',4).attr('height',8).attr('fill','#62b5e5');
+  contracted.append('rect').attr('width',8).attr('height',8).attr('fill','#d95757');
+  contracted.append('rect').attr('width',4).attr('height',8).attr('fill','#f2c94c');
   wireMouse();
   renderLevelLabels();
 }
@@ -366,10 +370,10 @@ function renderProofMap(){
       <div>${esc(region.blocker)}</div></div>`).join('');
   $('#proof-map').innerHTML=`<div class="proof-summary">
       ${stat('kernel-linked local PCs',coverage.localPcCount,'#3ddc84')}
-      ${stat('connected into selected level',coverage.level1PcCount??0,'#41a9ff')}
-      ${stat('reachable from root_compliance',coverage.rootPcCount,'#b26cff')}</div>
+      ${stat('connected into selected level',coverage.level1PcCount??0,'#f2c94c')}
+      ${stat('reachable from root_compliance',coverage.rootPcCount,'#f2c94c')}</div>
     <div class="trust-legend"><span><i style="background:#3ddc84"></i>formal local</span>
-      <span><i style="background:#3b424e;border:1px solid #687385"></i>production ELF only</span>
+      <span><i style="background:#d95757"></i>production ELF only</span>
       <span><i style="background:#e5b84b"></i>authoring suggestion</span>
       <span>LLVM IR: ${esc(PROOF_MAP.compilerProvenance.state)}</span></div>
     <div class="proof-tools"><b>authoring regions</b>
@@ -393,13 +397,13 @@ function renderProofCfg(){
     const offset=(height-top-nodes.length*gap)/2;
     nodes.forEach((node,row)=>positions.set(node.id,{x:column*laneW+24,y:top+offset+row*gap,w:nodeW,h:nodeH,node}));
   }
-  const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],
-    proved:['#173f30','#3ddc84'],conditionally_proven:['#173f30','#3ddc84'],
-    contract_specified_assumption:['#283b48','#62b5e5'],
-    contract_consumed:['#283b48','#62b5e5'],proof_in_progress:['#473b1e','#e5b84b'],
-    contract_preliminary_shape:['#473b1e','#e5b84b'],contract_not_specified:['#472327','#d95757'],
-    invalid_target_model:['#4c2026','#ff5f68'],
-    proof_not_started:['#202631','#687385'],not_started:['#202631','#687385']};
+  const colors={local:['#3ddc84','#3ddc84'],proved:['#3ddc84','#3ddc84'],
+    conditionally_proven:['#8aaa42','#f2c94c'],proof_in_progress:['#f2c94c','#f2c94c'],
+    contract_preliminary_shape:['#f2c94c','#f2c94c'],
+    contract_specified_assumption:['#8c4f39','#f2c94c'],contract_consumed:['#8c4f39','#f2c94c'],
+    semantic_assumption:['#8c4f39','#f2c94c'],artifact:['#d95757','#d95757'],
+    contract_not_specified:['#d95757','#d95757'],invalid_target_model:['#d95757','#d95757'],
+    proof_not_started:['#d95757','#d95757'],not_started:['#d95757','#d95757']};
   const short=s=>s.length>34?s.slice(0,32)+'…':s;
   const titles=['reference semantics','Level 1 contracts + Level 0 glue','refinement theorem','compliance theorem'];
   const columns=titles.map((title,i)=>`<rect class="cfg-column" x="${i*laneW+4}" y="4" width="${laneW-8}" height="${height-8}" rx="6"/>

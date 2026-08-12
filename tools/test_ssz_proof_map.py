@@ -58,6 +58,8 @@ class ProofMapTest(unittest.TestCase):
                           "ssz_decode_observation.writeFailure"})
         glue = next(node for node in result["refinementGraph"]["nodes"]
                     if node["kind"] == "parentGlue")
+        self.assertFalse(any(node["id"] == "avoid-known-bugs"
+                             for node in result["refinementGraph"]["nodes"]))
         self.assertEqual((glue["proofStatus"], glue["provedInstructionCount"]),
                          ("proved", 24))
         self.assertEqual(glue["instructionCount"], 24)
