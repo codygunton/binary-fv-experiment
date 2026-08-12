@@ -96,6 +96,7 @@ let
     cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
     cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
     cp ${repo}/BinaryFv/Zesu/Elflings/GeneratedLevel1.lean GeneratedLevel1.lean
+    cp ${repo}/BinaryFv/Zesu/Elflings/GeneratedLevel2.lean GeneratedLevel2.lean
     cp ${repo}/BinaryFv/Zesu/Contracts/Machine.lean Machine.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/HostExecution.lean HostExecution.lean
     cp ${repo}/BinaryFv/RiscV/Logic/MemoryWriteFrame.lean MemoryWriteFrame.lean
@@ -135,6 +136,7 @@ let
     lean -o compiled/BinaryFv/Zesu/Contracts/KnownBugs.olean KnownBugs.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/DecodedResultRelation.olean DecodedResultRelation.lean
     lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel1.olean GeneratedLevel1.lean
+    lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel2.olean GeneratedLevel2.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/Machine.olean Machine.lean
     lean -o compiled/BinaryFv/Binary/Address.olean BinaryAddress.lean
     lean -o compiled/BinaryFv/RiscV/Model/Address.olean RiscVAddress.lean

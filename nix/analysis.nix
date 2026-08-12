@@ -91,6 +91,20 @@ let
         ${../BinaryFv/Zesu/Elflings/GeneratedLevel1.lean}
     '';
 
+  zesuSszDecodeLevel2Lean = pkgs.runCommand "zesu-ssz-decode-level2-lean-d67f28c"
+    { nativeBuildInputs = [ pkgs.python3 ]; } ''
+      mkdir -p "$out/BinaryFv/Zesu/Elflings"
+      PYTHONPATH=${../tools} python ${../tools/test_generate_level2_lean.py} \
+        ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+        ${zesuSszDecodeCfg}/zesu-cfg.json
+      PYTHONPATH=${../tools} python ${../tools/generate_level2_lean.py} \
+        --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+        --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --output "$out/BinaryFv/Zesu/Elflings/GeneratedLevel2.lean"
+      cmp "$out/BinaryFv/Zesu/Elflings/GeneratedLevel2.lean" \
+        ${../BinaryFv/Zesu/Elflings/GeneratedLevel2.lean}
+    '';
+
   zesuSszDecodeStatelessInputLayout = pkgs.runCommand
     "zesu-ssz-decode-stateless-input-layout-d67f28c" { nativeBuildInputs = [ python ]; } ''
       mkdir -p "$out"
@@ -174,6 +188,7 @@ in
       zesuSszDecodeLevel2Manifest
       zesuSszDecodeLevel1BoundaryBindings zesuSszDecodeLevel2BoundaryBindings
       zesuSszDecodeLevel1Lean
+      zesuSszDecodeLevel2Lean
       zesuSszDecodeStatelessInputLayout
       zesuSszDecodeLevel1Evidence zesuSszDecodeLevel2Evidence zesuCfgUi;
     machine-regions-ui = zesuCfgUi;
