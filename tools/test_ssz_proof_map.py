@@ -40,11 +40,13 @@ class ProofMapTest(unittest.TestCase):
         consumed = {row["qualified"] for row in result["boundaries"]
                     if row["level0UseStatus"] == "consumed"}
         self.assertEqual(consumed,
-                         {"read_input", "alt_fl_alloc.get", "ssz_decode_root.decodeInput"})
+                         {"read_input", "zkvm_exit", "alt_fl_alloc.get",
+                          "ssz_decode_root.decodeInput",
+                          "ssz_decode_observation.writeSuccess"})
         glue = next(node for node in result["refinementGraph"]["nodes"]
                     if node["kind"] == "parentGlue")
         self.assertEqual((glue["proofStatus"], glue["provedInstructionCount"]),
-                         ("in_progress", 16))
+                         ("in_progress", 19))
         self.assertEqual(glue["instructionCount"], 24)
         self.assertEqual(glue["absorbedInlineInstructionCount"], 2)
         progress = {row["owner"]: row["status"]

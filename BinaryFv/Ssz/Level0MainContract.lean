@@ -1529,4 +1529,144 @@ theorem main_write_selected_output (hLevel1 : Level1ContractAssumptions) (args :
           after.stdout = callState.stdout ++ bytes := afterStdout
           _ = bytes := by simp [callState, state2, state1, stdout]
 
+/-- The successful route has reached the terminal exit contract; a rejected input remains at its
+first output instruction with every fact required to compose that route. -/
+def MainSuccessExitedHandoff (args : MainArgs) (fromStep : Nat)
+    (before : EndpointState) : Prop :=
+  ∃ (used : Nat) (after : EndpointState) (outcome : MainOutcome),
+    ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep used before after ∧
+    MainMeaningModulo knownBugs args outcome ∧
+    match outcome with
+    | .failure => EndpointPc after = some 0x14d1c ∧
+        ConfiguredMachinePre mainGluePcs after.machine ∧
+        Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+        after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
+        after.stdout = #[] ∧ after.exitCode = none
+    | .success decoded => MainExit args (.success decoded) before after
+
+/-- Complete the successful `zkvm_exit` route while retaining the rejected-input route for the
+next composition theorem. -/
+theorem main_exit_success_or_select_failure (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+    (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
+    MainSuccessExitedHandoff args fromStep before := by
+  obtain ⟨readCount, allocatorCount, decodeCount, routeCount, state, readOutcome,
+      allocatorOutcome, decodeOutcome, prefixTrace, readPositive, allocatorPositive,
+      decodePositive, meaning, configured, code, _sp, stdin, cursor, exitCode, selected⟩ :=
+    main_write_selected_output hLevel1 args fromStep before entry
+  cases decodeOutcome with
+  | failure =>
+      rcases selected with ⟨routeZero, atPc, stdout⟩
+      refine ⟨13 + readCount + allocatorCount + decodeCount, state, .failure, ?_, ?_, atPc,
+        configured, code, stdin, cursor, stdout, exitCode⟩
+      · simpa [routeZero] using prefixTrace
+      · change ¬∃ decoded, SailDecode args.input decoded
+        exact meaning
+  | success decoded =>
+      rcases selected with ⟨bytes, writeCount, routeEq, writePositive, atPc, stdout, observed⟩
+      subst routeCount
+      let step0 := fromStep + (16 + readCount + allocatorCount + decodeCount + writeCount)
+      obtain ⟨retired0, run0⟩ := main_success_exit_code_step step0 state.machine configured
+        (by simpa [EndpointPc] using atPc) code
+      let machine1 := afterRegisterWrite state.machine 0x14d10 retired0 x10 0
+      let state1 : EndpointState := { state with machine := machine1 }
+      have trace1 : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+          (17 + readCount + allocatorCount + decodeCount + writeCount) before state1 := by
+        have normalizedPrefix : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+            (16 + readCount + allocatorCount + decodeCount + writeCount) before state := by
+          simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using prefixTrace
+        have stepTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
+            (fromStep + (16 + readCount + allocatorCount + decodeCount + writeCount)) 1
+            state state1 :=
+          main_confined_sail_step step0 state machine1 0x14d10 atPc
+            (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+            (by unfold LinuxSyscallPc; native_decide) run0
+        simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
+          normalizedPrefix.append stepTrace
+      have configured1 := ConfiguredMachinePre.afterRegisterWrite 0x14d10 retired0 x10 0
+        configured x10_not_instructionPreserved
+      have code1 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+        state.machine 0x14d10 retired0 x10 0 code
+      have pc1 : EndpointPc state1 = some 0x14d14 := by
+        simpa [state1, EndpointPc, MachinePc, machine1] using
+          afterRegisterWrite_pc state.machine 0x14d10 retired0 x10 0
+      have zero1 : machine1.regs.get? x10 = some (0#64) := by
+        simpa [machine1] using
+          afterRegisterWrite_destination state.machine 0x14d10 retired0 x10 (0#64)
+            (by decide) (by decide)
+      obtain ⟨retired1, run1⟩ := main_success_exit_call_base_step (step0 + 1) machine1
+        configured1 (by simpa [state1, EndpointPc] using pc1) code1
+      let machine2 := afterRegisterWrite machine1 0x14d14 retired1 x1 0xfd14
+      let state2 : EndpointState := { state1 with machine := machine2 }
+      have trace2 : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+          (18 + readCount + allocatorCount + decodeCount + writeCount) before state2 := by
+        have stepTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
+            (fromStep + (17 + readCount + allocatorCount + decodeCount + writeCount)) 1
+            state1 state2 := by
+          simpa [step0, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
+            main_confined_sail_step (step0 + 1) state1 machine2 0x14d14 pc1
+              (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+              (by unfold LinuxSyscallPc; native_decide) run1
+        simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace1.append stepTrace
+      have configured2 := ConfiguredMachinePre.afterRegisterWrite 0x14d14 retired1 x1 0xfd14
+        configured1 (by simp [instructionPreserved])
+      have code2 := fileBytesLoadedFaithfully_afterRegisterWrite Generated.programImage
+        machine1 0x14d14 retired1 x1 0xfd14 code1
+      have pc2 : EndpointPc state2 = some 0x14d18 := by
+        simpa [state2, EndpointPc, MachinePc, machine2] using
+          afterRegisterWrite_pc machine1 0x14d14 retired1 x1 0xfd14
+      have base2 : machine2.regs.get? x1 = some 0xfd14 := by
+        simpa [machine2] using
+          afterRegisterWrite_destination machine1 0x14d14 retired1 x1 (0xfd14 : BitVec 64)
+            (by decide) (by decide)
+      have zero2 : machine2.regs.get? x10 = some (0#64) :=
+        (afterRegisterWrite_writes machine1 0x14d14 retired1 x1 0xfd14).get x10
+          (by decide) |>.trans zero1
+      obtain ⟨retired2, run2⟩ := main_success_exit_call_step (step0 + 2) machine2 configured2
+        (by simpa [state2, EndpointPc] using pc2) base2 code2
+      let callMachine := tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement machine2) 0x14d18 0x101c4 x1 0x14d1c)
+        0x101c4 retired2
+      let callState : EndpointState := { state2 with machine := callMachine }
+      have callWrites := callRetirement_writes machine2 0x14d18 0x101c4 retired2 x1 0x14d1c
+      have callTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+          (19 + readCount + allocatorCount + decodeCount + writeCount) before callState := by
+        have stepTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
+            (fromStep + (18 + readCount + allocatorCount + decodeCount + writeCount)) 1
+            state2 callState := by
+          simpa [callState, step0, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
+            main_confined_sail_step (step0 + 2) state2 callMachine 0x14d18 pc2
+              (by unfold mainGluePcs; refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+              (by unfold LinuxSyscallPc; native_decide) run2
+        simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using trace2.append stepTrace
+      have callCode : Generated.programImage.fileBytesLoadedFaithfully callMachine.mem := by
+        simpa [callMachine, callLinkState, tryStepControlFlowAfterRetired,
+          tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code2
+      have exitEntry : ZkvmExitEntry { code := 0 } callState := by
+        refine ⟨?_, ?_, callCode⟩
+        · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
+            tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.zkvmExitEntry]
+        · exact (callWrites.get x10 (by decide)).trans zero2
+      obtain ⟨stepBound, implements⟩ := hLevel1.zkvmExit
+      obtain ⟨exitCount, after, unit, exitPositive, _exitBound, exitTrace, _terminal,
+          _allowed, exitPost⟩ := implements { code := 0 }
+        (fromStep + (19 + readCount + allocatorCount + decodeCount + writeCount)) callState exitEntry
+      rcases exitPost with ⟨terminalPc, finalCode, finalStdin, finalCursor, finalStdout, _memory⟩
+      have wideExit : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
+          (fromStep + (19 + readCount + allocatorCount + decodeCount + writeCount)) exitCount
+          callState after :=
+        exitTrace.weaken (fun pc inside =>
+          Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr inside))))))
+      refine ⟨19 + readCount + allocatorCount + decodeCount + writeCount + exitCount,
+        after, .success decoded, ?_, ?_, ?_⟩
+      · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using callTrace.append wideExit
+      · change (∃ sail, SailDecode args.input sail ∧
+          decodedResultRelModuloKnownBugs args.input decoded sail) ∨
+          ((¬∃ sail, SailDecode args.input sail) ∧
+            ∃ bug ∈ knownBugs, KnownBugApplies args.input decoded bug)
+        exact meaning
+      · refine ⟨terminalPc, ?_, ?_, finalCode, bytes, ?_, observed⟩
+        · exact finalStdin.trans (by simpa [callState, state2, state1] using stdin)
+        · exact finalCursor.trans (by simpa [callState, state2, state1] using cursor)
+        · exact finalStdout.trans (by simpa [callState, state2, state1] using stdout)
+
 end BinaryFv.Ssz
