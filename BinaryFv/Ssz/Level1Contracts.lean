@@ -14,25 +14,6 @@ namespace BinaryFv.Ssz
 open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.RiscV
 
-def abiCalleePreserved : Register → Prop := fun register =>
-  register = x1 ∨ register = hart_state ∨ register = cur_privilege ∨ register = satp ∨
-    register = mideleg ∨ register = mie ∨ register = mip ∨ register = pmpcfg_n ∨
-    register = pmpaddr_n ∨ register = mcountinhibit ∨ register = minstretcfg ∨
-    register = elp ∨ register = misa ∨ register = mstatus ∨ register = sig_meip ∨
-    register = pma_regions ∨ register = mseccfg ∨ register = htif_tohost_base ∨
-    register = x2 ∨ register = x8 ∨ register = x9 ∨
-    register = x18 ∨ register = x19 ∨ register = x20 ∨ register = x21 ∨
-    register = x22 ∨ register = x23 ∨ register = x24 ∨ register = x25 ∨
-    register = x26 ∨ register = x27
-
-/-- State preserved by every returning Level 1 ABI boundary. Memory permissions are contract-specific. -/
-def EndpointCallFrame (before after : EndpointState) : Prop :=
-  Agree abiCalleePreserved before.machine after.machine ∧
-  Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
-  after.machine.choiceState = before.machine.choiceState ∧
-  after.machine.tags = before.machine.tags ∧
-  after.machine.sailOutput = before.machine.sailOutput
-
 structure ReadInputArgs where
   returnAddress : Nat
   bufferSlot : Nat
@@ -118,10 +99,7 @@ def AllocatorGetExit (args : AllocatorGetArgs) (outcome : AllocatorGetOutcome)
       (byteRange (args.stackPointer + 0x18) 8)) before.machine after.machine ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.stdout = before.stdout ∧ after.exitCode = before.exitCode ∧
-  Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
-  after.machine.choiceState = before.machine.choiceState ∧
-  after.machine.tags = before.machine.tags ∧
-  after.machine.sailOutput = before.machine.sailOutput
+  EndpointCallFrame before after
 
 def allocatorGetContract (stepBound : AllocatorGetArgs → Nat) :
     RelationalMachineContract EndpointState AllocatorGetArgs AllocatorGetOutcome :=

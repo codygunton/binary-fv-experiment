@@ -83,6 +83,7 @@ def DecodeBoundaryExit (args : DecodeBoundaryArgs) (outcome : DecodeBoundaryOutc
   state.machine.choiceState = before.machine.choiceState ∧
   state.machine.tags = before.machine.tags ∧
   state.machine.sailOutput = before.machine.sailOutput ∧
+  EndpointCallFrame before state ∧
     match outcome with
     | .failure => ∃ status : Nat, status ≠ 0 ∧ status < 2 ^ 16 ∧
         UIntRep 2 state.machine.mem (args.stackPointer + 0x370) status
