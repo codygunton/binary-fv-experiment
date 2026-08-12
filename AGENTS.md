@@ -96,6 +96,13 @@ These instructions apply repository-wide.
 
 ## Proof automation
 
+- **Lean MCP is the mandatory inner loop whenever it is available.** Before invoking `lake build` or
+  `lake env lean` to diagnose or develop a proof, use `lean_goal`, `lean_diagnostic_messages`,
+  `lean_multi_attempt`, and the Lean MCP search tools as appropriate. Use direct Lean or a focused
+  Lake target only when MCP cannot load the relevant cross-project/generated environment, and record
+  that concrete limitation in `STATUS.md`; reserve broader builds for coherent checkpoint gates.
+- If Lean MCP appears stale, restart or refresh its project state and retry before falling back to a
+  build. A successful build does not excuse skipping available MCP diagnostics during proof authoring.
 - [`GRIND.md`](GRIND.md) is the single source of truth for named `simp` and `grind` sets: which facts
   belong in which kind of set, the attribute variants, the two-file constraint on named simp
   attributes, the entry criteria for a new set, and the registry of sets that exist. Read it before
