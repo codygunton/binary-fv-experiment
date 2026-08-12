@@ -53,7 +53,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
     level1_local_proofs = {}
     level2_local_proofs = ({
         next(row["id"] for row in level2_manifest["instances"]
-             if row["qualified"] == "memcpy"): "proof_revalidation_pending",
+             if row["qualified"] == "memcpy"): "proved_not_connected",
     } if level2_manifest is not None else {})
     proved_level0_pcs = {
         0x14CB0, 0x14CB4, 0x14CB8, 0x14CBC, 0x14CC0, 0x14CC4, 0x14CC8,
@@ -156,6 +156,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             local_proof = level2_local_proofs.get(row["id"], "not_started")
             authoring_state = ("proof_revalidation_pending"
                                if local_proof == "proof_revalidation_pending"
+                               else "unconditionally_proven"
+                               if local_proof == "proved_not_connected"
                                else "proof_in_progress" if local_proof == "in_progress"
                                else "contract_specified_assumption")
             boundaries.append({
@@ -213,14 +215,14 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
     })
     nodes.extend([
         {"id": "glue", "label": "main parent-owned glue", "kind": "parentGlue", "column": 1,
-         "status": "proof_revalidation_pending", "proofStatus": "proof_revalidation_pending",
+         "status": "proved", "proofStatus": "proved",
          "phase": "level0-glue", "instructionCount": len(glue_pcs),
          "absorbedInlineInstructionCount": absorbed,
          "provedInstructionCount": len(proved_level0_pcs)},
         {"id": "conversion", "label": "exportedContracts_of_level1", "kind": "conversion",
          "column": 2, "status": "proved", "proofStatus": "proved"},
         {"id": "root", "label": "root_compliance", "kind": "parent", "column": 3,
-         "status": "proof_revalidation_pending", "proofStatus": "proof_revalidation_pending"},
+         "status": "proved_conditional", "proofStatus": "proved_conditional_on_hLevel1"},
     ])
     edges.extend([
         {"source": "glue", "target": "conversion", "kind": "dependency"},
@@ -245,14 +247,14 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         },
         "artifact": cfg["artifact"], "instructions": instructions, "blocks": [],
         "boundaries": boundaries, "manifests": [],
-        "formalCoverage": {"localPcCount": 0,
+        "formalCoverage": {"localPcCount": len(proved_level0_pcs),
                            "level1PcCount": 0, "rootPcCount": 0},
         "compilerProvenance": {"state": "same-ELF DWARF"},
         "phases": [{"id": "level0-glue", "label": "main parent-owned glue", "pcs": glue_pcs}],
         "authoringRegions": regions,
         "flameProgress": {
             "states": [
-                {"owner": main["id"], "qualified": "main", "status": "proof_revalidation_pending"},
+                {"owner": main["id"], "qualified": "main", "status": "proved_conditional"},
                 *({"owner": row["id"], "qualified": row["qualified"],
                    "status": "contracted"} for row in manifest["instances"]),
                 *level2_states,
