@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 import copy
-import hashlib
+import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from analyze import make_report, parse_trace, reduce_trace, validate_decode_runs
+from elf_identity import load_image_sha256
 
 
 class EvidenceTest(unittest.TestCase):
     def setUp(self):
         self.manifest = {
-            "artifact": {"kind": "ELF", "sha256": hashlib.sha256(b"elf").hexdigest()},
+            "artifact": {"kind": "ELF", "sha256": load_image_sha256(Path(sys.executable))},
             "instances": [{
                 "id": "fi:1", "qualified": "child", "entryPc": 4,
                 "instructionPcs": [4, 8], "executionPcs": [4, 8, 12], "exitPcs": [16],
@@ -57,7 +59,8 @@ class EvidenceTest(unittest.TestCase):
     def test_rejects_wrong_artifact(self):
         with tempfile.TemporaryDirectory() as directory:
             elf = Path(directory) / "elf"
-            elf.write_bytes(b"wrong")
+            shutil.copyfile(sys.executable, elf)
+            self.manifest["artifact"]["sha256"] = "forged"
             with self.assertRaisesRegex(ValueError, "digests differ"):
                 make_report(self.manifest, elf, [])
 
@@ -65,7 +68,7 @@ class EvidenceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             elf = Path(directory) / "elf"
             trace = Path(directory) / "trace"
-            elf.write_bytes(b"elf")
+            shutil.copyfile(sys.executable, elf)
             trace.write_text("E 4\nE 8\nE 12\nE 16\n")
             with self.assertRaisesRegex(ValueError, "entry coverage is incomplete"):
                 make_report(self.manifest, elf, [("mutated", trace)])

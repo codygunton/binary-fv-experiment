@@ -4,7 +4,8 @@ namespace BinaryFv.Zesu.Elflings
 /-- A half-open, four-byte-aligned interval of production instruction addresses. -/
 abbrev PcRange := Nat × Nat
 
-def artifactSha256 : String := "3e13afeae5719e10c65a89ea1b8a9afdb60b360e7e18faa81c31a71a44dcd8fb"
+def artifactIdentityScope : String := "ELF PT_LOAD memory image"
+def artifactSha256 : String := "6e7dbca17f09a653268c750facbb7ecc40844173809ad2a02c8a9f67326906ce"
 
 def mainEntry : Nat := 0x14cb0
 def mainGlueInstructionCount : Nat := 24

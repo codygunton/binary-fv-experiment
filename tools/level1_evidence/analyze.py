@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from elf_identity import load_image_sha256
 
 
 def parse_trace(path: Path) -> dict:
@@ -238,7 +241,7 @@ def validate_decode_runs(manifest: dict, traces: list[tuple[str, dict]]) -> list
 def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
                 bindings: dict | None = None, inputs: dict[str, Path] | None = None,
                 structural_only: bool = False) -> dict:
-    digest = hashlib.sha256(elf.read_bytes()).hexdigest()
+    digest = load_image_sha256(elf)
     if digest != manifest["artifact"]["sha256"]:
         raise ValueError("manifest and observed ELF digests differ")
     parsed_traces = [(label, parse_trace(path)) for label, path in traces]

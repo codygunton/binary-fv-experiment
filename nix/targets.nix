@@ -1,9 +1,9 @@
 { pkgs, repo, zesu, rv64 }:
 let
-  inherit (rv64) cflags riscvBinutils riscvCc riscvNm riscvReadelf;
+  inherit (rv64) cflags riscvBinutils riscvCc riscvNm riscvObjdump riscvReadelf;
   # Keep the production ELF independent of unrelated files in the outer repository.  This source
-  # path changes only when the linked runtime itself changes, so its DWARF paths and ELF digest are
-  # stable while proof, UI, fixture, or documentation files evolve.
+  # path changes only when the linked runtime itself changes, so its DWARF paths and runtime memory
+  # image are stable while proof, UI, fixture, or documentation files evolve.
   runtimeSrc = builtins.path {
     path = ../runtime/riscv64;
     name = "binary-fv-riscv64-runtime";
@@ -156,7 +156,11 @@ let
       ${riscvReadelf} -A "$out/bin/zesu-ssz-decode" > "$out/meta/elf-attributes.txt"
       ${riscvNm} -u "$out/bin/zesu-ssz-decode" > "$out/meta/undefined-symbols.txt"
       test ! -s "$out/meta/undefined-symbols.txt"
-      ! ${riscvBinutils}/bin/riscv64-none-elf-objdump -d "$out/bin/zesu-ssz-decode" | grep -q '\becall\b'
+      ${riscvObjdump} -d "$out/bin/zesu-ssz-decode" > "$out/meta/disassembly.txt"
+      if grep -q '\becall\b' "$out/meta/disassembly.txt"; then
+        echo "bare-metal target contains ecall" >&2
+        exit 1
+      fi
       printf '%s\n' \
         'zesu=codygunton/zesu@d67f28c' \
         'runtime=runtime/riscv64; memory-context-bare-metal; no-libc; no-ecall' \

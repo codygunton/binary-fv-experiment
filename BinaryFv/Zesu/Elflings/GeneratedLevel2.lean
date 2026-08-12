@@ -3,7 +3,8 @@ import BinaryFv.Zesu.Elflings.GeneratedLevel1
 
 namespace BinaryFv.Zesu.Elflings
 
-def level2ArtifactSha256 : String := "3e13afeae5719e10c65a89ea1b8a9afdb60b360e7e18faa81c31a71a44dcd8fb"
+def level2ArtifactIdentityScope : String := "ELF PT_LOAD memory image"
+def level2ArtifactSha256 : String := "6e7dbca17f09a653268c750facbb7ecc40844173809ad2a02c8a9f67326906ce"
 def level2InstanceCount : Nat := 20
 
 def memcpyInstanceId : String := "fi:0:2d1"

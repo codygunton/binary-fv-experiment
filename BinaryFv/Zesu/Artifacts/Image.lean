@@ -11,4 +11,8 @@ abbrev programImage : ProgramImage := Program.image
 theorem programImage_artifactSha256 : Program.artifactSha256 = Elflings.artifactSha256 := by
   decide
 
+theorem programImage_artifactIdentityScope :
+    Program.artifactIdentityScope = Elflings.artifactIdentityScope := by
+  decide
+
 end BinaryFv.Zesu.Artifacts

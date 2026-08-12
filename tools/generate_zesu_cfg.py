@@ -16,6 +16,7 @@ from elftools.common.utils import struct_parse
 from elftools.dwarf.ranges import BaseAddressEntry, RangeEntry
 from elftools.elf.elffile import ELFFile
 from elftools.elf.relocation import RelocationHandler
+from elf_identity import load_image_sha256
 
 
 COND = {"beq", "bne", "blt", "bge", "bltu", "bgeu", "beqz", "bnez", "bltz", "bgez", "blez", "bgtz"}
@@ -61,8 +62,9 @@ def enable_riscv_debug_relocations() -> None:
 enable_riscv_debug_relocations()
 
 
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def digest(path: Path, kind: str) -> str:
+    return (load_image_sha256(path)
+            if "linked executable" in kind else hashlib.sha256(path.read_bytes()).hexdigest())
 
 
 def normalize_source(source: str) -> str:
@@ -717,7 +719,12 @@ def main() -> None:
             })
     payload = {
         "schemaVersion": 1,
-        "artifact": {"kind": elf_kind, "sha256": digest(args.object)},
+        "artifact": {
+            "kind": elf_kind,
+            "identityScope": ("ELF PT_LOAD memory image"
+                              if "linked executable" in elf_kind else "complete file"),
+            "sha256": digest(args.object, elf_kind),
+        },
         "sourceMapping": {"kind": "DWARF from the same ReleaseSmall ELF", "confidence": "exact-line-table"},
         "formalStatus": "No kernel-backed target proof manifest is present.",
         "functions": output_functions,
