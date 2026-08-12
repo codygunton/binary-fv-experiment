@@ -1,6 +1,8 @@
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.RiscV.Instruction.Decode
 import BinaryFv.RiscV.Step.ConfiguredMachine
+import BinaryFv.RiscV.Instruction.Execute.Arithmetic
+import BinaryFv.RiscV.Step.FallThrough
 import BinaryFv.RiscV.Step.Store
 import BinaryFv.RiscV.Step.TryStepStackAddiMemory
 import BinaryFv.Ssz.Generated.ProgramImage
@@ -54,6 +56,31 @@ structure MainDwordStoreAccess (state afterWrite : State) (pc : BitVec 64)
     (coreStoreNextState (tryStepStoreAfterIncrement state) pc) false
   write : Runs (PreSail.writeBytes (n := 8) dstBits.toNat dataBits)
     (coreStoreNextState (tryStepStoreAfterIncrement state) pc) afterWrite true
+
+/-- The source-register binding needed by a concrete Level 0 `addi`. -/
+structure MainAddiSource (state : State) (pc : BitVec 64) (source : regidx) where
+  value : BitVec 64
+  read : Runs (rX_bits source)
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) value
+
+private theorem main_xreg_write_callback_run (state : State) (register : regidx)
+    (data : BitVec 64) : (xreg_write_callback register data).run state = .ok () state := by
+  rcases register with ⟨index⟩
+  simp [xreg_write_callback, xreg_full_write_callback, reg_name_forwards,
+    encdec_reg_forwards, encdec_reg_forwards_matches, get_config_use_abi_names,
+    EStateM.run, EStateM.bind, EStateM.pure, EStateM.instMonad,
+    LeanRV64DExecutable.Functions.not]
+  rfl
+
+private theorem main_wX_bits_run_x10 (state : State) (value : BitVec 64) :
+    Runs (wX_bits (.Regidx 10#5) value) state
+      { state with regs := state.regs.insert x10 value } () := by
+  change Runs (do
+    Sail.writeReg x10 (regval_into_reg value)
+    xreg_write_callback (.Regidx 10#5) value) state _ ()
+  exact Runs.bind (by simpa using writeReg_run state x10 value)
+    (main_xreg_write_callback_run _ _ _)
 
 private theorem main_store_dword_step (stepNo : Nat) (state afterWrite : State)
     (pc : Nat) (imm : BitVec 12) (rs2 : regidx)
@@ -181,6 +208,73 @@ theorem main_clear_input_slot_step (stepNo : Nat) (state afterWrite : State)
       privilegeAfter, seccfgAfter, *]
     rfl
   · exact access
+
+/-- Production `0x14cbc: addi a0, sp, 0`. -/
+theorem main_input_buffer_address_step (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre mainGluePcs state)
+    (atPc : state.regs.get? PC = some 0x14cbc)
+    (loaded : Generated.programImage.fileBytesLoadedFaithfully state.mem)
+    (source : MainAddiSource state 0x14cbc stackPointer) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc with
+          regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc).regs.insert
+            x10 (iTypeResult .ADDI 0 source.value) }
+        0x14cc0 retired) false := by
+  obtain ⟨retired, counters⟩ := configured.counters
+  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
+    configured.stepContext 0x14cbc atPc (by
+      refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
+  have loadedAfter : Generated.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Generated.programImage
+    (tryStepControlFlowAfterIncrement state) 0x14cbc (by native_decide) loadedAfter
+    0x13 0x05 0x01 0x00 (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide)
+  have decode : Runs
+      (ext_decode (fetchWord (0x13 : BitVec 8) (0x05 : BitVec 8) (0x01 : BitVec 8)
+        (0x00 : BitVec 8)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (0, stackPointer, .Regidx 10#5, .ADDI)) := by
+    obtain ⟨seccfgBits, seccfgRead⟩ := configured.seccfgPresent
+    have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+        some Privilege.Machine := by
+      calc
+        _ = state.regs.get? cur_privilege := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+        _ = some Privilege.Machine := configured.normal.2.1
+    have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+        some seccfgBits := by
+      calc
+        _ = state.regs.get? mseccfg := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+        _ = some seccfgBits := seccfgRead
+    unfold Runs
+    rw [extDecode_eq]
+    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
+      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
+      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
+      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
+    rfl
+  have execute : Runs (execute (.ITYPE (0, stackPointer, .Regidx 10#5, .ADDI)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc)
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc).regs.insert
+          x10 (iTypeResult .ADDI 0 source.value) }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0 stackPointer (.Regidx 10#5) .ADDI) _ _ _
+    exact execute_ITYPE_run _ _ 0 stackPointer (.Regidx 10#5) .ADDI source.value source.read
+      (main_wX_bits_run_x10 _ _)
+  refine ⟨retired, tryStepFallThroughWriteRegRetires stepNo state 0x14cbc retired 0 0
+    0x13 0x05 0x01 0x00 (.ITYPE (0, stackPointer, .Regidx 10#5, .ADDI)) x10
+    (iTypeResult .ADDI 0 source.value) platform noMMIO bytes interrupts ?_ decode notExpected
+    execute (by decide) (by decide) (by decide) (by decide) counters.1 counters.2.1
+    counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1 counters.2.2.2.2.2⟩
+  rfl
 
 /-- Production `0x14cb0: addi sp, sp, -896`, including generated fetch and retirement. -/
 theorem main_stack_allocate_step (stepNo : Nat) (state : State) (stackValue : BitVec 64)
