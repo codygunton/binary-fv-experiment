@@ -1,4 +1,4 @@
-import BinaryFv.RiscV.Logic.BlockStep
+import BinaryFv.RiscV.Logic.Framing
 
 /-!
 # Shared generated-register run lemmas
@@ -28,14 +28,20 @@ theorem rX_x0_run (state : State) :
     regval_from_reg]
   rfl
 
+/-- Writes to the architectural zero register are discarded. -/
+theorem wX_x0_run (state : State) (value : BitVec 64) :
+    Runs (wX_bits (.Regidx 0#5) value) state state () := by
+  change Runs (pure ()) state state ()
+  rfl
+
 local macro "gen_rx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
   `(theorem $name (state : State) (value : BitVec 64)
       (stored : state.regs.get? $reg = some value) :
       Runs (rX_bits (.Regidx (BitVec.ofNat 5 $idx))) state state value := by
-    have index : (Sail.BitVec.toNatInt (BitVec.ofNat 5 $idx)).toNat = $idx := by decide
-    unfold Runs
-    simp [rX_bits, rX, index, stored, PreSail.readReg, EStateM.run, EStateM.bind, EStateM.get,
-      EStateM.pure, EStateM.instMonad, MonadState.get, MonadStateOf.get, getThe, regval_from_reg])
+    change Runs (do
+      let v ← Sail.readReg $reg
+      pure (regval_from_reg v)) state state value
+    exact Runs.bind (readReg_run state $reg value stored) rfl)
 
 local macro "gen_wx_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
   `(theorem $name (state : State) (value : BitVec 64) :

@@ -1,4 +1,4 @@
-import BinaryFv.RiscV.Instruction.Frame.Register
+import BinaryFv.RiscV.Instruction.RegisterRuns
 import BinaryFv.RiscV.Step.ControlFlow
 import BinaryFv.RiscV.Step.FallThrough
 import BinaryFv.RiscV.Instruction.Decode
@@ -20,48 +20,6 @@ namespace BinaryFv.RiscV
 open PreSail
 open LeanRV64DExecutable.Functions
 open Register
-
-/-! ## Concrete link-register run lemmas -/
-
-local macro "call_xread_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
-  `(theorem $name (state : State) (value : BitVec 64)
-      (stored : state.regs.get? $reg = some value) :
-      Runs (rX_bits (.Regidx (BitVec.ofNat 5 $idx))) state state value := by
-    have index : (Sail.BitVec.toNatInt (BitVec.ofNat 5 $idx)).toNat = $idx := rfl
-    unfold Runs
-    simp [rX_bits, rX, index, regval_from_reg, PreSail.readReg, EStateM.run, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadExceptOfOfBacktrackable,
-      getThe, MonadState.get, MonadStateOf.get, stored])
-
-local macro "call_xwrite_run" idx:num " ↦ " reg:ident ", " name:ident : command =>
-  `(theorem $name (state : State) (value : BitVec 64) :
-      Runs (wX_bits (.Regidx (BitVec.ofNat 5 $idx)) value) state
-        { state with regs := state.regs.insert $reg value } () := by
-    have index : (Sail.BitVec.toNatInt (BitVec.ofNat 5 $idx)).toNat = $idx := rfl
-    unfold Runs
-    simp only [wX_bits, wX, index, regval_into_reg, PreSail.writeReg, EStateM.run,
-      EStateM.bind, EStateM.modifyGet, EStateM.instMonad, MonadState.modifyGet,
-      MonadStateOf.modifyGet, modify]
-    rw [if_pos (by decide)]
-    exact xreg_write_callback_run _ _ _)
-
-call_xwrite_run 1 ↦ x1, wX_bits_run_x1
-call_xread_run 1 ↦ x1, rX_bits_run_x1
-call_xwrite_run 5 ↦ x5, wX_bits_run_x5
-call_xwrite_run 10 ↦ x10, wX_bits_run_x10
-call_xread_run 10 ↦ x10, rX_bits_run_x10
-call_xread_run 2 ↦ x2, rX_bits_run_x2
-call_xwrite_run 11 ↦ x11, wX_bits_run_x11
-call_xread_run 11 ↦ x11, rX_bits_run_x11
-call_xread_run 18 ↦ x18, rX_bits_run_x18
-
-theorem wX_bits_run_zero (s : State) (data : BitVec 64) :
-    Runs (wX_bits (.Regidx 0#5) data) s s () := by
-  have hidx : (Sail.BitVec.toNatInt (0#5)).toNat = 0 := rfl
-  unfold Runs
-  simp only [wX_bits, wX, hidx, EStateM.run, EStateM.bind, EStateM.instMonad]
-  rw [if_neg (by decide)]
-  rfl
 
 /-- `get_next_pc ()` reads the current `nextPC`; used to pin the saved link to the return address. -/
 theorem get_next_pc_run (s : State) (v : BitVec 64) (stored : s.regs.get? nextPC = some v) :
@@ -498,7 +456,7 @@ theorem tryStepJrDiscardRetires (stepNo : Nat) (state : State)
     unfold controlFlowJumpState
     exact execute_JALR_run (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) _
       imm rs1 (.Regidx 0#5) linkVal rs1Val helpElp hlink hrs1 hbit1 zcaEnabled hzca
-      (wX_bits_run_zero _ linkVal)
+      (wX_x0_run _ linkVal)
   have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state)
     (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
       (Sail.BitVec.update (rs1Val + sign_extend (m := 64) imm) 0 0#1)) pc byte0 byte1 byte2 byte3
