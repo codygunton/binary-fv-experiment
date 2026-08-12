@@ -66,6 +66,19 @@ structure MainAddiSource (state : State) (pc : BitVec 64) (source : regidx) wher
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) value
 
+/-- Construct the recurring `sp` source read from a concrete architectural register binding. -/
+def MainAddiSource.stackPointer {state : State} {pc value : BitVec 64}
+    (read : state.regs.get? x2 = some value) : MainAddiSource state pc stackPointer := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc
+  have premiseRead : premise.regs.get? x2 = some value := by
+    calc
+      premise.regs.get? x2 = state.regs.get? x2 :=
+        (stepPremiseState_writes state pc).get x2 (by decide)
+      _ = some value := read
+  refine ⟨value, ?_⟩
+  change Runs (regval_from_reg <$> readReg x2) premise premise value
+  exact Runs.bind (readReg_run premise x2 value premiseRead) rfl
+
 /-- The data-side read performed by the Level 0 decoder-status `lhu`. -/
 structure MainHalfLoadAccess (state : State) (pc : BitVec 64) (imm : BitVec 12)
     (source : regidx) where
