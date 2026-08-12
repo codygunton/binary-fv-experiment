@@ -374,11 +374,16 @@ every small branch target was being recorded as an immediate. The rule is now cl
 
 ## 8. Limitations
 
-- **The line-based payoff model is no longer calibrated.** Its only measured rate, −19 lines per
-  register-write step, came from `PLAN_PROOF_PATTERNS.md` measurements against
-  `InstructionClassSteps.lean`, which the pivot deleted. Motifs here are therefore ranked by
-  **invocations saved**, a structural count, and any line figure the tool still emits should be
-  ignored until re-measured against the new proof layer.
+- **The payoff model prices motifs against a baseline that does not exist.** Its unit is "one
+  class-lemma invocation", but `InstructionClassSteps.lean` and the `decoderLoadStep` family were
+  deleted in the pivot and nothing replaced them — zero references survive in the tree. Its only
+  measured rate, −19 lines per register-write step, came from `PLAN_PROOF_PATTERNS.md` measurements
+  against that deleted file. Motifs here are therefore ranked by **invocations saved**, a
+  structural count of a unit whose price is unknown, and any line figure the tool still emits
+  should be ignored. Section 9 Case 0 is what would fix this.
+- **`Seg` has no consumers.** The segment machinery every motif lemma would be stated in is
+  complete and unused: outside `Seg.lean` there are zero uses of its combinators. This study ranks
+  candidates for a layer that no proof has yet adopted.
 - **No SCC, loop, or liveness data.** The old database supplied these; `zesu-cfg.json` does not, so
   the tandem-repeat classification rests on motif periodicity alone, without the loop cross-check.
 - **Motifs are linear.** Windows are consecutive instructions inside one basic block; nothing here
@@ -388,12 +393,41 @@ every small branch target was being recorded as an immediate. The rule is now cl
 ## 9. Proposed validation spike
 
 Every number above is structural. None of it says a motif lemma *saves work*, because nothing here
-has been written in Lean. One unpriced quantity decides the whole question: **what a motif lemma
-costs to author and to apply, against applying the existing per-instruction class lemmas n times.**
-The payoff model assumed that cost was a constant; it has never been measured on this proof layer.
+has been written in Lean.
 
-The spike is small and it is falsifiable. Three cases, chosen because they fail in different ways
-if the idea is wrong.
+### First, two facts about the proof layer that change the question
+
+Both were checked against the tree, not assumed.
+
+1. **`Seg` exists and has no consumers.** `BinaryFv/RiscV/Elfling/Seg.lean` is complete — `nil`,
+   `stepOf`, `stepFallThrough`, `stepStore`, `stepJump`, `through`, `get`, `reg`, `memEq`, `know`,
+   `forget` — and documents exactly the scaffolding it removes. Outside its own file there are
+   **zero** uses of any of them. Only the root `BinaryFv/RiscV.lean` imports it. That is an
+   adoption gap, not a missing component: the machinery is built and nothing has been ported onto
+   it.
+2. **There is no per-instruction class-lemma layer.** `InstructionClassSteps.lean` and the
+   `decoderLoadStep` family were deleted in the EVM-Sail pivot, and nothing replaced them. Zero
+   references survive.
+
+Fact 2 undercuts the payoff model this study has used throughout. "A motif lemma replaces n
+class-lemma invocations with one" prices a motif against a baseline that does not exist. Until
+something establishes what one straight-line instruction costs on the current layer, `uses × (n−1)`
+is a count of a unit whose price is unknown.
+
+Fact 1 says where to start, and it lines up with the study's own top finding. The natural first
+consumer of `Seg` is a straight-line run of ten instructions with no control transfer, no memory
+write and one free immediate — which is exactly Case A below.
+
+### Case 0 — prove one segment with `Seg` at all
+
+Not a motif. One straight-line run, proved through `Seg.nil` and `Seg.stepOf`, ending in the
+segment's `trace` and `confined` obligations. This is the first consumer of `Seg` and the
+measurement everything else needs: **lines and elaboration time per instruction step**. Without it
+there is no baseline, and no claim in this report about saved work can be checked.
+
+Do this first. It is the only case whose result is needed by the others.
+
+### Then three cases, chosen because they fail in different ways
 
 ### Case A — the clean whole body: `mem.readInt`, n=10, 7 sites
 
@@ -407,8 +441,12 @@ constant shifts of 8, 16, 24 and one varying base). This is the most favourable 
 The covering's first pick, and the representative of the 2–5-gram mass that carries most of the
 coverage. It is a class-level motif, so it merges several dataflow shapes and needs the
 register-distinctness side conditions nobody has priced. **This case measures that price.** It also
-decides the question in section 10 below, because a short motif is exactly where a tactic might
+decides the question in section 10 below, because a short motif is exactly where automation might
 beat a lemma.
+
+Note what Case B is really comparing. With no class-lemma layer in the tree, the honest baseline is
+three applications of `Seg.stepOf` — the number Case 0 produces — not three applications of a
+`decoderLoadStep` that no longer exists.
 
 ### Case C — the function-level lemma: `alt_fl_alloc.sizeClassOfBytes`, 78 instructions, 4 sites
 
@@ -435,28 +473,40 @@ side and ignores the right. After the spike it guesses neither.
 **Report the negative result if it is negative.** A finding that class-level motif lemmas cost
 more than they save is worth as much as the opposite, and it is cheap to obtain now.
 
-## 10. The 2–5-grams: lemma, or tactic?
+## 10. The 2–5-grams: lemmas, or a tactic?
 
 Sections 5.1 and 5a establish that the short motifs carry the coverage — n=2 to n=5 take 81 lemmas
-and claim 34% of the binary at 3 to 11 uses each — and that a lemma at those lengths is a thin
-wrapper around a handful of class-lemma applications. That raises a question the covering cannot
-answer: **should a 3-gram be a lemma at all, or should it be a tactic that chains the three class
-lemmas that already exist?**
+and claim 34% of the binary at 3 to 11 uses each. A lemma at those lengths is a thin wrapper around
+a handful of `Seg.stepOf` applications. That raises a question the covering cannot answer:
+**should a 3-gram be a lemma at all, or should it be a tactic that drives `Seg.stepOf` n times?**
 
 The two options differ in where the cost lands.
 
 - **A lemma per motif** pays once at authoring, then once per site. It gives a named, stable fact
-  and a stated interface, and each one must be maintained against changes in the class lemmas.
-- **A tactic that grinds** pays once, for all motifs of all lengths, and nothing per motif. It
-  gives no reusable name and its cost per site is elaboration time rather than lines.
+  with a stated interface, and each one must be maintained as the step layer changes.
+- **A tactic that grinds** pays once, for motifs of every length, and nothing per motif. It gives
+  no reusable name, and its per-site cost is elaboration time rather than lines.
 
-The deciding measurement is Case B, and it is a single comparison: the lines and time for one site
-of `LOAD LOAD LOAD` proved by a bespoke 3-gram lemma, against the same site proved by a tactic that
-chains `decoderLoadStep` three times. **If the tactic is within a small factor, the 81 short-motif
-lemmas should not be written at all** — the covering's short tail is then an argument for
-automation, not for a lemma library, and the lemma effort should go entirely to the long motifs and
-to the whole bodies in section 5a, where a tactic has nothing to chain.
+Two things make the tactic the favourite before any measurement, and both should be stated so the
+spike can refute them.
 
-This is the natural reading of the uses-per-lemma curve. At n=2 a lemma is applied 11.2 times and
-saves one class-lemma invocation per application; at n=51 it is applied twice and saves fifty. The
-curve says the short end wants throughput and the long end wants lemmas.
+- `Seg` was built precisely to make chaining cheap. Its whole design note is about removing the
+  `obtain` / `let` / `simpa` ritual that made composition expensive — 452 occurrences repo-wide.
+  If it succeeded, the marginal cost of the fourth step in a chain is small, and a 4-gram lemma
+  wraps something that was not expensive.
+- The frames compose at a *fixed* `W` and `M` by deliberate design, because letting the register
+  set grow one `Or` per instruction blows `synthInstance.maxSize` at about eight steps. That is a
+  hard scaling boundary, and it sits right where motif lemmas start to look worthwhile. A tactic
+  and a lemma hit it identically, so it is not a reason to prefer either — but it does say the
+  interesting comparison is at n≈8 and above, not at n=2.
+
+The deciding measurement is Case B: lines and elaboration time for one site of `LOAD LOAD LOAD`
+proved by a bespoke 3-gram lemma, against the same site proved by a tactic driving `Seg.stepOf`
+three times. **If the tactic is within a small factor, the 81 short-motif lemmas should not be
+written** — the short tail is then an argument for automation, and the lemma effort belongs
+entirely to the long motifs and to the whole bodies of section 5a, where a tactic has nothing to
+chain and the count of `Or`s is the binding constraint.
+
+This is also the natural reading of the uses-per-lemma curve. At n=2 a lemma is applied 11.2 times
+and saves one step invocation per application; at n=51 it is applied twice and saves fifty. The
+short end wants throughput; the long end wants lemmas.
