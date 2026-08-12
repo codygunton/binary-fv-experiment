@@ -1,4 +1,5 @@
 import BinaryFv.RiscV.Step.ControlFlow
+import BinaryFv.RiscV.Step.ConfiguredMachine
 
 /-! Target-independent post-state and frame lemmas for a retired register-writing instruction. -/
 
@@ -69,5 +70,21 @@ theorem fileBytesLoadedFaithfully_afterRegisterWrite (image : ProgramImage)
     image.fileBytesLoadedFaithfully (afterRegisterWrite state pc retired destination value).mem := by
   rw [afterRegisterWrite_mem]
   exact code
+
+private theorem instructionPreserved_disjoint_bookkeeping :
+    RegSet.Disjoint instructionPreserved stepBookkeeping :=
+  platformPreserved_disjoint.weaken (fun _ preserved => preserved.1)
+
+/-- Transport the reusable configured-machine premise through one retired register write. -/
+theorem ConfiguredMachinePre.afterRegisterWrite {pcs : BitVec 64 → Prop} {state : State}
+    (pc retired : BitVec 64) (destination : Register) (value : RegisterType destination)
+    (configured : ConfiguredMachinePre pcs state)
+    (destinationNotPreserved : ¬instructionPreserved destination) :
+    ConfiguredMachinePre pcs (afterRegisterWrite state pc retired destination value) :=
+  configured.mono
+    ((afterRegisterWrite_writes state pc retired destination value).agree
+      (instructionPreserved_disjoint_bookkeeping.union
+        (RegSet.Disjoint.only destinationNotPreserved)))
+    (afterRegisterWrite_retired_present state pc retired destination value)
 
 end BinaryFv.RiscV

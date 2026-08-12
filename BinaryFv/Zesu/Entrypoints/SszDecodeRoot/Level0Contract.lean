@@ -225,19 +225,6 @@ private theorem instructionPreserved_disjoint_bookkeeping :
     RegSet.Disjoint instructionPreserved stepBookkeeping :=
   platformPreserved_disjoint.weaken (fun _ preserved => preserved.1)
 
-/-- Transport through the exact post-state of a Level 0 register-writing instruction. -/
-theorem ConfiguredMachinePre.afterRegisterWrite {state : MachineState} (pc retired : BitVec 64)
-    (destination : Register) (value : RegisterType destination)
-    (configured : ConfiguredMachinePre EndpointMachinePc state)
-    (destinationNotPreserved : ¬instructionPreserved destination) :
-    ConfiguredMachinePre EndpointMachinePc
-      (BinaryFv.RiscV.afterRegisterWrite state pc retired destination value) :=
-  configured.mono
-    ((afterRegisterWrite_writes state pc retired destination value).agree
-      (instructionPreserved_disjoint_bookkeeping.union
-        (RegSet.Disjoint.only destinationNotPreserved)))
-    (afterRegisterWrite_retired_present state pc retired destination value)
-
 /-- Transport through a branch or comparison that retires at its fall-through PC. -/
 theorem ConfiguredMachinePre.afterFallThrough {state : MachineState}
     (pc target retired : BitVec 64) (configured : ConfiguredMachinePre EndpointMachinePc state) :
