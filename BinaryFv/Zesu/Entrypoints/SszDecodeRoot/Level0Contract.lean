@@ -115,7 +115,7 @@ hypothesis, this cannot say that demonstrated bug-triggering inputs do not exist
 structure AvoidKnownBugs (input : Array UInt8) : Prop where
   successfulResult : ∀ zesu sail, SailDecode input sail →
     decodedResultRelModuloKnownBugs input zesu sail → decodedResultRel input zesu sail
-  rejectedDomain : ∀ zesu bug,
+  rejectedDomain : (¬∃ sail, SailDecode input sail) → ∀ zesu bug,
     bug ∈ knownBugs → KnownBugApplies input zesu bug → False
 
 theorem mainMeaning_of_modulo {args : MainArgs} (hAvoidKnownBugs : AvoidKnownBugs args.input)
@@ -126,7 +126,7 @@ theorem mainMeaning_of_modulo {args : MainArgs} (hAvoidKnownBugs : AvoidKnownBug
   | success zesu =>
       rcases meaning with ⟨sail, decoded, related⟩ | ⟨rejected, bug, listed, applies⟩
       · exact ⟨sail, decoded, hAvoidKnownBugs.successfulResult zesu sail decoded related⟩
-      · exact False.elim (hAvoidKnownBugs.rejectedDomain zesu bug listed applies)
+      · exact False.elim (hAvoidKnownBugs.rejectedDomain rejected zesu bug listed applies)
 
 set_option genInjectivity false in
 /-- Concrete Linux/RV64 entry state for the exported endpoint. The two PMA/MMIO clauses are the
