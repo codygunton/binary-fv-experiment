@@ -21,6 +21,7 @@ def instructionPreserved (register : Register) : Prop :=
 structure ConfiguredMachinePre (pcs : BitVec 64 → Prop) (state : State) : Prop where
   normal : NormalExecutionState state
   retiredCounter : RetiredCounterPresent state
+  seccfgPresent : ∃ bits, state.regs.get? mseccfg = some bits
   platform : AbstractPlatform instructionPreserved pcs state
   landingPad : AbstractElp instructionPreserved (fun _ => True) state
 
@@ -49,6 +50,14 @@ theorem ConfiguredMachinePre.stepContext {pcs : BitVec 64 → Prop} {state : Sta
       _ = some pc := atPc
   · exact inside
 
+/-- The concrete zero-inhibit retirement context fixed by `NormalExecutionState`. -/
+theorem ConfiguredMachinePre.counters {pcs : BitVec 64 → Prop} {state : State}
+    (configured : ConfiguredMachinePre pcs state) :
+    ∃ retired, RetirementContext state retired 0 0 := by
+  obtain ⟨retired, retiredRead⟩ := configured.retiredCounter
+  refine ⟨retired, configured.normal.1, configured.normal.2.2.2.2.2.2.2.2.1,
+    configured.normal.2.2.2.2.2.2.2.2.2.1, ?_, ?_, retiredRead⟩ <;> rfl
+
 private theorem normalRegisters_instructionPreserved {register : Register}
     (member : normalRegisters register) : instructionPreserved register := by
   constructor
@@ -65,6 +74,9 @@ theorem ConfiguredMachinePre.mono {pcs : BitVec 64 → Prop} {before after : Sta
   normal := normalExecutionState_of_agree
     (agree.weaken (fun _ member => normalRegisters_instructionPreserved member)) configured.normal
   retiredCounter := retiredAfter
+  seccfgPresent := by
+    obtain ⟨bits, read⟩ := configured.seccfgPresent
+    exact ⟨bits, (agree mseccfg (by simp [instructionPreserved, platformPreserved])).trans read⟩
   platform := configured.platform.mono agree
   landingPad := configured.landingPad.mono agree
 
@@ -74,6 +86,7 @@ theorem ConfiguredMachinePre.restrict {wide narrow : BitVec 64 → Prop} {state 
     ConfiguredMachinePre narrow state where
   normal := configured.normal
   retiredCounter := configured.retiredCounter
+  seccfgPresent := configured.seccfgPresent
   platform := fun target pc agree landed inside =>
     configured.platform target pc agree landed (subset pc inside)
   landingPad := configured.landingPad
