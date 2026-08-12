@@ -25,12 +25,12 @@ let
   python = pkgs.python3.withPackages (ps: [ ps.pyelftools ps.capstone ]);
   makeCfg = name: artifact: filename: pkgs.runCommand name { nativeBuildInputs = [ python ]; } ''
       mkdir -p "$out"
-      python ${../tools/generate_zesu_cfg.py} \
+      PYTHONPATH=${../tools} python ${../tools/generate_zesu_cfg.py} \
         --object ${artifact}/${filename} --output "$out/zesu-cfg.json" \
         --flame "$out/flame.json" --proof-map "$out/proof-map.json"
       python ${../tools/test_zesu_cfg.py} "$out/zesu-cfg.json"
       mkdir "$TMPDIR/repeated"
-      python ${../tools/generate_zesu_cfg.py} \
+      PYTHONPATH=${../tools} python ${../tools/generate_zesu_cfg.py} \
         --object ${artifact}/${filename} --output "$TMPDIR/repeated/zesu-cfg.json" \
         --flame "$TMPDIR/repeated/flame.json" --proof-map "$TMPDIR/repeated/proof-map.json"
       cmp "$out/zesu-cfg.json" "$TMPDIR/repeated/zesu-cfg.json"
@@ -43,6 +43,7 @@ let
     zesuSszDecodeLinuxRv64Elf "bin/zesu-ssz-decode";
   zesuSszDecodeBareMetalRetargetCheck = pkgs.runCommand
     "zesu-ssz-decode-bare-metal-retarget-check-d67f28c" { nativeBuildInputs = [ python ]; } ''
+      PYTHONPATH=${../tools} python ${../tools/test_elf_identity.py}
       PYTHONPATH=${../tools} python ${../tools/test_validate_baremetal_retarget.py}
       python ${../tools/validate_baremetal_retarget.py} \
         --old-elf ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
@@ -121,7 +122,7 @@ let
   zesuSszDecodeStatelessInputLayout = pkgs.runCommand
     "zesu-ssz-decode-stateless-input-layout-d67f28c" { nativeBuildInputs = [ python ]; } ''
       mkdir -p "$out"
-      python ${../tools/generate_zig_type_layout.py} \
+      PYTHONPATH=${../tools} python ${../tools/generate_zig_type_layout.py} \
         --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
         --type input.StatelessInput --output "$out/stateless-input-layout.json"
       python ${../tools/test_zig_type_layout.py} "$out/stateless-input-layout.json"
@@ -132,11 +133,12 @@ let
     name = "zesu-level1-evidence-tools";
   };
   zesuSszDecodeLevel1Evidence = pkgs.runCommand "zesu-ssz-decode-level1-evidence-d67f28c" {
-    nativeBuildInputs = [ pkgs.gcc pkgs.glib pkgs.pkg-config pkgs.python3 pkgs.qemu-user ];
+    nativeBuildInputs = [ pkgs.gcc pkgs.glib pkgs.pkg-config python pkgs.qemu-user ];
   } ''
     set -euo pipefail
     cp -R ${level1EvidenceTools} tools
     chmod -R u+w tools
+    cp ${../tools/elf_identity.py} tools/elf_identity.py
     python -m unittest discover -s tools -p 'test_*.py'
     gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel1Manifest}/level1-manifest.json"))["instances"]; cfg=json.load(open("${zesuSszDecodeCfg}/zesu-cfg.json")); main=next(row for row in cfg["functionInstances"] if row["kind"] == "concrete" and row["name"] == "ssz_decode_root.main"); pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | set(main["pcs"])); print(",".join("snapshot="+str(pc) for pc in pcs))')
@@ -153,11 +155,12 @@ let
   '';
 
   zesuSszDecodeLevel2Evidence = pkgs.runCommand "zesu-ssz-decode-level2-evidence-d67f28c" {
-    nativeBuildInputs = [ pkgs.gcc pkgs.glib pkgs.pkg-config pkgs.python3 pkgs.qemu-user ];
+    nativeBuildInputs = [ pkgs.gcc pkgs.glib pkgs.pkg-config python pkgs.qemu-user ];
   } ''
     set -euo pipefail
     cp -R ${level1EvidenceTools} tools
     chmod -R u+w tools
+    cp ${../tools/elf_identity.py} tools/elf_identity.py
     python -m unittest discover -s tools -p 'test_*.py'
     gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel2Manifest}/level2-manifest.json"))["instances"]; pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | {pc for row in rows for pc in row["exitPcs"]}); print(",".join("snapshot="+str(pc) for pc in pcs))')

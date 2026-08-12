@@ -64,11 +64,12 @@ def generate(manifest: dict, cfg: dict) -> str:
         "/-- A half-open, four-byte-aligned interval of production instruction addresses. -/",
         "abbrev PcRange := Nat × Nat",
         "",
+        f'def artifactIdentityScope : String := "{manifest["artifact"]["identityScope"]}"',
         f'def artifactSha256 : String := "{manifest["artifact"]["sha256"]}"',
         "",
     ]
     if cfg["artifact"]["sha256"] != manifest["artifact"]["sha256"]:
-        raise ValueError("CFG and Level 1 manifest describe different ELFs")
+        raise ValueError("CFG and Level 1 manifest describe different load images")
     mains = [row for row in cfg["functionInstances"]
              if row["kind"] == "concrete" and row["parent"] is None
              and row["name"] == "ssz_decode_root.main"]

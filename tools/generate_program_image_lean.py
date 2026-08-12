@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 from pathlib import Path
 
 from elftools.elf.elffile import ELFFile
+from elf_identity import load_image_sha256
 
 
 def byte_array(name: str, data: bytes) -> list[str]:
@@ -31,11 +31,10 @@ def byte_array(name: str, data: bytes) -> list[str]:
 
 
 def generate(elf_path: Path, expected_sha256: str) -> str:
-    raw = elf_path.read_bytes()
-    actual_sha256 = hashlib.sha256(raw).hexdigest()
+    actual_sha256 = load_image_sha256(elf_path)
     if actual_sha256 != expected_sha256:
         raise ValueError(
-            f"ELF digest mismatch: expected {expected_sha256}, observed {actual_sha256}"
+            f"ELF load-image digest mismatch: expected {expected_sha256}, observed {actual_sha256}"
         )
     with elf_path.open("rb") as stream:
         elf = ELFFile(stream)
@@ -50,6 +49,7 @@ def generate(elf_path: Path, expected_sha256: str) -> str:
             "",
             "open BinaryFv.Binary",
             "",
+            'def artifactIdentityScope : String := "ELF PT_LOAD memory image"',
             f'def artifactSha256 : String := "{actual_sha256}"',
             "",
         ]

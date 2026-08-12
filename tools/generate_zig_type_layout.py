@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 
 from elftools.elf.elffile import ELFFile
+from elf_identity import load_image_sha256
 
 
 def text(attribute) -> str | None:
@@ -65,7 +65,11 @@ def generate(elf_path: Path, root_name: str) -> dict:
         rows.sort(key=lambda row: int(row["id"], 16))
         return {
             "schemaVersion": 1,
-            "artifact": {"kind": "ELF", "sha256": hashlib.sha256(elf_path.read_bytes()).hexdigest()},
+            "artifact": {
+                "kind": "ELF",
+                "identityScope": "ELF PT_LOAD memory image",
+                "sha256": load_image_sha256(elf_path),
+            },
             "rootType": f"0x{roots[0].offset:x}",
             "rootName": root_name,
             "types": rows,

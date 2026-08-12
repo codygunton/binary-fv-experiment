@@ -49,8 +49,10 @@ def fixture() -> tuple[dict, dict]:
         ]}],
     })
     return (
-        {"artifact": {"sha256": SHA}, "instances": instances},
-        {"artifact": {"sha256": SHA}, "functions": functions, "functionInstances": [{
+        {"artifact": {"identityScope": "ELF PT_LOAD memory image", "sha256": SHA},
+         "instances": instances},
+        {"artifact": {"identityScope": "ELF PT_LOAD memory image", "sha256": SHA},
+         "functions": functions, "functionInstances": [{
             "kind": "concrete",
             "parent": None,
             "name": "ssz_decode_root.main",

@@ -50,6 +50,7 @@ def generate(manifest: dict, cfg: dict) -> str:
         "",
         "namespace BinaryFv.Zesu.Elflings",
         "",
+        f'def level2ArtifactIdentityScope : String := "{manifest["artifact"]["identityScope"]}"',
         f'def level2ArtifactSha256 : String := "{manifest["artifact"]["sha256"]}"',
         f"def level2InstanceCount : Nat := {len(names)}",
         "",
