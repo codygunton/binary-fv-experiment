@@ -167,6 +167,21 @@ theorem ConfiguredMachinePre.afterStore {state afterWrite : MachineState}
   · simpa [tryStepStoreAfterRetired] using
       tryStepControlFlowAfterRetired_retired_present afterWrite (Sail.BitVec.addInt pc 4) retired
 
+/-- Transport through an exact link-writing call instruction. -/
+theorem ConfiguredMachinePre.afterCall {state : MachineState} (pc target returnPc retired : BitVec 64)
+    (configured : ConfiguredMachinePre mainGluePcs state) :
+    ConfiguredMachinePre mainGluePcs
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) pc target x1 returnPc)
+        target retired) := by
+  apply configured.mono
+  · simpa [callLinkState] using
+      (callRetirement_writes state pc target retired x1 returnPc).agree
+        (instructionPreserved_disjoint_bookkeeping.union
+          (RegSet.Disjoint.only (by simp [instructionPreserved])))
+  · simpa using tryStepControlFlowAfterRetired_retired_present
+      (callLinkState (tryStepControlFlowAfterIncrement state) pc target x1 returnPc) target retired
+
 /-- One exact non-syscall Sail instruction, lifted into and confined by the complete Level 0 region. -/
 theorem main_confined_sail_step (stepNo : Nat) (before : EndpointState) (after : MachineState)
     (pc : BitVec 64) (atPc : EndpointPc before = some pc) (inside : mainGluePcs pc)
@@ -232,7 +247,7 @@ theorem main_stack_allocate (args : MainArgs) (fromStep : Nat) (before : Endpoin
       main_confined_sail_step fromStep before afterMachine
         (BitVec.ofNat 64 Generated.mainEntry) (by simpa [EndpointPc] using entry.atPc)
         (by refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
-        (by unfold LinuxSyscallPc; native_decide) machineStep,
+      (by decide) machineStep,
       ConfiguredMachinePre.afterStackAddi _ _ _ _ entry.configured,
       (by simpa [after, afterMachine, tryStepStackAddiAfterRetired_mem] using entry.code),
       (by
@@ -370,7 +385,7 @@ theorem main_save_return_address (args : MainArgs) (fromStep : Nat) (before : En
     · simpa [premise, coreStoreNextState, tryStepStoreAfterIncrement] using code
   refine ⟨after, stackTrace.append (main_confined_sail_step (fromStep + 1) stackState afterMachine
       0x14cb4 atPc (by refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
-      (by unfold LinuxSyscallPc; native_decide) run),
+      (by decide) run),
     ConfiguredMachinePre.afterStore 0x14cb4 retired configured writeRegs,
     (by simpa [after, afterMachine, tryStepStoreAfterRetired, tryStepStoreAfterTick] using codeWrite),
     (by simp [after, afterMachine, EndpointPc, MachinePc, tryStepStoreAfterRetired,
@@ -470,7 +485,7 @@ theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : Endpo
     · simpa [premise, coreStoreNextState, tryStepStoreAfterIncrement] using code
   refine ⟨after, savedTrace.append (main_confined_sail_step (fromStep + 2) savedState afterMachine
       0x14cb8 atPc (by refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
-      (by unfold LinuxSyscallPc; native_decide) run),
+      (by decide) run),
     ConfiguredMachinePre.afterStore 0x14cb8 retired configured writeRegs,
     (by simpa [after, afterMachine, tryStepStoreAfterRetired, tryStepStoreAfterTick] using codeWrite),
     (by simp [after, afterMachine, EndpointPc, MachinePc, tryStepStoreAfterRetired,
@@ -479,5 +494,180 @@ theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : Endpo
     (writes.get x1 (by decide)).trans returnRead,
     (by simpa [after] using stdin), (by simpa [after] using stdinCursor),
     (by simpa [after] using stdout), (by simpa [after] using exitCode)⟩
+
+/-- Handoff at the exact `jalr` that enters `read_input`, after its three register-only setup
+instructions. -/
+def MainReadInputCallReady (args : MainArgs) (fromStep : Nat)
+    (before : EndpointState) : Prop :=
+  ∃ after : EndpointState,
+    ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep 6 before after ∧
+    ConfiguredMachinePre mainGluePcs after.machine ∧
+    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    EndpointPc after = some 0x14cc8 ∧
+    after.machine.regs.get? x1 = some 0xfcc4 ∧
+    after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
+    after.machine.regs.get? x10 = some (BitVec.ofNat 64 args.stackPointer) ∧
+    after.machine.regs.get? x11 = some (BitVec.ofNat 64 (args.stackPointer + 8)) ∧
+    after.stdin = args.input ∧ after.stdinCursor = 0 ∧ after.stdout = #[] ∧
+    after.exitCode = none
+
+/-- Compose `addi a0,sp,0; addi a1,sp,8; auipc ra,-5` from the initialized frame. -/
+theorem main_prepare_read_input_call (args : MainArgs) (fromStep : Nat)
+    (before : EndpointState) (entry : MainEntry args before) :
+    MainReadInputCallReady args fromStep before := by
+  obtain ⟨frameState, frameTrace, configured0, code0, pc0, sp0, _ra0,
+      stdin0, cursor0, stdout0, exit0⟩ := main_initialize_frame args fromStep before entry
+  obtain ⟨retired0, run0⟩ := main_input_buffer_address_step (fromStep + 3) frameState.machine
+    configured0 (by simpa [EndpointPc] using pc0) code0 (MainAddiSource.stackPointer sp0)
+  let value0 := iTypeResult .ADDI 0 (BitVec.ofNat 64 args.stackPointer)
+  let machine1 := afterRegisterWrite frameState.machine 0x14cbc retired0 x10 value0
+  let state1 : EndpointState := { frameState with machine := machine1 }
+  have value0Eq : value0 = BitVec.ofNat 64 args.stackPointer := by
+    unfold value0 iTypeResult
+    rw [show sign_extend (m := 64) (0 : BitVec 12) = 0 by native_decide]
+    simp
+  have trace1 : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep 4 before state1 :=
+    frameTrace.append (main_confined_sail_step (fromStep + 3) frameState machine1 0x14cbc pc0
+      mainGluePcs_14cbc
+      (by decide) run0)
+  have configured1 : ConfiguredMachinePre mainGluePcs machine1 :=
+    ConfiguredMachinePre.afterRegisterWrite 0x14cbc retired0 x10 value0 configured0 (by
+      simp [instructionPreserved, platformPreserved])
+  have code1 : Generated.programImage.fileBytesLoadedFaithfully machine1.mem := by
+    exact code0
+  have pc1 : EndpointPc state1 = some 0x14cc0 := by
+    simpa [state1, EndpointPc, MachinePc, machine1] using
+      afterRegisterWrite_pc frameState.machine 0x14cbc retired0 x10 value0
+  have sp1 : machine1.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) :=
+    (afterRegisterWrite_writes frameState.machine 0x14cbc retired0 x10 value0).get x2
+      (by decide) |>.trans sp0
+  obtain ⟨retired1, run1⟩ := main_input_size_slot_address_step (fromStep + 4) machine1
+    configured1 (by simpa [state1, EndpointPc] using pc1) code1 (MainAddiSource.stackPointer sp1)
+  let value1 := iTypeResult .ADDI 8 (BitVec.ofNat 64 args.stackPointer)
+  let machine2 := afterRegisterWrite machine1 0x14cc0 retired1 x11 value1
+  let state2 : EndpointState := { state1 with machine := machine2 }
+  have value1Eq : value1 = BitVec.ofNat 64 (args.stackPointer + 8) := by
+    apply BitVec.eq_of_toNat_eq
+    simp only [value1, iTypeResult, BitVec.toNat_add, BitVec.toNat_ofNat]
+    have immediateNat : (sign_extend (m := 64) (8 : BitVec 12)).toNat = 8 := by native_decide
+    rw [immediateNat]
+    have stackBound : args.stackPointer < 2 ^ 64 := by
+      have frameBound := entry.stackFits
+      omega
+    rw [Nat.mod_eq_of_lt stackBound]
+  have trace2 : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep 5 before state2 :=
+    trace1.append (main_confined_sail_step (fromStep + 4) state1 machine2 0x14cc0 pc1
+      mainGluePcs_14cc0
+      (by decide) run1)
+  have configured2 : ConfiguredMachinePre mainGluePcs machine2 :=
+    ConfiguredMachinePre.afterRegisterWrite 0x14cc0 retired1 x11 value1 configured1 (by
+      simp [instructionPreserved, platformPreserved])
+  have code2 : Generated.programImage.fileBytesLoadedFaithfully machine2.mem := by
+    exact code1
+  have pc2 : EndpointPc state2 = some 0x14cc4 := by
+    simpa [state2, EndpointPc, MachinePc, machine2] using
+      afterRegisterWrite_pc machine1 0x14cc0 retired1 x11 value1
+  obtain ⟨retired2, run2⟩ := main_read_input_call_base_step (fromStep + 5) machine2 configured2
+    (by simpa [state2, EndpointPc] using pc2) code2
+  let callBase := (0x14cc4 : BitVec 64) + sign_extend (m := 64) (0xffffb#20 ++ 0x000#12)
+  let machine3 := afterRegisterWrite machine2 0x14cc4 retired2 x1 callBase
+  let state3 : EndpointState := { state2 with machine := machine3 }
+  have callBaseEq : callBase = 0xfcc4 := by native_decide
+  have writes0 := afterRegisterWrite_writes frameState.machine 0x14cbc retired0 x10 value0
+  have writes1 := afterRegisterWrite_writes machine1 0x14cc0 retired1 x11 value1
+  have writes2 := afterRegisterWrite_writes machine2 0x14cc4 retired2 x1 callBase
+  refine ⟨state3, trace2.append (main_confined_sail_step (fromStep + 5) state2 machine3 0x14cc4
+      pc2 mainGluePcs_14cc4
+      (by decide) run2),
+    ConfiguredMachinePre.afterRegisterWrite 0x14cc4 retired2 x1 callBase configured2 (by
+      simp [instructionPreserved]),
+    (by exact code2),
+    (by simpa [state3, EndpointPc, MachinePc, machine3] using
+      afterRegisterWrite_pc machine2 0x14cc4 retired2 x1 callBase),
+    (by simpa [state3, machine3, callBaseEq] using
+      (afterRegisterWrite_destination machine2 0x14cc4 retired2 x1 callBase
+        (by decide) (by decide))),
+    (writes2.get x2 (by decide)).trans ((writes1.get x2 (by decide)).trans
+      ((writes0.get x2 (by decide)).trans sp0)),
+    (writes2.get x10 (by decide)).trans ((writes1.get x10 (by decide)).trans (by
+      simpa [machine1, value0Eq] using
+        (afterRegisterWrite_destination frameState.machine 0x14cbc retired0 x10 value0
+          (by decide) (by decide)))),
+    (writes2.get x11 (by decide)).trans (by
+      simpa [machine2, value1Eq] using
+        (afterRegisterWrite_destination machine1 0x14cc0 retired1 x11 value1
+          (by decide) (by decide))),
+    (by simpa [state3, state2, state1] using stdin0),
+    (by simpa [state3, state2, state1] using cursor0),
+    (by simpa [state3, state2, state1] using stdout0),
+    (by simpa [state3, state2, state1] using exit0)⟩
+
+/-- Result of the exact Level 0 call instruction followed by the opaque reviewed `read_input`
+contract. The dynamic child count remains explicit in the combined trace length. -/
+def MainReadInputHandoff (args : MainArgs) (fromStep : Nat)
+    (before : EndpointState) : Prop :=
+  ∃ (childCount : Nat) (after : EndpointState) (outcome : ReadInputOutcome),
+    ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep (7 + childCount) before after ∧
+    0 < childCount ∧ EndpointPc after = some 0x14ccc ∧
+    ConfiguredMachinePre mainGluePcs after.machine ∧
+    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
+    after.stdout = #[] ∧ after.exitCode = none ∧
+    UIntRep 8 after.machine.mem args.stackPointer outcome.inputAddress ∧
+    UIntRep 8 after.machine.mem (args.stackPointer + 8) args.input.size ∧
+    BytesRep after.machine.mem outcome.inputAddress args.input
+
+/-- Execute the `jalr` into `read_input` and consume the corresponding Level 1 assumption. -/
+theorem main_call_read_input (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+    (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
+    MainReadInputHandoff args fromStep before := by
+  obtain ⟨ready, prefixTrace, configured, code, atPc, callBase, sp, a0, a1,
+      stdin, cursor, stdout, exitCode⟩ := main_prepare_read_input_call args fromStep before entry
+  obtain ⟨retired, run⟩ := main_read_input_call_step (fromStep + 6) ready.machine configured
+    (by simpa [EndpointPc] using atPc) callBase code
+  let callMachine := tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement ready.machine) 0x14cc8 0x10140 x1 0x14ccc)
+    0x10140 retired
+  let callState : EndpointState := { ready with machine := callMachine }
+  have callWrites := callRetirement_writes ready.machine 0x14cc8 0x10140 retired x1 0x14ccc
+  have callTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep 7 before callState :=
+    prefixTrace.append (main_confined_sail_step (fromStep + 6) ready callMachine 0x14cc8 atPc
+      mainGluePcs_14cc8
+      (by decide) run)
+  have callCode : Generated.programImage.fileBytesLoadedFaithfully callMachine.mem := by
+    simpa [callMachine, callLinkState, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code
+  have readEntry : ReadInputEntry
+      { returnAddress := 0x14ccc, bufferSlot := args.stackPointer,
+        sizeSlot := args.stackPointer + 8, input := args.input } callState := by
+    refine ⟨(by show 0x14ccc ∈ Generated.readInputExitPcs; native_decide),
+      entry.inputBound, ?_, ?_, ?_, ?_, ?_, ?_, callCode⟩
+    · simpa [callState] using stdin
+    · simpa [callState] using cursor
+    · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Generated.readInputEntry]
+    · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+    · exact (callWrites.get x10 (by decide)).trans a0
+    · exact (callWrites.get x11 (by decide)).trans a1
+  obtain ⟨stepBound, implements⟩ := hLevel1.readInput
+  obtain ⟨childCount, after, outcome, positive, _bounded, childTrace, _exitPc,
+      _allowed, childExit⟩ := implements
+        { returnAddress := 0x14ccc, bufferSlot := args.stackPointer,
+          sizeSlot := args.stackPointer + 8, input := args.input }
+        (fromStep + 7) callState readEntry
+  rcases childExit with ⟨afterPc, afterStdin, afterCursor, afterStdout, afterExitCode,
+    bufferRep, sizeRep, inputRep, _memoryFrame, callFrame⟩
+  have wideChild : ConfinedTrace EndpointStep EndpointPc MainExecutionPc (fromStep + 7)
+      childCount callState after := childTrace.weaken (fun pc inside => Or.inr (Or.inl inside))
+  refine ⟨childCount, after, outcome, callTrace.append wideChild, positive,
+    (by simpa [EndpointPc] using afterPc),
+    ConfiguredMachinePre.of_endpointCallFrame
+      (ConfiguredMachinePre.afterCall 0x14cc8 0x10140 0x14ccc retired configured) callFrame,
+    callFrame.2.2.1,
+    afterStdin.trans (by simpa [callState] using stdin), afterCursor,
+    afterStdout.trans (by simpa [callState] using stdout),
+    afterExitCode.trans (by simpa [callState] using exitCode),
+    bufferRep, sizeRep, inputRep⟩
 
 end BinaryFv.Ssz

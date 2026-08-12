@@ -54,4 +54,12 @@ theorem afterRegisterWrite_pc (state : State) (pc retired : BitVec 64)
   simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
     Std.ExtDHashMap.get?_insert]
 
+theorem afterRegisterWrite_destination (state : State) (pc retired : BitVec 64)
+    (destination : Register) (value : RegisterType destination)
+    (notPc : PC ≠ destination) (notRetired : minstret ≠ destination) :
+    (afterRegisterWrite state pc retired destination value).regs.get? destination = some value := by
+  simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
+    notPc, notRetired]
+
 end BinaryFv.RiscV
