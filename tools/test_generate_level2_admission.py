@@ -39,6 +39,13 @@ class Level2AdmissionTests(unittest.TestCase):
                            if row["leanName"] == "writeSuccessRawLine135")
         self.assertEqual(parent_hash["measured"]["validatedEntryBinding"],
                          {"pointerRegister": 10, "width": 32})
+        self.assertEqual(set(parent_hash["measured"]["vectors"]), {
+            "minimal", "block-number", "chain-id-zero", "legacy-requests",
+            "legacy-payload", "future-activation",
+        })
+        failure = next(row for row in result["instances"]
+                       if row["leanName"] == "writeFailureRawLine127")
+        self.assertEqual(failure["measured"]["vectors"], ["invalid"])
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)

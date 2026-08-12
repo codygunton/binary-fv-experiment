@@ -81,13 +81,16 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
         entry_binding = None
         if name in FIXED_WRITE_BYTES:
             writes = observed["hostWrites"]
-            if len(writes) != 1 or bytes.fromhex(writes[0]["bytes"]) != FIXED_WRITE_BYTES[name]:
+            if not writes or any(
+                    bytes.fromhex(write["bytes"]) != FIXED_WRITE_BYTES[name] for write in writes):
                 raise ValueError(f"fixed source write mismatch for {name}")
             if name not in {"writeSuccessRawLine131", "writeFailureRawLine127"}:
                 snapshots = [snapshot for vector in evidence["vectors"]
                              for row in vector["instances"] if row["id"] == instance["id"]
                              for snapshot in row["entryRegisters"]]
-                if len(snapshots) != 1 or snapshots[0]["values"][10] != writes[0]["address"]:
+                if len(snapshots) != len(writes) or any(
+                        snapshot["values"][10] != write["address"]
+                        for snapshot, write in zip(snapshots, writes, strict=True)):
                     raise ValueError(f"fixed source pointer binding mismatch for {name}")
                 entry_binding = {"pointerRegister": 10, "width": len(FIXED_WRITE_BYTES[name])}
         rows.append({

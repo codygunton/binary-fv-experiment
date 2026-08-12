@@ -86,7 +86,8 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
                 continue
             if after["pc"] not in exits_expected:
                 raise ValueError(
-                    f"unexpected exit {current['pc']} -> {after['pc']} for {instance['id']}")
+                    f"unexpected exit {current['pc']} -> {after['pc']} for "
+                    f"{instance['id']} in {label}")
             snapshot = after["registers"]
             if snapshot is None or snapshot["available"] != 2 ** 32 - 1:
                 raise ValueError(f"missing exit register snapshot for {instance['id']}")
