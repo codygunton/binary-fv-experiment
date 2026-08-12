@@ -149,7 +149,7 @@ let
     gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel2Manifest}/level2-manifest.json"))["instances"]; pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | {pc for row in rows for pc in row["exitPcs"]}); print(",".join("snapshot="+str(pc) for pc in pcs))')
     for vector in minimal block-number chain-id-zero legacy-requests legacy-payload \
-        future-activation invalid; do
+        future-activation extra-data-33 public-key-overflow versioned-hash-overflow invalid; do
       ${rv64.qemuRiscv64} -plugin ./trace.so,out="$vector.trace",capture_write=65972,"$snapshots" \
         ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
         < ${targets.public.zesuSszDecodeSmoke}/"$vector.ssz" > /dev/null
@@ -162,6 +162,9 @@ let
       --trace chain-id-zero=chain-id-zero.trace --trace legacy-requests=legacy-requests.trace \
       --trace legacy-payload=legacy-payload.trace \
       --trace future-activation=future-activation.trace \
+      --trace extra-data-33=extra-data-33.trace \
+      --trace public-key-overflow=public-key-overflow.trace \
+      --trace versioned-hash-overflow=versioned-hash-overflow.trace \
       --trace invalid=invalid.trace \
       --output "$out/level2-evidence.json"
   '';

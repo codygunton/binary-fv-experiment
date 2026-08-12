@@ -41,7 +41,8 @@ class Level2AdmissionTests(unittest.TestCase):
                          {"pointerRegister": 10, "width": 32})
         self.assertEqual(set(parent_hash["measured"]["vectors"]), {
             "minimal", "block-number", "chain-id-zero", "legacy-requests",
-            "legacy-payload", "future-activation",
+            "legacy-payload", "future-activation", "extra-data-33",
+            "public-key-overflow", "versioned-hash-overflow",
         })
         failure = next(row for row in result["instances"]
                        if row["leanName"] == "writeFailureRawLine127")

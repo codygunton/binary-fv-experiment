@@ -103,12 +103,15 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
     if "main" not in concrete_by_name:
         raise ValueError("main concrete function instance is absent")
 
+    call_rows = cfg.get("calls", []) + cfg.get("reviewedIndirectCalls", [])
     return_targets: dict[str, set[int]] = defaultdict(set)
     tail_calls: list[tuple[str, str]] = []
-    for call in cfg.get("calls", []):
+    for call in call_rows:
         instruction = instruction_at_pc[call["source"]]
-        if instruction["mnemonic"] in {"jal", "jalr"} and \
-                instruction["operands"].startswith("ra,"):
+        links = call.get("kind") == "allocator-vtable" or (
+            instruction["mnemonic"] in {"jal", "jalr"} and
+            instruction["operands"].startswith("ra,"))
+        if links:
             return_targets[call["callee"]].add(call["source"] + 4)
         else:
             tail_calls.append((call["caller"], call["callee"]))
@@ -136,7 +139,7 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
     for row in rows.values():
         if row["parent"] is not None:
             edges[row["parent"]].add(row["id"])
-    for call in cfg.get("calls", []):
+    for call in call_rows:
         target = concrete_by_name.get(call["callee"])
         if target is None:
             raise ValueError(f"call target has no concrete DWARF instance: {call}")
@@ -179,10 +182,11 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
         exit_pcs = {
             target for pc in subtree for target in successors.get(pc, set()) if target not in subtree
         }
-        for call in cfg.get("calls", []):
+        for call in call_rows:
             call_instruction = instruction_at_pc[call["source"]]
-            links = call_instruction["mnemonic"] in {"jal", "jalr"} and \
-                call_instruction["operands"].startswith("ra,")
+            links = call.get("kind") == "allocator-vtable" or (
+                call_instruction["mnemonic"] in {"jal", "jalr"} and
+                call_instruction["operands"].startswith("ra,"))
             if call["source"] in subtree and links and call["source"] + 4 not in subtree:
                 exit_pcs.add(call["source"] + 4)
         if row["kind"] == "concrete" and row["name"] != "zkvm_exit":

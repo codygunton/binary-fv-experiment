@@ -850,6 +850,7 @@ def MainAllocatorGetHandoff (contracts : Level1ResolvedContracts) (args : MainAr
     0 < readCount ∧ 0 < allocatorCount ∧ EndpointPc after = some 0x14cec ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    allocatorOutcome.vtableAddress = Elflings.allocatorVtableAddress ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x10 = some (BitVec.ofNat 64 allocatorOutcome.stateAddress) ∧
     after.machine.regs.get? x11 = some (BitVec.ofNat 64 allocatorOutcome.vtableAddress) ∧
@@ -889,7 +890,7 @@ theorem main_call_allocator_get (contracts : Level1ResolvedContracts) (args : Ma
   obtain ⟨allocatorCount, after, allocatorOutcome, allocatorPositive, allocatorBounded,
       allocatorTrace, _exitPc, _allowed, allocatorExit⟩ :=
     implements allocatorArgs (fromStep + (7 + readCount)) readState allocatorEntry
-  rcases allocatorExit with ⟨afterPc, afterStack, stateAddress, vtableAddress, inputPointer,
+  rcases allocatorExit with ⟨vtableExact, afterPc, afterStack, stateAddress, vtableAddress, inputPointer,
     inputLength, inputSize, inputAddress, inputAddressRep, inputSizeRep, stateAddressRep,
     vtableAddressRep, afterSavedReturn,
     afterInput, _memoryFrame, afterStdin, afterCursor, afterStdout, afterExitCode, callFrame⟩
@@ -900,7 +901,7 @@ theorem main_call_allocator_get (contracts : Level1ResolvedContracts) (args : Ma
     (by simpa [Nat.add_assoc] using readTrace.append wideAllocator),
     readPositive, allocatorPositive,
     (by simpa [EndpointPc] using afterPc),
-    ConfiguredMachinePre.of_endpointCallFrame configured callFrame, callFrame.2.2.1,
+    ConfiguredMachinePre.of_endpointCallFrame configured callFrame, callFrame.2.2.1, vtableExact,
     afterStack, stateAddress, vtableAddress, inputPointer, inputLength, inputSize, inputAddress,
     inputAddressRep, inputSizeRep, stateAddressRep, vtableAddressRep, afterSavedReturn, afterInput,
     afterStdin.trans stdin, afterCursor.trans stdinCursor,
@@ -916,6 +917,7 @@ def MainDecodeCallReady (contracts : Level1ResolvedContracts) (args : MainArgs) 
     0 < readCount ∧ 0 < allocatorCount ∧ EndpointPc after = some 0x14cf8 ∧
     ConfiguredMachinePre mainGluePcs after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    allocatorOutcome.vtableAddress = Elflings.allocatorVtableAddress ∧
     after.machine.regs.get? x1 = some 0x11cf4 ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x10 = some (BitVec.ofNat 64 (args.stackPointer + 0x20)) ∧
@@ -938,7 +940,7 @@ theorem main_prepare_decode_call (contracts : Level1ResolvedContracts) (args : M
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
     MainDecodeCallReady contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, allocatorState, readOutcome, allocatorOutcome,
-      prefixTrace, readPositive, allocatorPositive, pc0, configured0, code0, sp0,
+      prefixTrace, readPositive, allocatorPositive, pc0, configured0, code0, vtableExact, sp0,
       _a0, _a1, inputAddress0, inputLength0, _inputSize0, _inputAddress0,
       inputAddressRep0, inputSizeRep0, allocatorStateRep0, allocatorVtableRep0,
       savedReturnRep0, inputRep0, stdin0, cursor0, stdout0, exit0,
@@ -1022,6 +1024,7 @@ theorem main_prepare_decode_call (contracts : Level1ResolvedContracts) (args : M
       simp [instructionPreserved]),
     fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
       machine2 0x14cf4 retired2 x1 callBase code2,
+    vtableExact,
     (by simpa [state3, machine3, callBaseEq] using
       (afterRegisterWrite_destination machine2 0x14cf4 retired2 x1 callBase
         (by decide) (by decide))),
@@ -1094,7 +1097,7 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
     MainDecodeHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, ready, readOutcome, allocatorOutcome, prefixTrace,
-      readPositive, allocatorPositive, atPc, configured, code, callBase, sp, resultAddress,
+      readPositive, allocatorPositive, atPc, configured, code, vtableExact, callBase, sp, resultAddress,
       allocatorAddress, inputAddress, inputLength, inputAddressRep, inputSizeRep,
       allocatorStateRep, allocatorVtableRep, savedReturnRep, inputRep,
       stdin, cursor, stdout, exitCode, readBounded, allocatorBounded⟩ :=
@@ -1126,7 +1129,8 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
       allocatorStateAddress := allocatorOutcome.stateAddress,
       allocatorVtableAddress := allocatorOutcome.vtableAddress }
   have decodeEntry : DecodeBoundaryEntry decodeArgs callState := by
-    refine ⟨(by simpa [callState] using stdin), decodeInputExitPc_14cfc, ?_, callCode,
+    refine ⟨(by simpa [callState] using stdin), decodeInputExitPc_14cfc,
+      (by simpa [decodeArgs] using vtableExact), ?_, callCode,
       entry.stackFits, inputRep.1, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.decodeInputEntry]

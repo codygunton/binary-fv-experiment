@@ -89,6 +89,7 @@ def AllocatorGetEntry (args : AllocatorGetArgs) (state : EndpointState) : Prop :
 
 def AllocatorGetExit (args : AllocatorGetArgs) (outcome : AllocatorGetOutcome)
     (before after : EndpointState) : Prop :=
+  outcome.vtableAddress = Elflings.allocatorVtableAddress ∧
   after.machine.regs.get? PC = some (BitVec.ofNat 64 args.returnAddress) ∧
   after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   after.machine.regs.get? x10 = some (BitVec.ofNat 64 outcome.stateAddress) ∧

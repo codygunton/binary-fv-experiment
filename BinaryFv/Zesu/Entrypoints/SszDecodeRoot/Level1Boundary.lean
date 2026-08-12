@@ -54,6 +54,7 @@ descriptor address in `a1`, and the input slice in `a2`/`a3`. -/
 def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Prop :=
   state.stdin = args.input ∧
   args.returnAddress ∈ Elflings.decodeInputExitPcs ∧
+  args.allocatorVtableAddress = Elflings.allocatorVtableAddress ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.decodeInputEntry) ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   args.stackPointer + 0x380 < 2 ^ 64 ∧

@@ -377,6 +377,67 @@ def direct_calls(elf: ELFFile, function_rows: list[dict], instructions: dict[int
     return [unique[key] for key in sorted(unique)]
 
 
+def allocator_vtable_calls(elf: ELFFile, function_rows: list[dict],
+                           instructions: dict[int, dict]) -> list[dict]:
+    """Resolve the six Zig `std.mem.Allocator` calls through this endpoint's fixed vtable."""
+    symbols = elf.get_section_by_name(".symtab")
+    if symbols is None:
+        raise ValueError("linked endpoint has no symbol table")
+    by_name = {symbol.name: symbol for symbol in symbols.iter_symbols()}
+    vtable = by_name["alt_fl_alloc.vtable"]["st_value"]
+    methods = {
+        0: "alt_fl_alloc.alloc",
+        8: "alt_fl_alloc.resize",
+        16: "alt_fl_alloc.remap",
+        24: "alt_fl_alloc.free",
+    }
+
+    def bytes_at(address: int, width: int) -> bytes:
+        for segment in elf.iter_segments():
+            start, size = segment["p_vaddr"], segment["p_filesz"]
+            if start <= address and address + width <= start + size:
+                offset = address - start
+                return segment.data()[offset:offset + width]
+        raise ValueError(f"ELF address {address:#x} is not file-backed")
+
+    for offset, target_name in methods.items():
+        target = by_name[target_name]["st_value"]
+        encoded = int.from_bytes(bytes_at(vtable + offset, 8), "little")
+        if encoded != target:
+            raise ValueError(f"allocator vtable slot {offset} does not name {target_name}")
+
+    function_at = {}
+    for function in function_rows:
+        for pc in range(function["start"], function["start"] + function["size"], 4):
+            function_at.setdefault(pc, function["name"])
+    rows = []
+    for pc, instruction in sorted(instructions.items()):
+        if instruction["mnemonic"] != "jalr" or instruction["operands"].startswith(("ra,", "zero,")):
+            continue
+        caller = function_at.get(pc)
+        if caller is None:
+            raise ValueError(f"indirect call {pc:#x} has no function owner")
+        if caller.startswith("mem.Allocator.allocBytesWithAlignment__anon_"):
+            slot = 0
+        elif caller.startswith("mem.Allocator.remap__anon_"):
+            slot = 16
+        else:
+            raise ValueError(f"unreviewed indirect call {pc:#x} in {caller}")
+        callee = methods[slot]
+        rows.append({
+            "caller": caller,
+            "callee": callee,
+            "source": pc,
+            "target": by_name[callee]["st_value"],
+            "kind": "allocator-vtable",
+            "vtable": vtable,
+            "slot": slot,
+        })
+    if len(rows) != 6:
+        raise ValueError(f"expected six allocator vtable calls, found {len(rows)}")
+    return rows
+
+
 def dominator_parents(root: str, names: set[str], calls: list[dict]) -> tuple[dict[str, str], set[str]]:
     successors: dict[str, set[str]] = defaultdict(set)
     predecessors: dict[str, set[str]] = defaultdict(set)
@@ -646,6 +707,8 @@ def main() -> None:
         function_rows = functions(elf)
         instance_rows = function_instances(elf, instruction_rows)
         call_rows = direct_calls(elf, function_rows, instruction_rows)
+        indirect_call_rows = allocator_vtable_calls(elf, function_rows, instruction_rows) \
+            if elf["e_type"] == "ET_EXEC" else []
         output_functions = []
         instruction_pcs = sorted(instruction_rows)
         for fn in function_rows:
@@ -665,6 +728,7 @@ def main() -> None:
         "functions": output_functions,
         "functionInstances": instance_rows,
         "calls": call_rows,
+        "reviewedIndirectCalls": indirect_call_rows,
         "totals": {"functions": len(output_functions), "instructions": len(instruction_rows),
                    "functionInstances": len(instance_rows),
                    "inlinedFunctionInstances": sum(row["kind"] == "inlined" for row in instance_rows),

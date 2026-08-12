@@ -149,6 +149,20 @@ def generate(manifest: dict, cfg: dict) -> str:
         f"def zkvmExitEcallPc : Nat := {ecalls['zkvm_exit']:#x}",
         "",
     ])
+    indirect = cfg.get("reviewedIndirectCalls", [])
+    if indirect:
+        vtables = {row["vtable"] for row in indirect}
+        if len(vtables) != 1:
+            raise ValueError("allocator indirect calls do not share one vtable")
+        targets = {row["callee"]: row["target"] for row in indirect}
+        if set(targets) != {"alt_fl_alloc.alloc", "alt_fl_alloc.remap"}:
+            raise ValueError("unexpected allocator methods in endpoint execution")
+        lines.extend([
+            f"def allocatorVtableAddress : Nat := {vtables.pop():#x}",
+            f"def allocatorAllocAddress : Nat := {targets['alt_fl_alloc.alloc']:#x}",
+            f"def allocatorRemapAddress : Nat := {targets['alt_fl_alloc.remap']:#x}",
+            "",
+        ])
     lines.append("end BinaryFv.Zesu.Elflings")
     return "\n".join(lines) + "\n"
 

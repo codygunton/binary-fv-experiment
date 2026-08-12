@@ -104,7 +104,7 @@ def allocatorGetExitPcs : List Nat := [0x14cec]
 def decodeInputEntry : Nat := 0x12168
 def decodeInputOwnedInstructionCount : Nat := 249
 def decodeInputAbsorbedInstructionCount : Nat := 0
-def decodeInputExecutionInstructionCount : Nat := 5807
+def decodeInputExecutionInstructionCount : Nat := 5939
 def decodeInputOwnedPcRanges : List PcRange := [
   (0x12168, 0x121ac),
   (0x1230c, 0x126a4),
@@ -112,7 +112,9 @@ def decodeInputOwnedPcRanges : List PcRange := [
 ]
 def decodeInputExecutionPcRanges : List PcRange := [
   (0x101d4, 0x14cb0),
-  (0x16218, 0x171f8)
+  (0x15d38, 0x15d40),
+  (0x15ffc, 0x161c0),
+  (0x161d4, 0x171f8)
 ]
 def decodeInputExitPcs : List Nat := [0x14cfc]
 
@@ -159,5 +161,9 @@ def zkvmExitTerminalPc : Nat := 0x101d0
 def readInputEcallPc : Nat := 0x10168
 def writeOutputEcallPc : Nat := 0x101b4
 def zkvmExitEcallPc : Nat := 0x101d0
+
+def allocatorVtableAddress : Nat := 0x177a8
+def allocatorAllocAddress : Nat := 0x15ffc
+def allocatorRemapAddress : Nat := 0x15d38
 
 end BinaryFv.Zesu.Elflings

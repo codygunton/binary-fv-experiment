@@ -18,6 +18,7 @@ def validate(path: Path) -> None:
     assert data["formalStatus"].startswith("No kernel-backed")
     assert data["totals"]["functions"] == len(data["functions"])
     validate_instances(data)
+    validate_indirect_calls(data)
     assert data["totals"]["blocks"] == sum(len(fn["blocks"]) for fn in data["functions"])
     assert data["totals"]["symbolInstructionReferences"] == sum(fn["instructionCount"] for fn in data["functions"])
     assert any(fn["semanticGroup"] == "ssz" for fn in data["functions"])
@@ -93,6 +94,37 @@ def validate(path: Path) -> None:
         pass
     else:
         raise AssertionError("forged inline callsite anchor was accepted")
+
+    if data["reviewedIndirectCalls"]:
+        forged_indirect = copy.deepcopy(data)
+        forged_indirect["reviewedIndirectCalls"][0]["target"] += 4
+        try:
+            validate_indirect_calls(forged_indirect)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("forged allocator-vtable target was accepted")
+
+
+def validate_indirect_calls(data: dict) -> None:
+    if data["artifact"]["kind"] != "ELF64 RISC-V linked executable":
+        assert data["reviewedIndirectCalls"] == []
+        return
+    expected = {
+        0x16244: ("alt_fl_alloc.alloc", 0x15ffc, 0),
+        0x163b0: ("alt_fl_alloc.remap", 0x15d38, 16),
+        0x16430: ("alt_fl_alloc.alloc", 0x15ffc, 0),
+        0x1659c: ("alt_fl_alloc.remap", 0x15d38, 16),
+        0x16808: ("alt_fl_alloc.remap", 0x15d38, 16),
+        0x168f4: ("alt_fl_alloc.alloc", 0x15ffc, 0),
+    }
+    rows = data["reviewedIndirectCalls"]
+    assert len(rows) == len(expected)
+    for row in rows:
+        callee, target, slot = expected[row["source"]]
+        assert row["kind"] == "allocator-vtable"
+        assert row["callee"] == callee and row["target"] == target and row["slot"] == slot
+        assert row["vtable"] == 0x177a8
 
 
 def validate_instances(data: dict) -> None:

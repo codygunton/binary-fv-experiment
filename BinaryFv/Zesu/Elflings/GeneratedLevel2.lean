@@ -48,7 +48,7 @@ def memcpyParentInstanceIds : List String := ["fi:2:30e9", "fi:2:4028"]
 def sszDecodeInstanceId : String := "fi:2:3115"
 def sszDecodeEntry : Nat := 0x121ac
 def sszDecodeOwnedInstructionCount : Nat := 1701
-def sszDecodeExecutionInstructionCount : Nat := 5788
+def sszDecodeExecutionInstructionCount : Nat := 5920
 def sszDecodeOwnedPcRanges : List PcRange := [
   (0x121ac, 0x121c4),
   (0x121ec, 0x1221c),
@@ -96,7 +96,9 @@ def sszDecodeOwnedPcRanges : List PcRange := [
 def sszDecodeExecutionPcRanges : List PcRange := [
   (0x101d4, 0x12168),
   (0x121ac, 0x14ca8),
-  (0x16218, 0x171f8)
+  (0x15d38, 0x15d40),
+  (0x15ffc, 0x161c0),
+  (0x161d4, 0x171f8)
 ]
 def sszDecodeExitPcs : List Nat := [0x14ca8, 0x14cfc]
 def sszDecodeParentInstanceIds : List String := ["fi:2:30e9"]
