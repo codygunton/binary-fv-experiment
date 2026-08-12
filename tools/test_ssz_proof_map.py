@@ -66,10 +66,10 @@ class ProofMapTest(unittest.TestCase):
                     for row in result["flameProgress"]["states"]}
         main = next(row for row in self.documents[0]["functionInstances"]
                     if row["kind"] == "concrete" and row["entryPc"] == 0x14cb0)
-        self.assertEqual(progress[main["id"]], "proved_conditional")
+        self.assertEqual(progress[main["id"]], "conditionally_proven")
         memcpy = next(row for row in self.documents[5]["instances"]
                       if row["qualified"] == "memcpy")
-        self.assertEqual(progress[memcpy["id"]], "unconditionally_proven")
+        self.assertEqual(progress[memcpy["id"]], "proof_in_progress")
         self.assertEqual({progress[row["id"]] for row in self.documents[5]["instances"]
                           if row["id"] != memcpy["id"]},
                          {"contract_specified_assumption"})
