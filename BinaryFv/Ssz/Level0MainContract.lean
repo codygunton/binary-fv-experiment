@@ -987,9 +987,11 @@ def MainDecodeHandoff (args : MainArgs) (fromStep : Nat)
     after.stdout = #[] ∧ after.exitCode = none ∧
     match decodeOutcome with
     | .failure => ∃ status : Nat, status ≠ 0 ∧ status < 2 ^ 16 ∧
-        UIntRep 2 after.machine.mem (args.stackPointer + 0x370) status
+        UIntRep 2 after.machine.mem (args.stackPointer + 0x370) status ∧
+        DecodeStatusLoadWitness after status
     | .success decoded =>
         UIntRep 2 after.machine.mem (args.stackPointer + 0x370) 0 ∧
+        DecodeStatusLoadWitness after 0 ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded
 
 /-- Execute the exact decoder call instruction and consume `hLevel1.sszDecode`. -/

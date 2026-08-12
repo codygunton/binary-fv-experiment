@@ -3,7 +3,9 @@ import BinaryFv.Ssz.ZigRepresentation
 import BinaryFv.Ssz.Generated.Level1
 import BinaryFv.Ssz.Generated.ProgramImage
 import BinaryFv.Ssz.HostExecution
+import BinaryFv.Ssz.Level0MainSteps
 import BinaryFv.RiscV.Logic.LoadedImage
+import BinaryFv.RiscV.Model.Abi
 
 /-!
 # Typed boundary for the noinline Level 1 decoder
@@ -68,6 +70,11 @@ def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Pr
   UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.savedReturnAddress ∧
   BytesRep state.machine.mem args.inputAddress args.input
 
+/-- The exact Sail read consumed by main's `lhu`, tied to the represented decoder status. -/
+def DecodeStatusLoadWitness (state : EndpointState) (status : Nat) : Prop :=
+  ∃ access : MainHalfLoadAccess state.machine 0x14cfc 0x370 BinaryFv.RiscV.stackPointer,
+    access.data = BitVec.ofNat 16 status
+
 /-- Both outcomes return to main at the same ABI continuation. The two-byte error-union tag selects
 the parent branch; success exposes the fully materialized 848-byte result in main's result slot. -/
 def DecodeBoundaryExit (args : DecodeBoundaryArgs) (outcome : DecodeBoundaryOutcome)
@@ -87,9 +94,11 @@ def DecodeBoundaryExit (args : DecodeBoundaryArgs) (outcome : DecodeBoundaryOutc
   EndpointCallFrame before state ∧
     match outcome with
     | .failure => ∃ status : Nat, status ≠ 0 ∧ status < 2 ^ 16 ∧
-        UIntRep 2 state.machine.mem (args.stackPointer + 0x370) status
+        UIntRep 2 state.machine.mem (args.stackPointer + 0x370) status ∧
+        DecodeStatusLoadWitness state status
     | .success decoded =>
-        UIntRep 2 state.machine.mem (args.stackPointer + 0x370) 0 ∧
+      UIntRep 2 state.machine.mem (args.stackPointer + 0x370) 0 ∧
+        DecodeStatusLoadWitness state 0 ∧
         StatelessInputRep state.machine.mem (args.stackPointer + 0x20) decoded
 
 /-- The strict contract shape. The reviewed Level 1 contract will instantiate its bound and widen
