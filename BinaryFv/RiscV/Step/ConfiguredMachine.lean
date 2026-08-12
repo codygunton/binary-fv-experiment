@@ -24,6 +24,31 @@ structure ConfiguredMachinePre (pcs : BitVec 64 → Prop) (state : State) : Prop
   platform : AbstractPlatform instructionPreserved pcs state
   landingPad : AbstractElp instructionPreserved (fun _ => True) state
 
+/-- The counter-increment prefix of `try_step` preserves every configured-machine register. -/
+theorem agree_tryStepIncrement_instructionPreserved (state : State) :
+    Agree instructionPreserved state (tryStepControlFlowAfterIncrement state) := by
+  intro register preserved
+  simpa [tryStepControlFlowAfterIncrement] using
+    (writeReg_read_unchanged state minstret_increment register true (by
+      rintro rfl
+      simpa [platformPreserved] using preserved.1))
+
+/-- Fetch, interrupt, and landing-pad premises at one configured instruction address. -/
+theorem ConfiguredMachinePre.stepContext {pcs : BitVec 64 → Prop} {state : State}
+    (configured : ConfiguredMachinePre pcs state) (pc : BitVec 64)
+    (atPc : state.regs.get? PC = some pc) (inside : pcs pc) :
+    FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc ∧
+      FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc ∧
+      InterruptDisabled (tryStepControlFlowAfterIncrement state) ∧
+      LandingPadNotExpected (tryStepControlFlowAfterIncrement state) := by
+  apply configured.platform _ pc (agree_tryStepIncrement_instructionPreserved state)
+  · calc
+      (tryStepControlFlowAfterIncrement state).regs.get? PC = state.regs.get? PC := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment PC true (by decide)
+      _ = some pc := atPc
+  · exact inside
+
 private theorem normalRegisters_instructionPreserved {register : Register}
     (member : normalRegisters register) : instructionPreserved register := by
   constructor
