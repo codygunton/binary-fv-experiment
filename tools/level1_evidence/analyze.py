@@ -116,7 +116,13 @@ def validate_bindings(manifest: dict, bindings: dict, vectors: list[dict],
                  for row in decode_binding["bindings"]}
     if registers.get("input_ptr") != 23 or registers.get("input_size") != 18:
         raise ValueError("unexpected optimized ssz.decode input bindings")
+    if bindings.get("continuations") != [{
+        "qualified": "ssz.decode", "pc": 83360, "value": "decoded",
+        "expression": "(DW_OP_fbreg: 1176)",
+    }]:
+        raise ValueError("unexpected ssz.decode decoded-result continuation")
     checks = []
+    decoded_checks = []
     for vector in vectors:
         if vector["label"] not in inputs:
             raise ValueError(f"missing input fixture for {vector['label']}")
@@ -138,8 +144,24 @@ def validate_bindings(manifest: dict, bindings: dict, vectors: list[dict],
             "inputPointerRegister": 23,
             "inputSizeRegister": 18,
         })
+        success = next((row for row in vector["instances"]
+                        if row["qualified"] == "ssz_decode_observation.writeSuccess"), None)
+        if success is not None and success["entryReached"]:
+            if len(decode["entryRegisters"]) != 1 or len(success["entryRegisters"]) != 1:
+                raise ValueError(f"expected one decode/writeSuccess snapshot for {vector['label']}")
+            stack_pointer = decode["entryRegisters"][0]["values"][2]
+            result_address = success["entryRegisters"][0]["values"][10]
+            if result_address != stack_pointer + 1176:
+                raise ValueError(f"decoded-result stack location mismatch for {vector['label']}")
+            decoded_checks.append({
+                "vector": vector["label"],
+                "stackPointerRegister": 2,
+                "writeSuccessArgumentRegister": 10,
+                "decodedOffset": 1176,
+            })
     return {"source": "same-ELF DWARF checked against QEMU entry snapshots and loads",
-            "sszDecodeInputBindings": checks}
+            "sszDecodeInputBindings": checks,
+            "sszDecodeResultBindings": decoded_checks}
 
 
 def validate_decode_runs(manifest: dict, traces: list[tuple[str, dict]]) -> list[dict]:

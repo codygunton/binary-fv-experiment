@@ -105,11 +105,37 @@ def generate(manifest: dict, elf_path: Path) -> dict:
                 "entryPc": pc,
                 "bindings": bindings,
             })
+        decode = next(row for row in manifest["instances"] if row["qualified"] == "ssz.decode")
+        success_pc = decode["exitPcs"][1]
+        decoded_locations = []
+        for candidate in dies.values():
+            if candidate.tag != "DW_TAG_variable":
+                continue
+            name_attr = inherited_attribute(candidate, "DW_AT_name")
+            location_attr = candidate.attributes.get("DW_AT_location")
+            if name_attr is None or name_attr.value != b"decoded" or location_attr is None:
+                continue
+            location = locations.parse_from_attribute(
+                location_attr, candidate.cu["version"], candidate)
+            unit = candidate.cu.get_top_DIE()
+            low_pc = unit.attributes.get("DW_AT_low_pc")
+            expression = active_expression(location, success_pc, low_pc.value if low_pc else 0)
+            if expression is not None:
+                decoded_locations.append(describe_DWARF_expr(
+                    expression, dwarf.structs, candidate.cu.cu_offset))
+        if decoded_locations != ["(DW_OP_fbreg: 1176)"]:
+            raise ValueError(f"unexpected decoded continuation locations: {decoded_locations}")
     return {
         "schemaVersion": 1,
         "artifact": manifest["artifact"],
         "level": manifest["level"],
         "instances": rows,
+        "continuations": [{
+            "qualified": "ssz.decode",
+            "pc": success_pc,
+            "value": "decoded",
+            "expression": decoded_locations[0],
+        }],
         "interpretation": "same-ELF DWARF locations live at the exact selected entry PC",
     }
 

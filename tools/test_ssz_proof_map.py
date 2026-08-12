@@ -31,11 +31,11 @@ class ProofMapTest(unittest.TestCase):
         decode = next(row for row in result["boundaries"] if row["qualified"] == "ssz.decode")
         direct = {row["name"]: row["machineRegister"] for row in decode["dwarfBindings"]}
         self.assertEqual((direct["input_ptr"], direct["input_size"]), (23, 18))
-        self.assertEqual(decode["contractStatus"], "preliminary_shape")
+        self.assertEqual(decode["contractStatus"], "specified_assumption")
         self.assertTrue(all(row["evidenceStatus"] == "captured"
                             for row in result["boundaries"]))
-        self.assertEqual(sum(row["contractStatus"] == "preliminary_shape"
-                             for row in result["boundaries"]), 1)
+        self.assertTrue(all(row["contractStatus"] == "specified_assumption"
+                            for row in result["boundaries"]))
         glue = next(node for node in result["refinementGraph"]["nodes"]
                     if node["kind"] == "parentGlue")
         self.assertEqual((glue["proofStatus"], glue["provedInstructionCount"]),

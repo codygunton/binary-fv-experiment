@@ -21,6 +21,12 @@ def validate(report: dict) -> None:
         "zkvm_exit": {"code": 10},
         "memcpy": {"dst": 10, "src": 11, "n": 12},
     }
+    expected_continuations = [{
+        "qualified": "ssz.decode", "pc": 83360, "value": "decoded",
+        "expression": "(DW_OP_fbreg: 1176)",
+    }]
+    if report.get("continuations") != expected_continuations:
+        raise ValueError("ssz.decode decoded continuation must be the exact DWARF frame location")
     for qualified, bindings in expected.items():
         actual = register_map(rows[qualified])
         for name, register in bindings.items():
@@ -42,8 +48,16 @@ def main() -> int:
     try:
         validate(mutated)
     except ValueError:
+        pass
+    else:
+        raise AssertionError("validator accepted a forged optimized input register")
+    mutated = json.loads(json.dumps(report))
+    mutated["continuations"][0]["expression"] = "(DW_OP_reg10 (r10))"
+    try:
+        validate(mutated)
+    except ValueError:
         return 0
-    raise AssertionError("validator accepted a forged optimized input register")
+    raise AssertionError("validator accepted a forged decoded-result continuation")
 
 
 if __name__ == "__main__":

@@ -79,6 +79,10 @@ class EvidenceTest(unittest.TestCase):
                 {"name": "input_ptr", "machineRegister": 23},
                 {"name": "input_size", "machineRegister": 18},
             ]}],
+            "continuations": [{
+                "qualified": "ssz.decode", "pc": 83360, "value": "decoded",
+                "expression": "(DW_OP_fbreg: 1176)",
+            }],
         }
         snapshot = [0] * 32
         snapshot[18], snapshot[23] = 4, 100
@@ -91,6 +95,39 @@ class EvidenceTest(unittest.TestCase):
             fixture = Path(directory) / "input"
             fixture.write_bytes(b"wrong")
             with self.assertRaisesRegex(ValueError, "input_size mismatch"):
+                validate_bindings(manifest, bindings, [vector], {"sample": fixture})
+
+    def test_rejects_forged_decode_result_location(self):
+        from analyze import validate_bindings
+        manifest = {"artifact": {"sha256": "digest"}, "instances": [
+            {"id": "decode", "qualified": "ssz.decode"},
+            {"id": "success", "qualified": "ssz_decode_observation.writeSuccess"},
+        ]}
+        bindings = {"artifact": manifest["artifact"], "instances": [
+            {"id": "decode", "qualified": "ssz.decode", "bindings": [
+                {"name": "input_ptr", "machineRegister": 23},
+                {"name": "input_size", "machineRegister": 18},
+            ]},
+            {"id": "success", "qualified": "ssz_decode_observation.writeSuccess",
+             "bindings": []},
+        ], "continuations": [{
+            "qualified": "ssz.decode", "pc": 83360, "value": "decoded",
+            "expression": "(DW_OP_fbreg: 1176)",
+        }]}
+        decode_regs, success_regs = [0] * 32, [0] * 32
+        decode_regs[2], decode_regs[18], decode_regs[23] = 1000, 4, 100
+        success_regs[10] = 2177
+        vector = {"label": "sample", "instances": [
+            {"qualified": "ssz.decode", "entryReached": True,
+             "entryRegisters": [{"values": decode_regs}],
+             "memoryAccesses": [{"kind": "load", "address": 100}]},
+            {"qualified": "ssz_decode_observation.writeSuccess", "entryReached": True,
+             "entryRegisters": [{"values": success_regs}], "memoryAccesses": []},
+        ]}
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "input"
+            fixture.write_bytes(b"data")
+            with self.assertRaisesRegex(ValueError, "decoded-result stack location mismatch"):
                 validate_bindings(manifest, bindings, [vector], {"sample": fixture})
 
     def test_decode_run_records_exact_observed_interval(self):

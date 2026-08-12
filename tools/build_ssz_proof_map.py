@@ -54,7 +54,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         boundary_bindings = bindings_by_id[row["id"]]
         boundary_id = "level1-" + row["id"].replace(":", "-")
         source = row["functionInstanceIdentity"]["function"]["declaration"]
-        contract_status = "preliminary_shape" if row["qualified"] == "ssz.decode" else "not_specified"
+        contract_status = "specified_assumption"
         boundaries.append({
             "id": boundary_id, "instanceId": row["id"], "qualified": row["qualified"],
             "entryPc": row["entryPc"], "instructionPcs": row["instructionPcs"],
@@ -71,9 +71,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         regions.append({
             "id": boundary_id, "label": row["qualified"],
             "authoringState": "contract_" + contract_status,
-            "blocker": ("Complete and review this preliminary contract shape."
-                        if contract_status == "preliminary_shape" else
-                        "Specify and review the typed contract from the captured boundary evidence."),
+            "blocker": "Machine proof is deferred to later refinement; Level 0 may use this assumption.",
             "scope": "selected-child", "pcs": row["executionPcs"], "boundaryIds": [boundary_id],
             "evidence": "production entry registers, PCs, memory accesses, and exits captured",
             "preparation": {

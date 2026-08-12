@@ -102,6 +102,13 @@ def generate(manifest: dict, cfg: dict) -> str:
         f"def sszDecodeSuccessContinuation : Nat := {decode_exits[1]:#x}",
         "",
     ])
+    zkvm_exits = rows["zkvm_exit"]["exitPcs"]
+    if len(zkvm_exits) != 1:
+        raise ValueError("zkvm_exit requires one exact terminal PC")
+    lines.extend([
+        f"def zkvmExitTerminalPc : Nat := {zkvm_exits[0]:#x}",
+        "",
+    ])
     ecalls = syscall_pcs(cfg, manifest)
     lines.extend([
         f"def readInputEcallPc : Nat := {ecalls['read_input']:#x}",

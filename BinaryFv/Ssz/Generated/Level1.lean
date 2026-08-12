@@ -157,6 +157,8 @@ def writeFailureExitPcs : List Nat := [0x123c8]
 def sszDecodeFailureContinuation : Nat := 0x123c0
 def sszDecodeSuccessContinuation : Nat := 0x145a0
 
+def zkvmExitTerminalPc : Nat := 0x101d0
+
 def readInputEcallPc : Nat := 0x10168
 def writeOutputEcallPc : Nat := 0x101b4
 def zkvmExitEcallPc : Nat := 0x101d0

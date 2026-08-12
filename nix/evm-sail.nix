@@ -90,6 +90,7 @@ let
     cp ${repo}/BinaryFv/Ssz/ZigRepresentation.lean ZigRepresentation.lean
     cp ${repo}/BinaryFv/Ssz/Relation.lean Relation.lean
     cp ${repo}/BinaryFv/Ssz/Level1Boundary.lean Level1Boundary.lean
+    cp ${repo}/BinaryFv/Ssz/Level1Contracts.lean Level1Contracts.lean
     cp ${repo}/BinaryFv/Ssz/Generated/Level1.lean Level1Generated.lean
     cp ${repo}/BinaryFv/Ssz/MachineContract.lean MachineContract.lean
     cp ${repo}/BinaryFv/Ssz/HostExecution.lean HostExecution.lean
@@ -138,6 +139,7 @@ let
     lean -o compiled/BinaryFv/RiscV/Logic/RegisterAgree.olean RegisterAgree.lean
     lean -o compiled/BinaryFv/Ssz/HostExecution.olean HostExecution.lean
     lean -o compiled/BinaryFv/Ssz/Level1Boundary.olean Level1Boundary.lean
+    lean -o compiled/BinaryFv/Ssz/Level1Contracts.olean Level1Contracts.lean
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
     lean DifferentialSmoke.lean
