@@ -188,6 +188,28 @@ theorem ConfiguredMachinePre.afterRegisterWrite {state : MachineState} (pc retir
         (RegSet.Disjoint.only destinationNotPreserved)))
     (afterRegisterWrite_retired_present state pc retired destination value)
 
+/-- Transport through a branch or comparison that retires at its fall-through PC. -/
+theorem ConfiguredMachinePre.afterFallThrough {state : MachineState}
+    (pc target retired : BitVec 64) (configured : ConfiguredMachinePre mainGluePcs state) :
+    ConfiguredMachinePre mainGluePcs
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) target retired) := by
+  apply configured.mono
+  · exact (fallThroughRetirement_writes state pc target retired).agree
+      instructionPreserved_disjoint_bookkeeping
+  · exact tryStepControlFlowAfterRetired_retired_present _ target retired
+
+/-- Transport through a taken branch that retires at its jump target. -/
+theorem ConfiguredMachinePre.afterJump {state : MachineState}
+    (pc target retired : BitVec 64) (configured : ConfiguredMachinePre mainGluePcs state) :
+    ConfiguredMachinePre mainGluePcs
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) := by
+  apply configured.mono
+  · exact (jumpRetirement_writes state pc target retired).agree
+      instructionPreserved_disjoint_bookkeeping
+  · exact tryStepControlFlowAfterRetired_retired_present _ target retired
+
 /-- Transport through the exact post-state of `main`'s stack allocation. -/
 theorem ConfiguredMachinePre.afterStackAddi {state : MachineState} (pc : BitVec 64)
     (immediate : BitVec 12) (stackValue retired : BitVec 64)
@@ -1190,5 +1212,135 @@ theorem main_load_decode_status (hLevel1 : Level1ContractAssumptions) (args : Ma
           afterRegisterWrite_destination state.machine 0x14cfc retired x10
             (extend_value true access.data)
       · simpa [after, afterMachine, afterRegisterWrite_mem] using decodedRep
+
+/-- Handoff after the exact status branch selects main's success or failure route. -/
+def MainStatusBranchedHandoff (args : MainArgs) (fromStep : Nat)
+    (before : EndpointState) : Prop :=
+  ∃ (readCount allocatorCount decodeCount : Nat) (after : EndpointState)
+      (readOutcome : ReadInputOutcome) (allocatorOutcome : AllocatorGetOutcome)
+      (decodeOutcome : DecodeBoundaryOutcome),
+    ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+      (13 + readCount + allocatorCount + decodeCount) before after ∧
+    0 < readCount ∧ 0 < allocatorCount ∧ 0 < decodeCount ∧
+    DecodeMeaningModuloKnownBugs
+      { returnAddress := 0x14cfc, savedReturnAddress := args.returnAddress,
+        inputAddress := readOutcome.inputAddress, input := args.input,
+        stackPointer := args.stackPointer,
+        allocatorStateAddress := allocatorOutcome.stateAddress,
+        allocatorVtableAddress := allocatorOutcome.vtableAddress }
+      decodeOutcome ∧
+    ConfiguredMachinePre mainGluePcs after.machine ∧
+    Generated.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
+    after.stdout = #[] ∧ after.exitCode = none ∧
+    match decodeOutcome with
+    | .failure => EndpointPc after = some 0x14d1c
+    | .success decoded => EndpointPc after = some 0x14d04 ∧
+        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded
+
+/-- Execute the exact `bnez` and expose the selected success or failure continuation. -/
+theorem main_branch_decode_status (hLevel1 : Level1ContractAssumptions) (args : MainArgs)
+    (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
+    MainStatusBranchedHandoff args fromStep before := by
+  obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
+      decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
+      atPc, configured, code, stdin, cursor, stdout, exitCode, outcomeRep⟩ :=
+    main_load_decode_status hLevel1 args fromStep before entry
+  cases decodeOutcome with
+  | failure =>
+      rcases outcomeRep with ⟨status, statusNe, statusFits, statusAtState⟩
+      let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state.machine) 0x14d00
+      have statusAtPremise : premise.regs.get? x10 =
+          some (extend_value true (BitVec.ofNat 16 status)) :=
+        (stepPremiseState_writes state.machine 0x14d00).get x10 (by decide) |>.trans statusAtState
+      have statusWordNe : BitVec.ofNat 16 status ≠ 0 := by
+        intro equal
+        have equalNat := congrArg BitVec.toNat equal
+        simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt statusFits] at equalNat
+        exact statusNe equalNat
+      have extendedNe : extend_value true (BitVec.ofNat 16 status) ≠ 0 := by
+        intro equal
+        apply statusWordNe
+        apply BitVec.eq_of_toNat_eq
+        have equalNat := congrArg BitVec.toNat equal
+        simpa [extend_value, zero_extend, BitVec.zeroExtend_eq_setWidth,
+          BitVec.toNat_setWidth_of_le] using equalNat
+      have condition : Runs (bTypeTaken (.Regidx 0#5) (.Regidx 10#5) .BNE)
+          premise premise true := by
+        unfold bTypeTaken
+        refine Runs.bind (rX_x10_run premise _ statusAtPremise) ?_
+        refine Runs.bind (rX_x0_run premise) ?_
+        change EStateM.Result.ok
+          (extend_value true (BitVec.ofNat 16 status) != (0#64)) premise = .ok true premise
+        congr 1
+        exact bne_iff_ne.mpr extendedNe
+      obtain ⟨retired, run⟩ := main_decode_status_failure_step
+        (fromStep + (12 + readCount + allocatorCount + decodeCount)) state.machine configured
+        (by simpa [EndpointPc] using atPc) code condition
+      let afterMachine := tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state.machine) 0x14d00 0x14d1c)
+        0x14d1c retired
+      let after : EndpointState := { state with machine := afterMachine }
+      have trace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+          (13 + readCount + allocatorCount + decodeCount) before after := by
+        simpa [after, afterMachine, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
+          prefixTrace.append (main_confined_sail_step
+            (fromStep + (12 + readCount + allocatorCount + decodeCount)) state afterMachine
+            0x14d00 atPc (by
+              unfold mainGluePcs
+              refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+            (by unfold LinuxSyscallPc; native_decide) run)
+      refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
+        .failure, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_,
+        ?_, ?_, ?_⟩
+      · simpa using meaning
+      · exact ConfiguredMachinePre.afterJump 0x14d00 0x14d1c retired configured
+      · simpa [after, afterMachine] using code
+      · simpa [after] using stdin
+      · simpa [after] using cursor
+      · simpa [after] using stdout
+      · simpa [after] using exitCode
+      · simp [after, EndpointPc, MachinePc, afterMachine, tryStepControlFlowAfterRetired,
+          tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+  | success decoded =>
+      rcases outcomeRep with ⟨statusAtState, decodedRep⟩
+      let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state.machine) 0x14d00
+      have statusAtPremise : premise.regs.get? x10 = some (0#64) :=
+        (stepPremiseState_writes state.machine 0x14d00).get x10 (by decide) |>.trans statusAtState
+      have condition : Runs (bTypeTaken (.Regidx 0#5) (.Regidx 10#5) .BNE)
+          premise premise false := by
+        unfold bTypeTaken
+        refine Runs.bind (rX_x10_run premise _ statusAtPremise) ?_
+        refine Runs.bind (rX_x0_run premise) ?_
+        rfl
+      obtain ⟨retired, run⟩ := main_decode_status_success_step
+        (fromStep + (12 + readCount + allocatorCount + decodeCount)) state.machine configured
+        (by simpa [EndpointPc] using atPc) code condition
+      let afterMachine := tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state.machine) 0x14d00)
+        0x14d04 retired
+      let after : EndpointState := { state with machine := afterMachine }
+      have trace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
+          (13 + readCount + allocatorCount + decodeCount) before after := by
+        simpa [after, afterMachine, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
+          prefixTrace.append (main_confined_sail_step
+            (fromStep + (12 + readCount + allocatorCount + decodeCount)) state afterMachine
+            0x14d00 atPc (by
+              unfold mainGluePcs
+              refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+            (by unfold LinuxSyscallPc; native_decide) run)
+      refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
+        .success decoded, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_,
+        ?_, ?_, ?_, ?_, ?_⟩
+      · simpa using meaning
+      · exact ConfiguredMachinePre.afterFallThrough 0x14d00 0x14d04 retired configured
+      · simpa [after, afterMachine] using code
+      · simpa [after] using stdin
+      · simpa [after] using cursor
+      · simpa [after] using stdout
+      · simpa [after] using exitCode
+      · simp [after, EndpointPc, MachinePc, afterMachine, tryStepControlFlowAfterRetired,
+          tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+      · simpa [after, afterMachine] using decodedRep
 
 end BinaryFv.Ssz
