@@ -261,4 +261,92 @@ def MemcpyInstanceContract : Prop :=
     (memcpyContract stepBound).Implements EndpointStep EndpointPc
       (pcInRanges Elflings.memcpyExecutionPcRanges) (pcInList Elflings.memcpyExitPcs)
 
+/-- Registers that remain stable across an optimized encoder region inside `writeSuccess`. This is
+not an ABI set: the optimizer may use every integer register except the live stack pointer, while
+the Sail platform registers remain unchanged. -/
+def inlineEncoderPreserved : Register → Prop := fun register =>
+  register = x2 ∨ register = hart_state ∨ register = cur_privilege ∨ register = satp ∨
+    register = mideleg ∨ register = mie ∨ register = mip ∨ register = pmpcfg_n ∨
+    register = pmpaddr_n ∨ register = mcountinhibit ∨ register = minstretcfg ∨
+    register = elp ∨ register = misa ∨ register = mstatus ∨ register = sig_meip ∨
+    register = pma_regions ∨ register = mseccfg ∨ register = htif_tohost_base
+
+structure InlineEncoderArgs (Value : Type) where
+  stackPointer : Nat
+  value : Value
+
+def InlineEncoderEntry (entry : Nat) (bindValue : EndpointState → Value → Prop)
+    (args : InlineEncoderArgs Value) (state : EndpointState) : Prop :=
+  args.stackPointer + 2000 ≤ 2 ^ 64 ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
+  state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
+  bindValue state args.value ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+
+def InlineEncoderExit (exitPcs : List Nat) (encode : Value → Array UInt8)
+    (preservedValue : EndpointState → Value → Prop) (args : InlineEncoderArgs Value)
+    (_outcome : Unit) (before after : EndpointState) : Prop :=
+  (∃ pc, after.machine.regs.get? PC = some pc ∧ pcInList exitPcs pc) ∧
+  after.stdout = before.stdout ++ encode args.value ∧
+  after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
+  after.exitCode = before.exitCode ∧
+  after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
+  preservedValue after args.value ∧
+  BinaryFv.RiscV.WritesOnlyWithin
+    (BinaryFv.RiscV.byteRange args.stackPointer 2000) before.machine after.machine ∧
+  BinaryFv.RiscV.Agree inlineEncoderPreserved before.machine after.machine ∧
+  BinaryFv.RiscV.RetiredCounterPresent after.machine ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+
+def inlineEncoderContract (entry : Nat) (exitPcs : List Nat)
+    (encode : Value → Array UInt8) (bindValue : EndpointState → Value → Prop)
+    (stepBound : Value → Nat) : RelationalMachineContract EndpointState (InlineEncoderArgs Value) Unit :=
+  { allows := fun _ _ => True
+    entry := InlineEncoderEntry entry bindValue
+    exit := InlineEncoderExit exitPcs encode bindValue
+    stepBound := fun args => stepBound args.value }
+
+def InlineEncoderInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRange)
+    (exitPcs : List Nat) (encode : Value → Array UInt8)
+    (bindValue : EndpointState → Value → Prop) : Prop :=
+  ∃ stepBound : Value → Nat,
+    (inlineEncoderContract entry exitPcs encode bindValue stepBound).Implements
+      EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
+
+structure InlineArrayEncoderValue (Element : Type) where
+  address : Nat
+  values : Array Element
+
+def InlineArrayEncoderBinding (countBinding : EndpointState → Nat → Prop) (stride : Nat)
+    (elementRep : Std.ExtHashMap Nat (BitVec 8) → Nat → Element → Prop)
+    (state : EndpointState) (value : InlineArrayEncoderValue Element) : Prop :=
+  value.address + value.values.size * stride ≤ 2 ^ 64 ∧
+  countBinding state value.values.size ∧
+  state.machine.regs.get? x11 = some (BitVec.ofNat 64 value.address) ∧
+  ArrayRep stride elementRep state.machine.mem value.address value.values
+
+abbrev WriteSuccessTransactionsInstanceContract : Prop :=
+  InlineEncoderInstanceContract Elflings.writeSuccessTransactionsEntry
+    Elflings.writeSuccessTransactionsExecutionPcRanges Elflings.writeSuccessTransactionsExitPcs
+    (fun value => encodeMany encodeTransaction value.values)
+    (InlineArrayEncoderBinding
+      (fun state count => state.machine.regs.get? x10 = some (BitVec.ofNat 64 count))
+      288 TransactionRep)
+
+abbrev WriteSuccessWithdrawalsInstanceContract : Prop :=
+  InlineEncoderInstanceContract Elflings.writeSuccessWithdrawalsEntry
+    Elflings.writeSuccessWithdrawalsExecutionPcRanges Elflings.writeSuccessWithdrawalsExitPcs
+    (fun value => encodeMany encodeWithdrawal value.values)
+    (InlineArrayEncoderBinding
+      (fun state count => state.machine.regs.get? x9 = some (BitVec.ofNat 64 count))
+      48 WithdrawalRep)
+
+abbrev WriteSuccessHashesInstanceContract : Prop :=
+  InlineEncoderInstanceContract Elflings.writeSuccessHashesEntry
+    Elflings.writeSuccessHashesExecutionPcRanges Elflings.writeSuccessHashesExitPcs
+    (fun value => encodeMany (fun hash => hash) value.values)
+    (InlineArrayEncoderBinding
+      (fun state count => state.machine.regs.get? x8 = some (BitVec.ofNat 64 count)) 32
+      (fun mem address hash => hash.size = 32 ∧ BytesRep mem address hash))
+
 end BinaryFv.Zesu

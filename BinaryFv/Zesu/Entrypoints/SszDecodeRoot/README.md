@@ -8,4 +8,7 @@ u64 values. The genuine-call contracts bind semantic values to entry registers a
 their exact temporary stack windows; the larger inlined encoder regions require separate live-state
 contracts. The same file states the shared emitted `memcpy` contract, including nonoverlapping source
 and destination windows, byte-copy semantics, and its exact generated return set. `HostExecution.lean`
-models the linked read/write/exit ecalls.
+models the linked read/write/exit ecalls. The three optimized transaction, withdrawal, and hash-array
+regions use separate inline contracts: their live count registers and decoded array representations
+are explicit, their writes are confined to the existing 2,000-byte `writeSuccess` frame, and no
+source-function ABI is assumed.
