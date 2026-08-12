@@ -69,6 +69,7 @@ class GenerateLevel1LeanTests(unittest.TestCase):
         self.assertIn("def zkvmExitEcallPc : Nat := 0x1020", output)
         self.assertIn("def mainGlueInstructionCount : Nat := 24", output)
         self.assertIn("(0x1004, 0x00000013)", output)
+        self.assertIn("def mainGlueWordAt1004 : Nat := 0x00000013", output)
 
     def test_rejects_noncanonical_ecall(self):
         manifest, cfg = fixture()

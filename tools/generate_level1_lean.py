@@ -117,6 +117,9 @@ def generate(manifest: dict, cfg: dict) -> str:
         f"def mainGlueWords : List (Nat × Nat) := {lean_words(glue_words)}",
         "",
     ])
+    for pc, word in glue_words:
+        lines.append(f"def mainGlueWordAt{pc:x} : Nat := {word:#010x}")
+    lines.append("")
     for qualified, lean_name in NAMES.items():
         row = rows[qualified]
         lines.extend([

@@ -40,6 +40,31 @@ def mainGlueWords : List (Nat × Nat) := [
   (0x14d2c, 0x49c080e7)
 ]
 
+def mainGlueWordAt14cb0 : Nat := 0xc8010113
+def mainGlueWordAt14cb4 : Nat := 0x36113c23
+def mainGlueWordAt14cb8 : Nat := 0x00013423
+def mainGlueWordAt14cbc : Nat := 0x00010513
+def mainGlueWordAt14cc0 : Nat := 0x00810593
+def mainGlueWordAt14cc4 : Nat := 0xffffb097
+def mainGlueWordAt14cc8 : Nat := 0x47c080e7
+def mainGlueWordAt14cec : Nat := 0x02010513
+def mainGlueWordAt14cf0 : Nat := 0x01010593
+def mainGlueWordAt14cf4 : Nat := 0xffffd097
+def mainGlueWordAt14cf8 : Nat := 0x474080e7
+def mainGlueWordAt14cfc : Nat := 0x37015503
+def mainGlueWordAt14d00 : Nat := 0x00051e63
+def mainGlueWordAt14d04 : Nat := 0x02010513
+def mainGlueWordAt14d08 : Nat := 0x00000097
+def mainGlueWordAt14d0c : Nat := 0x028080e7
+def mainGlueWordAt14d10 : Nat := 0x00000513
+def mainGlueWordAt14d14 : Nat := 0xffffb097
+def mainGlueWordAt14d18 : Nat := 0x4b0080e7
+def mainGlueWordAt14d1c : Nat := 0x00001097
+def mainGlueWordAt14d20 : Nat := 0x4a4080e7
+def mainGlueWordAt14d24 : Nat := 0x00000513
+def mainGlueWordAt14d28 : Nat := 0xffffb097
+def mainGlueWordAt14d2c : Nat := 0x49c080e7
+
 def readInputEntry : Nat := 0x10140
 def readInputOwnedInstructionCount : Nat := 15
 def readInputAbsorbedInstructionCount : Nat := 0
