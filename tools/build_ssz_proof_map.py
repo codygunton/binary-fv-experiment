@@ -150,6 +150,13 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         "compilerProvenance": {"state": "same-ELF DWARF"},
         "phases": [{"id": "level0-glue", "label": "main parent-owned glue", "pcs": glue_pcs}],
         "authoringRegions": regions,
+        "flameProgress": {
+            "states": [
+                {"owner": main["id"], "qualified": "main", "status": "in_progress"},
+                *({"owner": row["id"], "qualified": row["qualified"],
+                   "status": "contracted"} for row in manifest["instances"]),
+            ],
+        },
         "refinementGraph": {"nodes": nodes, "edges": edges},
     }
 

@@ -119,6 +119,10 @@ let
     cp ${../tools/test_ssz_proof_map.py} test_ssz_proof_map.py
     python build_ssz_proof_map.py --cfg ${zesuSszDecodeCfg}/zesu-cfg.json --flame ${zesuSszDecodeCfg}/flame.json --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --evidence ${zesuSszDecodeLevel1Evidence}/level1-evidence.json --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json --output "$out/proof-map.json"
     python test_ssz_proof_map.py ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json ${zesuSszDecodeLevel1Manifest}/level1-manifest.json ${zesuSszDecodeLevel1Evidence}/level1-evidence.json ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json
+    grep -Fq 'PROOF_MAP?.flameProgress?.states' "$out/index.html"
+    grep -Fq 'PROGRESS.get(meta.owner)' "$out/index.html"
+    grep -Fq 'contract_consumed:' "$out/index.html"
+    grep -Fq 'proof_in_progress:' "$out/index.html"
     cp ${zesuCfg}/flame.json "$out/flame-full.json"
   '';
 in

@@ -75,7 +75,7 @@
  .legend{display:inline-flex;gap:10px;align-items:center;font-size:11px;color:var(--dim)}
  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
  .legend i.conditional{background:repeating-linear-gradient(135deg,#3ddc84 0 4px,#e5b84b 4px 8px)}
- .legend i.contracted{background:repeating-linear-gradient(135deg,#e5b84b 0 4px,#d95757 4px 8px)}
+ .legend i.contracted{background:repeating-linear-gradient(135deg,#62b5e5 0 4px,#283b48 4px 8px)}
  /* the frame label is a foreignObject painted over the rect and it swallows every
     click; without this nothing in the graph is clickable at all. */
  #chart foreignObject, #chart foreignObject *{pointer-events:none}
@@ -126,7 +126,9 @@ Promise.all([fetch(FLAME_FILE).then(r=>r.json()),fetch('proof-progress.json').th
   D=d.tree; META=d.meta; TOTAL=d.total; PROGRAM_TOTAL=d.programTotal;
   PROOF_MAP=proofMap;
   Object.values(META).forEach(m=>{if(m.owner) OWNER_META.set(m.owner,m)});
-  (p.states||[]).forEach(state=>PROGRESS.set(state.qualified,state));
+  (p.states||[]).forEach(state=>PROGRESS.set(state.owner||state.qualified,state));
+  (PROOF_MAP?.flameProgress?.states||[]).forEach(state=>
+    PROGRESS.set(state.owner||state.qualified,state));
   build();
   if(PROOF_MAP) $('#proof-toggle').hidden=false;
 });
@@ -139,7 +141,8 @@ function keyOf(node){
 }
 
 let Z=1, baseW=0;
-const proofState=d=>PROGRESS.get(META[keyOf(d)]?.qualified)||{status:'none'};
+const proofState=d=>{const meta=META[keyOf(d)]||{};
+  return PROGRESS.get(meta.owner)||PROGRESS.get(meta.qualified)||{status:'none'};};
 const proofColor=s=>({unconditionally_proven:'#3ddc84',
   conditionally_proven:'url(#conditionally-proven)',in_progress:'#e5b84b',
   contracted:'url(#contract-specified)',none:'#d95757'})[s]||'#d95757';
@@ -165,8 +168,8 @@ function build(){
   const contracted=defs.append('pattern').attr('id','contract-specified')
     .attr('patternUnits','userSpaceOnUse').attr('width',8).attr('height',8)
     .attr('patternTransform','rotate(45)');
-  contracted.append('rect').attr('width',8).attr('height',8).attr('fill','#d95757');
-  contracted.append('rect').attr('width',4).attr('height',8).attr('fill','#e5b84b');
+  contracted.append('rect').attr('width',8).attr('height',8).attr('fill','#283b48');
+  contracted.append('rect').attr('width',4).attr('height',8).attr('fill','#62b5e5');
   wireMouse();
   renderLevelLabels();
 }
@@ -379,6 +382,7 @@ function renderProofCfg(){
   }
   const colors={local:['#173f30','#3ddc84'],artifact:['#202631','#566275'],
     contract_specified_assumption:['#283b48','#62b5e5'],
+    contract_consumed:['#283b48','#62b5e5'],proof_in_progress:['#473b1e','#e5b84b'],
     contract_preliminary_shape:['#473b1e','#e5b84b'],contract_not_specified:['#472327','#d95757'],
     proof_not_started:['#202631','#687385'],not_started:['#202631','#687385']};
   const short=s=>s.length>34?s.slice(0,32)+'…':s;
@@ -390,7 +394,7 @@ function renderProofCfg(){
     return `<path class="cfg-link ${edge.kind}" marker-end="url(#cfg-arrow)" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"><title>${edge.kind}</title></path>`;}).join('');
   const nodes=[...positions.values()].map(({x,y,w,h,node})=>{const [fill,stroke]=colors[node.status]||colors.artifact;
     const sub=node.kind==='parentGlue'?`${node.provedInstructionCount}/${node.instructionCount} glue instructions proved`:
-      node.kind==='level1Contract'?`${node.instructionCount} instructions · contract ${node.contractStatus.replaceAll('_',' ')}`:
+      node.kind==='level1Contract'?`${node.instructionCount} instructions · ${node.level0UseStatus==='consumed'?'consumed by Level 0; ':''}machine proof not started`:
       node.kind==='conversion'?`proof ${node.proofStatus.replaceAll('_',' ')}`:`proof ${node.proofStatus.replaceAll('_',' ')}`;
     return `<g data-graph-id="${esc(node.id)}"><rect class="cfg-node-rect" x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" stroke="${stroke}"><title>${esc(node.label)}</title></rect>
       <text class="cfg-node-label" x="${x+7}" y="${y+16}">${esc(short(node.label))}</text><text class="cfg-node-sub" x="${x+7}" y="${y+31}">${esc(sub)}</text></g>`;}).join('');

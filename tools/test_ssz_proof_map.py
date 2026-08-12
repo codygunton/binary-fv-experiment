@@ -46,6 +46,14 @@ class ProofMapTest(unittest.TestCase):
                          ("in_progress", 7))
         self.assertEqual(glue["instructionCount"], 24)
         self.assertEqual(glue["absorbedInlineInstructionCount"], 2)
+        progress = {row["owner"]: row["status"]
+                    for row in result["flameProgress"]["states"]}
+        main = next(row for row in self.documents[0]["functionInstances"]
+                    if row["kind"] == "concrete" and row["entryPc"] == 0x14cb0)
+        self.assertEqual(progress[main["id"]], "in_progress")
+        self.assertEqual({progress[row["id"]] for row in self.documents[2]["instances"]},
+                         {"contracted"})
+        self.assertEqual(len(progress), 7)
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
