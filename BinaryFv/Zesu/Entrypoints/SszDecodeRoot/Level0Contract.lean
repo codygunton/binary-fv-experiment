@@ -1409,7 +1409,7 @@ def MainDecodeHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (f
         UIntRep 2 after.machine.mem (args.stackPointer + 0x370) 0 ∧
         DecodeStatusLoadWitness after 0 ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
-        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x880) 0x880)
+        StatelessInputRepStableOutside (writeSuccessMemoryRegionAt args.stackPointer)
           after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
         DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧
@@ -1578,7 +1578,7 @@ def MainStatusLoadedHandoff (contracts : Level1ResolvedContracts) (args : MainAr
     | .success decoded =>
         after.machine.regs.get? x10 = some (0#64) ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
-        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x880) 0x880)
+        StatelessInputRepStableOutside (writeSuccessMemoryRegionAt args.stackPointer)
           after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
         DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧
@@ -1713,7 +1713,7 @@ def MainStatusBranchedHandoff (contracts : Level1ResolvedContracts) (args : Main
     | .failure => EndpointPc after = some 0x14d1c
     | .success decoded => EndpointPc after = some 0x14d04 ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
-        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x880) 0x880)
+        StatelessInputRepStableOutside (writeSuccessMemoryRegionAt args.stackPointer)
           after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
         DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧

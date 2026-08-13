@@ -429,6 +429,7 @@ structure InlineEncoderArgs (Value : Type) where
   savedWords : List (Nat × Nat)
   decodedAddress : Nat
   copiedParentRootAddress : Nat
+  copiedVersionedHashesAddress : Nat
   copiedPayloadAddress : Nat
   copiedParentRootBytes : Array UInt8
   copiedPayloadBytes : Array UInt8
@@ -453,6 +454,8 @@ def InlineEncoderEntry (entry : Nat) (bindValue : EndpointState → Value → Pr
   StatelessInputRep state.machine.mem args.decodedAddress args.decoded ∧
   args.copiedParentRootBytes = args.decoded.parentBeaconBlockRoot ∧
   BytesRep state.machine.mem args.copiedParentRootAddress args.copiedParentRootBytes ∧
+  ByteWindowRelocation state.machine.mem state.machine.mem (args.decodedAddress + 592)
+    args.copiedVersionedHashesAddress 16 ∧
   ExecutionPayloadRep state.machine.mem args.copiedPayloadAddress args.decoded.payload ∧
   BytesRep state.machine.mem args.copiedPayloadAddress args.copiedPayloadBytes ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
@@ -469,6 +472,8 @@ def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
   InlineEncoderSavedWords after.machine.mem args.savedWords ∧
   StatelessInputRep after.machine.mem args.decodedAddress args.decoded ∧
   BytesRep after.machine.mem args.copiedParentRootAddress args.copiedParentRootBytes ∧
+  ByteWindowRelocation after.machine.mem after.machine.mem (args.decodedAddress + 592)
+    args.copiedVersionedHashesAddress 16 ∧
   ExecutionPayloadRep after.machine.mem args.copiedPayloadAddress args.decoded.payload ∧
   BytesRep after.machine.mem args.copiedPayloadAddress args.copiedPayloadBytes ∧
   BinaryFv.RiscV.WritesOnlyWithin

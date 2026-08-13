@@ -24,6 +24,13 @@ open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.Specs.SSZ
 open BinaryFv.RiscV
 
+/-- The writer stack plus the two fixed bare-metal output-context words. Decoder success must remain
+valid across this complete region because `writeSuccess` writes the context before its last child. -/
+def writeSuccessMemoryRegionAt (stackPointer : Nat) : Region :=
+  Region.union (byteRange (stackPointer - 0x880) 0x880)
+    (Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
+      (byteRange (Elflings.ioContextAddress + 16) 8))
+
 structure DecodeBoundaryArgs where
   returnAddress : Nat
   savedReturnAddress : Nat
@@ -178,7 +185,7 @@ def DecodeBoundaryExit (args : DecodeBoundaryArgs) (outcome : DecodeBoundaryOutc
       UIntRep 2 state.machine.mem (args.stackPointer + 0x370) 0 ∧
         DecodeStatusLoadWitness state 0 ∧
         StatelessInputRep state.machine.mem (args.stackPointer + 0x20) decoded ∧
-        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x880) 0x880)
+        StatelessInputRepStableOutside (writeSuccessMemoryRegionAt args.stackPointer)
           state.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow state.machine.mem (args.stackPointer + 0x20) 720 ∧
         DwordWindowRep state.machine.mem (args.stackPointer + 0x20 + 720) 16

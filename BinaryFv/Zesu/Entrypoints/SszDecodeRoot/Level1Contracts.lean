@@ -167,9 +167,7 @@ structure WriteSuccessArgs where
 /-- Every memory region the bare-metal `writeSuccess` execution may modify: its local stack frame
 and the two fixed output-context words written by `write_output`. -/
 def writeSuccessMemoryRegion (args : WriteSuccessArgs) : Region :=
-  Region.union (byteRange (args.stackPointer - 0x880) 0x880)
-    (Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
-      (byteRange (Elflings.ioContextAddress + 16) 8))
+  writeSuccessMemoryRegionAt args.stackPointer
 
 set_option genInjectivity false in
 /-- Caller-derived machine permissions for the parent-owned `writeSuccess` instructions. -/
@@ -209,7 +207,7 @@ def WriteSuccessEntry (args : WriteSuccessArgs) (state : EndpointState) : Prop :
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   (∃ values, DecodeCalleeSavedAtRegisters values state) ∧
   WriteSuccessMachineAccess args state.machine ∧
-  StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x880) 0x880)
+  StatelessInputRepStableOutside (writeSuccessMemoryRegion args)
     state.machine.mem args.decodedAddress args.decoded
 
 def WriteSuccessExit (args : WriteSuccessArgs) (bytes : Array UInt8)
