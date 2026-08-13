@@ -43,7 +43,7 @@ private theorem writeSuccessIncomingRegs_hold (args : WriteSuccessArgs)
     (state : EndpointState) (entry : WriteSuccessEntry args state)
     (values : DecodeCalleeSavedValues) (saved : DecodeCalleeSavedAtRegisters values state) :
     RegsHold state.machine (writeSuccessIncomingRegs args values) := by
-  rcases entry with ⟨_, _, _, _, _, link, _, decoded, _, _, _, _, _⟩
+  rcases entry with ⟨_, _, _, _, _, _, link, _, decoded, _, _, _, _, _⟩
   rcases saved with ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11⟩
   intro pair member
   simp only [writeSuccessIncomingRegs, List.mem_cons, List.not_mem_nil, or_false] at member
@@ -78,7 +78,7 @@ theorem writeSuccessAllocateFrame (fromStep : Nat) (args : WriteSuccessArgs)
           writeSuccessIncomingRegs args values)
         fromStep 1 state.machine next 0x14d34 ∧
       ConfiguredMachinePre EndpointMachinePc next := by
-  rcases entry with ⟨_return, lower, _aligned, fits, atPc, _link, stack, _decoded, _rep,
+  rcases entry with ⟨_return, lower, _aligned, fits, _decodedEq, atPc, _link, stack, _decoded, _rep,
     _initialized, loaded, _saved, access⟩
   let kv := writeSuccessIncomingRegs args values
   have seg0 : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
@@ -91,8 +91,8 @@ theorem writeSuccessAllocateFrame (fromStep : Nat) (args : WriteSuccessArgs)
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := writeSuccessIncomingRegs_hold args state
-      ⟨_return, lower, _aligned, fits, atPc, _link, stack, _decoded, _rep, _initialized,
-        loaded, _saved, access⟩
+      ⟨_return, lower, _aligned, fits, _decodedEq, atPc, _link, stack, _decoded, _rep,
+        _initialized, loaded, _saved, access⟩
       values saved }
   have decode : Runs
       (ext_decode (fetchWord (0x13 : BitVec 8) (0x01 : BitVec 8) (0x01 : BitVec 8)
@@ -295,7 +295,7 @@ theorem writeSuccessSaveRa {fromStep : Nat} {args : WriteSuccessArgs}
         [(args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc next := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits [] (by
     intro word member; simp at member) 0x14d34 0x7c8
     (BitVec.ofNat 64 args.returnAddress) 0x7c8 (.Regidx 1#5) 0x23 0x34 0x11 0x7c
@@ -350,7 +350,7 @@ theorem writeSuccessSaveS0 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc next := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d38 0x7c0 values.s0 0x7c0 (.Regidx 8#5) 0x23 0x30 0x81 0x7c
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -409,7 +409,7 @@ theorem writeSuccessSaveS1 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d3c 0x7b8 values.s1 0x7b8 (.Regidx 9#5) 0x23 0x3c 0x91 0x7a
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -469,7 +469,7 @@ theorem writeSuccessSaveS2 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d40 0x7b0 values.s2 0x7b0 (.Regidx 18#5) 0x23 0x38 0x21 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -531,7 +531,7 @@ theorem writeSuccessSaveS3 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d44 0x7a8 values.s3 0x7a8 (.Regidx 19#5) 0x23 0x34 0x31 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -595,7 +595,7 @@ theorem writeSuccessSaveS4 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d48 0x7a0 values.s4 0x7a0 (.Regidx 20#5) 0x23 0x30 0x41 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -661,7 +661,7 @@ theorem writeSuccessSaveS5 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d4c 0x798 values.s5 0x798 (.Regidx 21#5) 0x23 0x3c 0x51 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -729,7 +729,7 @@ theorem writeSuccessSaveS6 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d50 0x790 values.s6 0x790 (.Regidx 22#5) 0x23 0x38 0x61 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -799,7 +799,7 @@ theorem writeSuccessSaveS7 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d54 0x788 values.s7 0x788 (.Regidx 23#5) 0x23 0x34 0x71 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -871,7 +871,7 @@ theorem writeSuccessSaveS8 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d58 0x780 values.s8 0x780 (.Regidx 24#5) 0x23 0x30 0x81 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -945,7 +945,7 @@ theorem writeSuccessSaveS9 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d5c 0x778 values.s9 0x778 (.Regidx 25#5) 0x23 0x3c 0x91 0x77
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -1021,7 +1021,7 @@ theorem writeSuccessSaveS10 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d60 0x770 values.s10 0x770 (.Regidx 26#5) 0x23 0x38 0xa1 0x77
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -1099,7 +1099,7 @@ theorem writeSuccessSaveS11 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d64 0x768 values.s11 0x768 (.Regidx 27#5) 0x23 0x34 0xb1 0x77
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -1159,10 +1159,10 @@ theorem writeSuccessSavePrologue (fromStep : Nat) (args : WriteSuccessArgs)
         fromStep 14 state.machine next 0x14d68 ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
       ConfiguredMachinePre EndpointMachinePc next := by
-  rcases entry with ⟨ret, lower, aligned, fits, atPc, link, stack, decoded, rep, initialized,
+  rcases entry with ⟨ret, lower, aligned, fits, decodedEq, atPc, link, stack, decoded, rep, initialized,
     loaded, ⟨values, saved⟩, access⟩
   have entry' : WriteSuccessEntry args state :=
-    ⟨ret, lower, aligned, fits, atPc, link, stack, decoded, rep, initialized, loaded,
+    ⟨ret, lower, aligned, fits, decodedEq, atPc, link, stack, decoded, rep, initialized, loaded,
       ⟨values, saved⟩, access⟩
   obtain ⟨s1, seg1, cfg1⟩ := writeSuccessAllocateFrame fromStep args state entry' values saved
   obtain ⟨s2, seg2, words2, cfg2⟩ := writeSuccessSaveRa entry' seg1 cfg1
@@ -1354,7 +1354,7 @@ theorem writeSuccessPrologueHandoff (fromStep : Nat) (args : WriteSuccessArgs)
       ConfiguredMachinePre EndpointMachinePc next := by
   obtain ⟨values, savedState, seg, words, configured⟩ :=
     writeSuccessSavePrologue fromStep args state entry
-  rcases entry with ⟨_, lower, _, _, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, _, _, _, _, _, _, _, _, _, loaded, _, access⟩
   have stack := seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   have seg0 := seg.forget (kv' := []) (by simp)
   have code := writeSuccessCodeOfSeg access loaded lower seg0
@@ -1402,7 +1402,7 @@ theorem writeSuccessMemcpyCallSetup (fromStep : Nat) (args : WriteSuccessArgs)
       ConfiguredMachinePre EndpointMachinePc next := by
   obtain ⟨values, prologueState, prologue, words, configured⟩ :=
     writeSuccessPrologueHandoff fromStep args state entry
-  rcases entry with ⟨_, lower, _, fits, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, _, fits, decodedEq, _, _, _, _, _, _, loaded, _, access⟩
   have disjoint : RegSet.Disjoint instructionPreserved writeSuccessParentWrites := by
     intro register preserved written
     rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |

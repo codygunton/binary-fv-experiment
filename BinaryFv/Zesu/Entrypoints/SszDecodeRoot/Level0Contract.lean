@@ -1995,7 +1995,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
         refine ⟨(by show 0x14d10 ∈ Elflings.writeSuccessExitPcs; native_decide),
           (Nat.le_trans (by decide : 0x7d0 ≤ 0xbb0) entry.stackLower),
           entry.stackAligned, (by dsimp [writeArgs]; have := entry.stackFits; omega),
-          ?_, ?_, ?_, ?_, ?_, ?_, callCode, callCalleeSaved, ?_⟩
+          (by simp [writeArgs]), ?_, ?_, ?_, ?_, ?_, ?_, callCode, callCalleeSaved, ?_⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.writeSuccessEntry]
         · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
