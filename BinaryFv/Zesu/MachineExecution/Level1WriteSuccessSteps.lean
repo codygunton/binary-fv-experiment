@@ -4245,6 +4245,109 @@ private theorem writeSuccessInlineEncoderHandoff
   exact ⟨used, after, trace.weaken (fun _ pc => insideWriter pc), exit⟩
 
 set_option genInjectivity false in
+/-- Common result of entering one selected called encoder after parent-owned register setup. -/
+structure WriteSuccessEncoderChildHandoff (Value : Type)
+    (fromStep parentUsed childUsed frameSize returnPc : Nat)
+    (encode : Value → Array UInt8) (value : Value) (writerArgs : WriteSuccessArgs)
+    (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+    fromStep (parentUsed + childUsed) before after
+  atPc : EndpointPc after = some (BitVec.ofNat 64 returnPc)
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (writerArgs.stackPointer - 0x7d0))
+  stdout : after.stdout = before.stdout ++ encode value
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  memory : WritesOnlyWithin
+    (byteRange (writerArgs.stackPointer - 0x7d0 - frameSize) frameSize)
+    before.machine after.machine
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess writerArgs after.machine
+
+/-- Consume any selected called encoder once its exact parent-owned setup reaches the child entry. -/
+private theorem writeSuccessEncoderChildHandoff
+    {Value : Type} {entry frameSize returnPc : Nat}
+    {executionPcs : List Elflings.PcRange} {exitPcs : List Nat}
+    {encode : Value → Array UInt8} {bindValue : EndpointState → Value → Prop}
+    (child : EncoderCallInstanceContract entry executionPcs exitPcs frameSize encode bindValue)
+    (insideWriter : ∀ {pc}, pcInRanges executionPcs pc →
+      pcInRanges Elflings.writeSuccessExecutionPcRanges pc)
+    (fromStep parentUsed : Nat) (writerArgs : WriteSuccessArgs)
+    (value : Value) (before callState : EndpointState)
+    (childArgs : EncoderCallArgs Value)
+    (argsEq : childArgs = {
+      returnAddress := returnPc
+      callerStack := writerArgs.stackPointer - 0x7d0
+      value })
+    (childEntry : EncoderCallEntry entry exitPcs bindValue childArgs callState)
+    (parentTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+      fromStep parentUsed before callState)
+    (io : callState.stdin = before.stdin ∧ callState.stdinCursor = before.stdinCursor ∧
+      callState.stdout = before.stdout ∧ callState.exitCode = before.exitCode)
+    (memoryEq : callState.machine.mem = before.machine.mem)
+    (access : WriteSuccessMachineAccess writerArgs callState.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully callState.machine.mem)
+    (lower : 0x880 ≤ writerArgs.stackPointer)
+    (frameInWriter : ∀ address,
+      byteRange (writerArgs.stackPointer - 0x7d0 - frameSize) frameSize address →
+      writeSuccessFrameMemory writerArgs address) :
+    ∃ childUsed after,
+      WriteSuccessEncoderChildHandoff Value fromStep parentUsed childUsed frameSize returnPc
+        encode value writerArgs before after := by
+  obtain ⟨stepBound, implements⟩ := child
+  obtain ⟨childUsed, after, unit, positive, bounded, childTrace, exitPc, allowed, childExit⟩ :=
+    implements childArgs (fromStep + parentUsed) callState childEntry
+  rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, frameFits, childMemory,
+    childFrame⟩
+  have childTrace' := childTrace.weaken (fun _ pc => insideWriter pc)
+  have memory : WritesOnlyWithin
+      (byteRange (writerArgs.stackPointer - 0x7d0 - frameSize) frameSize)
+      before.machine after.machine := by
+    intro address outside
+    rw [childMemory address (by simpa [argsEq] using outside), memoryEq]
+  have pmaEq := childFrame.1 pma_regions (by simp [abiCalleePreserved])
+  have accessAfter : WriteSuccessMachineAccess writerArgs after.machine := {
+    configured := configuredAfterEndpointCall access.configured childFrame
+    frameLoad := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width bound)
+    frameStore := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width bound)
+    frameNoMMIO := access.frameNoMMIO
+    decodedLoad := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq pmaEq (access.decodedLoad offset width bound)
+    decodedNoMMIO := access.decodedNoMMIO
+    frameNotCode := access.frameNotCode }
+  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem := by
+    intro address byte fileByte
+    have outside : ¬byteRange (writerArgs.stackPointer - 0x7d0 - frameSize) frameSize address := by
+      intro inside
+      have inWriter := frameInWriter address inside
+      unfold writeSuccessFrameMemory byteRange at inWriter
+      have notCode := access.frameNotCode address inWriter.1 (by omega)
+      exact Option.some_ne_none byte (fileByte.symm.trans notCode)
+    rw [memory address outside]
+    rw [← memoryEq]
+    exact loaded address byte fileByte
+  refine ⟨childUsed, after, {
+    trace := by
+      have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
+      simpa [Nat.add_assoc] using all
+    atPc := by simpa [argsEq] using afterPc
+    stack := by
+      have := childFrame.1 x2 (by simp [abiCalleePreserved])
+      simpa [argsEq] using this.trans childEntry.2.2.2.2.1
+    stdout := by simpa [argsEq, io.2.2.1] using stdout
+    stdin := by simpa [io.1] using stdin
+    cursor := by simpa [io.2.1] using cursor
+    exitCode := by simpa [io.2.2.2] using exitCode
+    memory := memory
+    loaded := loadedAfter
+    access := accessAfter }⟩
+
+set_option genInjectivity false in
 structure RawEncoderPointerHandoff (fromStep childUsed nextEntry nextSourceAddress : Nat)
     (writerArgs : WriteSuccessArgs) (rawArgs : RawEncoderArgs)
     (before after : EndpointState) : Prop where
@@ -6614,10 +6717,101 @@ private theorem writeSuccessTransactionsCountStoreStep (stepNo : Nat)
   · native_decide
   · native_decide
 
+/-- Production `0x15668: ld a0,0x450(sp)`. -/
+private theorem writeSuccessRawTransactionsAddressLoadStep (stepNo : Nat)
+    (args : WriteSuccessArgs) (state : State) (address : Nat)
+    (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x15668)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x450) address)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15668 retired x10 (BitVec.ofNat 64 address)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x15668 0x450 address args state
+    (.Regidx 10#5) x10 (BitVec.ofNat 64 address) 0x450 0x03 0x35 0x01 0x45
+    access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x450#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x10_run premise _
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x1566c: ld a1,0x458(sp)`. -/
+private theorem writeSuccessRawTransactionsCountLoadStep (stepNo : Nat)
+    (args : WriteSuccessArgs) (state : State) (count : Nat)
+    (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x1566c)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x458) count)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x1566c retired x11 (BitVec.ofNat 64 count)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x1566c 0x458 count args state
+    (.Regidx 11#5) x11 (BitVec.ofNat 64 count) 0x458 0x83 0x35 0x81 0x45
+    access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x458#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x11_run premise _
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x15670: auipc ra,0`. -/
+private theorem writeSuccessByteListsCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15670)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15670 retired x1 0x15670) false := by
+  apply configuredAuipcStep stepNo state 0x15670 0 0x97 0x00 0x00 0x00 configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x15674: jalr ra,0x5a0(ra)`, entering the byte-list encoder. -/
+private theorem writeSuccessByteListsCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15674)
+    (baseRead : state.regs.get? x1 = some 0x15670)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x15674 0x15c10 x1 0x15678)
+        0x15c10 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x15674 0x15670 0x5a0 0x15c10 0x15678
+    0xe7 0x80 0x00 0x5a configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
 set_option genInjectivity false in
 /-- Exact four-instruction transactions setup followed by the selected optimized encoder. -/
 structure WriteSuccessTransactionsHandoff (fromStep childUsed : Nat)
-    (args : WriteSuccessArgs) (before after : EndpointState)
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) : Prop where
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (4 + childUsed) before after
@@ -6636,6 +6830,7 @@ structure WriteSuccessTransactionsHandoff (fromStep childUsed : Nat)
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess args after.machine
   memory : WriteSuccessMemoryFrame args before.machine after.machine
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
 
 private theorem writeSuccessTransactionsHandoff
     (child : WriteSuccessTransactionsInstanceContract) (fromStep : Nat)
@@ -6652,7 +6847,7 @@ private theorem writeSuccessTransactionsHandoff
     (upper : args.stackPointer < 2 ^ 64)
     (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
-      WriteSuccessTransactionsHandoff fromStep childUsed args before after values := by
+      WriteSuccessTransactionsHandoff fromStep childUsed args payloadBytes before after values := by
   rcases context.payloadRep with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
     transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
     blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
@@ -6825,6 +7020,7 @@ private theorem writeSuccessTransactionsHandoff
       savedWords := writeSuccessSavedWords args values
       decodedAddress := args.decodedAddress
       copiedPayloadAddress := args.stackPointer - 0x7d0 + 0x408
+      copiedPayloadBytes := payloadBytes
       decoded := args.decoded }
   have childEntry : InlineEncoderEntry Elflings.writeSuccessTransactionsEntry
       (InlineArrayEncoderBinding
@@ -6835,7 +7031,8 @@ private theorem writeSuccessTransactionsHandoff
         288 TransactionRep) childArgs childState := by
     change 0xb0 ≤ args.stackPointer - 0x7d0 ∧
       args.stackPointer - 0x7d0 + 0x740 ≤ 2 ^ 64 ∧ _
-    refine ⟨(by omega), (by omega), ?_, ?_, ?_, savedAtChild, decodedAtChild, ?_, ?_⟩
+    refine ⟨(by omega), (by omega), ?_, ?_, ?_, savedAtChild, decodedAtChild, ?_,
+      destinationAtChild, ?_⟩
     · simpa [childState, EndpointPc, MachinePc] using seg4.atPc
     · simpa [childState] using
         seg4.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -6870,7 +7067,7 @@ private theorem writeSuccessTransactionsHandoff
           by omega, by omega⟩)
     (fromStep + 4) childArgs childState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, stackAfter,
-    bindingAfter, savedAfter, decodedAfter, payloadAfter, childMemory, childAgree,
+    bindingAfter, savedAfter, decodedAfter, payloadAfter, destinationAfter, childMemory, childAgree,
     childRetired, loadedAfter⟩
   have childInWriter : ∀ address, inlineEncoderMemoryRegion childArgs.stackPointer address →
       writeSuccessFrameMemory args address := by
@@ -6881,6 +7078,12 @@ private theorem writeSuccessTransactionsHandoff
     dsimp [childArgs] at inside
     omega
   have fullMemory := WritesOnlyWithin.trans_same setupWrites (childMemory.mono childInWriter)
+  have decodedBytesAfter := context.decodedBytesRep.of_writesOnlyWithin fullMemory (by
+    intro index inBounds inside
+    unfold writeSuccessFrameMemory byteRange at inside
+    rw [decodedEq] at inside
+    omega)
+  have stableAfter := context.stable.afterWrites fullMemory
   have accessAtChild := writeSuccessAccessOfSeg access seg4
   have pmaEq := childAgree pma_regions (by simp [inlineEncoderPreserved])
   have accessAfter : WriteSuccessMachineAccess args after.machine := {
@@ -6910,5 +7113,11 @@ private theorem writeSuccessTransactionsHandoff
     payload := payloadAfter
     loaded := loadedAfter
     access := accessAfter
-    memory := fullMemory }⟩
+    memory := fullMemory
+    payloadContext := {
+      destinationRep := destinationAfter
+      decodedBytesRep := decodedBytesAfter
+      bytesSize := context.bytesSize
+      stable := stableAfter
+      payloadRep := payloadAfter } }⟩
 end BinaryFv.Zesu.MachineExecution

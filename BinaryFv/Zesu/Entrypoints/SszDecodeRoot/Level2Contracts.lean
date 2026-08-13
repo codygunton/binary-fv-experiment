@@ -429,6 +429,7 @@ structure InlineEncoderArgs (Value : Type) where
   savedWords : List (Nat × Nat)
   decodedAddress : Nat
   copiedPayloadAddress : Nat
+  copiedPayloadBytes : Array UInt8
   decoded : ZesuDecodedResult
 
 def InlineEncoderSavedWords (mem : Std.ExtHashMap Nat (BitVec 8))
@@ -449,6 +450,7 @@ def InlineEncoderEntry (entry : Nat) (bindValue : EndpointState → Value → Pr
   InlineEncoderSavedWords state.machine.mem args.savedWords ∧
   StatelessInputRep state.machine.mem args.decodedAddress args.decoded ∧
   ExecutionPayloadRep state.machine.mem args.copiedPayloadAddress args.decoded.payload ∧
+  BytesRep state.machine.mem args.copiedPayloadAddress args.copiedPayloadBytes ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
 def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
@@ -463,6 +465,7 @@ def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
   InlineEncoderSavedWords after.machine.mem args.savedWords ∧
   StatelessInputRep after.machine.mem args.decodedAddress args.decoded ∧
   ExecutionPayloadRep after.machine.mem args.copiedPayloadAddress args.decoded.payload ∧
+  BytesRep after.machine.mem args.copiedPayloadAddress args.copiedPayloadBytes ∧
   BinaryFv.RiscV.WritesOnlyWithin
     (inlineEncoderMemoryRegion args.stackPointer) before.machine after.machine ∧
   BinaryFv.RiscV.Agree inlineEncoderPreserved before.machine after.machine ∧
