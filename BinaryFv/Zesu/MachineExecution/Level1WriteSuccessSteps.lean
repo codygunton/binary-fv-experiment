@@ -2219,4 +2219,268 @@ theorem writeSuccessSecondTailPairHandoff (fromStep : Nat) (args : WriteSuccessA
   exact ⟨values, bytes, tailValues, used, after, next, trace, seg2, destinationRep, bytesSize,
     tailBase, loaded, access, tailNext, savedNext, accessNext⟩
 
+/-- Compose the first ten decoded-tail load/store pairs, ending at `0x14dd0`. -/
+theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSuccessArgs)
+    (state : EndpointState) (entry : WriteSuccessEntry args state) :
+    ∃ values bytes, ∃ tailValues : Fin 16 → Nat, ∃ used after next,
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+        fromStep (20 + used) state after ∧
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
+        (fun _ _ _ _ _ => False) writeSuccessParentWrites (writeSuccessFrameMemory args)
+        [⟨x10, BitVec.ofNat 64 (tailValues ⟨9, by omega⟩)⟩,
+         ⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩,
+         ⟨x8, BitVec.ofNat 64 args.decodedAddress⟩]
+        (fromStep + 20 + used) 20 after.machine next 0x14dd0 ∧
+      BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes ∧
+      bytes.size = 720 ∧
+      (∀ index (inBounds : index < 16),
+        UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
+          (tailValues ⟨index, inBounds⟩)) ∧
+      Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+      WriteSuccessMachineAccess args after.machine ∧
+      (∀ index (inBounds : index < 16),
+        UIntRep 8 next.mem (args.decodedAddress + 720 + index * 8)
+          (tailValues ⟨index, inBounds⟩)) ∧
+      SavedWordReps next (writeSuccessSavedWords args values) ∧
+      WriteSuccessMachineAccess args next := by
+  obtain ⟨values, bytes, tailValues, used, after, cur1, trace, seg1, destinationRep,
+    bytesSize, tailBase, loaded, access, tail1, saved1, access1⟩ :=
+    writeSuccessSecondTailPairHandoff fromStep args state entry
+  rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _⟩
+  obtain ⟨cur2, seg2, tail2, saved2, access2⟩ :=
+    writeSuccessTailPairStep args values tailValues 2 (by omega)
+      0x14d90 0x14d94 736 0x28 0x2e0 0x28
+      0x03 0x35 0x04 0x2e 0x23 0x34 0xa1 0x02 seg1 access loaded lower fits aligned
+      decodedEq tailBase saved1 (by omega) (by omega) (by omega)
+      (by change BitVec.ofNat 64 args.decodedAddress + 0x2e0#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x28#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by
+        intro configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured
+        decode_run)
+      (by
+        intro storeState configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessStoreDecodeReads configured
+        decode_run)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
+  obtain ⟨cur3, seg3, tail3, saved3, access3⟩ :=
+    writeSuccessTailPairStep args values tailValues 3 (by omega)
+      0x14d98 0x14d9c 744 0x20 0x2e8 0x20
+      0x03 0x35 0x84 0x2e 0x23 0x30 0xa1 0x02 seg2 access loaded lower fits aligned
+      decodedEq tailBase saved2 (by omega) (by omega) (by omega)
+      (by change BitVec.ofNat 64 args.decodedAddress + 0x2e8#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x20#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by
+        intro configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured
+        decode_run)
+      (by
+        intro storeState configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessStoreDecodeReads configured
+        decode_run)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
+  obtain ⟨cur4, seg4, tail4, saved4, access4⟩ :=
+    writeSuccessTailPairStep args values tailValues 4 (by omega)
+      0x14da0 0x14da4 752 0x38 0x2f0 0x38
+      0x03 0x35 0x04 0x2f 0x23 0x3c 0xa1 0x02 seg3 access loaded lower fits aligned
+      decodedEq tailBase saved3 (by omega) (by omega) (by omega)
+      (by change BitVec.ofNat 64 args.decodedAddress + 0x2f0#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x38#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by
+        intro configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured
+        decode_run)
+      (by
+        intro storeState configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessStoreDecodeReads configured
+        decode_run)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
+  obtain ⟨cur5, seg5, tail5, saved5, access5⟩ :=
+    writeSuccessTailPairStep args values tailValues 5 (by omega)
+      0x14da8 0x14dac 760 0x30 0x2f8 0x30
+      0x03 0x35 0x84 0x2f 0x23 0x38 0xa1 0x02 seg4 access loaded lower fits aligned
+      decodedEq tailBase saved4 (by omega) (by omega) (by omega)
+      (by change BitVec.ofNat 64 args.decodedAddress + 0x2f8#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x30#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by
+        intro configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured
+        decode_run)
+      (by
+        intro storeState configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessStoreDecodeReads configured
+        decode_run)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
+  obtain ⟨cur6, seg6, tail6, saved6, access6⟩ :=
+    writeSuccessTailPairStep args values tailValues 6 (by omega)
+      0x14db0 0x14db4 768 0x40 0x300 0x40
+      0x03 0x35 0x04 0x30 0x23 0x30 0xa1 0x04 seg5 access loaded lower fits aligned
+      decodedEq tailBase saved5 (by omega) (by omega) (by omega)
+      (by change BitVec.ofNat 64 args.decodedAddress + 0x300#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x40#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by
+        intro configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured
+        decode_run)
+      (by
+        intro storeState configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessStoreDecodeReads configured
+        decode_run)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
+  obtain ⟨cur7, seg7, tail7, saved7, access7⟩ :=
+    writeSuccessTailPairStep args values tailValues 7 (by omega)
+      0x14db8 0x14dbc 776 0x48 0x308 0x48
+      0x03 0x35 0x84 0x30 0x23 0x34 0xa1 0x04 seg6 access loaded lower fits aligned
+      decodedEq tailBase saved6 (by omega) (by omega) (by omega)
+      (by change BitVec.ofNat 64 args.decodedAddress + 0x308#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x48#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by
+        intro configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured
+        decode_run)
+      (by
+        intro storeState configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessStoreDecodeReads configured
+        decode_run)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
+  obtain ⟨cur8, seg8, tail8, saved8, access8⟩ :=
+    writeSuccessTailPairStep args values tailValues 8 (by omega)
+      0x14dc0 0x14dc4 784 0x08 0x310 0x08
+      0x03 0x35 0x04 0x31 0x23 0x34 0xa1 0x00 seg7 access loaded lower fits aligned
+      decodedEq tailBase saved7 (by omega) (by omega) (by omega)
+      (by change BitVec.ofNat 64 args.decodedAddress + 0x310#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x08#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by
+        intro configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured
+        decode_run)
+      (by
+        intro storeState configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessStoreDecodeReads configured
+        decode_run)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
+  obtain ⟨cur9, seg9, tail9, saved9, access9⟩ :=
+    writeSuccessTailPairStep args values tailValues 9 (by omega)
+      0x14dc8 0x14dcc 792 0x50 0x318 0x50
+      0x03 0x35 0x84 0x31 0x23 0x38 0xa1 0x04 seg8 access loaded lower fits aligned
+      decodedEq tailBase saved8 (by omega) (by omega) (by omega)
+      (by change BitVec.ofNat 64 args.decodedAddress + 0x318#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x50#64 = _;
+          rw [← BitVec.ofNat_add])
+      (by
+        intro configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured
+        decode_run)
+      (by
+        intro storeState configured
+        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessStoreDecodeReads configured
+        decode_run)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+      (by native_decide) (by native_decide)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by unfold writeSuccessInitialExitPc; native_decide)
+      (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
+  exact ⟨values, bytes, tailValues, used, after, cur9, trace, seg9, destinationRep,
+    bytesSize, tailBase, loaded, access, tail9, saved9, access9⟩
+
+
 end BinaryFv.Zesu.MachineExecution
