@@ -1380,6 +1380,7 @@ def MainDecodeHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (f
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     MainDataAccess args after.machine ∧
+    (∃ values, DecodeCalleeSavedAtRegisters values after) ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     UIntRep 8 after.machine.mem args.stackPointer readOutcome.inputAddress ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 8) args.input.size ∧
@@ -1509,6 +1510,15 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
     afterCode,
     callDataAccess.of_pma_regions_eq
       (callFrame.1 pma_regions (by simp [abiCalleePreserved])),
+    (by
+      obtain ⟨values, saved⟩ := calleeSaved
+      exact ⟨values, (saved.of_agree (callWrites.agree
+        (decodeCalleeSaved_disjoint_write x1 (by
+          simp [decodeCalleeSavedRegister])))).of_agree
+        (fun register preserved => callFrame.1 register (by
+          rcases preserved with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+            rfl | rfl
+          all_goals simp [abiCalleePreserved]))⟩),
     (by simpa [decodeArgs] using afterStack),
     (by simpa [decodeArgs] using afterInputAddressRep),
     (by simpa [decodeArgs] using afterInputSizeRep),
@@ -1540,6 +1550,7 @@ def MainStatusLoadedHandoff (contracts : Level1ResolvedContracts) (args : MainAr
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     MainDataAccess args after.machine ∧
+    (∃ values, DecodeCalleeSavedAtRegisters values after) ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
@@ -1560,7 +1571,7 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
     MainStatusLoadedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
       decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
-      atPc, configured, code, dataAccess, sp, _inputAddressRep, _inputSizeRep, _savedReturnRep,
+      atPc, configured, code, dataAccess, calleeSaved, sp, _inputAddressRep, _inputSizeRep, _savedReturnRep,
       _inputRep, stdin, cursor, stdout, exitCode, outcomeRep,
       readBounded, allocatorBounded, decodeBounded⟩ :=
     main_call_decode contracts args fromStep before entry
@@ -1579,9 +1590,15 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
           prefixTrace.append (main_confined_sail_step
             (fromStep + (11 + readCount + allocatorCount + decodeCount)) state afterMachine
             0x14cfc atPc mainGluePcs_14cfc main14cfc_not_syscall run)
+      have calleeSavedAfter : ∃ values, DecodeCalleeSavedAtRegisters values after := by
+        obtain ⟨values, saved⟩ := calleeSaved
+        exact ⟨values, saved.of_agree
+          ((afterRegisterWrite_writes state.machine 0x14cfc retired x10
+            (extend_value true access.data)).agree
+            (decodeCalleeSaved_disjoint_write x10 (by simp [decodeCalleeSavedRegister])))⟩
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .failure, trace,
-        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
         ⟨status, statusNe, statusFits, ?_⟩, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · simpa [after, EndpointPc, afterMachine] using
@@ -1592,6 +1609,7 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
       · exact dataAccess.of_pma_regions_eq
           ((afterRegisterWrite_writes state.machine 0x14cfc retired x10
             (extend_value true access.data)).get pma_regions (by decide))
+      · exact calleeSavedAfter
       · exact (afterRegisterWrite_writes state.machine 0x14cfc retired x10
           (extend_value true access.data)).get x2 (by decide) |>.trans sp
       · simpa [after] using stdin
@@ -1615,9 +1633,15 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
           prefixTrace.append (main_confined_sail_step
             (fromStep + (11 + readCount + allocatorCount + decodeCount)) state afterMachine
             0x14cfc atPc mainGluePcs_14cfc main14cfc_not_syscall run)
+      have calleeSavedAfter : ∃ values, DecodeCalleeSavedAtRegisters values after := by
+        obtain ⟨values, saved⟩ := calleeSaved
+        exact ⟨values, saved.of_agree
+          ((afterRegisterWrite_writes state.machine 0x14cfc retired x10
+            (extend_value true access.data)).agree
+            (decodeCalleeSaved_disjoint_write x10 (by simp [decodeCalleeSavedRegister])))⟩
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .success decoded, trace,
-        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
         ⟨?_, ?_⟩, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · simpa [after, EndpointPc, afterMachine] using
@@ -1628,6 +1652,7 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
       · exact dataAccess.of_pma_regions_eq
           ((afterRegisterWrite_writes state.machine 0x14cfc retired x10
             (extend_value true access.data)).get pma_regions (by decide))
+      · exact calleeSavedAfter
       · exact (afterRegisterWrite_writes state.machine 0x14cfc retired x10
           (extend_value true access.data)).get x2 (by decide) |>.trans sp
       · simpa [after] using stdin
@@ -1658,6 +1683,7 @@ def MainStatusBranchedHandoff (contracts : Level1ResolvedContracts) (args : Main
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     MainDataAccess args after.machine ∧
+    (∃ values, DecodeCalleeSavedAtRegisters values after) ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
@@ -1675,7 +1701,7 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
     MainStatusBranchedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
       decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
-      atPc, configured, code, dataAccess, sp, stdin, cursor, stdout, exitCode, outcomeRep,
+      atPc, configured, code, dataAccess, calleeSaved, sp, stdin, cursor, stdout, exitCode, outcomeRep,
       readBounded, allocatorBounded, decodeBounded⟩ :=
     main_load_decode_status contracts args fromStep before entry
   cases decodeOutcome with
@@ -1723,7 +1749,7 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
               refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
             (by unfold BareMetalHostTransitionPc; native_decide) run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
-        .failure, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_,
+        .failure, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
         ?_, ?_, ?_, ?_, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · exact ConfiguredMachinePre.afterJump 0x14d00 0x14d1c retired configured
@@ -1731,6 +1757,13 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
       · exact dataAccess.of_pma_regions_eq
           ((jumpRetirement_writes state.machine 0x14d00 0x14d1c retired).get pma_regions
             (by decide))
+      · obtain ⟨values, saved⟩ := calleeSaved
+        exact ⟨values, saved.of_agree
+          ((jumpRetirement_writes state.machine 0x14d00 0x14d1c retired).agree
+            (fun register preserved => by
+              rcases preserved with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+                rfl | rfl
+              all_goals decide))⟩
       · exact (jumpRetirement_writes state.machine 0x14d00 0x14d1c retired).get x2
           (by decide) |>.trans sp
       · simpa [after] using stdin
@@ -1768,7 +1801,7 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
             (by unfold BareMetalHostTransitionPc; native_decide) run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .success decoded, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_,
-        ?_,
+        ?_, ?_,
         ?_, ?_, ?_, ?_, ?_, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · exact ConfiguredMachinePre.afterFallThrough 0x14d00 0x14d04 retired configured
@@ -1776,6 +1809,13 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
       · exact dataAccess.of_pma_regions_eq
           ((fallThroughRetirement_writes state.machine 0x14d00 0x14d04 retired).get pma_regions
             (by decide))
+      · obtain ⟨values, saved⟩ := calleeSaved
+        exact ⟨values, saved.of_agree
+          ((fallThroughRetirement_writes state.machine 0x14d00 0x14d04 retired).agree
+            (fun register preserved => by
+              rcases preserved with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+                rfl | rfl
+              all_goals decide))⟩
       · exact (fallThroughRetirement_writes state.machine 0x14d00 0x14d04 retired).get x2
           (by decide) |>.trans sp
       · simpa [after] using stdin
@@ -1808,6 +1848,7 @@ def MainOutputSelectedHandoff (contracts : Level1ResolvedContracts) (args : Main
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     MainDataAccess args after.machine ∧
+    (∃ values, DecodeCalleeSavedAtRegisters values after) ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.exitCode = none ∧
@@ -1829,14 +1870,14 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
     MainOutputSelectedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
       decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
-      configured, code, dataAccess, sp, stdin, cursor, stdout, exitCode, selected,
+      configured, code, dataAccess, calleeSaved, sp, stdin, cursor, stdout, exitCode, selected,
       readBounded, allocatorBounded, decodeBounded⟩ :=
     main_branch_decode_status contracts args fromStep before entry
   cases decodeOutcome with
   | failure =>
       refine ⟨readCount, allocatorCount, decodeCount, 0, state, readOutcome, allocatorOutcome,
         .failure, ?_, readPositive, allocatorPositive, decodePositive, meaning, configured, code,
-        dataAccess, sp, stdin, cursor, exitCode, ?_, readBounded, allocatorBounded, decodeBounded,
+        dataAccess, calleeSaved, sp, stdin, cursor, exitCode, ?_, readBounded, allocatorBounded, decodeBounded,
         (by omega)⟩
       · simpa using prefixTrace
       · exact ⟨rfl, selected, stdout⟩
@@ -1927,10 +1968,24 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
             (by decide))).of_pma_regions_eq
           ((afterRegisterWrite_writes machine1 0x14d08 retired1 x1 0x14d08).get pma_regions
             (by decide)) |>.of_pma_regions_eq (callWrites.get pma_regions (by decide))
+      have callCalleeSaved : ∃ values, DecodeCalleeSavedAtRegisters values callState := by
+        obtain ⟨values, saved⟩ := calleeSaved
+        have saved1 : DecodeCalleeSavedAtRegisters values state1 := by
+          simpa [state1, machine1] using saved.of_agree
+            ((afterRegisterWrite_writes state.machine 0x14d04 retired0 x10 value0).agree
+              (decodeCalleeSaved_disjoint_write x10 (by simp [decodeCalleeSavedRegister])))
+        have saved2 : DecodeCalleeSavedAtRegisters values state2 := by
+          simpa [state2, machine2] using saved1.of_agree
+            ((afterRegisterWrite_writes machine1 0x14d08 retired1 x1 0x14d08).agree
+              (decodeCalleeSaved_disjoint_write x1 (by simp [decodeCalleeSavedRegister])))
+        exact ⟨values, by
+          simpa [callState] using saved2.of_agree (callWrites.agree
+            (decodeCalleeSaved_disjoint_write x1 (by simp [decodeCalleeSavedRegister])))⟩
       have writeEntry : WriteSuccessEntry writeArgs callState := by
         refine ⟨(by show 0x14d10 ∈ Elflings.writeSuccessExitPcs; native_decide),
           (Nat.le_trans (by decide : 0x7d0 ≤ 0xbb0) entry.stackLower),
-          ?_, ?_, ?_, ?_, ?_, callCode, ?_⟩
+          entry.stackAligned, (by dsimp [writeArgs]; have := entry.stackFits; omega),
+          ?_, ?_, ?_, ?_, ?_, callCode, callCalleeSaved, ?_⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.writeSuccessEntry]
         · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -1995,7 +2050,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
         simpa [writeSuccessContract, writeArgs] using writeBounded
       refine ⟨readCount, allocatorCount, decodeCount, 3 + writeCount, after, readOutcome,
         allocatorOutcome, .success decoded, ?_, readPositive, allocatorPositive, decodePositive,
-        meaning, ?_, callFrame.2.2.1, ?_, ?_, ?_, ?_, ?_,
+        meaning, ?_, callFrame.2.2.1, ?_, ?_, ?_, ?_, ?_, ?_,
         ⟨bytes, writeCount, rfl, writePositive, (by simpa [EndpointPc] using afterPc), ?_, observed⟩,
         readBounded, allocatorBounded, decodeBounded, (by omega)⟩
       · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using callTrace.append wideWrite
@@ -2007,6 +2062,23 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
           ((afterRegisterWrite_writes machine1 0x14d08 retired1 x1 0x14d08).get pma_regions
             (by decide)) |>.of_pma_regions_eq (callWrites.get pma_regions (by decide))
           |>.of_pma_regions_eq (callFrame.1 pma_regions (by simp [abiCalleePreserved]))
+      · obtain ⟨values, saved⟩ := calleeSaved
+        have saved1 : DecodeCalleeSavedAtRegisters values state1 := by
+          simpa [state1, machine1] using saved.of_agree
+            ((afterRegisterWrite_writes state.machine 0x14d04 retired0 x10 value0).agree
+              (decodeCalleeSaved_disjoint_write x10 (by simp [decodeCalleeSavedRegister])))
+        have saved2 : DecodeCalleeSavedAtRegisters values state2 := by
+          simpa [state2, machine2] using saved1.of_agree
+            ((afterRegisterWrite_writes machine1 0x14d08 retired1 x1 0x14d08).agree
+              (decodeCalleeSaved_disjoint_write x1 (by simp [decodeCalleeSavedRegister])))
+        have savedCall : DecodeCalleeSavedAtRegisters values callState := by
+          simpa [callState] using saved2.of_agree (callWrites.agree
+            (decodeCalleeSaved_disjoint_write x1 (by simp [decodeCalleeSavedRegister])))
+        exact ⟨values, savedCall.of_agree (fun register preserved =>
+          callFrame.1 register (by
+            rcases preserved with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+              rfl | rfl
+            all_goals simp [abiCalleePreserved]))⟩
       · exact callFrame.1 x2 (by simp [abiCalleePreserved]) |>.trans
           ((callWrites.get x2 (by decide)).trans
             ((afterRegisterWrite_writes machine1 0x14d08 retired1 x1 0x14d08).get x2
@@ -2046,7 +2118,7 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
     MainSuccessExitedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, routeCount, state, readOutcome,
       allocatorOutcome, decodeOutcome, prefixTrace, readPositive, allocatorPositive,
-      decodePositive, meaning, configured, code, dataAccess, _sp, stdin, cursor, exitCode, selected,
+      decodePositive, meaning, configured, code, dataAccess, _calleeSaved, _sp, stdin, cursor, exitCode, selected,
       readBounded, allocatorBounded, decodeBounded, routeBounded⟩ :=
     main_write_selected_output contracts args fromStep before entry
   cases decodeOutcome with

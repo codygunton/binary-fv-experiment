@@ -182,12 +182,14 @@ structure WriteSuccessMachineAccess (args : WriteSuccessArgs) (state : MachineSt
 
 def WriteSuccessEntry (args : WriteSuccessArgs) (state : EndpointState) : Prop :=
   args.returnAddress ∈ Elflings.writeSuccessExitPcs ∧ 0x7d0 ≤ args.stackPointer ∧
+  args.stackPointer % 16 = 0 ∧ args.stackPointer < 2 ^ 64 ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.writeSuccessEntry) ∧
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.decodedAddress) ∧
   StatelessInputRep state.machine.mem args.decodedAddress args.decoded ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  (∃ values, DecodeCalleeSavedAtRegisters values state) ∧
   WriteSuccessMachineAccess args state.machine
 
 def WriteSuccessExit (args : WriteSuccessArgs) (bytes : Array UInt8)
