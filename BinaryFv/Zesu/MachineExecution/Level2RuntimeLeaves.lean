@@ -470,6 +470,19 @@ private theorem instructionPreserved_disjoint_readInputWrites :
   · exact platformPreserved_disjoint register preserved.1 bookkeeping
   all_goals simp [instructionPreserved, platformPreserved] at preserved
 
+private theorem platformPreserved_disjoint_readInputWrites :
+    RegSet.Disjoint platformPreserved readInputWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl
+  · exact platformPreserved_disjoint register preserved bookkeeping
+  all_goals simp [platformPreserved] at preserved
+
+private theorem abiCalleePreserved_disjoint_readInputWrites :
+    RegSet.Disjoint abiCalleePreserved readInputWrites := by
+  intro register preserved written
+  simp [abiCalleePreserved, readInputWrites, stepBookkeeping, platformPreserved] at preserved written
+  grind
+
 private theorem readInputPcInside (pc : BitVec 64)
     (literal : pc = 0x10140 ∨ pc = 0x10144 ∨ pc = 0x10148 ∨ pc = 0x1014c ∨
       pc = 0x10150 ∨ pc = 0x10154 ∨ pc = 0x10158) :
@@ -538,6 +551,339 @@ private theorem readInput_code_of_seg (args : ReadInputArgs) (entry : ReadInputE
     have noFile := readInput_region_not_file args entryCopy inside
     rw [noFile] at file
     cases file
+
+private def NonRegisterFrame (before after : State) : Prop :=
+  after.choiceState = before.choiceState ∧ after.tags = before.tags ∧
+    after.sailOutput = before.sailOutput
+
+private theorem NonRegisterFrame.trans {first middle last : State}
+    (left : NonRegisterFrame first middle) (right : NonRegisterFrame middle last) :
+    NonRegisterFrame first last :=
+  ⟨right.1.trans left.1, right.2.1.trans left.2.1, right.2.2.trans left.2.2⟩
+
+private theorem nonRegisterFrame_afterRegisterWrite (state : State) (pc retired : BitVec 64)
+    (dest : Register) (value : RegisterType dest) :
+    NonRegisterFrame state (afterRegisterWrite state pc retired dest value) := by
+  exact ⟨rfl, rfl, rfl⟩
+
+private theorem nonRegisterFrame_afterByteWrites (state : State)
+    (writes : List (Nat × BitVec 8)) :
+    NonRegisterFrame state (afterByteWrites state writes) := by
+  unfold afterByteWrites
+  induction writes generalizing state with
+  | nil => exact ⟨rfl, rfl, rfl⟩
+  | cons write writes ih =>
+      simpa only [List.foldl_cons] using
+        ih { state with mem := state.mem.insert write.1 write.2 }
+
+private theorem nonRegisterFrame_afterStore {width : Nat} (state : State)
+    (pc retired : BitVec 64) (address : Nat) (value : BitVec (8 * width)) :
+    NonRegisterFrame state
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+          address value)
+        (Sail.BitVec.addInt pc 4) retired) := by
+  simpa only [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+    coreControlFlowNextState, tryStepControlFlowAfterIncrement, afterWriteBytes] using
+    nonRegisterFrame_afterByteWrites
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (List.ofFn fun index : Fin width =>
+        (address + index.val, value.extractLsb' (8 * index.val) 8))
+
+private theorem nonRegisterFrame_afterJump (state : State) (pc target retired : BitVec 64) :
+    NonRegisterFrame state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) :=
+  ⟨rfl, rfl, rfl⟩
+
+/-- The seven ordinary instructions plus the observed return implement bare-metal `read_input`. -/
+theorem readInputInstanceContract : ReadInputInstanceContract := by
+  refine ⟨fun _ => 8, ?_⟩
+  intro args fromStep before entry
+  have entryCopy := entry
+  rcases entry with ⟨returnPc, inputBound, stdin, cursor, atPc, link, bufferReg, sizeReg,
+    sizeEq, aligned, fits, inputRep, contextRep, savedRep, bufferPma, sizePma, contextPma,
+    bufferMMIO, sizeMMIO, inputOutside, contextOutside, savedOutside, notFile, loaded,
+    configured⟩
+  obtain ⟨retired0, retiredRead0⟩ := configured.retiredCounter
+  have seg0 := Seg.nil (pcInRanges Elflings.readInputExecutionPcRanges)
+    (pcInList Elflings.readInputExitPcs) readInputWrites (readInputMemory args) fromStep
+    (childSummary := fun _ _ _ _ _ => False) ⟨retired0, retiredRead0⟩ atPc
+  have seg0 := seg0.know x1 (BitVec.ofNat 64 args.returnAddress) link
+  have seg0 := seg0.know x10 (BitVec.ofNat 64 args.bufferSlot) bufferReg
+  have seg0 := seg0.know x11 (BitVec.ofNat 64 args.sizeSlot) sizeReg
+  obtain ⟨retired1, run1⟩ :=
+    readInputBufferBaseHighStep fromStep before.machine configured atPc loaded
+  let state1 := afterRegisterWrite before.machine 0x10140 retired1 x5 0x2001a140
+  have seg1 := seg0.stepKnown
+    (readInputPcInside 0x10140 (Or.inl rfl))
+    (readInputPcNotExit 0x10140 (Or.inl rfl)) x5 0x2001a140 0x10144
+    retired1 run1
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping, RegSet.union, RegSet.only])
+  have configured1 := configured.mono
+    (seg1.agree instructionPreserved_disjoint_readInputWrites) seg1.retired
+  have loaded1 := readInput_code_of_seg args entryCopy seg1
+  have seg1' := seg1.forget (kv' :=
+    [⟨x11, BitVec.ofNat 64 args.sizeSlot⟩, ⟨x10, BitVec.ofNat 64 args.bufferSlot⟩,
+      ⟨x1, BitVec.ofNat 64 args.returnAddress⟩]) (by simp)
+  obtain ⟨retired2, run2⟩ := readInputBufferBaseLowStep (fromStep + 1) state1 configured1 seg1.atPc
+    (seg1.reg x5 0x2001a140 (by simp)) loaded1
+  let state2 := afterRegisterWrite state1 0x10144 retired2 x5 Elflings.inputBufferAddress
+  have seg2 := seg1'.stepKnown
+    (readInputPcInside 0x10144 (Or.inr (Or.inl rfl)))
+    (readInputPcNotExit 0x10144 (Or.inr (Or.inl rfl))) x5 Elflings.inputBufferAddress 0x10148
+    retired2 run2
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping, RegSet.union, RegSet.only])
+  have configured2 := configured.mono
+    (seg2.agree instructionPreserved_disjoint_readInputWrites) seg2.retired
+  have loaded2 := readInput_code_of_seg args entryCopy seg2
+  have bufferPma2 := storePmaAllows_of_agree
+    (seg2.agree platformPreserved_disjoint_readInputWrites) bufferPma
+  obtain ⟨retired3, run3⟩ := readInputStorePointerStep (fromStep + 2) state2 args.bufferSlot configured2
+    seg2.atPc (seg2.reg x10 (BitVec.ofNat 64 args.bufferSlot) (by simp))
+    (seg2.reg x5 (BitVec.ofNat 64 Elflings.inputBufferAddress) (by simp)) aligned fits
+    bufferPma2 bufferMMIO loaded2
+  let state3 := tryStepStoreAfterRetired
+    (afterWriteBytes (width := 8)
+      (coreStoreNextState (tryStepStoreAfterIncrement state2) 0x10148)
+      args.bufferSlot (BitVec.ofNat 64 Elflings.inputBufferAddress)) 0x10148 retired3
+  have seg3 := seg2.stepStoreKnown args.bufferSlot
+    (BitVec.ofNat 64 Elflings.inputBufferAddress) 0x1014c
+    retired3
+    (readInputPcInside 0x10148 (Or.inr (Or.inr (Or.inl rfl))))
+    (readInputPcNotExit 0x10148 (Or.inr (Or.inr (Or.inl rfl))))
+    run3
+    (by decide)
+    (by intro address lower upper; exact Or.inl ⟨lower, upper⟩)
+    (by intro r h; exact Or.inl h)
+    (by simp [RegsOutside, stepBookkeeping, RegSet.union, RegSet.only])
+  have configured3 := configured.mono
+    (seg3.agree instructionPreserved_disjoint_readInputWrites) seg3.retired
+  have loaded3 := readInput_code_of_seg args entryCopy seg3
+  have seg3' := seg3.forget (kv' :=
+    [⟨x11, BitVec.ofNat 64 args.sizeSlot⟩, ⟨x10, BitVec.ofNat 64 args.bufferSlot⟩,
+      ⟨x1, BitVec.ofNat 64 args.returnAddress⟩]) (by simp)
+  obtain ⟨retired4, run4⟩ :=
+    readInputContextBaseHighStep (fromStep + 3) state3 configured3 seg3.atPc loaded3
+  let state4 := afterRegisterWrite state3 0x1014c retired4 x5 0x2401a14c
+  have seg4 := seg3'.stepKnown
+    (readInputPcInside 0x1014c (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))
+    (readInputPcNotExit 0x1014c (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))
+    x5 0x2401a14c 0x10150
+    retired4 run4
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping, RegSet.union, RegSet.only])
+  have configured4 := configured.mono
+    (seg4.agree instructionPreserved_disjoint_readInputWrites) seg4.retired
+  have loaded4 := readInput_code_of_seg args entryCopy seg4
+  have seg4' := seg4.forget (kv' :=
+    [⟨x11, BitVec.ofNat 64 args.sizeSlot⟩, ⟨x10, BitVec.ofNat 64 args.bufferSlot⟩,
+      ⟨x1, BitVec.ofNat 64 args.returnAddress⟩]) (by simp)
+  obtain ⟨retired5, run5⟩ := readInputContextBaseLowStep (fromStep + 4) state4 configured4 seg4.atPc
+    (seg4.reg x5 0x2401a14c (by simp)) loaded4
+  let state5 := afterRegisterWrite state4 0x10150 retired5 x5 Elflings.ioContextAddress
+  have seg5 := seg4'.stepKnown
+    (readInputPcInside 0x10150 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
+    (readInputPcNotExit 0x10150 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
+    x5 Elflings.ioContextAddress 0x10154
+    retired5 run5
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping, RegSet.union, RegSet.only])
+  have configured5 := configured.mono
+    (seg5.agree instructionPreserved_disjoint_readInputWrites) seg5.retired
+  have loaded5 := readInput_code_of_seg args entryCopy seg5
+  have contextRep5 : UIntRep 8 state5.mem Elflings.ioContextAddress args.input.size :=
+    contextRep.of_writesOnlyWithin seg5.mem (by
+      intro index bound inside
+      unfold readInputMemory Region.union byteRange at inside
+      rcases inside with inside | inside
+      · exact contextOutside.elim (fun h => by omega) (fun h => by omega)
+      · exact contextOutside.elim (fun h => by omega) (fun h => by omega))
+  have contextPma5 := loadPmaAllows_of_agree
+    (seg5.agree platformPreserved_disjoint_readInputWrites) contextPma
+  obtain ⟨retired6, run6⟩ := readInputLoadSizeStep (fromStep + 5) state5 args.input.size configured5
+    seg5.atPc (seg5.reg x5 (BitVec.ofNat 64 Elflings.ioContextAddress) (by simp)) contextRep5
+    contextPma5 loaded5
+  let state6 := afterRegisterWrite state5 0x10154 retired6 x6 (BitVec.ofNat 64 args.input.size)
+  have seg6 := seg5.stepKnown
+    (readInputPcInside 0x10154 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))
+    (readInputPcNotExit 0x10154
+      (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))
+    x6 (BitVec.ofNat 64 args.input.size) 0x10158
+    retired6 run6
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping, RegSet.union, RegSet.only])
+  have configured6 := configured.mono
+    (seg6.agree instructionPreserved_disjoint_readInputWrites) seg6.retired
+  have loaded6 := readInput_code_of_seg args entryCopy seg6
+  have sizePma6 := storePmaAllows_of_agree
+    (seg6.agree platformPreserved_disjoint_readInputWrites) sizePma
+  have sizeAligned : args.sizeSlot % 8 = 0 := by omega
+  have sizeFits : args.sizeSlot + 8 < 2 ^ 64 := by omega
+  obtain ⟨retired7, run7⟩ := readInputStoreSizeStep (fromStep + 6) state6 args.sizeSlot args.input.size
+    configured6 seg6.atPc (seg6.reg x11 (BitVec.ofNat 64 args.sizeSlot) (by simp))
+    (seg6.reg x6 (BitVec.ofNat 64 args.input.size) (by simp)) sizeAligned sizeFits sizePma6 sizeMMIO
+    loaded6
+  let state7 := tryStepStoreAfterRetired
+    (afterWriteBytes (width := 8)
+      (coreStoreNextState (tryStepStoreAfterIncrement state6) 0x10158)
+      args.sizeSlot (BitVec.ofNat 64 args.input.size)) 0x10158 retired7
+  have seg7 := seg6.stepStoreKnown args.sizeSlot
+    (BitVec.ofNat 64 args.input.size) 0x1015c
+    retired7
+    (readInputPcInside 0x10158 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr rfl)))))))
+    (readInputPcNotExit 0x10158
+      (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr rfl)))))))
+    run7
+    (by decide)
+    (by intro address lower upper; exact Or.inr ⟨by omega, by simpa [sizeEq] using upper⟩)
+    (by intro r h; exact Or.inl h)
+    (by simp [RegsOutside, stepBookkeeping, RegSet.union, RegSet.only])
+  have frame7 : NonRegisterFrame before.machine state7 :=
+    ((((((nonRegisterFrame_afterRegisterWrite before.machine 0x10140 retired1 x5
+      0x2001a140).trans
+      (nonRegisterFrame_afterRegisterWrite state1 0x10144 retired2 x5
+        (BitVec.ofNat 64 Elflings.inputBufferAddress))).trans
+      (nonRegisterFrame_afterStore state2 0x10148 retired3 args.bufferSlot
+        (BitVec.ofNat 64 Elflings.inputBufferAddress))).trans
+      (nonRegisterFrame_afterRegisterWrite state3 0x1014c retired4 x5 0x2401a14c)).trans
+      (nonRegisterFrame_afterRegisterWrite state4 0x10150 retired5 x5
+        (BitVec.ofNat 64 Elflings.ioContextAddress))).trans
+      (nonRegisterFrame_afterRegisterWrite state5 0x10154 retired6 x6
+        (BitVec.ofNat 64 args.input.size))).trans
+      (nonRegisterFrame_afterStore state6 0x10158 retired7 args.sizeSlot
+        (BitVec.ofNat 64 args.input.size))
+  have configured7 := configured.mono
+    (seg7.agree instructionPreserved_disjoint_readInputWrites) seg7.retired
+  have loaded7 := readInput_code_of_seg args entryCopy seg7
+  have returnEq : args.returnAddress = 0x14ccc := by
+    simpa [Elflings.readInputExitPcs] using returnPc
+  have targetAligned : Sail.BitVec.access (BitVec.ofNat 64 args.returnAddress) 1 = 0#1 := by
+    rw [returnEq]
+    native_decide
+  obtain ⟨retired8, run8⟩ := configuredRetStep (fromStep + 7) 0x1015c state7
+    (BitVec.ofNat 64 args.returnAddress) configured7 seg7.atPc
+    (seg7.reg x1 (BitVec.ofNat 64 args.returnAddress) (by simp)) targetAligned loaded7
+  have targetEq : Sail.BitVec.update (BitVec.ofNat 64 args.returnAddress) 0 0#1 =
+      BitVec.ofNat 64 args.returnAddress := by
+    rw [returnEq]
+    native_decide
+  let state8 := tryStepControlFlowAfterRetired
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement state7) 0x1015c
+      (Sail.BitVec.update (BitVec.ofNat 64 args.returnAddress) 0 0#1))
+      (Sail.BitVec.update (BitVec.ofNat 64 args.returnAddress) 0 0#1) retired8
+  let after : EndpointState :=
+    { machine := state8, stdin := before.stdin, stdinCursor := args.input.size,
+      stdout := before.stdout, exitCode := before.exitCode }
+  have frame8 : NonRegisterFrame before.machine state8 := frame7.trans
+    (nonRegisterFrame_afterJump state7 0x1015c
+      (Sail.BitVec.update (BitVec.ofNat 64 args.returnAddress) 0 0#1) retired8)
+  have finalPc : state8.regs.get? PC = some (BitVec.ofNat 64 args.returnAddress) := by
+    simp [state8, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      controlFlowJumpState, Std.ExtDHashMap.get?_insert, targetEq]
+  have inputRep7 : BytesRep state7.mem Elflings.inputBufferAddress args.input := by
+    refine ⟨inputRep.1, ?_⟩
+    intro index bound
+    exact (seg7.mem (Elflings.inputBufferAddress + index) (by
+      intro inside
+      unfold readInputMemory Region.union byteRange at inside
+      rcases inside with inside | inside
+      · exact inputOutside.elim (fun h => by omega) (fun h => by omega)
+      · exact inputOutside.elim (fun h => by omega) (fun h => by omega))).trans
+        (inputRep.2 index bound)
+  have stdinSize : before.stdin.size = args.input.size := congrArg Array.size stdin
+  have readStep : BareMetalReadStep (fromStep + 7)
+      { before with machine := state7 } after := by
+    exact ⟨seg7.atPc, by simpa [stdin] using inputRep7, run8, rfl,
+      by simpa [after] using stdinSize.symm, rfl, rfl⟩
+  have tracePrefix : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.readInputExecutionPcRanges) fromStep 7 before
+      { before with machine := state7 } := by
+    have t1 := readInputConfinedSailStep fromStep before state1 0x10140 (Or.inl rfl) atPc
+      run1
+    have t2 := readInputConfinedSailStep (fromStep + 1) { before with machine := state1 }
+      state2 0x10144 (Or.inr (Or.inl rfl)) seg1.atPc run2
+    have t3 := readInputConfinedSailStep (fromStep + 2) { before with machine := state2 }
+      state3 0x10148 (Or.inr (Or.inr (Or.inl rfl))) seg2.atPc run3
+    have t4 := readInputConfinedSailStep (fromStep + 3) { before with machine := state3 }
+      state4 0x1014c (Or.inr (Or.inr (Or.inr (Or.inl rfl)))) seg3.atPc
+      run4
+    have t5 := readInputConfinedSailStep (fromStep + 4) { before with machine := state4 }
+      state5 0x10150 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))) seg4.atPc
+      run5
+    have t6 := readInputConfinedSailStep (fromStep + 5) { before with machine := state5 }
+      state6 0x10154 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))) seg5.atPc
+      run6
+    have t7 := readInputConfinedSailStep (fromStep + 6) { before with machine := state6 }
+      state7 0x10158 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr rfl)))))) seg6.atPc
+      run7
+    simpa only [Nat.reduceAdd, Nat.add_assoc] using
+      (((((t1.append t2).append t3).append t4).append t5).append t6).append t7
+  have trace8 : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.readInputExecutionPcRanges) (fromStep + 7) 1
+      { before with machine := state7 } after := by
+    apply ConfinedTrace.step (fromStep + 7) 0 0x1015c _ after after
+    · exact seg7.atPc
+    · exact ⟨(0x10140, 0x10190), by native_decide, by native_decide, by native_decide⟩
+    · exact .read readStep
+    · exact .refl (fromStep + 8) after
+  have trace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.readInputExecutionPcRanges) fromStep 8 before after := by
+    simpa using tracePrefix.append trace8
+  refine ⟨8, after, ⟨Elflings.inputBufferAddress⟩, by omega, Nat.le_refl 8, trace, ?_,
+    trivial, ?_⟩
+  · refine ⟨BitVec.ofNat 64 args.returnAddress, finalPc, ?_⟩
+    rw [returnEq]
+    unfold pcInList
+    native_decide
+  · refine ⟨finalPc, rfl, rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    · have pointerRep3 : UIntRep 8 state3.mem args.bufferSlot
+          Elflings.inputBufferAddress := by
+        simpa [state3, tryStepStoreAfterRetired, tryStepStoreAfterTick] using
+          uintRep_afterWriteBytes_eight
+            (coreStoreNextState (tryStepStoreAfterIncrement state2) 0x10148)
+            args.bufferSlot Elflings.inputBufferAddress (by native_decide) (by omega)
+      have middleMem : state6.mem = state3.mem := by
+        simp [state6, state5, state4, afterRegisterWrite_mem]
+      have storeWrites : WritesOnlyWithin (byteRange args.sizeSlot 8) state6 state7 := by
+        intro address outside
+        exact storeRetirement_mem_writes state6 0x10158 0x1015c retired7 args.sizeSlot
+          (BitVec.ofNat 64 args.input.size) address outside
+      have suffixWrites : WritesOnlyWithin (byteRange args.sizeSlot 8) state3 state7 :=
+        WritesOnlyWithin.trans_same (writesOnlyWithin_of_mem_eq middleMem) storeWrites
+      simpa [state8, jumpRetirement_mem] using pointerRep3.of_writesOnlyWithin suffixWrites (by
+        intro index bound inside
+        unfold byteRange at inside
+        omega)
+    · simpa [state8, jumpRetirement_mem, state7, tryStepStoreAfterRetired,
+        tryStepStoreAfterTick] using
+        uintRep_afterWriteBytes_eight
+          (coreStoreNextState (tryStepStoreAfterIncrement state6) 0x10158)
+          args.sizeSlot args.input.size (by omega) (by omega)
+    · simpa [state8, jumpRetirement_mem] using inputRep7
+    · simpa [state8, jumpRetirement_mem] using savedRep.of_writesOnlyWithin seg7.mem (by
+        intro index bound inside
+        unfold readInputMemory Region.union byteRange at inside
+        rcases inside with inside | inside
+        · exact savedOutside.elim (fun h => by omega) (fun h => by omega)
+        · exact savedOutside.elim (fun h => by omega) (fun h => by omega))
+    · simpa [state8, jumpRetirement_mem] using seg7.mem
+    · refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
+      · intro register preserved
+        exact (jumpRetirement_writes state7 0x1015c
+          (Sail.BitVec.update (BitVec.ofNat 64 args.returnAddress) 0 0#1) retired8).get register (by
+            intro written
+            exact abiCalleePreserved_disjoint_readInputWrites register preserved (Or.inl written)) |>.trans
+            ((seg7.agree abiCalleePreserved_disjoint_readInputWrites) register preserved)
+      · exact jumpRetirement_retired_present state7 0x1015c
+          (Sail.BitVec.update (BitVec.ofNat 64 args.returnAddress) 0 0#1) retired8
+      · change Artifacts.programImage.fileBytesLoadedFaithfully state7.mem
+        exact loaded7
+      · exact frame8.1
+      · exact frame8.2.1
+      · exact frame8.2.2
 
 /-- Production `0x101c4: auipc t0, 0x2400a`. -/
 theorem zkvmExitLoadContextBaseStep (stepNo : Nat) (state : State)
