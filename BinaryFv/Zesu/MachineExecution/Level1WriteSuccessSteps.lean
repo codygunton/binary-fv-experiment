@@ -328,6 +328,8 @@ private theorem writeSuccessAccessOfSeg {args : WriteSuccessArgs} {kv a n base c
   have pmaEq := seg.writes.get pma_regions (by simp [writeSuccessParentWrites, stepBookkeeping])
   exact
     { configured := access.configured.mono (seg.agree disjoint) seg.retired
+      frameLoad := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width inBounds)
       frameStore := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width inBounds)
       frameNoMMIO := access.frameNoMMIO
@@ -1641,6 +1643,117 @@ theorem writeSuccessMemcpySourceStep (stepNo : Nat) (state : State) (sourceValue
           _ = some seccfgBits := seccfgRead
       decode_run) execute (base := by rfl)
 
+private theorem writeSuccessAddiX10FromSpStep (stepNo pc offset : Nat) (imm : BitVec 12)
+    (byte0 byte1 byte2 byte3 : UInt8) (state : State) (stackPointer : Nat)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 stackPointer))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (resultEq : iTypeResult .ADDI imm (BitVec.ofNat 64 stackPointer) =
+      BitVec.ofNat 64 (stackPointer + offset))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (imm, .Regidx 2#5, .Regidx 10#5, .ADDI)))
+    (pcFits : pc < 2 ^ 64) (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x10
+        (BitVec.ofNat 64 (stackPointer + offset))) false := by
+  let premise := coreControlFlowNextState
+    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+  have source := (stepPremiseState_writes state (BitVec.ofNat 64 pc)).get x2
+    (by decide) |>.trans stack
+  have execute : Runs (execute (.ITYPE (imm, .Regidx 2#5, .Regidx 10#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x10 (BitVec.ofNat 64 (stackPointer + offset)) }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE imm (.Regidx 2#5) (.Regidx 10#5) .ADDI) _ _ _
+    simpa only [resultEq] using execute_ITYPE_run premise _ imm (.Regidx 2#5)
+      (.Regidx 10#5) .ADDI (BitVec.ofNat 64 stackPointer)
+      (rX_x2_run premise (BitVec.ofNat 64 stackPointer) source)
+      (wX_x10_run premise (iTypeResult .ADDI imm (BitVec.ofNat 64 stackPointer)))
+  exact configuredRegisterWriteStep stepNo pc state x10
+    (BitVec.ofNat 64 (stackPointer + offset))
+    (.ITYPE (imm, .Regidx 2#5, .Regidx 10#5, .ADDI)) byte0 byte1 byte2 byte3
+    configured atPc loaded decode execute (pcFits := pcFits) (base := base)
+    (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+
+private theorem writeSuccessAddiX11FromSpStep (stepNo pc offset : Nat) (imm : BitVec 12)
+    (byte0 byte1 byte2 byte3 : UInt8) (state : State) (stackPointer : Nat)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 stackPointer))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (resultEq : iTypeResult .ADDI imm (BitVec.ofNat 64 stackPointer) =
+      BitVec.ofNat 64 (stackPointer + offset))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (imm, .Regidx 2#5, .Regidx 11#5, .ADDI)))
+    (pcFits : pc < 2 ^ 64) (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x11
+        (BitVec.ofNat 64 (stackPointer + offset))) false := by
+  let premise := coreControlFlowNextState
+    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+  have source := (stepPremiseState_writes state (BitVec.ofNat 64 pc)).get x2
+    (by decide) |>.trans stack
+  have execute : Runs (execute (.ITYPE (imm, .Regidx 2#5, .Regidx 11#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x11 (BitVec.ofNat 64 (stackPointer + offset)) }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE imm (.Regidx 2#5) (.Regidx 11#5) .ADDI) _ _ _
+    simpa only [resultEq] using execute_ITYPE_run premise _ imm (.Regidx 2#5)
+      (.Regidx 11#5) .ADDI (BitVec.ofNat 64 stackPointer)
+      (rX_x2_run premise (BitVec.ofNat 64 stackPointer) source)
+      (wX_x11_run premise (iTypeResult .ADDI imm (BitVec.ofNat 64 stackPointer)))
+  exact configuredRegisterWriteStep stepNo pc state x11
+    (BitVec.ofNat 64 (stackPointer + offset))
+    (.ITYPE (imm, .Regidx 2#5, .Regidx 11#5, .ADDI)) byte0 byte1 byte2 byte3
+    configured atPc loaded decode execute (pcFits := pcFits) (base := base)
+    (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+
+private theorem writeSuccessAddiX12FromZeroStep (stepNo pc value : Nat) (imm : BitVec 12)
+    (byte0 byte1 byte2 byte3 : UInt8) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (resultEq : iTypeResult .ADDI imm 0 = BitVec.ofNat 64 value)
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (imm, .Regidx 0#5, .Regidx 12#5, .ADDI)))
+    (pcFits : pc < 2 ^ 64) (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x12
+        (BitVec.ofNat 64 value)) false := by
+  let premise := coreControlFlowNextState
+    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+  have execute : Runs (execute (.ITYPE (imm, .Regidx 0#5, .Regidx 12#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x12 (BitVec.ofNat 64 value) }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE imm (.Regidx 0#5) (.Regidx 12#5) .ADDI) _ _ _
+    simpa only [resultEq] using execute_ITYPE_run premise _ imm (.Regidx 0#5)
+      (.Regidx 12#5) .ADDI 0 (rX_x0_run premise)
+      (wX_x12_run premise (iTypeResult .ADDI imm 0))
+  exact configuredRegisterWriteStep stepNo pc state x12 (BitVec.ofNat 64 value)
+    (.ITYPE (imm, .Regidx 0#5, .Regidx 12#5, .ADDI)) byte0 byte1 byte2 byte3
+    configured atPc loaded decode execute (pcFits := pcFits) (base := base)
+    (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+
 /-- Complete the writer ABI prologue at the first parent-owned payload setup instruction. -/
 theorem writeSuccessPrologueHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     (state : EndpointState) (entry : WriteSuccessEntry args state) :
@@ -1920,6 +2033,8 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     (childFrame.1 pma_regions (by simp [abiCalleePreserved])).trans pmaEq
   have accessAfter : WriteSuccessMachineAccess args after.machine :=
     { configured := configuredAfter
+      frameLoad := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq childPmaEq (access.frameLoad offset width inBounds)
       frameStore := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq childPmaEq (access.frameStore offset width inBounds)
       frameNoMMIO := access.frameNoMMIO
@@ -3231,6 +3346,8 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
     simpa [tailState] using childFrame.1 pma_regions (by simp [abiCalleePreserved])
   have accessFinal : WriteSuccessMachineAccess args final.machine :=
     { configured := configuredAfterEndpointCall access.configured childFrame
+      frameLoad := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width inBounds)
       frameStore := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width inBounds)
       frameNoMMIO := access.frameNoMMIO
@@ -3255,6 +3372,133 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
   · intro word member
     simpa [tailState, childMem] using saved word member
   · simpa [tailState, childMem] using initialized
+
+/-- Production `0x14e14: addi a0,sp,0x408`. -/
+theorem writeSuccessSecondMemcpyDestinationStep (stepNo : Nat) (state : State)
+    (stackPointer : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e14)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 stackPointer))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e14 retired x10
+        (BitVec.ofNat 64 (stackPointer + 0x408))) false := by
+  apply writeSuccessAddiX10FromSpStep stepNo 0x14e14 0x408 0x408
+    0x13 0x05 0x81 0x40 state stackPointer configured atPc stack loaded
+  · simp only [iTypeResult]
+    change BitVec.ofNat 64 stackPointer + sign_extend (BitVec.ofNat 12 0x408) = _
+    rw [show sign_extend (m := 64) (0x408#12) = 0x408#64 by native_decide]
+    rw [← BitVec.ofNat_add]
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x14e18: addi a1,sp,0x138`. -/
+theorem writeSuccessSecondMemcpySourceStep (stepNo : Nat) (state : State)
+    (stackPointer : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e18)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 stackPointer))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e18 retired x11
+        (BitVec.ofNat 64 (stackPointer + 0x138))) false := by
+  apply writeSuccessAddiX11FromSpStep stepNo 0x14e18 0x138 0x138
+    0x93 0x05 0x81 0x13 state stackPointer configured atPc stack loaded
+  · simp only [iTypeResult]
+    change BitVec.ofNat 64 stackPointer + sign_extend (BitVec.ofNat 12 0x138) = _
+    rw [show sign_extend (m := 64) (0x138#12) = 0x138#64 by native_decide]
+    rw [← BitVec.ofNat_add]
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x14e1c: li a2,0x250`. -/
+theorem writeSuccessSecondMemcpyLengthStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e1c)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e1c retired x12 0x250) false := by
+  apply writeSuccessAddiX12FromZeroStep stepNo 0x14e1c 0x250 0x250
+    0x13 0x06 0x00 0x25 state configured atPc loaded
+  · native_decide
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x14e20: auipc ra,-5`. -/
+theorem writeSuccessSecondMemcpyCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e20)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e20 retired x1 0xfe20) false := by
+  apply configuredAuipcStep stepNo state 0x14e20 0xffffb 0x97 0xb0 0xff 0xff
+    configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x14e24: jalr ra,0x3b4(ra)`, entering `memcpy`. -/
+theorem writeSuccessSecondMemcpyCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e24)
+    (baseRead : state.regs.get? x1 = some 0xfe20)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e24 0x101d4 x1 0x14e28)
+        0x101d4 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x14e24 0xfe20 0x3b4 0x101d4 0x14e28
+    0xe7 0x80 0x40 0x3b configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
+/-- Production `0x14e28: addi a0,sp,0x4a0`. -/
+theorem writeSuccessParentHashSourceStep (stepNo : Nat) (state : State)
+    (stackPointer : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e28)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 stackPointer))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e28 retired x10
+        (BitVec.ofNat 64 (stackPointer + 0x4a0))) false := by
+  apply writeSuccessAddiX10FromSpStep stepNo 0x14e28 0x4a0 0x4a0
+    0x13 0x05 0x01 0x4a state stackPointer configured atPc stack loaded
+  · simp only [iTypeResult]
+    change BitVec.ofNat 64 stackPointer + sign_extend (BitVec.ofNat 12 0x4a0) = _
+    rw [show sign_extend (m := 64) (0x4a0#12) = 0x4a0#64 by native_decide]
+    rw [← BitVec.ofNat_add]
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
 
 
 

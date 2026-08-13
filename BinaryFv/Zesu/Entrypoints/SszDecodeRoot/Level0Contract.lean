@@ -140,6 +140,8 @@ structure MainDataAccess (args : MainArgs) (state : State) : Prop where
     LoadPmaAllows state (BitVec.ofNat 64 Elflings.ioContextAddress) 8
   exitCodeStore :
     StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 24)) 8
+  decodeFrameLoad : ∀ offset width, offset + width ≤ 0xbb0 →
+    LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0xbb0 + offset)) width
   decodeFrameStore : ∀ offset width, offset + width ≤ 0xbb0 →
     StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0xbb0 + offset)) width
 
@@ -153,6 +155,8 @@ theorem MainDataAccess.of_pma_regions_eq {args : MainArgs} {before after : State
     dataPmaAllows_of_pma_regions_eq regions (access.stackStore offset width bound)
   inputContextLoad := dataPmaAllows_of_pma_regions_eq regions access.inputContextLoad
   exitCodeStore := dataPmaAllows_of_pma_regions_eq regions access.exitCodeStore
+  decodeFrameLoad offset width bound :=
+    dataPmaAllows_of_pma_regions_eq regions (access.decodeFrameLoad offset width bound)
   decodeFrameStore offset width bound :=
     dataPmaAllows_of_pma_regions_eq regions (access.decodeFrameStore offset width bound)
 
@@ -2019,11 +2023,20 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
         · simpa [callState, writeArgs, callMemory] using initialized848
         · refine
             { configured := callConfigured
+              frameLoad := ?_
               frameStore := ?_
               frameNoMMIO := ?_
               decodedLoad := ?_
               decodedNoMMIO := ?_
               frameNotCode := ?_ }
+          · intro offset width bound
+            have stackLower := entry.stackLower
+            have addressEq : writeArgs.stackPointer - 0x7d0 + offset =
+                args.stackPointer - 0xbb0 + (0x3e0 + offset) := by
+              dsimp [writeArgs]
+              omega
+            rw [addressEq]
+            exact callDataAccess.decodeFrameLoad (0x3e0 + offset) width (by omega)
           · intro offset width bound
             have stackLower := entry.stackLower
             have addressEq : writeArgs.stackPointer - 0x7d0 + offset =

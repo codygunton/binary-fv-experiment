@@ -168,6 +168,8 @@ set_option genInjectivity false in
 /-- Caller-derived machine permissions for the parent-owned `writeSuccess` instructions. -/
 structure WriteSuccessMachineAccess (args : WriteSuccessArgs) (state : MachineState) : Prop where
   configured : ConfiguredMachinePre EndpointMachinePc state
+  frameLoad : ∀ offset width, offset + width ≤ 0x7d0 →
+    LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + offset)) width
   frameStore : ∀ offset width, offset + width ≤ 0x7d0 →
     StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + offset)) width
   frameNoMMIO : ∀ offset width, offset + width ≤ 0x7d0 →

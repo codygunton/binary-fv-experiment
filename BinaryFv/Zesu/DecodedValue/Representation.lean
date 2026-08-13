@@ -87,6 +87,19 @@ the concrete padding bytes without assigning them source-level meaning. -/
 def InitializedByteWindow (mem : Std.ExtHashMap Nat (BitVec 8)) (address width : Nat) : Prop :=
   ∃ bytes : Array UInt8, bytes.size = width ∧ BytesRep mem address bytes
 
+theorem BytesRep.extractPrefix {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat}
+    {bytes : Array UInt8} (rep : BytesRep mem address bytes) {width : Nat}
+    (bound : width ≤ bytes.size) : BytesRep mem address (bytes.extract 0 width) := by
+  have size : (bytes.extract 0 width).size = width := by
+    rw [Array.size_extract]
+    simp [Nat.min_eq_left bound]
+  constructor
+  · rw [size]
+    exact Nat.le_trans (Nat.add_le_add_left bound address) rep.1
+  · intro index inBounds
+    rw [Array.getElem_extract]
+    simpa only [Nat.zero_add] using rep.2 index (by rw [size] at inBounds; omega)
+
 private noncomputable def bytesOfPresentWindow (mem : Std.ExtHashMap Nat (BitVec 8))
     (address width : Nat) (present : ∀ index, index < width → ∃ byte, mem.get? (address + index) = some byte) :
     Array UInt8 :=
