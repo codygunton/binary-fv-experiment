@@ -17,7 +17,7 @@ open PreSail LeanRV64DExecutable.Functions Register
 def writeSuccessParentPc (pc : BitVec 64) : Prop :=
   pcInRanges Elflings.writeSuccessOwnedPcRanges pc
 
-def writeSuccessInitialExitPc (pc : BitVec 64) : Prop := pc = 0x101d4
+def writeSuccessInitialExitPc (pc : BitVec 64) : Prop := pc = 0x101d4 ∨ pc = 0x14e00
 
 def writeSuccessParentWrites : RegSet := fun register =>
   stepBookkeeping register ∨ register = x1 ∨ register = x2 ∨ register = x8 ∨
@@ -1812,7 +1812,7 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     childExit⟩ := memcpyImpl memcpyArgs (fromStep + 20) callState memcpyEntry
   have endTrace : ScopedTrace writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) (fromStep + 20) 0 callMachine callMachine :=
-    .exitAt (fromStep + 20) callMachine 0x101d4 callAtPc rfl
+    .exitAt (fromStep + 20) callMachine 0x101d4 callAtPc (Or.inl rfl)
   have callPrefix : ConfinedPrefix writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) (fromStep + 19) 1 setupState callMachine :=
     ConfinedPrefix.ownStep setup.atPc
@@ -2843,6 +2843,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
         UIntRep 8 next.mem (args.decodedAddress + 720 + index * 8)
           (tailValues ⟨index, inBounds⟩)) ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
+      Artifacts.programImage.fileBytesLoadedFaithfully next.mem ∧
       WriteSuccessMachineAccess args next ∧
       WriteSuccessMemoryFrame args state.machine next ∧
       WriteSuccessIoFrame state after := by
@@ -3047,8 +3048,87 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
       (by rfl) (by simp [kvBase, RegsOutside, stepBookkeeping]) (by native_decide)
   exact ⟨values, bytes, tailValues, used, after, curS13, trace,
     by simpa [kvBase, kvFinal, Nat.add_assoc] using segS13, destinationRep, bytesSize,
-    tailS13, savedS13, accessS13,
+    tailS13, savedS13, writeSuccessCodeOfSeg access loaded lower segS13, accessS13,
     WritesOnlyWithin.trans_same memoryFrame segS13.mem, ioFrame⟩
+
+private theorem writeSuccessPrefixPc_in_execution {pc : BitVec 64}
+    (inside : pcInRanges Elflings.writeSuccessRawLine131ExecutionPcRanges pc) :
+    pcInRanges Elflings.writeSuccessExecutionPcRanges pc := by
+  unfold pcInRanges at inside ⊢
+  rcases inside with ⟨range, member, lower, upper⟩
+  simp [Elflings.writeSuccessRawLine131ExecutionPcRanges] at member
+  rcases member with rfl | rfl
+  · exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges], lower, upper⟩
+  · exact ⟨(0x14d30, 0x15a14), by simp [Elflings.writeSuccessExecutionPcRanges], by omega,
+      by omega⟩
+
+/-- Consume the selected constant-prefix encoder after the exact initial writer transfer. -/
+theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
+    (fromStep : Nat) (args : WriteSuccessArgs) (state : EndpointState)
+    (entry : WriteSuccessEntry args state) :
+    ∃ values, ∃ tailValues : Fin 16 → Nat, ∃ parentUsed childUsed after,
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+        fromStep (20 + parentUsed + 32 + childUsed) state after ∧
+      EndpointPc after = some 0x14e14 ∧
+      after.stdout = state.stdout ++ successPrefixBytes ∧
+      after.stdin = state.stdin ∧ after.stdinCursor = state.stdinCursor ∧
+      after.exitCode = state.exitCode ∧
+      (∀ index (inBounds : index < 16),
+        UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
+          (tailValues ⟨index, inBounds⟩)) ∧
+      SavedWordReps after.machine (writeSuccessSavedWords args values) ∧
+      Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+      WriteSuccessMachineAccess args after.machine ∧
+      WriteSuccessMemoryFrame args state.machine after.machine := by
+  obtain ⟨values, bytes, tailValues, parentUsed, parentAfter, tailMachine, parentTrace,
+    tailSeg, destinationRep, bytesSize, tailReps, saved, loaded, access, memoryFrame,
+    ioFrame⟩ := writeSuccessTailSegmentHandoff fromStep args state entry
+  let tailState : EndpointState := { parentAfter with machine := tailMachine }
+  have tailTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+      (fromStep + (20 + parentUsed)) 32 parentAfter tailState := by
+    have machineTrace := tailSeg.confined 0 tailMachine
+      (.exitAt (fromStep + 20 + parentUsed + 32) tailMachine 0x14e00 tailSeg.atPc
+        (Or.inr rfl))
+    simpa [tailState, Nat.add_assoc] using liftWriteSuccessParentTrace parentAfter machineTrace
+  obtain ⟨childBound, childImpl⟩ := child
+  have childEntry : ConstantEncoderEntry Elflings.writeSuccessRawLine131Entry () tailState := by
+    exact ⟨by simpa [tailState] using tailSeg.atPc, by simpa [tailState] using loaded⟩
+  obtain ⟨childUsed, final, unit, positive, bounded, childTrace, childExitPc, _allowed,
+    childExit⟩ := childImpl () (fromStep + 20 + parentUsed + 32) tailState childEntry
+  have childTrace' := childTrace.weaken (fun _ inside => writeSuccessPrefixPc_in_execution inside)
+  have fullTrace := (parentTrace.append tailTrace).append (by
+    simpa [Nat.add_assoc] using childTrace')
+  rcases childExit with ⟨finalPc, stdout, stdin, cursor, exitCode, childMem, childFrame⟩
+  have tailMemory : WriteSuccessMemoryFrame args state.machine tailMachine := memoryFrame
+  have finalMemory : WriteSuccessMemoryFrame args state.machine final.machine := by
+    apply WritesOnlyWithin.trans_same tailMemory
+    simpa [tailState] using writesOnlyWithin_of_mem_eq childMem
+  have pmaEq : final.machine.regs.get? pma_regions = tailMachine.regs.get? pma_regions := by
+    simpa [tailState] using childFrame.1 pma_regions (by simp [abiCalleePreserved])
+  have accessFinal : WriteSuccessMachineAccess args final.machine :=
+    { configured := configuredAfterEndpointCall access.configured childFrame
+      frameStore := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width inBounds)
+      frameNoMMIO := access.frameNoMMIO
+      decodedLoad := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.decodedLoad offset width inBounds)
+      decodedNoMMIO := access.decodedNoMMIO
+      frameNotCode := access.frameNotCode }
+  refine ⟨values, tailValues, parentUsed, childUsed, final, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+    childFrame.2.2.1, accessFinal, finalMemory⟩
+  · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
+  · simpa [EndpointPc, MachinePc] using finalPc
+  · calc
+      final.stdout = tailState.stdout ++ successPrefixBytes := stdout
+      _ = state.stdout ++ successPrefixBytes := by rw [ioFrame.2.2.1]
+  · exact stdin.trans (by simpa [tailState] using ioFrame.1)
+  · exact cursor.trans (by simpa [tailState] using ioFrame.2.1)
+  · exact exitCode.trans (by simpa [tailState] using ioFrame.2.2.2)
+  · intro index inBounds
+    simpa [tailState, childMem] using tailReps index inBounds
+  · intro word member
+    simpa [tailState, childMem] using saved word member
 
 
 
