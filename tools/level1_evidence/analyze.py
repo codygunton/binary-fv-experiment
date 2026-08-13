@@ -260,7 +260,7 @@ def validate_initialized_decoded_prefixes(_vectors: list[dict],
             f"initialized decoded-prefix captures do not match successful vectors: "
             f"expected={sorted(expected)} captured={captured_labels}")
     for window in captured:
-        if window["pc"] != 0x14d30 or len(bytes.fromhex(window["bytes"])) != 720:
+        if window["pc"] != 0x14d30 or len(bytes.fromhex(window["bytes"])) != 848:
             raise ValueError("unexpected initialized decoded-prefix capture")
     return captured
 
