@@ -129,6 +129,30 @@ theorem mainMeaning_of_modulo {args : MainArgs} (hAvoidKnownBugs : AvoidKnownBug
       · exact False.elim (hAvoidKnownBugs.rejectedDomain rejected zesu bug listed applies)
 
 set_option genInjectivity false in
+/-- Data permissions supplied by the concrete endpoint environment for the complete main stack
+frame and the two fixed bare-metal I/O context words. -/
+structure MainDataAccess (args : MainArgs) (state : State) : Prop where
+  stackLoad : ∀ offset width, offset + width ≤ 0x380 →
+    LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  stackStore : ∀ offset width, offset + width ≤ 0x380 →
+    StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  inputContextLoad :
+    LoadPmaAllows state (BitVec.ofNat 64 Elflings.ioContextAddress) 8
+  exitCodeStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 24)) 8
+
+theorem MainDataAccess.of_pma_regions_eq {args : MainArgs} {before after : State}
+    (access : MainDataAccess args before)
+    (regions : after.regs.get? pma_regions = before.regs.get? pma_regions) :
+    MainDataAccess args after where
+  stackLoad offset width bound :=
+    dataPmaAllows_of_pma_regions_eq regions (access.stackLoad offset width bound)
+  stackStore offset width bound :=
+    dataPmaAllows_of_pma_regions_eq regions (access.stackStore offset width bound)
+  inputContextLoad := dataPmaAllows_of_pma_regions_eq regions access.inputContextLoad
+  exitCodeStore := dataPmaAllows_of_pma_regions_eq regions access.exitCodeStore
+
+set_option genInjectivity false in
 /-- Concrete Linux/RV64 entry state for the exported endpoint. The two PMA/MMIO clauses are the
 actual stack stores at offsets `0x378` and `8`; no generated instruction run is assumed here. -/
 structure MainEntry (args : MainArgs) (state : EndpointState) : Prop where
@@ -147,13 +171,15 @@ structure MainEntry (args : MainArgs) (state : EndpointState) : Prop where
   returnRegister : state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress)
   configured : ConfiguredMachinePre EndpointMachinePc state.machine
   code : Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
-  savedReturnPma :
-    StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8
-  inputSizePma : StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8
+  dataAccess : MainDataAccess args state.machine
   savedReturnNoMMIO :
     StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8
   inputSizeNoMMIO : StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 8)) 8
+  stackNoMMIO : ∀ offset width, offset + width ≤ 0x380 →
+    DataMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + offset)) width
   inputBytes : BytesRep state.machine.mem Elflings.inputBufferAddress args.input
+  inputSizeContext : UIntRep 8 state.machine.mem Elflings.ioContextAddress args.input.size
+  stackBelowInputBuffer : args.stackPointer + 0x380 ≤ Elflings.inputBufferAddress
   inputOutsideStack : ∀ index, index < args.input.size →
     Elflings.inputBufferAddress + index < args.stackPointer ∨
       args.stackPointer + 0x380 ≤ Elflings.inputBufferAddress + index
@@ -376,9 +402,9 @@ def MainStackAllocatedHandoff (args : MainArgs) (fromStep : Nat)
     EndpointPc after = some 0x14cb4 ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
-    StorePmaAllows after.machine (BitVec.ofNat 64 (args.stackPointer + 0x378)) 8 ∧
-    StorePmaAllows after.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
+    MainDataAccess args after.machine ∧
     BytesRep after.machine.mem Elflings.inputBufferAddress args.input ∧
+    UIntRep 8 after.machine.mem Elflings.ioContextAddress args.input.size ∧
     after.stdin = args.input ∧ after.stdinCursor = 0 ∧ after.stdout = #[] ∧
     after.exitCode = none
 
@@ -437,23 +463,13 @@ theorem main_stack_allocate (args : MainArgs) (fromStep : Nat) (before : Endpoin
               (BitVec.ofNat 64 Elflings.mainEntry) (BitVec.ofNat 12 0xc80)
               (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired).get x1 (by decide)
           _ = some (BitVec.ofNat 64 args.returnAddress) := entry.returnRegister),
-      (by
-        apply storePmaAllows_of_agree
-          ((stackAddiRetirement_writes before.machine
-            (BitVec.ofNat 64 Elflings.mainEntry) (BitVec.ofNat 12 0xc80)
-            (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired).agree
-              (platformPreserved_disjoint.union
-                (RegSet.Disjoint.only (by simp [platformPreserved]))))
-        exact entry.savedReturnPma),
-      (by
-        apply storePmaAllows_of_agree
-          ((stackAddiRetirement_writes before.machine
-            (BitVec.ofNat 64 Elflings.mainEntry) (BitVec.ofNat 12 0xc80)
-            (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired).agree
-              (platformPreserved_disjoint.union
-                (RegSet.Disjoint.only (by simp [platformPreserved]))))
-        exact entry.inputSizePma),
+      entry.dataAccess.of_pma_regions_eq
+        ((stackAddiRetirement_writes before.machine
+          (BitVec.ofNat 64 Elflings.mainEntry) (BitVec.ofNat 12 0xc80)
+          (BitVec.ofNat 64 (args.stackPointer + 0x380)) retired).get pma_regions (by decide)),
       (by simpa [after, afterMachine, tryStepStackAddiAfterRetired_mem] using entry.inputBytes),
+      (by simpa [after, afterMachine, tryStepStackAddiAfterRetired_mem] using
+        entry.inputSizeContext),
       (by simpa [after] using entry.stdin), (by simpa [after] using entry.stdinCursor),
       (by simpa [after] using entry.stdout), (by simpa [after] using entry.exitCode)⟩
 
@@ -468,8 +484,9 @@ def MainReturnSavedHandoff (args : MainArgs) (fromStep : Nat)
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
-    StorePmaAllows after.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
+    MainDataAccess args after.machine ∧
     BytesRep after.machine.mem Elflings.inputBufferAddress args.input ∧
+    UIntRep 8 after.machine.mem Elflings.ioContextAddress args.input.size ∧
     after.stdin = args.input ∧ after.stdinCursor = 0 ∧ after.stdout = #[] ∧
     after.exitCode = none
 
@@ -477,7 +494,7 @@ def MainReturnSavedHandoff (args : MainArgs) (fromStep : Nat)
 theorem main_save_return_address (args : MainArgs) (fromStep : Nat) (before : EndpointState)
     (entry : MainEntry args before) : MainReturnSavedHandoff args fromStep before := by
   obtain ⟨stackState, stackTrace, configured, code, atPc, stackRead, returnRead,
-      savedReturnPma, inputSizePma, inputBytes, stdin, stdinCursor, stdout, exitCode⟩ :=
+      dataAccess, inputBytes, inputContext, stdin, stdinCursor, stdout, exitCode⟩ :=
     main_stack_allocate args fromStep before entry
   let premise := coreStoreNextState (tryStepStoreAfterIncrement stackState.machine) 0x14cb4
   have returnPremise : premise.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) :=
@@ -504,7 +521,8 @@ theorem main_save_return_address (args : MainArgs) (fromStep : Nat) (before : En
       rw [show 2 ^ 64 = 18446744073709551616 by native_decide]
       omega
     rw [Nat.mod_eq_of_lt stackBound]
-  let afterWrite := afterWriteBytes (width := 8) premise
+  let afterWrite := afterWriteBytes (width := 8)
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement stackState.machine) 0x14cb4)
     (BitVec.ofNat 64 (args.stackPointer + 0x378)).toNat
     (BitVec.ofNat 64 args.returnAddress)
   have access : MainDwordStoreAccess stackState.machine afterWrite 0x14cb4 0x378
@@ -529,7 +547,7 @@ theorem main_save_return_address (args : MainArgs) (fromStep : Nat) (before : En
         have tmodEight : ((args.stackPointer + 0x378 : Nat) : Int).tmod 8 = 0 :=
           congrArg Int.ofNat modEight
         simpa [tmodEight])
-      savedReturnPma entry.savedReturnNoMMIO
+      (dataAccess.stackStore 0x378 8 (by omega)) entry.savedReturnNoMMIO
   obtain ⟨retired, run⟩ := main_save_return_address_step (fromStep + 1) stackState.machine
     afterWrite configured (by simpa [EndpointPc] using atPc) code access
   let afterMachine := tryStepStoreAfterRetired afterWrite 0x14cb4 retired
@@ -568,6 +586,22 @@ theorem main_save_return_address (args : MainArgs) (fromStep : Nat) (before : En
       rw [BitVec.toNat_ofNat,
         Nat.mod_eq_of_lt (by omega : args.stackPointer + 0x378 < 2 ^ 64)]
       rcases entry.inputOutsideStack index inBounds with below | above <;> omega
+  have inputContextAfter : UIntRep 8 afterMachine.mem Elflings.ioContextAddress args.input.size := by
+    refine ⟨inputContext.1, inputContext.2.1, ?_⟩
+    intro index indexBound
+    change (tryStepStoreAfterRetired afterWrite 0x14cb4 retired).mem.get?
+      (Elflings.ioContextAddress + index) = _
+    rw [tryStepStoreAfterRetired, tryStepStoreAfterTick]
+    rw [afterWriteBytes_mem_get?_of_outside]
+    · exact inputContext.2.2 index indexBound
+    · intro written
+      have writtenBound : written.val < 8 := written.isLt
+      rw [BitVec.toNat_ofNat,
+        Nat.mod_eq_of_lt (by omega : args.stackPointer + 0x378 < 2 ^ 64)]
+      have contextAfterInput : Elflings.inputBufferAddress ≤ Elflings.ioContextAddress := by
+        native_decide
+      have stackBelowInput := entry.stackBelowInputBuffer
+      omega
   refine ⟨after, stackTrace.append (main_confined_sail_step (fromStep + 1) stackState afterMachine
       0x14cb4 atPc (by refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
       main14cb4_not_syscall run),
@@ -585,8 +619,9 @@ theorem main_save_return_address (args : MainArgs) (fromStep : Nat) (before : En
         (args.stackPointer + 0x378) args.returnAddress
       rw [tryStepStoreAfterRetired, tryStepStoreAfterTick]
       simpa [afterWrite, BitVec.toNat_ofNat, Nat.mod_eq_of_lt destinationBound] using written),
-    storePmaAllows_of_agree platformAgree inputSizePma,
+    dataAccess.of_pma_regions_eq (writes.get pma_regions (by decide)),
     inputBytesAfter,
+    inputContextAfter,
     (by simpa [after] using stdin), (by simpa [after] using stdinCursor),
     (by simpa [after] using stdout), (by simpa [after] using exitCode)⟩
 
@@ -601,7 +636,9 @@ def MainFrameInitializedHandoff (args : MainArgs) (fromStep : Nat)
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
+    MainDataAccess args after.machine ∧
     BytesRep after.machine.mem Elflings.inputBufferAddress args.input ∧
+    UIntRep 8 after.machine.mem Elflings.ioContextAddress args.input.size ∧
     after.stdin = args.input ∧ after.stdinCursor = 0 ∧ after.stdout = #[] ∧
     after.exitCode = none
 
@@ -609,7 +646,7 @@ def MainFrameInitializedHandoff (args : MainArgs) (fromStep : Nat)
 theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : EndpointState)
     (entry : MainEntry args before) : MainFrameInitializedHandoff args fromStep before := by
   obtain ⟨savedState, savedTrace, configured, code, atPc, stackRead, returnRead, savedReturn,
-      inputSizePma, inputBytes, stdin, stdinCursor, stdout, exitCode⟩ :=
+      dataAccess, inputBytes, inputContext, stdin, stdinCursor, stdout, exitCode⟩ :=
     main_save_return_address args fromStep before entry
   let premise := coreStoreNextState (tryStepStoreAfterIncrement savedState.machine) 0x14cb8
   have dataRead : Runs (rX_bits (.Regidx 0#5)) premise premise 0 := rX_x0_run premise
@@ -633,7 +670,8 @@ theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : Endpo
       rw [show 2 ^ 64 = 18446744073709551616 by native_decide]
       omega
     rw [Nat.mod_eq_of_lt stackBound]
-  let afterWrite := afterWriteBytes (width := 8) premise
+  let afterWrite := afterWriteBytes (width := 8)
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement savedState.machine) 0x14cb8)
     (BitVec.ofNat 64 (args.stackPointer + 8)).toNat 0
   have access : MainDwordStoreAccess savedState.machine afterWrite 0x14cb8 8 (.Regidx 0#5) :=
     MainDwordStoreAccess.of_stack savedState.machine 0x14cb8 8 (.Regidx 0#5)
@@ -656,7 +694,7 @@ theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : Endpo
         have tmodEight : ((args.stackPointer + 8 : Nat) : Int).tmod 8 = 0 :=
           congrArg Int.ofNat modEight
         simpa [tmodEight])
-      inputSizePma entry.inputSizeNoMMIO
+      (dataAccess.stackStore 8 8 (by omega)) entry.inputSizeNoMMIO
   obtain ⟨retired, run⟩ := main_clear_input_slot_step (fromStep + 2) savedState.machine
     afterWrite configured (by simpa [EndpointPc] using atPc) code access
   let afterMachine := tryStepStoreAfterRetired afterWrite 0x14cb8 retired
@@ -665,6 +703,8 @@ theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : Endpo
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement savedState.machine) 0x14cb8).regs :=
     afterWriteBytes_regs premise _ _
   have writes := main_store_retirement_writes 0x14cb8 retired writeRegs
+  have platformAgree : Agree platformPreserved savedState.machine afterMachine :=
+    writes.agree platformPreserved_disjoint
   have codeWrite : Artifacts.programImage.fileBytesLoadedFaithfully afterWrite.mem := by
     apply fileBytesLoadedFaithfully_afterWriteBytes Artifacts.programImage premise
       (BitVec.ofNat 64 (args.stackPointer + 8)).toNat 0
@@ -692,6 +732,22 @@ theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : Endpo
       rw [BitVec.toNat_ofNat,
         Nat.mod_eq_of_lt (by omega : args.stackPointer + 8 < 2 ^ 64)]
       rcases entry.inputOutsideStack index inBounds with below | above <;> omega
+  have inputContextAfter : UIntRep 8 afterMachine.mem Elflings.ioContextAddress args.input.size := by
+    refine ⟨inputContext.1, inputContext.2.1, ?_⟩
+    intro index indexBound
+    change (tryStepStoreAfterRetired afterWrite 0x14cb8 retired).mem.get?
+      (Elflings.ioContextAddress + index) = _
+    rw [tryStepStoreAfterRetired, tryStepStoreAfterTick]
+    rw [afterWriteBytes_mem_get?_of_outside]
+    · exact inputContext.2.2 index indexBound
+    · intro written
+      have writtenBound : written.val < 8 := written.isLt
+      rw [BitVec.toNat_ofNat,
+        Nat.mod_eq_of_lt (by omega : args.stackPointer + 8 < 2 ^ 64)]
+      have contextAfterInput : Elflings.inputBufferAddress ≤ Elflings.ioContextAddress := by
+        native_decide
+      have stackBelowInput := entry.stackBelowInputBuffer
+      omega
   refine ⟨after, savedTrace.append (main_confined_sail_step (fromStep + 2) savedState afterMachine
       0x14cb8 atPc (by refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
       main14cb8_not_syscall run),
@@ -714,7 +770,9 @@ theorem main_initialize_frame (args : MainArgs) (fromStep : Nat) (before : Endpo
         rw [BitVec.toNat_ofNat,
           Nat.mod_eq_of_lt (by omega : args.stackPointer + 8 < 2 ^ 64)]
         omega),
+    dataAccess.of_pma_regions_eq (writes.get pma_regions (by decide)),
     inputBytesAfter,
+    inputContextAfter,
     (by simpa [after] using stdin), (by simpa [after] using stdinCursor),
     (by simpa [after] using stdout), (by simpa [after] using exitCode)⟩
 
@@ -732,7 +790,9 @@ def MainReadInputCallReady (args : MainArgs) (fromStep : Nat)
     after.machine.regs.get? x10 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x11 = some (BitVec.ofNat 64 (args.stackPointer + 8)) ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 0x378) args.returnAddress ∧
+    MainDataAccess args after.machine ∧
     BytesRep after.machine.mem Elflings.inputBufferAddress args.input ∧
+    UIntRep 8 after.machine.mem Elflings.ioContextAddress args.input.size ∧
     after.stdin = args.input ∧ after.stdinCursor = 0 ∧ after.stdout = #[] ∧
     after.exitCode = none
 
@@ -741,7 +801,7 @@ theorem main_prepare_read_input_call (args : MainArgs) (fromStep : Nat)
     (before : EndpointState) (entry : MainEntry args before) :
     MainReadInputCallReady args fromStep before := by
   obtain ⟨frameState, frameTrace, configured0, code0, pc0, sp0, _ra0, _savedReturn,
-      inputBytes0, stdin0, cursor0, stdout0, exit0⟩ :=
+      dataAccess0, inputBytes0, inputContext0, stdin0, cursor0, stdout0, exit0⟩ :=
     main_initialize_frame args fromStep before entry
   obtain ⟨retired0, run0⟩ := main_input_buffer_address_step (fromStep + 3) frameState.machine
     configured0 (by simpa [EndpointPc] using pc0) code0 (MainAddiSource.stackPointer sp0)
@@ -827,7 +887,11 @@ theorem main_prepare_read_input_call (args : MainArgs) (fromStep : Nat)
         (afterRegisterWrite_destination machine1 0x14cc0 retired1 x11 value1
           (by decide) (by decide))),
     (by exact _savedReturn),
+    dataAccess0.of_pma_regions_eq
+      ((writes2.get pma_regions (by decide)).trans
+        ((writes1.get pma_regions (by decide)).trans (writes0.get pma_regions (by decide)))),
     (by simpa [state3, state2, state1, machine3, machine2, machine1] using inputBytes0),
+    (by simpa [state3, state2, state1, machine3, machine2, machine1] using inputContext0),
     (by simpa [state3, state2, state1] using stdin0),
     (by simpa [state3, state2, state1] using cursor0),
     (by simpa [state3, state2, state1] using stdout0),
@@ -842,6 +906,7 @@ def MainReadInputHandoff (contracts : Level1ResolvedContracts) (args : MainArgs)
     0 < childCount ∧ EndpointPc after = some 0x14ccc ∧
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    MainDataAccess args after.machine ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
@@ -856,7 +921,7 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
     MainReadInputHandoff contracts args fromStep before := by
   obtain ⟨ready, prefixTrace, configured, code, atPc, callBase, sp, a0, a1, savedReturn,
-      inputBytes, stdin, cursor, stdout, exitCode⟩ :=
+      dataAccess, inputBytes, inputContext, stdin, cursor, stdout, exitCode⟩ :=
     main_prepare_read_input_call args fromStep before entry
   obtain ⟨retired, run⟩ := main_read_input_call_step (fromStep + 6) ready.machine configured
     (by simpa [EndpointPc] using atPc) callBase code
@@ -874,12 +939,17 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
       tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code
   have callConfigured : ConfiguredMachinePre EndpointMachinePc callMachine :=
     ConfiguredMachinePre.afterCall 0x14cc8 0x10140 0x14ccc retired configured
+  have callDataAccess : MainDataAccess args callMachine :=
+    dataAccess.of_pma_regions_eq (callWrites.get pma_regions (by decide))
   have readEntry : ReadInputEntry
       { returnAddress := 0x14ccc, bufferSlot := args.stackPointer,
         sizeSlot := args.stackPointer + 8, savedFrameAddress := args.stackPointer + 0x378,
         savedReturnAddress := args.returnAddress, input := args.input } callState := by
-    refine ⟨readInputExitPc_14ccc,
-      entry.inputBound, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, callCode, callConfigured⟩
+    refine ⟨readInputExitPc_14ccc, entry.inputBound, ?_, ?_, ?_, ?_, ?_, ?_, rfl,
+      ?_, ?_, ?_, ?_, ?_, callDataAccess.stackStore 0 8 (by omega),
+      callDataAccess.stackStore 8 8 (by omega), callDataAccess.inputContextLoad,
+      entry.stackNoMMIO 0 8 (by omega), entry.stackNoMMIO 8 8 (by omega),
+      callCode, callConfigured⟩
     · simpa [callState] using stdin
     · simpa [callState] using cursor
     · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
@@ -888,9 +958,21 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
     · exact (callWrites.get x10 (by decide)).trans a0
     · exact (callWrites.get x11 (by decide)).trans a1
+    · have divisibleByEight : args.stackPointer % 8 = 0 := by
+        obtain ⟨multiple, multipleEq⟩ := Nat.dvd_of_mod_eq_zero entry.stackAligned
+        exact Nat.mod_eq_zero_of_dvd ⟨2 * multiple, by omega⟩
+      simpa only using divisibleByEight
+    · show args.stackPointer + 16 < 2 ^ 64
+      rw [show 2 ^ 64 = 18446744073709551616 by native_decide]
+      have frameFits := entry.stackFits
+      rw [show 2 ^ 64 = 18446744073709551616 by native_decide] at frameFits
+      omega
     · simpa [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
         tryStepControlFlowAfterIncrement] using inputBytes
+    · simpa [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
+        tryStepControlFlowAfterIncrement] using inputContext
     · exact UIntRep.of_mem_eq savedReturn (by
         simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
@@ -912,6 +994,8 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
     ConfiguredMachinePre.of_endpointCallFrame
       (ConfiguredMachinePre.afterCall 0x14cc8 0x10140 0x14ccc retired configured) callFrame,
     callFrame.2.2.1,
+    callDataAccess.of_pma_regions_eq
+      (callFrame.1 pma_regions (by simp [abiCalleePreserved])),
     callFrame.1 x2 (by simp [abiCalleePreserved]) |>.trans
       ((callWrites.get x2 (by decide)).trans sp),
     afterStdin.trans (by simpa [callState] using stdin), afterCursor,
@@ -929,6 +1013,7 @@ def MainAllocatorGetHandoff (contracts : Level1ResolvedContracts) (args : MainAr
     0 < readCount ∧ 0 < allocatorCount ∧ EndpointPc after = some 0x14cec ∧
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    MainDataAccess args after.machine ∧
     allocatorOutcome.vtableAddress = Elflings.allocatorVtableAddress ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.machine.regs.get? x10 = some (BitVec.ofNat 64 allocatorOutcome.stateAddress) ∧
@@ -953,7 +1038,8 @@ theorem main_call_allocator_get (contracts : Level1ResolvedContracts) (args : Ma
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
     MainAllocatorGetHandoff contracts args fromStep before := by
   obtain ⟨readCount, readState, readOutcome, readTrace, readPositive, readPc, configured,
-      code, stackPointer, stdin, stdinCursor, stdout, exitCode, inputAddressRep, inputSizeRep,
+      code, dataAccess, stackPointer, stdin, stdinCursor, stdout, exitCode,
+      inputAddressRep, inputSizeRep,
       inputRep, savedReturnRep, readBounded⟩ :=
     main_call_read_input contracts args fromStep before entry
   let allocatorArgs : AllocatorGetArgs :=
@@ -980,7 +1066,9 @@ theorem main_call_allocator_get (contracts : Level1ResolvedContracts) (args : Ma
     (by simpa [Nat.add_assoc] using readTrace.append wideAllocator),
     readPositive, allocatorPositive,
     (by simpa [EndpointPc] using afterPc),
-    ConfiguredMachinePre.of_endpointCallFrame configured callFrame, callFrame.2.2.1, vtableExact,
+    ConfiguredMachinePre.of_endpointCallFrame configured callFrame, callFrame.2.2.1,
+    dataAccess.of_pma_regions_eq (callFrame.1 pma_regions (by simp [abiCalleePreserved])),
+    vtableExact,
     afterStack, stateAddress, vtableAddress, inputPointer, inputLength, inputSize, inputAddress,
     inputAddressRep, inputSizeRep, stateAddressRep, vtableAddressRep, afterSavedReturn, afterInput,
     afterStdin.trans stdin, afterCursor.trans stdinCursor,
@@ -996,6 +1084,7 @@ def MainDecodeCallReady (contracts : Level1ResolvedContracts) (args : MainArgs) 
     0 < readCount ∧ 0 < allocatorCount ∧ EndpointPc after = some 0x14cf8 ∧
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    MainDataAccess args after.machine ∧
     allocatorOutcome.vtableAddress = Elflings.allocatorVtableAddress ∧
     after.machine.regs.get? x1 = some 0x11cf4 ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
@@ -1019,7 +1108,8 @@ theorem main_prepare_decode_call (contracts : Level1ResolvedContracts) (args : M
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
     MainDecodeCallReady contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, allocatorState, readOutcome, allocatorOutcome,
-      prefixTrace, readPositive, allocatorPositive, pc0, configured0, code0, vtableExact, sp0,
+      prefixTrace, readPositive, allocatorPositive, pc0, configured0, code0, dataAccess0,
+      vtableExact, sp0,
       _a0, _a1, inputAddress0, inputLength0, _inputSize0, _inputAddress0,
       inputAddressRep0, inputSizeRep0, allocatorStateRep0, allocatorVtableRep0,
       savedReturnRep0, inputRep0, stdin0, cursor0, stdout0, exit0,
@@ -1103,6 +1193,9 @@ theorem main_prepare_decode_call (contracts : Level1ResolvedContracts) (args : M
       simp [instructionPreserved]),
     fileBytesLoadedFaithfully_afterRegisterWrite Artifacts.programImage
       machine2 0x14cf4 retired2 x1 callBase code2,
+    dataAccess0.of_pma_regions_eq
+      ((writes2.get pma_regions (by decide)).trans
+        ((writes1.get pma_regions (by decide)).trans (writes0.get pma_regions (by decide)))),
     vtableExact,
     (by simpa [state3, machine3, callBaseEq] using
       (afterRegisterWrite_destination machine2 0x14cf4 retired2 x1 callBase
@@ -1152,6 +1245,7 @@ def MainDecodeHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (f
     EndpointPc after = some 0x14cfc ∧
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    MainDataAccess args after.machine ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     UIntRep 8 after.machine.mem args.stackPointer readOutcome.inputAddress ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 8) args.input.size ∧
@@ -1176,7 +1270,8 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
     MainDecodeHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, ready, readOutcome, allocatorOutcome, prefixTrace,
-      readPositive, allocatorPositive, atPc, configured, code, vtableExact, callBase, sp, resultAddress,
+      readPositive, allocatorPositive, atPc, configured, code, dataAccess, vtableExact,
+      callBase, sp, resultAddress,
       allocatorAddress, inputAddress, inputLength, inputAddressRep, inputSizeRep,
       allocatorStateRep, allocatorVtableRep, savedReturnRep, inputRep,
       stdin, cursor, stdout, exitCode, readBounded, allocatorBounded⟩ :=
@@ -1189,6 +1284,8 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
     0x12168 retired
   let callState : EndpointState := { ready with machine := callMachine }
   have callWrites := callRetirement_writes ready.machine 0x14cf8 0x12168 retired x1 0x14cfc
+  have callDataAccess : MainDataAccess args callMachine :=
+    dataAccess.of_pma_regions_eq (callWrites.get pma_regions (by decide))
   have callTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
       (11 + readCount + allocatorCount) before callState := by
     simpa [callState, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
@@ -1247,6 +1344,8 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
     ConfiguredMachinePre.of_endpointCallFrame
       (ConfiguredMachinePre.afterCall 0x14cf8 0x12168 0x14cfc retired configured) callFrame,
     afterCode,
+    callDataAccess.of_pma_regions_eq
+      (callFrame.1 pma_regions (by simp [abiCalleePreserved])),
     (by simpa [decodeArgs] using afterStack),
     (by simpa [decodeArgs] using afterInputAddressRep),
     (by simpa [decodeArgs] using afterInputSizeRep),
@@ -1277,6 +1376,7 @@ def MainStatusLoadedHandoff (contracts : Level1ResolvedContracts) (args : MainAr
     EndpointPc after = some 0x14d00 ∧
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    MainDataAccess args after.machine ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
@@ -1297,7 +1397,7 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
     MainStatusLoadedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
       decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
-      atPc, configured, code, sp, _inputAddressRep, _inputSizeRep, _savedReturnRep,
+      atPc, configured, code, dataAccess, sp, _inputAddressRep, _inputSizeRep, _savedReturnRep,
       _inputRep, stdin, cursor, stdout, exitCode, outcomeRep,
       readBounded, allocatorBounded, decodeBounded⟩ :=
     main_call_decode contracts args fromStep before entry
@@ -1318,7 +1418,7 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
             0x14cfc atPc mainGluePcs_14cfc main14cfc_not_syscall run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .failure, trace,
-        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
         ⟨status, statusNe, statusFits, ?_⟩, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · simpa [after, EndpointPc, afterMachine] using
@@ -1326,6 +1426,9 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
       · exact ConfiguredMachinePre.afterRegisterWrite 0x14cfc retired x10
           (extend_value true access.data) configured x10_not_instructionPreserved
       · simpa [after, afterMachine] using code
+      · exact dataAccess.of_pma_regions_eq
+          ((afterRegisterWrite_writes state.machine 0x14cfc retired x10
+            (extend_value true access.data)).get pma_regions (by decide))
       · exact (afterRegisterWrite_writes state.machine 0x14cfc retired x10
           (extend_value true access.data)).get x2 (by decide) |>.trans sp
       · simpa [after] using stdin
@@ -1351,7 +1454,7 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
             0x14cfc atPc mainGluePcs_14cfc main14cfc_not_syscall run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .success decoded, trace,
-        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+        readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
         ⟨?_, ?_⟩, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · simpa [after, EndpointPc, afterMachine] using
@@ -1359,6 +1462,9 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
       · exact ConfiguredMachinePre.afterRegisterWrite 0x14cfc retired x10
           (extend_value true access.data) configured x10_not_instructionPreserved
       · simpa [after, afterMachine] using code
+      · exact dataAccess.of_pma_regions_eq
+          ((afterRegisterWrite_writes state.machine 0x14cfc retired x10
+            (extend_value true access.data)).get pma_regions (by decide))
       · exact (afterRegisterWrite_writes state.machine 0x14cfc retired x10
           (extend_value true access.data)).get x2 (by decide) |>.trans sp
       · simpa [after] using stdin
@@ -1388,6 +1494,7 @@ def MainStatusBranchedHandoff (contracts : Level1ResolvedContracts) (args : Main
       decodeOutcome ∧
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    MainDataAccess args after.machine ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.stdout = #[] ∧ after.exitCode = none ∧
@@ -1405,7 +1512,7 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
     MainStatusBranchedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
       decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
-      atPc, configured, code, sp, stdin, cursor, stdout, exitCode, outcomeRep,
+      atPc, configured, code, dataAccess, sp, stdin, cursor, stdout, exitCode, outcomeRep,
       readBounded, allocatorBounded, decodeBounded⟩ :=
     main_load_decode_status contracts args fromStep before entry
   cases decodeOutcome with
@@ -1453,11 +1560,14 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
               refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
             (by unfold BareMetalHostTransitionPc; native_decide) run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
-        .failure, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_,
+        .failure, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_,
         ?_, ?_, ?_, ?_, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · exact ConfiguredMachinePre.afterJump 0x14d00 0x14d1c retired configured
       · simpa [after, afterMachine] using code
+      · exact dataAccess.of_pma_regions_eq
+          ((jumpRetirement_writes state.machine 0x14d00 0x14d1c retired).get pma_regions
+            (by decide))
       · exact (jumpRetirement_writes state.machine 0x14d00 0x14d1c retired).get x2
           (by decide) |>.trans sp
       · simpa [after] using stdin
@@ -1495,10 +1605,14 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
             (by unfold BareMetalHostTransitionPc; native_decide) run)
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .success decoded, trace, readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_,
+        ?_,
         ?_, ?_, ?_, ?_, ?_, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · exact ConfiguredMachinePre.afterFallThrough 0x14d00 0x14d04 retired configured
       · simpa [after, afterMachine] using code
+      · exact dataAccess.of_pma_regions_eq
+          ((fallThroughRetirement_writes state.machine 0x14d00 0x14d04 retired).get pma_regions
+            (by decide))
       · exact (fallThroughRetirement_writes state.machine 0x14d00 0x14d04 retired).get x2
           (by decide) |>.trans sp
       · simpa [after] using stdin
@@ -1530,6 +1644,7 @@ def MainOutputSelectedHandoff (contracts : Level1ResolvedContracts) (args : Main
       decodeOutcome ∧
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+    MainDataAccess args after.machine ∧
     after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
     after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
     after.exitCode = none ∧
@@ -1551,14 +1666,15 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
     MainOutputSelectedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, state, readOutcome, allocatorOutcome,
       decodeOutcome, prefixTrace, readPositive, allocatorPositive, decodePositive, meaning,
-      configured, code, sp, stdin, cursor, stdout, exitCode, selected,
+      configured, code, dataAccess, sp, stdin, cursor, stdout, exitCode, selected,
       readBounded, allocatorBounded, decodeBounded⟩ :=
     main_branch_decode_status contracts args fromStep before entry
   cases decodeOutcome with
   | failure =>
       refine ⟨readCount, allocatorCount, decodeCount, 0, state, readOutcome, allocatorOutcome,
         .failure, ?_, readPositive, allocatorPositive, decodePositive, meaning, configured, code,
-        sp, stdin, cursor, exitCode, ?_, readBounded, allocatorBounded, decodeBounded, (by omega)⟩
+        dataAccess, sp, stdin, cursor, exitCode, ?_, readBounded, allocatorBounded, decodeBounded,
+        (by omega)⟩
       · simpa using prefixTrace
       · exact ⟨rfl, selected, stdout⟩
   | success decoded =>
@@ -1673,12 +1789,18 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
         simpa [writeSuccessContract, writeArgs] using writeBounded
       refine ⟨readCount, allocatorCount, decodeCount, 3 + writeCount, after, readOutcome,
         allocatorOutcome, .success decoded, ?_, readPositive, allocatorPositive, decodePositive,
-        meaning, ?_, callFrame.2.2.1, ?_, ?_, ?_, ?_,
+        meaning, ?_, callFrame.2.2.1, ?_, ?_, ?_, ?_, ?_,
         ⟨bytes, writeCount, rfl, writePositive, (by simpa [EndpointPc] using afterPc), ?_, observed⟩,
         readBounded, allocatorBounded, decodeBounded, (by omega)⟩
       · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using callTrace.append wideWrite
       · exact ConfiguredMachinePre.of_endpointCallFrame
           (ConfiguredMachinePre.afterCall 0x14d0c 0x14d30 0x14d10 retired2 configured2) callFrame
+      · exact (dataAccess.of_pma_regions_eq
+          ((afterRegisterWrite_writes state.machine 0x14d04 retired0 x10 value0).get pma_regions
+            (by decide))).of_pma_regions_eq
+          ((afterRegisterWrite_writes machine1 0x14d08 retired1 x1 0x14d08).get pma_regions
+            (by decide)) |>.of_pma_regions_eq (callWrites.get pma_regions (by decide))
+          |>.of_pma_regions_eq (callFrame.1 pma_regions (by simp [abiCalleePreserved]))
       · exact callFrame.1 x2 (by simp [abiCalleePreserved]) |>.trans
           ((callWrites.get x2 (by decide)).trans
             ((afterRegisterWrite_writes machine1 0x14d08 retired1 x1 0x14d08).get x2
@@ -1703,6 +1825,7 @@ def MainSuccessExitedHandoff (contracts : Level1ResolvedContracts) (args : MainA
     | .failure => EndpointPc after = some 0x14d1c ∧
         ConfiguredMachinePre EndpointMachinePc after.machine ∧
         Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+        MainDataAccess args after.machine ∧
         after.stdin = args.input ∧ after.stdinCursor = args.input.size ∧
         after.stdout = #[] ∧ after.exitCode = none ∧
         used + 5 + contracts.writeFailureBound + contracts.zkvmExitBound ≤
@@ -1717,14 +1840,14 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
     MainSuccessExitedHandoff contracts args fromStep before := by
   obtain ⟨readCount, allocatorCount, decodeCount, routeCount, state, readOutcome,
       allocatorOutcome, decodeOutcome, prefixTrace, readPositive, allocatorPositive,
-      decodePositive, meaning, configured, code, _sp, stdin, cursor, exitCode, selected,
+      decodePositive, meaning, configured, code, dataAccess, _sp, stdin, cursor, exitCode, selected,
       readBounded, allocatorBounded, decodeBounded, routeBounded⟩ :=
     main_write_selected_output contracts args fromStep before entry
   cases decodeOutcome with
   | failure =>
       rcases selected with ⟨routeZero, atPc, stdout⟩
       refine ⟨13 + readCount + allocatorCount + decodeCount, state, .failure, ?_, (by omega), ?_, atPc,
-        configured, code, stdin, cursor, stdout, exitCode, ?_⟩
+        configured, code, dataAccess, stdin, cursor, stdout, exitCode, ?_⟩
       · simpa [routeZero] using prefixTrace
       · change ¬∃ decoded, SailDecode args.input decoded
         exact meaning
@@ -1812,8 +1935,14 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
           tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code2
       have callConfigured : ConfiguredMachinePre EndpointMachinePc callMachine :=
         ConfiguredMachinePre.afterCall 0x14d18 0x101c4 0x14d1c retired2 configured2
+      have callDataAccess : MainDataAccess args callMachine :=
+        (dataAccess.of_pma_regions_eq
+          ((afterRegisterWrite_writes state.machine 0x14d10 retired0 x10 0).get pma_regions
+            (by decide))).of_pma_regions_eq
+          ((afterRegisterWrite_writes machine1 0x14d14 retired1 x1 0xfd14).get pma_regions
+            (by decide)) |>.of_pma_regions_eq (callWrites.get pma_regions (by decide))
       have exitEntry : ZkvmExitEntry { code := 0 } callState := by
-        refine ⟨?_, ?_, callCode, callConfigured⟩
+        refine ⟨?_, ?_, callDataAccess.exitCodeStore, callCode, callConfigured⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.zkvmExitEntry]
         · exact (callWrites.get x10 (by decide)).trans zero2
@@ -1865,7 +1994,8 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
       rcases selected with ⟨exited, bounded⟩
       exact ⟨used, state, .success decoded, prefixTrace, usedPositive, meaning, exited, bounded⟩
   | failure =>
-      rcases selected with ⟨atPc, configured, code, stdin, cursor, stdout, exitCode, reserved⟩
+      rcases selected with ⟨atPc, configured, code, dataAccess, stdin, cursor, stdout, exitCode,
+        reserved⟩
       obtain ⟨retired0, run0⟩ := main_write_failure_call_base_step (fromStep + used)
         state.machine configured (by simpa [EndpointPc] using atPc) code
       let machine1 := afterRegisterWrite state.machine 0x14d1c retired0 x1 0x15d1c
@@ -1928,6 +2058,13 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
       have writtenConfigured := ConfiguredMachinePre.of_endpointCallFrame
         (ConfiguredMachinePre.afterCall 0x14d20 0x161c0 0x14d24 retired1 configured1) callFrame
       have writtenCode := callFrame.2.2.1
+      have writtenDataAccess : MainDataAccess args written.machine :=
+        (dataAccess.of_pma_regions_eq
+          ((afterRegisterWrite_writes state.machine 0x14d1c retired0 x1 0x15d1c).get pma_regions
+            (by decide))).of_pma_regions_eq
+          ((callRetirement_writes machine1 0x14d20 0x161c0 retired1 x1 0x14d24).get pma_regions
+            (by decide)) |>.of_pma_regions_eq
+          (callFrame.1 pma_regions (by simp [abiCalleePreserved]))
       have writtenStdoutEq : written.stdout = bytes := by
         calc
           written.stdout = callState.stdout ++ bytes := writtenStdout
@@ -2011,8 +2148,14 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
       have exitConfigured : ConfiguredMachinePre EndpointMachinePc exitMachine :=
         ConfiguredMachinePre.afterCall 0x14d2c 0x101c4 0x14d30 retired4 configured4
       have terminalEntry : ZkvmExitEntry { code := 0 } exitState := by
-        refine ⟨?_, (exitWrites.get x10 (by decide)).trans zero4, exitCodeLoaded,
-          exitConfigured⟩
+        have exitDataAccess :=
+          (writtenDataAccess.of_pma_regions_eq
+            ((afterRegisterWrite_writes written.machine 0x14d24 retired2 x10 0).get pma_regions
+              (by decide))).of_pma_regions_eq
+            ((afterRegisterWrite_writes machine3 0x14d28 retired3 x1 0xfd28).get pma_regions
+              (by decide)) |>.of_pma_regions_eq (exitWrites.get pma_regions (by decide))
+        refine ⟨?_, (exitWrites.get x10 (by decide)).trans zero4,
+          exitDataAccess.exitCodeStore, exitCodeLoaded, exitConfigured⟩
         simp [exitState, exitMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.zkvmExitEntry]
       let exitBound := contracts.zkvmExitBound

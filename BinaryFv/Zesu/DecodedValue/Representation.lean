@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.DecodedValue.Observers
 import BinaryFv.RiscV.Platform.StoreMemoryWrite
+import BinaryFv.RiscV.Logic.MemoryWriteFrame
 import LeanRV64DExecutable
 
 /-!
@@ -26,6 +27,18 @@ theorem UIntRep.of_mem_eq {width address value : Nat}
     {before after : Std.ExtHashMap Nat (BitVec 8)} (rep : UIntRep width before address value)
     (memory : after = before) : UIntRep width after address value := by
   simpa [memory] using rep
+
+/-- Preserve an integer representation across writes proved disjoint from its byte window. -/
+theorem UIntRep.of_writesOnlyWithin {width address value : Nat}
+    {before after : BinaryFv.RiscV.State} {owned : BinaryFv.RiscV.Region}
+    (rep : UIntRep width before.mem address value)
+    (writes : BinaryFv.RiscV.WritesOnlyWithin owned before after)
+    (outside : ∀ index, index < width → ¬ owned (address + index)) :
+    UIntRep width after.mem address value := by
+  refine ⟨rep.1, rep.2.1, ?_⟩
+  intro index inBounds
+  rw [writes (address + index) (outside index inBounds)]
+  exact rep.2.2 index inBounds
 
 /-- An exact eight-byte Sail store establishes the corresponding little-endian integer
 representation. -/

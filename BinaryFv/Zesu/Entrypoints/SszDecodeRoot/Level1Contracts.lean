@@ -33,8 +33,16 @@ def ReadInputEntry (args : ReadInputArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.bufferSlot) ∧
   state.machine.regs.get? x11 = some (BitVec.ofNat 64 args.sizeSlot) ∧
+  args.sizeSlot = args.bufferSlot + 8 ∧ args.bufferSlot % 8 = 0 ∧
+  args.bufferSlot + 16 < 2 ^ 64 ∧
   BytesRep state.machine.mem Elflings.inputBufferAddress args.input ∧
+  UIntRep 8 state.machine.mem Elflings.ioContextAddress args.input.size ∧
   UIntRep 8 state.machine.mem args.savedFrameAddress args.savedReturnAddress ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 args.bufferSlot) 8 ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 args.sizeSlot) 8 ∧
+  LoadPmaAllows state.machine (BitVec.ofNat 64 Elflings.ioContextAddress) 8 ∧
+  StoreMMIOAddressExcluded (BitVec.ofNat 64 args.bufferSlot) 8 ∧
+  StoreMMIOAddressExcluded (BitVec.ofNat 64 args.sizeSlot) 8 ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   ConfiguredMachinePre EndpointMachinePc state.machine
 
