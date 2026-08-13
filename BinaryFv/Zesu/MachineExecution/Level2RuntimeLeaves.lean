@@ -15,6 +15,7 @@ this level. This module remains as the stable import point for future unconditio
 namespace BinaryFv.Zesu.MachineExecution
 
 open BinaryFv.Binary BinaryFv.RiscV
+open BinaryFv.RiscV.Elfling
 open PreSail LeanRV64DExecutable.Functions Register
 open MemoryAccessType mem_payload page_based_mem_type
 
@@ -324,6 +325,223 @@ theorem writeOutputReturnStep (stepNo : Nat) (state : State) (returnAddress : Bi
           (Sail.BitVec.update returnAddress 0 0#1))
         (Sail.BitVec.update returnAddress 0 0#1) retired) false :=
   configuredRetStep stepNo 0x101a0 state returnAddress configured atPc link targetAligned loaded
+
+private def writeOutputPc (pc : BitVec 64) : Prop :=
+  pc = 0x10190 ∨ pc = 0x10194 ∨ pc = 0x10198 ∨ pc = 0x1019c
+
+private def writeOutputExit (pc : BitVec 64) : Prop := pc = 0x101a0
+
+private def writeOutputWrites : RegSet :=
+  RegSet.union stepBookkeeping (RegSet.only x5)
+
+private def writeOutputMemory : Region :=
+  Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
+    (byteRange (Elflings.ioContextAddress + 16) 8)
+
+private theorem writeOutputMemory_not_file {address : Nat} (inside : writeOutputMemory address) :
+    Artifacts.programImage.readFileByte? address = none := by
+  cases read : Artifacts.programImage.readFileByte? address with
+  | none => rfl
+  | some byte =>
+      obtain ⟨segment, member, lower, upper⟩ :=
+        Binary.ProgramImage.readFileByte?_mem_segment read
+      have segmentBound : segment.initialEndAddress ≤ Elflings.ioContextAddress + 8 := by
+        have all : ∀ candidate ∈ Artifacts.programImage.segments.toList,
+            candidate.initialEndAddress ≤ Elflings.ioContextAddress + 8 := by native_decide
+        exact all segment member
+      unfold writeOutputMemory Region.union byteRange at inside
+      rcases inside with inside | inside <;> omega
+
+private theorem platformPreserved_disjoint_writeOutputWrites :
+    RegSet.Disjoint platformPreserved writeOutputWrites :=
+  platformPreserved_disjoint.union
+    (RegSet.Disjoint.only (by simp [platformPreserved]))
+
+private theorem instructionPreserved_disjoint_writeOutputWrites :
+    RegSet.Disjoint instructionPreserved writeOutputWrites :=
+  (platformPreserved_disjoint.weaken (fun _ preserved => preserved.1)).union
+    (RegSet.Disjoint.only (by simp [instructionPreserved, platformPreserved]))
+
+private theorem writeOutputPc_in_writer {pc : BitVec 64} (inside : writeOutputPc pc) :
+    pcInRanges Elflings.writeSuccessExecutionPcRanges pc := by
+  rcases inside with rfl | rfl | rfl | rfl
+  all_goals exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges],
+    by native_decide, by native_decide⟩
+
+private theorem writeOutputPc_not_observed {pc : BitVec 64} (inside : writeOutputPc pc) :
+    ¬ BareMetalHostTransitionPc pc := by
+  rcases inside with rfl | rfl | rfl | rfl <;>
+    simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+      exitContextStorePc] <;> native_decide
+
+private theorem liftWriteOutputPrefix (template : EndpointState) {fromStep count}
+    {before after : State}
+    (trace : ScopedTrace writeOutputPc writeOutputExit (fun _ _ _ _ _ => False)
+      fromStep count before after) :
+    ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+      fromStep count { template with machine := before } { template with machine := after } := by
+  induction trace with
+  | exitAt fromStep state pc atPc exitPc => exact .refl fromStep { template with machine := state }
+  | ownStep fromStep count pc before middle after atPc inside notExit machineStep rest ih =>
+      refine ConfinedTrace.step fromStep count pc
+        { template with machine := before } { template with machine := middle }
+        { template with machine := after } ?_ (writeOutputPc_in_writer inside) ?_ ?_
+      · exact atPc
+      · exact endpointStep_sail fromStep { template with machine := before } middle
+          (fun observed observedPc => by
+            change before.regs.get? PC = some observed at observedPc
+            rw [atPc] at observedPc
+            cases Option.some.inj observedPc
+            exact writeOutputPc_not_observed inside) machineStep
+      · simpa using ih
+  | childBody fromStep used count child before middle after body rest ih => exact body.elim
+  | inlineStep fromStep used count boundary program parent child before resume after transfer rest ih =>
+      exact transfer.body.elim
+  | inlineCallStep fromStep childUsed calleeUsed count boundary program parent child callee before
+      resume after transfer rest ih => exact transfer.body.elim
+  | callStep fromStep used count call program parent callee before resume after transfer rest ih =>
+      exact transfer.body.elim
+
+set_option genInjectivity false in
+/-- The exact bare-metal `write_output` function, including its observable return step. -/
+structure WriteOutputHandoff (fromStep : Nat) (buffer : Nat) (bytes : Array UInt8)
+    (returnAddress : BitVec 64) (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 5 before after
+  atPc : after.machine.regs.get? PC = some (Sail.BitVec.update returnAddress 0 0#1)
+  stdout : after.stdout = before.stdout ++ bytes
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  memory : WritesOnlyWithin writeOutputMemory before.machine after.machine
+  configured : ConfiguredMachinePre EndpointMachinePc after.machine
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+
+/-- Compose the exact five-instruction bare-metal `write_output` leaf with `Seg`. -/
+theorem writeOutputHandoff (fromStep buffer : Nat) (bytes : Array UInt8)
+    (returnAddress : BitVec 64) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x10190)
+    (link : before.machine.regs.get? x1 = some returnAddress)
+    (bufferRead : before.machine.regs.get? x10 = some (BitVec.ofNat 64 buffer))
+    (countRead : before.machine.regs.get? x11 = some (BitVec.ofNat 64 bytes.size))
+    (bytesRep : BytesRep before.machine.mem buffer bytes)
+    (bufferOutside : ∀ index, index < bytes.size → ¬ writeOutputMemory (buffer + index))
+    (bufferPma : StorePmaAllows before.machine
+      (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8)
+    (lengthPma : StorePmaAllows before.machine
+      (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8)
+    (targetAligned : Sail.BitVec.access returnAddress 1 = 0#1)
+    (configured : ConfiguredMachinePre EndpointMachinePc before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem) :
+    ∃ after, WriteOutputHandoff fromStep buffer bytes returnAddress before after := by
+  obtain ⟨retired0, retiredRead0⟩ := configured.retiredCounter
+  have seg0 := Seg.nil writeOutputPc writeOutputExit (fun _ _ _ _ _ => False)
+    writeOutputWrites writeOutputMemory fromStep ⟨retired0, retiredRead0⟩ atPc
+  have seg0 := (seg0.know x1 returnAddress link).know x10 (BitVec.ofNat 64 buffer) bufferRead
+  have seg0 := seg0.know x11 (BitVec.ofNat 64 bytes.size) countRead
+  obtain ⟨r1, run1⟩ := writeOutputContextBaseHighStep fromStep before.machine configured atPc loaded
+  let s1 := afterRegisterWrite before.machine 0x10190 r1 x5 0x2401a190
+  have seg1 := seg0.stepKnown (Or.inl rfl)
+    (by unfold writeOutputExit; native_decide) x5 0x2401a190 0x10194 r1 run1
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr rfl)
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  have cfg1 := configured.mono (seg1.agree instructionPreserved_disjoint_writeOutputWrites) seg1.retired
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully s1.mem := by
+    simpa [s1] using loaded
+  obtain ⟨r2, run2⟩ := writeOutputContextBaseLowStep (fromStep + 1) s1 cfg1 seg1.atPc
+    (seg1.reg x5 0x2401a190 (by simp)) loaded1
+  let s2 := afterRegisterWrite s1 0x10194 r2 x5
+    (BitVec.ofNat 64 Elflings.ioContextAddress)
+  have seg1' := seg1.forget (kv' :=
+    [⟨x11, BitVec.ofNat 64 bytes.size⟩, ⟨x10, BitVec.ofNat 64 buffer⟩,
+      ⟨x1, returnAddress⟩]) (by simp)
+  have seg2 := seg1'.stepKnown (Or.inr (Or.inl rfl))
+    (by unfold writeOutputExit; native_decide) x5
+    (BitVec.ofNat 64 Elflings.ioContextAddress) 0x10198 r2 run2
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr rfl)
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  have cfg2 := configured.mono (seg2.agree instructionPreserved_disjoint_writeOutputWrites) seg2.retired
+  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully s2.mem := by
+    simpa [s2, s1] using loaded
+  obtain ⟨r3, run3⟩ := writeOutputStoreBufferStep (fromStep + 2) s2 buffer cfg2 seg2.atPc
+    (seg2.reg x5 _ (by simp)) (seg2.reg x10 _ (by simp))
+    (storePmaAllows_of_agree (seg2.agree platformPreserved_disjoint_writeOutputWrites) bufferPma)
+    loaded2
+  let s3 := tryStepStoreAfterRetired
+    (afterWriteBytes (width := 8) (coreStoreNextState (tryStepStoreAfterIncrement s2) 0x10198)
+      (Elflings.ioContextAddress + 8) (BitVec.ofNat 64 buffer)) 0x10198 r3
+  have seg3 := seg2.stepStoreKnown (Elflings.ioContextAddress + 8)
+    (BitVec.ofNat 64 buffer) 0x1019c r3 (Or.inr (Or.inr (Or.inl rfl)))
+    (by unfold writeOutputExit; native_decide) run3
+    (by decide) (by intro address lo hi; exact Or.inl ⟨lo, hi⟩)
+    (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
+  have cfg3 := configured.mono (seg3.agree instructionPreserved_disjoint_writeOutputWrites) seg3.retired
+  have loaded3 : Artifacts.programImage.fileBytesLoadedFaithfully s3.mem := by
+    intro address byte file
+    have outside : ¬ writeOutputMemory address := by
+      intro inside
+      rw [writeOutputMemory_not_file inside] at file
+      cases file
+    have frame : s3.mem.get? address = before.machine.mem.get? address := by
+      simpa [s3] using seg3.mem address outside
+    exact frame.trans (loaded address byte file)
+  obtain ⟨r4, run4⟩ := writeOutputStoreLengthStep (fromStep + 3) s3 bytes.size cfg3 seg3.atPc
+    (seg3.reg x5 _ (by simp)) (seg3.reg x11 _ (by simp))
+    (storePmaAllows_of_agree (seg3.agree platformPreserved_disjoint_writeOutputWrites) lengthPma)
+    loaded3
+  let s4 := tryStepStoreAfterRetired
+    (afterWriteBytes (width := 8) (coreStoreNextState (tryStepStoreAfterIncrement s3) 0x1019c)
+      (Elflings.ioContextAddress + 16) (BitVec.ofNat 64 bytes.size)) 0x1019c r4
+  have seg4 := seg3.stepStoreKnown (Elflings.ioContextAddress + 16)
+    (BitVec.ofNat 64 bytes.size) 0x101a0 r4 (Or.inr (Or.inr (Or.inr rfl)))
+    (by unfold writeOutputExit; native_decide) run4
+    (by decide) (by intro address lo hi; exact Or.inr ⟨lo, hi⟩)
+    (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
+  have cfg4 := configured.mono (seg4.agree instructionPreserved_disjoint_writeOutputWrites) seg4.retired
+  have loaded4 : Artifacts.programImage.fileBytesLoadedFaithfully s4.mem := by
+    intro address byte file
+    have outside : ¬ writeOutputMemory address := by
+      intro inside
+      rw [writeOutputMemory_not_file inside] at file
+      cases file
+    have frame : s4.mem.get? address = before.machine.mem.get? address := by
+      simpa [s4] using seg4.mem address outside
+    exact frame.trans (loaded address byte file)
+  have bytes4 := bytesRep.of_writesOnlyWithin seg4.mem bufferOutside
+  obtain ⟨r5, run5⟩ := writeOutputReturnStep (fromStep + 4) s4 returnAddress cfg4 seg4.atPc
+    (seg4.reg x1 returnAddress (by simp)) targetAligned loaded4
+  let s5 := tryStepControlFlowAfterRetired
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement s4) 0x101a0
+      (Sail.BitVec.update returnAddress 0 0#1))
+    (Sail.BitVec.update returnAddress 0 0#1) r5
+  let beforeReturn : EndpointState := { before with machine := s4 }
+  let after : EndpointState := { before with machine := s5, stdout := before.stdout ++ bytes }
+  have machinePrefix : ScopedTrace writeOutputPc writeOutputExit (fun _ _ _ _ _ => False)
+      fromStep 4 before.machine s4 := by
+    have endTrace : ScopedTrace writeOutputPc writeOutputExit (fun _ _ _ _ _ => False)
+        (fromStep + 4) 0 s4 s4 := .exitAt _ _ 0x101a0 seg4.atPc rfl
+    simpa using seg4.confined 0 s4 endTrace
+  have prefixTrace := liftWriteOutputPrefix before machinePrefix
+  have finalStep : EndpointStep (fromStep + 4) beforeReturn after := .write
+    ⟨buffer, bytes.size, bytes, seg4.atPc, seg4.reg x10 _ (by simp), seg4.reg x11 _ (by simp),
+      rfl, bytes4, run5, rfl, rfl, rfl, rfl⟩
+  have finalTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessExecutionPcRanges) (fromStep + 4) 1 beforeReturn after := by
+    refine ConfinedTrace.step _ 0 0x101a0 beforeReturn after after seg4.atPc ?_ finalStep (.refl _ _)
+    exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges],
+      by native_decide, by native_decide⟩
+  refine ⟨after, prefixTrace.append (by simpa [beforeReturn] using finalTrace), ?_, rfl, rfl, rfl, rfl,
+    ?_, ?_, ?_⟩
+  · simp [after, s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      controlFlowJumpState, Std.ExtDHashMap.get?_insert]
+  · simpa [after, s5] using seg4.mem
+  · have writes5 : WritesOnlyRegs writeOutputWrites s4 s5 := by
+      exact (jumpRetirement_writes s4 0x101a0
+        (Sail.BitVec.update returnAddress 0 0#1) r5).mono (fun _ h => Or.inl h)
+    exact cfg4.mono (writes5.agree instructionPreserved_disjoint_writeOutputWrites)
+      (jumpRetirement_retired_present s4 0x101a0
+        (Sail.BitVec.update returnAddress 0 0#1) r5)
+  · simpa [after, s5] using loaded4
 
 /-- Production `0x14ccc: auipc a0, 0x24005`. -/
 theorem allocatorStateBaseHighStep (stepNo : Nat) (state : State)
