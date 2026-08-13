@@ -3070,6 +3070,8 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
       ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.writeSuccessExecutionPcRanges)
         fromStep (20 + parentUsed + 32 + childUsed) state after ∧
       EndpointPc after = some 0x14e14 ∧
+      after.machine.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) ∧
       after.stdout = state.stdout ++ successPrefixBytes ∧
       after.stdin = state.stdin ∧ after.stdinCursor = state.stdinCursor ∧
       after.exitCode = state.exitCode ∧
@@ -3115,10 +3117,12 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
         dataPmaAllows_of_pma_regions_eq pmaEq (access.decodedLoad offset width inBounds)
       decodedNoMMIO := access.decodedNoMMIO
       frameNotCode := access.frameNotCode }
-  refine ⟨values, tailValues, parentUsed, childUsed, final, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+  refine ⟨values, tailValues, parentUsed, childUsed, final, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
     childFrame.2.2.1, accessFinal, finalMemory⟩
   · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
   · simpa [EndpointPc, MachinePc] using finalPc
+  · exact (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
+      (tailSeg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
   · calc
       final.stdout = tailState.stdout ++ successPrefixBytes := stdout
       _ = state.stdout ++ successPrefixBytes := by rw [ioFrame.2.2.1]
