@@ -426,13 +426,29 @@ def inlineEncoderPreserved : Register → Prop := fun register =>
 structure InlineEncoderArgs (Value : Type) where
   stackPointer : Nat
   value : Value
+  savedWords : List (Nat × Nat)
+  decodedAddress : Nat
+  copiedPayloadAddress : Nat
+  decoded : ZesuDecodedResult
+
+def InlineEncoderSavedWords (mem : Std.ExtHashMap Nat (BitVec 8))
+    (words : List (Nat × Nat)) : Prop :=
+  ∀ word ∈ words, UIntRep 8 mem word.1 word.2
+
+/-- Exact optimized-inline write window. The parent uses `sp..sp+0x740`; its shared called
+encoders use at most 0xb0 bytes below `sp`. The writer's ABI save area begins at `sp+0x768`. -/
+def inlineEncoderMemoryRegion (stackPointer : Nat) : BinaryFv.RiscV.Region :=
+  BinaryFv.RiscV.byteRange (stackPointer - 0xb0) 0x7f0
 
 def InlineEncoderEntry (entry : Nat) (bindValue : EndpointState → Value → Prop)
     (args : InlineEncoderArgs Value) (state : EndpointState) : Prop :=
-  args.stackPointer + 2000 ≤ 2 ^ 64 ∧
+  0xb0 ≤ args.stackPointer ∧ args.stackPointer + 0x740 ≤ 2 ^ 64 ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   bindValue state args.value ∧
+  InlineEncoderSavedWords state.machine.mem args.savedWords ∧
+  StatelessInputRep state.machine.mem args.decodedAddress args.decoded ∧
+  ExecutionPayloadRep state.machine.mem args.copiedPayloadAddress args.decoded.payload ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
 def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
@@ -444,8 +460,11 @@ def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
   after.exitCode = before.exitCode ∧
   after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   preservedValue after args.value ∧
+  InlineEncoderSavedWords after.machine.mem args.savedWords ∧
+  StatelessInputRep after.machine.mem args.decodedAddress args.decoded ∧
+  ExecutionPayloadRep after.machine.mem args.copiedPayloadAddress args.decoded.payload ∧
   BinaryFv.RiscV.WritesOnlyWithin
-    (BinaryFv.RiscV.byteRange args.stackPointer 2000) before.machine after.machine ∧
+    (inlineEncoderMemoryRegion args.stackPointer) before.machine after.machine ∧
   BinaryFv.RiscV.Agree inlineEncoderPreserved before.machine after.machine ∧
   BinaryFv.RiscV.RetiredCounterPresent after.machine ∧
   Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem

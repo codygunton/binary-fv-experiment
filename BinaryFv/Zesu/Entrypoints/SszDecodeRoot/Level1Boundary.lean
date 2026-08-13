@@ -178,7 +178,7 @@ def DecodeBoundaryExit (args : DecodeBoundaryArgs) (outcome : DecodeBoundaryOutc
       UIntRep 2 state.machine.mem (args.stackPointer + 0x370) 0 ∧
         DecodeStatusLoadWitness state 0 ∧
         StatelessInputRep state.machine.mem (args.stackPointer + 0x20) decoded ∧
-        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x810) 0x810)
+        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x880) 0x880)
           state.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow state.machine.mem (args.stackPointer + 0x20) 720 ∧
         DwordWindowRep state.machine.mem (args.stackPointer + 0x20 + 720) 16

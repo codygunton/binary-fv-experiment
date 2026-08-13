@@ -28,6 +28,40 @@ def UIntRep (width : Nat) (mem : Std.ExtHashMap Nat (BitVec 8))
   value < 2 ^ (8 * width) ∧ address + width ≤ 2 ^ 64 ∧
     ∀ index, index < width → mem.get? (address + index) = some (byteAt value index)
 
+/-- An eight-byte little-endian memory representation determines its bounded natural value. -/
+theorem UIntRep.eight_unique {mem : Std.ExtHashMap Nat (BitVec 8)} {address a b : Nat}
+    (ha : UIntRep 8 mem address a) (hb : UIntRep 8 mem address b) : a = b := by
+  have haBound := ha.1
+  have hbBound := hb.1
+  have byte (index : Nat) (bound : index < 8) : byteAt a index = byteAt b index := by
+    rw [← Option.some_inj, ← ha.2.2 index bound, ← hb.2.2 index bound]
+  have b0 := congrArg BitVec.toNat (byte 0 (by omega))
+  have b1 := congrArg BitVec.toNat (byte 1 (by omega))
+  have b2 := congrArg BitVec.toNat (byte 2 (by omega))
+  have b3 := congrArg BitVec.toNat (byte 3 (by omega))
+  have b4 := congrArg BitVec.toNat (byte 4 (by omega))
+  have b5 := congrArg BitVec.toNat (byte 5 (by omega))
+  have b6 := congrArg BitVec.toNat (byte 6 (by omega))
+  have b7 := congrArg BitVec.toNat (byte 7 (by omega))
+  simp [byteAt] at b0 b1 b2 b3 b4 b5 b6 b7 haBound hbBound
+  have da0 := Nat.mod_add_div a 256
+  have db0 := Nat.mod_add_div b 256
+  have da1 := Nat.mod_add_div (a / 256) 256
+  have db1 := Nat.mod_add_div (b / 256) 256
+  have da2 := Nat.mod_add_div (a / 65536) 256
+  have db2 := Nat.mod_add_div (b / 65536) 256
+  have da3 := Nat.mod_add_div (a / 16777216) 256
+  have db3 := Nat.mod_add_div (b / 16777216) 256
+  have da4 := Nat.mod_add_div (a / 4294967296) 256
+  have db4 := Nat.mod_add_div (b / 4294967296) 256
+  have da5 := Nat.mod_add_div (a / 1099511627776) 256
+  have db5 := Nat.mod_add_div (b / 1099511627776) 256
+  have da6 := Nat.mod_add_div (a / 281474976710656) 256
+  have db6 := Nat.mod_add_div (b / 281474976710656) 256
+  have da7 := Nat.mod_add_div (a / 72057594037927936) 256
+  have db7 := Nat.mod_add_div (b / 72057594037927936) 256
+  omega
+
 theorem UIntRep.of_mem_eq {width address value : Nat}
     {before after : Std.ExtHashMap Nat (BitVec 8)} (rep : UIntRep width before address value)
     (memory : after = before) : UIntRep width after address value := by
