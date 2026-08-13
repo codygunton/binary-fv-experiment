@@ -20,7 +20,7 @@ UNIQUE_NAMES = {
     "ssz_decode_observation.Encoder.optionalU64": "writeSuccessOptionalU64",
     "ssz_decode_observation.Encoder.byteLists": "writeSuccessByteLists",
     "ssz_decode_observation.Encoder.bytes": "writeSuccessBytes",
-    "ssz_decode_observation.Encoder.int__anon_1525": "writeSuccessInt",
+    "ssz_decode_observation.Encoder.int": "writeSuccessInt",
 }
 
 

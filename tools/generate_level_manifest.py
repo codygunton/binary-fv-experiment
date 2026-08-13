@@ -11,6 +11,17 @@ from pathlib import Path
 
 
 INSTANCE = re.compile(r"^(?P<qualified>.+) \[(?P<id>(?:fi|fn):[^]]+)\]$")
+ENCODER_INT_ANON = re.compile(r"^ssz_decode_observation\.Encoder\.int__anon_\d+$")
+
+
+def canonical_qualified(row: dict) -> str:
+    """Replace Zig's unstable anonymous suffix with the reviewed source declaration name."""
+    name = row["name"]
+    if (ENCODER_INT_ANON.fullmatch(name)
+            and row["sourceFile"].endswith("/zkvm/ssz_decode_observation.zig")
+            and row["declLine"] == 19):
+        return "ssz_decode_observation.Encoder.int"
+    return name
 
 
 def generate(cfg: dict, flame: dict, level: int) -> dict:
@@ -73,7 +84,7 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
 
     def source_declaration(identifier: str) -> dict:
         row = rows[identifier]
-        return {"file": row["sourceFile"], "qualifiedName": row["name"]}
+        return {"file": row["sourceFile"], "qualifiedName": canonical_qualified(row)}
 
     def stable_identity(identifier: str) -> dict:
         row = rows[identifier]
@@ -227,7 +238,7 @@ def generate(cfg: dict, flame: dict, level: int) -> dict:
                 parent for parent, child_ids in edges.items()
                 if depths.get(parent) == level - 1 and identifier in child_ids
             ),
-            "qualified": row["name"],
+            "qualified": canonical_qualified(row),
             "kind": row["kind"],
             "functionInstanceIdentity": stable_identity(identifier),
             "sourceFile": row["sourceFile"],
