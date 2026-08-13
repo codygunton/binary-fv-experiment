@@ -6,6 +6,7 @@ import BinaryFv.RiscV.Instruction.Execute.DataAddress
 import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 import BinaryFv.RiscV.Step.Call
 import BinaryFv.RiscV.Step.FallThrough
+import BinaryFv.RiscV.Step.RegisterWrite
 import BinaryFv.RiscV.Step.Store
 import BinaryFv.RiscV.Step.TryStepStackAddiMemory
 import BinaryFv.Zesu.Artifacts.Image
@@ -341,6 +342,45 @@ theorem configuredAuipcStep (stepNo : Nat) (state : State) (pc : Nat)
     interrupts base decode notExpected execute (by decide) (by decide) (by decide) (by decide)
     counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1
     counters.2.2.2.2.2⟩
+
+/-- Production `0x14d78: auipc ra,-5`, used by the `writeSuccess` parent before `memcpy`. -/
+theorem writeSuccessMemcpyCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14d78)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14d78 retired x1 0xfd78) false := by
+  apply configuredAuipcStep stepNo state 0x14d78 0xffffb 0x97 0xb0 0xff 0xff
+    configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+    have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+        some Privilege.Machine := by
+      calc
+        _ = state.regs.get? cur_privilege := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+        _ = some Privilege.Machine := configured.normal.2.1
+    have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+        some seccfgBits := by
+      calc
+        _ = state.regs.get? mseccfg := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+        _ = some seccfgBits := seccfgRead
+    unfold Runs
+    rw [extDecode_eq]
+    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
+      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
+      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
+      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
+    rfl
 
 private theorem main_li_zero_step (stepNo : Nat) (state : State) (pc : Nat)
     (configured : ConfiguredMachinePre EndpointMachinePc state)

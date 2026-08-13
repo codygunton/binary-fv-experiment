@@ -43,7 +43,7 @@ private theorem writeSuccessIncomingRegs_hold (args : WriteSuccessArgs)
     (state : EndpointState) (entry : WriteSuccessEntry args state)
     (values : DecodeCalleeSavedValues) (saved : DecodeCalleeSavedAtRegisters values state) :
     RegsHold state.machine (writeSuccessIncomingRegs args values) := by
-  rcases entry with ⟨_, _, _, _, _, link, _, decoded, _, _, _, _⟩
+  rcases entry with ⟨_, _, _, _, _, link, _, decoded, _, _, _, _, _⟩
   rcases saved with ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11⟩
   intro pair member
   simp only [writeSuccessIncomingRegs, List.mem_cons, List.not_mem_nil, or_false] at member
@@ -79,7 +79,7 @@ theorem writeSuccessAllocateFrame (fromStep : Nat) (args : WriteSuccessArgs)
         fromStep 1 state.machine next 0x14d34 ∧
       ConfiguredMachinePre EndpointMachinePc next := by
   rcases entry with ⟨_return, lower, _aligned, fits, atPc, _link, stack, _decoded, _rep,
-    loaded, _saved, access⟩
+    _initialized, loaded, _saved, access⟩
   let kv := writeSuccessIncomingRegs args values
   have seg0 : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
@@ -91,7 +91,8 @@ theorem writeSuccessAllocateFrame (fromStep : Nat) (args : WriteSuccessArgs)
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := writeSuccessIncomingRegs_hold args state
-      ⟨_return, lower, _aligned, fits, atPc, _link, stack, _decoded, _rep, loaded, _saved, access⟩
+      ⟨_return, lower, _aligned, fits, atPc, _link, stack, _decoded, _rep, _initialized,
+        loaded, _saved, access⟩
       values saved }
   have decode : Runs
       (ext_decode (fetchWord (0x13 : BitVec 8) (0x01 : BitVec 8) (0x01 : BitVec 8)
@@ -294,7 +295,7 @@ theorem writeSuccessSaveRa {fromStep : Nat} {args : WriteSuccessArgs}
         [(args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc next := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits [] (by
     intro word member; simp at member) 0x14d34 0x7c8
     (BitVec.ofNat 64 args.returnAddress) 0x7c8 (.Regidx 1#5) 0x23 0x34 0x11 0x7c
@@ -349,7 +350,7 @@ theorem writeSuccessSaveS0 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc next := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d38 0x7c0 values.s0 0x7c0 (.Regidx 8#5) 0x23 0x30 0x81 0x7c
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -408,7 +409,7 @@ theorem writeSuccessSaveS1 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d3c 0x7b8 values.s1 0x7b8 (.Regidx 9#5) 0x23 0x3c 0x91 0x7a
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -468,7 +469,7 @@ theorem writeSuccessSaveS2 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d40 0x7b0 values.s2 0x7b0 (.Regidx 18#5) 0x23 0x38 0x21 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -530,7 +531,7 @@ theorem writeSuccessSaveS3 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d44 0x7a8 values.s3 0x7a8 (.Regidx 19#5) 0x23 0x34 0x31 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -594,7 +595,7 @@ theorem writeSuccessSaveS4 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d48 0x7a0 values.s4 0x7a0 (.Regidx 20#5) 0x23 0x30 0x41 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -660,7 +661,7 @@ theorem writeSuccessSaveS5 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d4c 0x798 values.s5 0x798 (.Regidx 21#5) 0x23 0x3c 0x51 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -728,7 +729,7 @@ theorem writeSuccessSaveS6 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d50 0x790 values.s6 0x790 (.Regidx 22#5) 0x23 0x38 0x61 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -798,7 +799,7 @@ theorem writeSuccessSaveS7 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d54 0x788 values.s7 0x788 (.Regidx 23#5) 0x23 0x34 0x71 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -870,7 +871,7 @@ theorem writeSuccessSaveS8 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d58 0x780 values.s8 0x780 (.Regidx 24#5) 0x23 0x30 0x81 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -944,7 +945,7 @@ theorem writeSuccessSaveS9 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d5c 0x778 values.s9 0x778 (.Regidx 25#5) 0x23 0x3c 0x91 0x77
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -1020,7 +1021,7 @@ theorem writeSuccessSaveS10 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d60 0x770 values.s10 0x770 (.Regidx 26#5) 0x23 0x38 0xa1 0x77
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -1098,7 +1099,7 @@ theorem writeSuccessSaveS11 {fromStep : Nat} {args : WriteSuccessArgs}
          (args.stackPointer - 0x7d0 + 0x7c8,
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, loaded, _, access⟩
   apply writeSuccessSaveStep seg access configured loaded lower fits _ words
     0x14d64 0x768 values.s11 0x768 (.Regidx 27#5) 0x23 0x34 0xb1 0x77
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -1158,10 +1159,11 @@ theorem writeSuccessSavePrologue (fromStep : Nat) (args : WriteSuccessArgs)
         fromStep 14 state.machine next 0x14d68 ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
       ConfiguredMachinePre EndpointMachinePc next := by
-  rcases entry with ⟨ret, lower, aligned, fits, atPc, link, stack, decoded, rep, loaded,
-    ⟨values, saved⟩, access⟩
+  rcases entry with ⟨ret, lower, aligned, fits, atPc, link, stack, decoded, rep, initialized,
+    loaded, ⟨values, saved⟩, access⟩
   have entry' : WriteSuccessEntry args state :=
-    ⟨ret, lower, aligned, fits, atPc, link, stack, decoded, rep, loaded, ⟨values, saved⟩, access⟩
+    ⟨ret, lower, aligned, fits, atPc, link, stack, decoded, rep, initialized, loaded,
+      ⟨values, saved⟩, access⟩
   obtain ⟨s1, seg1, cfg1⟩ := writeSuccessAllocateFrame fromStep args state entry' values saved
   obtain ⟨s2, seg2, words2, cfg2⟩ := writeSuccessSaveRa entry' seg1 cfg1
   obtain ⟨s3, seg3, words3, cfg3⟩ := writeSuccessSaveS0 entry' seg2 words2 cfg2
@@ -1216,19 +1218,144 @@ theorem writeSuccessBindDecodedStep (stepNo : Nat) (state : State) (value : BitV
           _ = some seccfgBits := seccfgRead
       decode_run) execute (base := by rfl)
 
+/-- Production `0x14d6c: addi a0,sp,0x138`. -/
+theorem writeSuccessMemcpyDestinationStep (stepNo : Nat) (state : State) (stackPointer : Nat)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14d6c)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 stackPointer))
+    (fits : stackPointer + 0x138 < 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14d6c retired x10
+        (BitVec.ofNat 64 (stackPointer + 0x138))) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d6c
+  let destination := BitVec.ofNat 64 (stackPointer + 0x138)
+  have source := (stepPremiseState_writes state 0x14d6c).get x2 (by decide) |>.trans stack
+  have resultEq : iTypeResult .ADDI 0x138 (BitVec.ofNat 64 stackPointer) =
+      BitVec.ofNat 64 (stackPointer + 0x138) := by
+    have sign : sign_extend (m := 64) (BitVec.ofNat 12 0x138) = 0x138#64 := by
+      native_decide
+    simp only [iTypeResult]
+    change BitVec.ofNat 64 stackPointer + sign_extend (BitVec.ofNat 12 0x138) = _
+    rw [sign]
+    rw [← BitVec.ofNat_add]
+  have execute : Runs (execute (.ITYPE (0x138, .Regidx 2#5, .Regidx 10#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x10 destination } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0x138 (.Regidx 2#5) (.Regidx 10#5) .ADDI) _ _ _
+    simpa only [resultEq] using execute_ITYPE_run premise _ 0x138 (.Regidx 2#5)
+      (.Regidx 10#5) .ADDI (BitVec.ofNat 64 stackPointer)
+      (rX_x2_run premise (BitVec.ofNat 64 stackPointer) source)
+      (wX_x10_run premise (iTypeResult .ADDI 0x138 (BitVec.ofNat 64 stackPointer)))
+  exact configuredRegisterWriteStep stepNo 0x14d6c state x10
+    (BitVec.ofNat 64 (stackPointer + 0x138))
+    (.ITYPE (0x138, .Regidx 2#5, .Regidx 10#5, .ADDI)) 0x13 0x05 0x81 0x13
+    configured atPc loaded (by
+      obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+      have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+          some Privilege.Machine := by
+        calc
+          _ = state.regs.get? cur_privilege := by
+            simpa [tryStepControlFlowAfterIncrement] using
+              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+          _ = some Privilege.Machine := configured.normal.2.1
+      have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+          some seccfgBits := by
+        calc
+          _ = state.regs.get? mseccfg := by
+            simpa [tryStepControlFlowAfterIncrement] using
+              writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+          _ = some seccfgBits := seccfgRead
+      decode_run) execute (base := by rfl)
+
+/-- Production `0x14d70: li a2,0x2d0`. -/
+theorem writeSuccessMemcpyLengthStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14d70)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14d70 retired x12 0x2d0) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d70
+  have resultEq : iTypeResult .ADDI 0x2d0 0 = 0x2d0#64 := by
+    native_decide
+  have execute : Runs (execute (.ITYPE (0x2d0, .Regidx 0#5, .Regidx 12#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x12 0x2d0 } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0x2d0 (.Regidx 0#5) (.Regidx 12#5) .ADDI) _ _ _
+    simpa only [resultEq] using execute_ITYPE_run premise _ 0x2d0 (.Regidx 0#5)
+      (.Regidx 12#5) .ADDI 0 (rX_x0_run premise)
+      (wX_x12_run premise (iTypeResult .ADDI 0x2d0 0))
+  exact configuredRegisterWriteStep stepNo 0x14d70 state x12 0x2d0
+    (.ITYPE (0x2d0, .Regidx 0#5, .Regidx 12#5, .ADDI)) 0x13 0x06 0x00 0x2d
+    configured atPc loaded (by
+      obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+      have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+          some Privilege.Machine := by
+        calc
+          _ = state.regs.get? cur_privilege := by
+            simpa [tryStepControlFlowAfterIncrement] using
+              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+          _ = some Privilege.Machine := configured.normal.2.1
+      have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+          some seccfgBits := by
+        calc
+          _ = state.regs.get? mseccfg := by
+            simpa [tryStepControlFlowAfterIncrement] using
+              writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+          _ = some seccfgBits := seccfgRead
+      decode_run) execute (base := by rfl)
+
+/-- Production `0x14d74: mv a1,s0`. -/
+theorem writeSuccessMemcpySourceStep (stepNo : Nat) (state : State) (sourceValue : BitVec 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14d74)
+    (source : state.regs.get? x8 = some sourceValue)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14d74 retired x11 sourceValue) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d74
+  have source' := (stepPremiseState_writes state 0x14d74).get x8 (by decide) |>.trans source
+  have resultEq : iTypeResult .ADDI 0 sourceValue = sourceValue := by
+    simp [iTypeResult, show sign_extend (m := 64) (0#12) = 0#64 by native_decide]
+  have execute : Runs (execute (.ITYPE (0, .Regidx 8#5, .Regidx 11#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x11 sourceValue } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0 (.Regidx 8#5) (.Regidx 11#5) .ADDI) _ _ _
+    simpa only [resultEq] using execute_ITYPE_run premise _ 0 (.Regidx 8#5)
+      (.Regidx 11#5) .ADDI sourceValue (rX_x8_run premise sourceValue source')
+      (wX_x11_run premise (iTypeResult .ADDI 0 sourceValue))
+  exact configuredRegisterWriteStep stepNo 0x14d74 state x11 sourceValue
+    (.ITYPE (0, .Regidx 8#5, .Regidx 11#5, .ADDI)) 0x93 0x05 0x04 0x00
+    configured atPc loaded (by
+      obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+      have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+          some Privilege.Machine := by
+        calc
+          _ = state.regs.get? cur_privilege := by
+            simpa [tryStepControlFlowAfterIncrement] using
+              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+          _ = some Privilege.Machine := configured.normal.2.1
+      have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+          some seccfgBits := by
+        calc
+          _ = state.regs.get? mseccfg := by
+            simpa [tryStepControlFlowAfterIncrement] using
+              writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+          _ = some seccfgBits := seccfgRead
+      decode_run) execute (base := by rfl)
+
 /-- Complete the writer ABI prologue at the first parent-owned payload setup instruction. -/
 theorem writeSuccessPrologueHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     (state : EndpointState) (entry : WriteSuccessEntry args state) :
     ∃ values next,
       Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        [⟨x8, BitVec.ofNat 64 args.decodedAddress⟩]
+        [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩,
+         ⟨x8, BitVec.ofNat 64 args.decodedAddress⟩]
         fromStep 15 state.machine next 0x14d6c ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
       ConfiguredMachinePre EndpointMachinePc next := by
   obtain ⟨values, savedState, seg, words, configured⟩ :=
     writeSuccessSavePrologue fromStep args state entry
-  rcases entry with ⟨_, lower, _, _, _, _, _, _, _, loaded, _, access⟩
+  rcases entry with ⟨_, lower, _, _, _, _, _, _, _, _, loaded, _, access⟩
+  have stack := seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   have seg0 := seg.forget (kv' := []) (by simp)
   have code := writeSuccessCodeOfSeg access loaded lower seg0
   have source := seg.reg x10 (BitVec.ofNat 64 args.decodedAddress)
@@ -1252,6 +1379,93 @@ theorem writeSuccessPrologueHandoff (fromStep : Nat) (args : WriteSuccessArgs)
         rcases preserved.1 with h | h | h | h | h | h | h | h | h | h | h | h | h | h | h |
           h | h | h
         all_goals cases h)
-  exact ⟨values, next, seg1, wordsNext, configuredNext⟩
+  have stackNext : next.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) := by
+    rw [nextEq]
+    exact (afterRegisterWrite_writes savedState 0x14d68 retired' x8
+      (BitVec.ofNat 64 args.decodedAddress)).get x2 (by decide) |>.trans stack
+  exact ⟨values, next, seg1.know x2
+    (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) stackNext, wordsNext, configuredNext⟩
+
+/-- Set the three `memcpy` arguments and its call base, ending at the exact call instruction. -/
+theorem writeSuccessMemcpyCallSetup (fromStep : Nat) (args : WriteSuccessArgs)
+    (state : EndpointState) (entry : WriteSuccessEntry args state) :
+    ∃ values next,
+      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+        (fun _ _ _ _ _ => False) writeSuccessParentWrites (writeSuccessFrameMemory args)
+        [⟨x1, 0xfd78⟩, ⟨x11, BitVec.ofNat 64 args.decodedAddress⟩, ⟨x12, 0x2d0⟩,
+         ⟨x10, BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x138)⟩,
+         ⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩,
+         ⟨x8, BitVec.ofNat 64 args.decodedAddress⟩]
+        fromStep 19 state.machine next 0x14d7c ∧
+      SavedWordReps next (writeSuccessSavedWords args values) ∧
+      ConfiguredMachinePre EndpointMachinePc next := by
+  obtain ⟨values, prologueState, prologue, words, configured⟩ :=
+    writeSuccessPrologueHandoff fromStep args state entry
+  rcases entry with ⟨_, lower, _, fits, _, _, _, _, _, _, loaded, _, access⟩
+  have disjoint : RegSet.Disjoint instructionPreserved writeSuccessParentWrites := by
+    intro register preserved written
+    rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl
+    · exact platformPreserved_disjoint register preserved.1 bookkeeping
+    all_goals simp [instructionPreserved, platformPreserved] at preserved
+  have seg0 := prologue.widenWrites (W' := writeSuccessParentWrites) (by
+    intro register written
+    rcases written with bookkeeping | rfl | rfl
+    · exact Or.inl bookkeeping
+    · exact Or.inr (Or.inr (Or.inl rfl))
+    · exact Or.inr (Or.inr (Or.inr (Or.inl rfl))) )
+  have code0 := writeSuccessCodeOfSeg access loaded lower seg0
+  obtain ⟨retired0, run0⟩ := writeSuccessMemcpyDestinationStep (fromStep + 15)
+    prologueState (args.stackPointer - 0x7d0) configured seg0.atPc
+    (seg0.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)) (by omega) code0
+  obtain ⟨retired0', state0, state0Eq, seg1⟩ := seg0.stepWitness
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold pcInList; native_decide) x10
+    (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x138)) 0x14d70 ⟨retired0, run0⟩
+    (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
+    (by simp [writeSuccessParentWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have configured1 := access.configured.mono (seg1.agree disjoint) seg1.retired
+  have code1 := writeSuccessCodeOfSeg access loaded lower seg1
+  obtain ⟨retired1, run1⟩ := writeSuccessMemcpyLengthStep (fromStep + 16) state0
+    configured1 seg1.atPc code1
+  obtain ⟨retired1', state1, state1Eq, seg2⟩ := seg1.stepWitness
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold pcInList; native_decide) x12 0x2d0 0x14d74 ⟨retired1, run1⟩
+    (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
+    (by simp [writeSuccessParentWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have configured2 := access.configured.mono (seg2.agree disjoint) seg2.retired
+  have code2 := writeSuccessCodeOfSeg access loaded lower seg2
+  obtain ⟨retired2, run2⟩ := writeSuccessMemcpySourceStep (fromStep + 17) state1
+    (BitVec.ofNat 64 args.decodedAddress) configured2 seg2.atPc
+    (seg2.reg x8 (BitVec.ofNat 64 args.decodedAddress) (by simp)) code2
+  obtain ⟨retired2', state2, state2Eq, seg3⟩ := seg2.stepWitness
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold pcInList; native_decide) x11 (BitVec.ofNat 64 args.decodedAddress) 0x14d78
+    ⟨retired2, run2⟩ (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
+    (by simp [writeSuccessParentWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have configured3 := access.configured.mono (seg3.agree disjoint) seg3.retired
+  have code3 := writeSuccessCodeOfSeg access loaded lower seg3
+  obtain ⟨retired3, run3⟩ := writeSuccessMemcpyCallBaseStep (fromStep + 18) state2
+    configured3 seg3.atPc code3
+  obtain ⟨retired3', state3, state3Eq, seg4⟩ := seg3.stepWitness
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold pcInList; native_decide) x1 0xfd78 0x14d7c ⟨retired3, run3⟩
+    (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
+    (by simp [writeSuccessParentWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have words3 : SavedWordReps state3 (writeSuccessSavedWords args values) := by
+    rw [state3Eq, state2Eq, state1Eq, state0Eq]
+    simpa only [afterRegisterWrite_mem] using words
+  exact ⟨values, state3, seg4, words3,
+    access.configured.mono (seg4.agree disjoint) seg4.retired⟩
 
 end BinaryFv.Zesu.MachineExecution
