@@ -3744,6 +3744,9 @@ structure WriteSuccessSecondMemcpyHandoff (fromStep parentUsed prefixUsed memcpy
     (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload
   payloadRep : ExecutionPayloadRep after.machine.mem
     (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload
+  decodedBytesRep : BytesRep after.machine.mem args.decodedAddress bytes
+  stable : StatelessInputRepStableOutside (writeSuccessFrameMemory args)
+    after.machine.mem args.decodedAddress args.decoded
 
 /-- Compose the second writer `memcpy` and enter the parent-hash encoder. -/
 theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContract)
@@ -4100,7 +4103,9 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
       apply fieldBytes.fieldReps
       · simpa [finalState, finalSeg.memEq (by simp)] using destinationRep
       · omega)
-    payloadRep := by simpa [finalState] using payloadFinal }⟩
+    payloadRep := by simpa [finalState] using payloadFinal
+    decodedBytesRep := by simpa [finalState] using decodedBytesFinal
+    stable := by simpa [finalState] using stable.afterWrites finalMemory }⟩
   · simpa [startStep, finalState, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
   · simpa [finalState, EndpointPc, MachinePc] using finalSeg.atPc
   · simpa [finalState] using
@@ -4658,6 +4663,9 @@ structure WriteSuccessSixRawFieldsHandoff
     (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload
   payloadRep : ExecutionPayloadRep after.machine.mem
     (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload
+  decodedBytesRep : BytesRep after.machine.mem args.decodedAddress bytes
+  stable : StatelessInputRepStableOutside (writeSuccessFrameMemory args)
+    after.machine.mem args.decodedAddress args.decoded
 
 /-- Compose the copied payload prefix with its first six raw-field encoder children. -/
 theorem writeSuccessSixRawFieldsHandoff
@@ -4709,7 +4717,9 @@ theorem writeSuccessSixRawFieldsHandoff
         rw [rawMemory]
         exact initialHandoff.memoryFrame address outside
       fieldReps := lastHandoff.fieldReps
-      payloadRep := by simpa [rawMemory] using initialHandoff.payloadRep }⟩
+      payloadRep := by simpa [rawMemory] using initialHandoff.payloadRep
+      decodedBytesRep := by simpa [rawMemory] using initialHandoff.decodedBytesRep
+      stable := by simpa [rawMemory] using initialHandoff.stable }⟩
   · have firstTrace : ConfinedTrace EndpointStep EndpointPc
         (pcInRanges Elflings.writeSuccessExecutionPcRanges)
         (fromStep + (20 + parentUsed + 32 + prefixUsed + 5 + memcpyUsed + 1))

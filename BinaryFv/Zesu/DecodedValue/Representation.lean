@@ -479,6 +479,17 @@ theorem StatelessInputRepStableOutside.of_writesOnlyWithin
     StatelessInputRep after.mem address decoded :=
   stable after.mem writes
 
+theorem StatelessInputRepStableOutside.afterWrites
+    {before after : BinaryFv.RiscV.State} {owned : BinaryFv.RiscV.Region}
+    {address : Nat} {decoded : ZesuDecodedResult}
+    (stable : StatelessInputRepStableOutside owned before.mem address decoded)
+    (writes : BinaryFv.RiscV.WritesOnlyWithin owned before after) :
+    StatelessInputRepStableOutside owned after.mem address decoded := by
+  intro future unchanged
+  apply stable future
+  intro byte outside
+  rw [unchanged byte outside, writes byte outside]
+
 set_option genInjectivity false in
 /-- The seven contiguous execution-payload byte fields emitted directly by `writeSuccess`. -/
 structure RawPayloadFieldReps (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
