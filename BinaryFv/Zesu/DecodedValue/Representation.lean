@@ -19,6 +19,10 @@ open PreSail
 private def byteAt (value index : Nat) : BitVec 8 :=
   BitVec.ofNat 8 ((value / 2 ^ (8 * index)) % 256)
 
+private theorem byteAt_zero (value : Nat) : byteAt value 0 = BitVec.ofNat 8 value := by
+  apply BitVec.eq_of_toNat_eq
+  simp [byteAt]
+
 def UIntRep (width : Nat) (mem : Std.ExtHashMap Nat (BitVec 8))
     (address value : Nat) : Prop :=
   value < 2 ^ (8 * width) ∧ address + width ≤ 2 ^ 64 ∧
@@ -261,6 +265,16 @@ def SliceRep (stride : Nat) (elementRep : Std.ExtHashMap Nat (BitVec 8) → Nat 
 def ByteSliceRep (mem : Std.ExtHashMap Nat (BitVec 8)) (descriptor : Nat)
     (bytes : Array UInt8) : Prop :=
   SliceRep 1 (fun mem address byte => UIntRep 1 mem address byte.toNat) mem descriptor bytes
+
+/-- The array payload of a byte-slice representation is the corresponding contiguous byte window. -/
+theorem ArrayRep.byteSliceBytesRep {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {address : Nat} {bytes : Array UInt8}
+    (rep : ArrayRep 1 (fun mem address byte => UIntRep 1 mem address byte.toNat)
+      mem address bytes) : BytesRep mem address bytes := by
+  refine ⟨(by simpa using rep.1), ?_⟩
+  intro index inBounds
+  have byte := (rep.2 index inBounds).2.2 0 (by omega)
+  simpa [byteAt_zero] using byte
 
 /-- Relocate the two words of a slice descriptor while retaining its referenced array. -/
 theorem SliceRep.rebaseDescriptor {mem : Std.ExtHashMap Nat (BitVec 8)}
