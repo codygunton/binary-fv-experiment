@@ -5008,7 +5008,48 @@ private theorem writeSuccessFrameDwordLoadStep (stepNo pc offset value : Nat)
     (destinationNotRetired := destinationNotRetired) (base := base)
     (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
 
-/-- Execute one parent-owned dword store into the writer frame from x10. -/
+/-- Execute one parent-owned dword store into the writer frame. -/
+private theorem writeSuccessFrameDwordStoreRegStep (stepNo pc offset value : Nat)
+    (args : WriteSuccessArgs) (state : State) (rs2 : regidx) (imm : BitVec 12)
+    (byte0 byte1 byte2 byte3 : UInt8)
+    (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (stack : state.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (offsetBound : offset + 8 ≤ 0x7d0)
+    (aligned : (args.stackPointer - 0x7d0 + offset) % 8 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (upper : args.stackPointer < 2 ^ 64)
+    (addressEq : BitVec.ofNat 64 (args.stackPointer - 0x7d0) + sign_extend (m := 64) imm =
+      BitVec.ofNat 64 (args.stackPointer - 0x7d0 + offset))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
+      (.STORE (imm, rs2, .Regidx 2#5, 8)))
+    (pcFits : pc < 2 ^ 64)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
+    (sourceRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits rs2) premise premise (BitVec.ofNat 64 value)) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement state) (BitVec.ofNat 64 pc))
+          (args.stackPointer - 0x7d0 + offset) (BitVec.ofNat 64 value))
+        (BitVec.ofNat 64 pc) retired) false := by
+  exact decodeInputStoreStep stepNo pc offset state (args.stackPointer - 0x7d0)
+    (BitVec.ofNat 64 value) imm rs2 byte0 byte1 byte2 byte3 access.configured
+    atPc stack (access.frameStore offset 8 offsetBound) (access.frameNoMMIO offset 8 offsetBound)
+    aligned (by omega) loaded addressEq decode
+    sourceRun
+    (pcFits := pcFits) (base := base) (read0 := read0) (read1 := read1)
+    (read2 := read2) (read3 := read3)
+
+/-- Compatibility wrapper for the writer's common x10 stores. -/
 private theorem writeSuccessFrameDwordStoreStep (stepNo pc offset value : Nat)
     (args : WriteSuccessArgs) (state : State) (imm : BitVec 12)
     (byte0 byte1 byte2 byte3 : UInt8)
@@ -5040,14 +5081,11 @@ private theorem writeSuccessFrameDwordStoreStep (stepNo pc offset value : Nat)
           (coreStoreNextState (tryStepStoreAfterIncrement state) (BitVec.ofNat 64 pc))
           (args.stackPointer - 0x7d0 + offset) (BitVec.ofNat 64 value))
         (BitVec.ofNat 64 pc) retired) false := by
-  exact decodeInputStoreStep stepNo pc offset state (args.stackPointer - 0x7d0)
-    (BitVec.ofNat 64 value) imm (.Regidx 10#5) byte0 byte1 byte2 byte3 access.configured
-    atPc stack (access.frameStore offset 8 offsetBound) (access.frameNoMMIO offset 8 offsetBound)
-    aligned (by omega) loaded addressEq decode
-    (fun premise writes => rX_x10_run premise (BitVec.ofNat 64 value)
-        ((writes.get x10 (by decide)).trans data))
-    (pcFits := pcFits) (base := base) (read0 := read0) (read1 := read1)
-    (read2 := read2) (read3 := read3)
+  apply writeSuccessFrameDwordStoreRegStep stepNo pc offset value args state (.Regidx 10#5)
+    imm byte0 byte1 byte2 byte3 access atPc stack offsetBound aligned loaded upper
+    addressEq decode pcFits base read0 read1 read2 read3
+  intro premise writes
+  exact rX_x10_run premise _ ((writes.get x10 (by decide)).trans data)
 
 /-- Production `0x14e88: ld a0,0x408(sp)`. -/
 private theorem writeSuccessBlockNumberLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -7887,6 +7925,170 @@ private theorem writeSuccessExcessBlobGasCallStep (stepNo : Nat) (state : State)
   · native_decide
   · rfl
   · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
+/-- Production `0x15700: ld a0,0x480(sp)`. -/
+private theorem writeSuccessSlotWordLoadStep (stepNo value : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x15700)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x480) value)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15700 retired x10 (BitVec.ofNat 64 value)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x15700 0x480 value args state
+    (.Regidx 10#5) x10 (BitVec.ofNat 64 value) 0x480 0x03 0x35 0x01 0x48
+    access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x480#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x10_run premise _
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x15704: ld a1,0x488(sp)`. -/
+private theorem writeSuccessSlotTagLoadStep (stepNo tag : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x15704)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x488) tag)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15704 retired x11 (BitVec.ofNat 64 tag)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x15704 0x488 tag args state
+    (.Regidx 11#5) x11 (BitVec.ofNat 64 tag) 0x488 0x83 0x35 0x81 0x48
+    access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x488#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x11_run premise _
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x15708: sd a0,0x658(sp)`. -/
+private theorem writeSuccessSlotWordStoreStep (stepNo value : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x15708)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (data : state.regs.get? x10 = some (BitVec.ofNat 64 value))
+    (aligned : args.stackPointer % 16 = 0) (upper : args.stackPointer < 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement state) 0x15708)
+          (args.stackPointer - 0x7d0 + 0x658) (BitVec.ofNat 64 value))
+        0x15708 retired) false := by
+  apply writeSuccessFrameDwordStoreStep stepNo 0x15708 0x658 value args state 0x658
+    0x23 0x3c 0xa1 0x64 access atPc stack data (by omega) (by omega) loaded upper
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x658#64 = _
+    rw [← BitVec.ofNat_add]
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessStoreDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x1570c: sd a1,0x660(sp)`. -/
+private theorem writeSuccessSlotTagStoreStep (stepNo tag : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x1570c)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (data : state.regs.get? x11 = some (BitVec.ofNat 64 tag))
+    (aligned : args.stackPointer % 16 = 0) (upper : args.stackPointer < 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement state) 0x1570c)
+          (args.stackPointer - 0x7d0 + 0x660) (BitVec.ofNat 64 tag))
+        0x1570c retired) false := by
+  apply writeSuccessFrameDwordStoreRegStep stepNo 0x1570c 0x660 tag args state
+    (.Regidx 11#5) 0x660 0x23 0x30 0xb1 0x66 access atPc stack (by omega) (by omega)
+    loaded upper
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x660#64 = _
+    rw [← BitVec.ofNat_add]
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessStoreDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · intro premise writes
+    exact rX_x11_run premise _ ((writes.get x11 (by decide)).trans data)
+
+/-- Production `0x15710: addi a0,sp,0x658`. -/
+private theorem writeSuccessSlotSourceStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15710)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15710 retired x10
+        (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x658))) false := by
+  apply writeSuccessPayloadFieldSourceStep stepNo 0x15710 0x658 0x658
+    0x13 0x05 0x81 0x65 state (args.stackPointer - 0x7d0) configured atPc stack loaded
+  · simp only [iTypeResult]
+    change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x658#64 = _
+    rw [← BitVec.ofNat_add]
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  all_goals native_decide
+
+/-- Production `0x15714: auipc ra,0`. -/
+private theorem writeSuccessOptionalCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15714)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15714 retired x1 0x15714) false := by
+  apply configuredAuipcStep stepNo state 0x15714 0 0x97 0x00 0x00 0x00 configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x15718: jalr ra,0x4b4(ra)`, entering optional-u64. -/
+private theorem writeSuccessOptionalCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15718)
+    (baseRead : state.regs.get? x1 = some 0x15714)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x15718 0x15bc8 x1 0x1571c)
+        0x15bc8 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x15718 0x15714 0x4b4 0x15bc8 0x1571c
+    0xe7 0x80 0x40 0x4b configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
     decode_run
   · native_decide
   · native_decide
