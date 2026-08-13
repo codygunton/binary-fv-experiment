@@ -257,10 +257,43 @@ def ByteSliceRep (mem : Std.ExtHashMap Nat (BitVec 8)) (descriptor : Nat)
     (bytes : Array UInt8) : Prop :=
   SliceRep 1 (fun mem address byte => UIntRep 1 mem address byte.toNat) mem descriptor bytes
 
+/-- Relocate the two words of a slice descriptor while retaining its referenced array. -/
+theorem SliceRep.rebaseDescriptor {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {stride : Nat} {elementRep : Std.ExtHashMap Nat (BitVec 8) → Nat → α → Prop}
+    {source destination : Nat} {values : Array α}
+    (rep : SliceRep stride elementRep mem source values)
+    (destinationFits : destination + 16 ≤ 2 ^ 64)
+    (relocation : ByteWindowRelocation mem mem source destination 16) :
+    SliceRep stride elementRep mem destination values := by
+  obtain ⟨data, pointer, size, elements⟩ := rep
+  exact ⟨data,
+    pointer.rebase (by omega) (relocation.atOffset 0 8 (by omega)),
+    size.rebase (by omega) (relocation.atOffset 8 8 (by omega)), elements⟩
+
+theorem ByteSliceRep.rebaseDescriptor {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {source destination : Nat} {bytes : Array UInt8}
+    (rep : ByteSliceRep mem source bytes) (destinationFits : destination + 16 ≤ 2 ^ 64)
+    (relocation : ByteWindowRelocation mem mem source destination 16) :
+    ByteSliceRep mem destination bytes :=
+  SliceRep.rebaseDescriptor rep destinationFits relocation
+
 def OptionalUIntRep (width : Nat) (mem : Std.ExtHashMap Nat (BitVec 8))
     (address : Nat) : Option Nat → Prop
   | none => UIntRep 1 mem (address + width) 0
   | some value => UIntRep width mem address value ∧ UIntRep 1 mem (address + width) 1
+
+theorem OptionalUIntRep.rebase {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {width source destination : Nat} {value : Option Nat}
+    (rep : OptionalUIntRep width mem source value)
+    (destinationFits : destination + width + 1 ≤ 2 ^ 64)
+    (relocation : ByteWindowRelocation mem mem source destination (width + 1)) :
+    OptionalUIntRep width mem destination value := by
+  cases value with
+  | none =>
+      exact UIntRep.rebase rep (by omega) (relocation.atOffset width 1 (by omega))
+  | some value =>
+      exact ⟨UIntRep.rebase rep.1 (by omega) (relocation.atOffset 0 width (by omega)),
+        UIntRep.rebase rep.2 (by omega) (relocation.atOffset width 1 (by omega))⟩
 
 /-- Zig uses the null pointer niche for `?[]const u8`; the length word is ignored for `none`. -/
 def OptionalByteSliceRep (mem : Std.ExtHashMap Nat (BitVec 8))
@@ -339,6 +372,58 @@ def ExecutionPayloadRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
   payload.logsBloom.size = 256 ∧ BytesRep mem (address + 268) payload.logsBloom ∧
   payload.prevRandao.size = 32 ∧ BytesRep mem (address + 524) payload.prevRandao ∧
   payload.blockHash.size = 32 ∧ BytesRep mem (address + 556) payload.blockHash
+
+/-- Relocate the complete 592-byte optimized execution-payload value within one memory state.
+Slice descriptors move with the value while their referenced arrays remain at their original heap
+addresses. -/
+theorem ExecutionPayloadRep.rebase {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {source destination : Nat} {payload : ExecutionPayload}
+    (rep : ExecutionPayloadRep mem source payload)
+    (destinationFits : destination + 592 ≤ 2 ^ 64)
+    (relocation : ByteWindowRelocation mem mem source destination 592) :
+    ExecutionPayloadRep mem destination payload := by
+  rcases rep with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
+    transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
+    blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
+    stateRoot, receiptsRootSize, receiptsRoot, logsBloomSize, logsBloom, prevRandaoSize,
+    prevRandao, blockHashSize, blockHash⟩
+  refine ⟨blockNumber.rebase (by omega) (relocation.atOffset 0 8 (by omega)),
+    gasLimit.rebase (by omega) (relocation.atOffset 8 8 (by omega)),
+    gasUsed.rebase (by omega) (relocation.atOffset 16 8 (by omega)),
+    timestamp.rebase (by omega) (relocation.atOffset 24 8 (by omega)),
+    extraData.rebaseDescriptor (by omega) (relocation.atOffset 32 16 (by omega)),
+    baseFee.rebase (by omega) (relocation.atOffset 48 8 (by omega)),
+    transactions.rebaseDescriptor (by omega) (relocation.atOffset 56 16 (by omega)),
+    rawTransactions.rebaseDescriptor (by omega) (relocation.atOffset 72 16 (by omega)),
+    withdrawals.rebaseDescriptor (by omega) (relocation.atOffset 88 16 (by omega)),
+    blobGasUsed.rebase (by omega) (relocation.atOffset 104 8 (by omega)),
+    excessBlobGas.rebase (by omega) (relocation.atOffset 112 8 (by omega)),
+    OptionalUIntRep.rebase slotNumber (by omega) (relocation.atOffset 120 9 (by omega)),
+    blockAccessList.rebaseDescriptor (by omega) (relocation.atOffset 136 16 (by omega)),
+    parentHashSize,
+    parentHash.rebase (by simpa [parentHashSize] using (by omega : destination + 152 + 32 ≤ 2 ^ 64))
+      (by simpa [parentHashSize] using relocation.atOffset 152 32 (by omega)),
+    feeRecipientSize,
+    feeRecipient.rebase
+      (by simpa [feeRecipientSize] using (by omega : destination + 184 + 20 ≤ 2 ^ 64))
+      (by simpa [feeRecipientSize] using relocation.atOffset 184 20 (by omega)),
+    stateRootSize,
+    stateRoot.rebase (by simpa [stateRootSize] using (by omega : destination + 204 + 32 ≤ 2 ^ 64))
+      (by simpa [stateRootSize] using relocation.atOffset 204 32 (by omega)),
+    receiptsRootSize,
+    receiptsRoot.rebase
+      (by simpa [receiptsRootSize] using (by omega : destination + 236 + 32 ≤ 2 ^ 64))
+      (by simpa [receiptsRootSize] using relocation.atOffset 236 32 (by omega)),
+    logsBloomSize,
+    logsBloom.rebase
+      (by simpa [logsBloomSize] using (by omega : destination + 268 + 256 ≤ 2 ^ 64))
+      (by simpa [logsBloomSize] using relocation.atOffset 268 256 (by omega)),
+    prevRandaoSize,
+    prevRandao.rebase (by simpa [prevRandaoSize] using (by omega : destination + 524 + 32 ≤ 2 ^ 64))
+      (by simpa [prevRandaoSize] using relocation.atOffset 524 32 (by omega)),
+    blockHashSize,
+    blockHash.rebase (by simpa [blockHashSize] using (by omega : destination + 556 + 32 ≤ 2 ^ 64))
+      (by simpa [blockHashSize] using relocation.atOffset 556 32 (by omega))⟩
 
 def ExecutionRequestsRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
     (requests : ExecutionRequests) : Prop :=
