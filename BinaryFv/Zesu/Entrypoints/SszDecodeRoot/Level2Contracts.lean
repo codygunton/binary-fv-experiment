@@ -32,40 +32,9 @@ structure DecodeInlineArgs where
   boundary : DecodeBoundaryArgs
   origin : EndpointState
 
-structure DecodeCalleeSavedValues where
-  ra : BitVec 64
-  s0 : BitVec 64
-  s1 : BitVec 64
-  s2 : BitVec 64
-  s3 : BitVec 64
-  s4 : BitVec 64
-  s5 : BitVec 64
-  s6 : BitVec 64
-  s7 : BitVec 64
-  s8 : BitVec 64
-  s9 : BitVec 64
-  s10 : BitVec 64
-  s11 : BitVec 64
-
-def DecodeCalleeSavedAtRegisters (values : DecodeCalleeSavedValues)
+def DecodeCalleeSavedAtStack (stackPointer returnAddress : Nat) (values : DecodeCalleeSavedValues)
     (state : EndpointState) : Prop :=
-  state.machine.regs.get? x1 = some values.ra ∧
-  state.machine.regs.get? x8 = some values.s0 ∧
-  state.machine.regs.get? x9 = some values.s1 ∧
-  state.machine.regs.get? x18 = some values.s2 ∧
-  state.machine.regs.get? x19 = some values.s3 ∧
-  state.machine.regs.get? x20 = some values.s4 ∧
-  state.machine.regs.get? x21 = some values.s5 ∧
-  state.machine.regs.get? x22 = some values.s6 ∧
-  state.machine.regs.get? x23 = some values.s7 ∧
-  state.machine.regs.get? x24 = some values.s8 ∧
-  state.machine.regs.get? x25 = some values.s9 ∧
-  state.machine.regs.get? x26 = some values.s10 ∧
-  state.machine.regs.get? x27 = some values.s11
-
-def DecodeCalleeSavedAtStack (stackPointer : Nat) (values : DecodeCalleeSavedValues)
-    (state : EndpointState) : Prop :=
-  UIntRep 8 state.machine.mem (stackPointer + 0xba8) values.ra.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xba8) returnAddress ∧
   UIntRep 8 state.machine.mem (stackPointer + 0xba0) values.s0.toNat ∧
   UIntRep 8 state.machine.mem (stackPointer + 0xb98) values.s1.toNat ∧
   UIntRep 8 state.machine.mem (stackPointer + 0xb90) values.s2.toNat ∧
@@ -85,7 +54,8 @@ structure DecodeInlineFrame (args : DecodeInlineArgs) (values : DecodeCalleeSave
   stackFits : 0xbb0 ≤ args.boundary.stackPointer
   atStack : state.machine.regs.get? x2 =
     some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
-  saved : DecodeCalleeSavedAtStack (args.boundary.stackPointer - 0xbb0) values state
+  saved : DecodeCalleeSavedAtStack (args.boundary.stackPointer - 0xbb0)
+    args.boundary.returnAddress values state
   inputAddress : UIntRep 8 state.machine.mem args.boundary.stackPointer args.boundary.inputAddress
   inputSize : UIntRep 8 state.machine.mem (args.boundary.stackPointer + 8)
     args.boundary.input.size
