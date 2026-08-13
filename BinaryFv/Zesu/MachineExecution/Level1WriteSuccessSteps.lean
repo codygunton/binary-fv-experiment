@@ -50,7 +50,11 @@ def writeSuccessFrameMemory (args : WriteSuccessArgs) : Region :=
 
 private def writeSuccessTransactionSetupMemory (args : WriteSuccessArgs) : Region := fun address =>
   byteRange (args.stackPointer - 0x7d0 + 104) 8 address ∨
-    byteRange (args.stackPointer - 0x7d0 + 112) 8 address
+  byteRange (args.stackPointer - 0x7d0 + 112) 8 address
+
+private def writeSuccessSlotSetupMemory (args : WriteSuccessArgs) : Region := fun address =>
+  byteRange (args.stackPointer - 0x7d0 + 0x658) 8 address ∨
+  byteRange (args.stackPointer - 0x7d0 + 0x660) 8 address
 
 def WriteSuccessIoFrame (before after : EndpointState) : Prop :=
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
@@ -5838,6 +5842,8 @@ structure WriteSuccessPayloadContext (args : WriteSuccessArgs) (bytes : Array UI
     (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload
   slotWord : ∃ value, UIntRep 8 state.machine.mem
     (args.stackPointer - 0x7d0 + 0x480) value
+  slotTagWord : ∃ value, UIntRep 8 state.machine.mem
+    (args.stackPointer - 0x7d0 + 0x488) value
 
 /-- Transport copied payload semantics through one exact child frame inside the writer frame. -/
 private theorem writeSuccessPayloadContextAfterChild
@@ -5862,6 +5868,10 @@ private theorem writeSuccessPayloadContextAfterChild
   have slotAfter := slotRep.rebase (by omega)
     ((ByteWindowRelocation.of_same_bytes context.destinationRep destinationAfter).atOffset
       0x78 8 (by rw [context.bytesSize]; omega))
+  obtain ⟨tagValue, tagRep⟩ := context.slotTagWord
+  have tagAfter := tagRep.rebase (by omega)
+    ((ByteWindowRelocation.of_same_bytes context.destinationRep destinationAfter).atOffset
+      0x80 8 (by rw [context.bytesSize]; omega))
   have decodedAfter := stableAfter.of_writesOnlyWithin (fun _ _ => rfl)
   have payloadAfter : ExecutionPayloadRep after.machine.mem
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
@@ -5876,7 +5886,8 @@ private theorem writeSuccessPayloadContextAfterChild
     bytesSize := context.bytesSize
     stable := stableAfter
     payloadRep := payloadAfter
-    slotWord := ⟨slotValue, slotAfter⟩ }
+    slotWord := ⟨slotValue, slotAfter⟩
+    slotTagWord := ⟨tagValue, tagAfter⟩ }
 
 /-- Transport the copied payload and its heap references through one integer child frame. -/
 private theorem writeSuccessPayloadContextAfterInt
@@ -5906,6 +5917,10 @@ private theorem writeSuccessPayloadContextAfterInt
   have slotAfter := slotRep.rebase (by omega)
     ((ByteWindowRelocation.of_same_bytes context.destinationRep destinationAfter).atOffset
       0x78 8 (by rw [context.bytesSize]; omega))
+  obtain ⟨tagValue, tagRep⟩ := context.slotTagWord
+  have tagAfter := tagRep.rebase (by omega)
+    ((ByteWindowRelocation.of_same_bytes context.destinationRep destinationAfter).atOffset
+      0x80 8 (by rw [context.bytesSize]; omega))
   have decodedAfter := stableAfter.of_writesOnlyWithin (fun _ _ => rfl)
   have payloadAfter : ExecutionPayloadRep after.machine.mem
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
@@ -5918,7 +5933,8 @@ private theorem writeSuccessPayloadContextAfterInt
     bytesSize := context.bytesSize
     stable := stableAfter
     payloadRep := payloadAfter
-    slotWord := ⟨slotValue, slotAfter⟩ }
+    slotWord := ⟨slotValue, slotAfter⟩
+    slotTagWord := ⟨tagValue, tagAfter⟩ }
 
 /-- Compose one exact parent integer-call setup with the selected shared integer contract. -/
 private theorem writeSuccessIntCallHandoff
@@ -6172,6 +6188,10 @@ private theorem writeSuccessPayloadContextAfterBytes
   have slotAfter := slotRep.rebase (by omega)
     ((ByteWindowRelocation.of_same_bytes context.destinationRep destinationAfter).atOffset
       0x78 8 (by rw [context.bytesSize]; omega))
+  obtain ⟨tagValue, tagRep⟩ := context.slotTagWord
+  have tagAfter := tagRep.rebase (by omega)
+    ((ByteWindowRelocation.of_same_bytes context.destinationRep destinationAfter).atOffset
+      0x80 8 (by rw [context.bytesSize]; omega))
   have decodedAfter := stableAfter.of_writesOnlyWithin (fun _ _ => rfl)
   have payloadAfter : ExecutionPayloadRep after.machine.mem
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
@@ -6184,7 +6204,8 @@ private theorem writeSuccessPayloadContextAfterBytes
     bytesSize := context.bytesSize
     stable := stableAfter
     payloadRep := payloadAfter
-    slotWord := ⟨slotValue, slotAfter⟩ }
+    slotWord := ⟨slotValue, slotAfter⟩
+    slotTagWord := ⟨tagValue, tagAfter⟩ }
 
 /-- Compose the exact extra-data descriptor loads and selected shared bytes encoder. -/
 private theorem writeSuccessExtraDataHandoff
@@ -6702,7 +6723,8 @@ private theorem writeSuccessBlockHashHandoff
       bytesSize := context.bytesSize
       stable := by simpa [memory] using context.stable
       payloadRep := by simpa [memory] using context.payloadRep
-      slotWord := by simpa [memory] using context.slotWord } }⟩
+      slotWord := by simpa [memory] using context.slotWord
+      slotTagWord := by simpa [memory] using context.slotTagWord } }⟩
 
 /-- Production `0x14ee4: ld a0,0x440(sp)`. -/
 private theorem writeSuccessTransactionsPointerLoadStep (stepNo : Nat)
@@ -7244,6 +7266,15 @@ private theorem writeSuccessTransactionsHandoff
   have slotAfter := slotRep.rebase slotFits
     ((ByteWindowRelocation.of_same_bytes context.destinationRep destinationAfter).atOffset
       0x78 8 (by rw [context.bytesSize]; omega))
+  obtain ⟨tagValue, tagRep⟩ := context.slotTagWord
+  have tagFits : args.stackPointer - 0x7d0 + 0x488 + 8 ≤ 2 ^ 64 := by
+    have fit := destinationAfter.1
+    rw [context.bytesSize] at fit
+    dsimp [childArgs] at fit
+    omega
+  have tagAfter := tagRep.rebase tagFits
+    ((ByteWindowRelocation.of_same_bytes context.destinationRep destinationAfter).atOffset
+      0x80 8 (by rw [context.bytesSize]; omega))
   have accessAtChild := writeSuccessAccessOfSeg access seg4
   have pmaEq := childAgree pma_regions (by simp [inlineEncoderPreserved])
   have accessAfter : WriteSuccessMachineAccess args after.machine := {
@@ -7280,7 +7311,8 @@ private theorem writeSuccessTransactionsHandoff
       bytesSize := context.bytesSize
       stable := stableAfter
       payloadRep := payloadAfter
-      slotWord := ⟨slotValue, slotAfter⟩ } }⟩
+      slotWord := ⟨slotValue, slotAfter⟩
+      slotTagWord := ⟨tagValue, tagAfter⟩ } }⟩
 
 set_option genInjectivity false in
 /-- Exact raw-transactions descriptor setup followed by the shared byte-list encoder. -/
@@ -7678,6 +7710,15 @@ private theorem writeSuccessWithdrawalsHandoff
   have slotAfter := slotRep.rebase slotFits
     ((ByteWindowRelocation.of_same_bytes context.destinationRep destinationAfter).atOffset
       0x78 8 (by rw [context.bytesSize]; omega))
+  obtain ⟨tagValue, tagRep⟩ := context.slotTagWord
+  have tagFits : args.stackPointer - 0x7d0 + 0x488 + 8 ≤ 2 ^ 64 := by
+    have fit := destinationAfter.1
+    rw [context.bytesSize] at fit
+    dsimp [childArgs] at fit
+    omega
+  have tagAfter := tagRep.rebase tagFits
+    ((ByteWindowRelocation.of_same_bytes context.destinationRep destinationAfter).atOffset
+      0x80 8 (by rw [context.bytesSize]; omega))
   have accessAtChild := writeSuccessAccessOfSeg access seg2
   have pmaEq := childAgree pma_regions (by simp [inlineEncoderPreserved])
   have accessAfter : WriteSuccessMachineAccess args after.machine := {
@@ -7709,7 +7750,8 @@ private theorem writeSuccessWithdrawalsHandoff
       bytesSize := context.bytesSize
       stable := stableAfter
       payloadRep := payloadAfter
-      slotWord := ⟨slotValue, slotAfter⟩ }
+      slotWord := ⟨slotValue, slotAfter⟩
+      slotTagWord := ⟨tagValue, tagAfter⟩ }
     loaded := loadedAfter
     access := accessAfter
     memory := fullMemory }⟩
@@ -8093,6 +8135,215 @@ private theorem writeSuccessOptionalCallStep (stepNo : Nat) (state : State)
   · native_decide
   · native_decide
   · native_decide
+
+set_option genInjectivity false in
+/-- The four parent loads/stores that materialize the optional slot descriptor. -/
+structure WriteSuccessSlotSetupHandoff (fromStep : Nat) (args : WriteSuccessArgs)
+    (payloadBytes : Array UInt8) (before after : EndpointState)
+    (values : DecodeCalleeSavedValues) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 4 before after
+  atPc : EndpointPc after = some 0x15710
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  localRep : OptionalUIntRep 8 after.machine.mem
+    (args.stackPointer - 0x7d0 + 0x658) args.decoded.payload.slotNumber
+  saved : SavedWordReps after.machine (writeSuccessSavedWords args values)
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+  memory : WritesOnlyWithin (writeSuccessSlotSetupMemory args) before.machine after.machine
+
+private theorem writeSuccessSlotSetupHandoff (fromStep : Nat) (args : WriteSuccessArgs)
+    (payloadBytes : Array UInt8) (values : DecodeCalleeSavedValues) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x15700)
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args values))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
+    ∃ after, WriteSuccessSlotSetupHandoff fromStep args payloadBytes before after values := by
+  obtain ⟨rawValue, rawRep⟩ := context.slotWord
+  obtain ⟨tagWord, tagWordRep⟩ := context.slotTagWord
+  rcases context.payloadRep with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
+    transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
+    blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
+    stateRoot, receiptsRootSize, receiptsRoot, logsBloomSize, logsBloom, prevRandaoSize,
+    prevRandao, blockHashSize, blockHash⟩
+  have tagByteRep : UIntRep 1 before.machine.mem
+      (args.stackPointer - 0x7d0 + 0x488)
+      (if args.decoded.payload.slotNumber.isSome then 1 else 0) := by
+    cases optionEq : args.decoded.payload.slotNumber with
+    | none =>
+      rw [optionEq] at slotNumber
+      simpa [OptionalUIntRep, Nat.add_assoc] using slotNumber
+    | some value =>
+      rw [optionEq] at slotNumber
+      simpa [OptionalUIntRep, Nat.add_assoc] using slotNumber.2
+  have rawActive : ∀ value, args.decoded.payload.slotNumber = some value → rawValue = value := by
+    intro value optionEq
+    rw [optionEq] at slotNumber
+    exact UIntRep.eight_unique rawRep slotNumber.1
+  let setupMemory := writeSuccessSlotSetupMemory args
+  have setupInWriter : ∀ address, setupMemory address → writeSuccessFrameMemory args address := by
+    intro address inside
+    unfold setupMemory writeSuccessSlotSetupMemory at inside
+    unfold writeSuccessFrameMemory
+    unfold byteRange at inside ⊢
+    rcases inside with inside | inside <;> omega
+  have codeOfSeg {kv n cur pc}
+      (seg : Seg writeSuccessParentPc (fun pc => pc = 0x15710)
+        (fun _ _ _ _ _ => False) writeSuccessParentWrites setupMemory kv fromStep n
+        before.machine cur pc) :
+      Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
+    intro address byte fileByte
+    have unchanged := seg.mem address (by
+      intro inside
+      have inWriter := setupInWriter address inside
+      unfold writeSuccessFrameMemory byteRange at inWriter
+      have none := access.frameNotCode address inWriter.1 (by omega)
+      rw [fileByte] at none
+      cases none)
+    exact unchanged.trans (loaded address byte fileByte)
+  have seg0 : Seg writeSuccessParentPc (fun pc => pc = 0x15710)
+      (fun _ _ _ _ _ => False) writeSuccessParentWrites setupMemory
+      [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩]
+      fromStep 0 before.machine before.machine 0x15700 := {
+    trace := .refl _ _
+    confined := .nil
+    writes := .refl _ _
+    mem := fun _ _ => rfl
+    retired := access.configured.retiredCounter
+    atPc := atPc
+    regs := by intro pair member; simp at member; subst pair; exact stack }
+  obtain ⟨retired0, run0⟩ := writeSuccessSlotWordLoadStep fromStep rawValue args
+    before.machine access atPc stack rawRep aligned loaded
+  obtain ⟨machine1, seg1⟩ := seg0.step
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x156e8, 0x15730), by native_decide, by native_decide, by native_decide⟩)
+    (by native_decide) x10 (BitVec.ofNat 64 rawValue) 0x15704 ⟨retired0, run0⟩
+    (by native_decide) (by intro r h; exact Or.inl h)
+    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access1 := writeSuccessAccessOfSeg access seg1
+  have tagWordRep1 := tagWordRep.of_writesOnlyWithin seg1.mem (by
+    intro index inBounds inside
+    unfold setupMemory writeSuccessSlotSetupMemory byteRange at inside
+    rcases inside with inside | inside <;> omega)
+  obtain ⟨retired1, run1⟩ := writeSuccessSlotTagLoadStep (fromStep + 1) tagWord args
+    machine1 access1 seg1.atPc
+    (seg1.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
+    tagWordRep1 aligned (codeOfSeg seg1)
+  obtain ⟨machine2, seg2⟩ := seg1.step
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x156e8, 0x15730), by native_decide, by native_decide, by native_decide⟩)
+    (by native_decide) x11 (BitVec.ofNat 64 tagWord) 0x15708 ⟨retired1, by simpa using run1⟩
+    (by native_decide) (by intro r h; exact Or.inl h)
+    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access2 := writeSuccessAccessOfSeg access seg2
+  obtain ⟨retired2, run2⟩ := writeSuccessSlotWordStoreStep (fromStep + 2) rawValue args
+    machine2 access2 seg2.atPc
+    (seg2.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
+    (seg2.reg x10 (BitVec.ofNat 64 rawValue) (by simp)) aligned upper (codeOfSeg seg2)
+  obtain ⟨retired2', machine3, machine3Eq, seg3⟩ := seg2.stepStoreWitness
+    (width := 8) (args.stackPointer - 0x7d0 + 0x658) (BitVec.ofNat 64 rawValue) 0x1570c
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x156e8, 0x15730), by native_decide, by native_decide, by native_decide⟩)
+    (by native_decide) ⟨retired2, run2⟩ (by native_decide)
+    (by intro address lo hi; exact Or.inl ⟨lo, hi⟩)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access3 := writeSuccessAccessOfSeg access seg3
+  obtain ⟨retired3, run3⟩ := writeSuccessSlotTagStoreStep (fromStep + 3) tagWord args
+    machine3 access3 seg3.atPc
+    (seg3.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
+    (seg3.reg x11 (BitVec.ofNat 64 tagWord) (by simp)) aligned upper (codeOfSeg seg3)
+  obtain ⟨retired3', machine4, machine4Eq, seg4⟩ := seg3.stepStoreWitness
+    (width := 8) (args.stackPointer - 0x7d0 + 0x660) (BitVec.ofNat 64 tagWord) 0x15710
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x156e8, 0x15730), by native_decide, by native_decide, by native_decide⟩)
+    (by native_decide) ⟨retired3, run3⟩ (by native_decide)
+    (by intro address lo hi; exact Or.inr ⟨lo, hi⟩)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have wordAt3 : UIntRep 8 machine3.mem
+      (args.stackPointer - 0x7d0 + 0x658) rawValue := by
+    rw [machine3Eq]
+    simpa [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+      uintRep_afterWriteBytes_eight
+        (coreStoreNextState (tryStepStoreAfterIncrement machine2) 0x15708)
+        (args.stackPointer - 0x7d0 + 0x658) rawValue rawRep.1 (by omega)
+  have secondWrites : WritesOnlyWithin
+      (byteRange (args.stackPointer - 0x7d0 + 0x660) 8) machine3 machine4 := by
+    intro address outside
+    rw [machine4Eq]
+    exact storeRetirement_mem_writes machine3 0x1570c 0x15710 retired3'
+      (args.stackPointer - 0x7d0 + 0x660) (BitVec.ofNat 64 tagWord) address outside
+  have wordAt4 := wordAt3.of_writesOnlyWithin secondWrites (by
+    intro index bound inside
+    unfold byteRange at inside
+    omega)
+  have tagWordAt4 : UIntRep 8 machine4.mem
+      (args.stackPointer - 0x7d0 + 0x660) tagWord := by
+    rw [machine4Eq]
+    simpa [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+      uintRep_afterWriteBytes_eight
+        (coreStoreNextState (tryStepStoreAfterIncrement machine3) 0x1570c)
+        (args.stackPointer - 0x7d0 + 0x660) tagWord tagWordRep.1 (by omega)
+  have tagByteAt4 : UIntRep 1 machine4.mem
+      (args.stackPointer - 0x7d0 + 0x660)
+      (if args.decoded.payload.slotNumber.isSome then 1 else 0) := by
+    apply tagByteRep.rebase (by omega)
+    intro index inBounds
+    rw [tagWordAt4.2.2 index (by omega), tagWordRep.2.2 index (by omega)]
+  have localRep : OptionalUIntRep 8 machine4.mem
+      (args.stackPointer - 0x7d0 + 0x658) args.decoded.payload.slotNumber := by
+    cases optionEq : args.decoded.payload.slotNumber with
+    | none => simpa [OptionalUIntRep, optionEq] using tagByteAt4
+    | some value =>
+      have valueEq := rawActive value optionEq
+      subst rawValue
+      exact ⟨wordAt4, by simpa [optionEq] using tagByteAt4⟩
+  let after : EndpointState := { before with machine := machine4 }
+  have setupWrites : WritesOnlyWithin setupMemory before.machine after.machine := by
+    simpa [after] using seg4.mem
+  have payloadAfter := writeSuccessPayloadContextAfterChild decodedEq lower upper context setupWrites
+    setupInWriter (by
+      intro index inBounds inside
+      rw [context.bytesSize] at inBounds
+      unfold setupMemory writeSuccessSlotSetupMemory byteRange at inside
+      rcases inside with inside | inside <;> omega)
+    (by
+      intro index inBounds inside
+      unfold setupMemory writeSuccessSlotSetupMemory byteRange at inside
+      rw [decodedEq] at inside
+      rcases inside with inside | inside <;> omega)
+  refine ⟨after, {
+    trace := by
+      have machineTrace := seg4.confined 0 machine4 (.exitAt _ _ 0x15710 seg4.atPc rfl)
+      simpa [after] using liftWriteSuccessParentTrace before machineTrace
+    atPc := by simpa [after] using seg4.atPc
+    stack := by
+      simpa [after] using
+        seg4.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
+    localRep := by simpa [after] using localRep
+    saved := by
+      intro word member
+      simpa [after] using (saved word member).of_writesOnlyWithin seg4.mem (by
+        intro index inBounds inside
+        unfold setupMemory writeSuccessSlotSetupMemory byteRange at inside
+        simp [writeSuccessSavedWords] at member
+        rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+          rfl | rfl | rfl <;> rcases inside with inside | inside <;> omega)
+    payloadContext := by simpa [after] using payloadAfter
+    loaded := by simpa [after] using codeOfSeg seg4
+    access := by simpa [after] using writeSuccessAccessOfSeg access seg4
+    memory := by simpa [after] using seg4.mem }⟩
 
 set_option genInjectivity false in
 /-- The two blob-gas scalar encoders following withdrawals. -/
