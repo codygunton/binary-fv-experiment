@@ -197,7 +197,10 @@ private theorem writeSuccessFrameLower_of_mainFrameLower
     {stackPointer address : Nat} (_stackLower : 0xbb0 ≤ stackPointer)
     (insideWriteFrame : stackPointer - 0x7d0 ≤ address) :
     stackPointer - 0xbb0 ≤ address := by
-  exact (Nat.sub_le_sub_left (by decide : 0x7d0 ≤ 0xbb0) stackPointer).trans insideWriteFrame
+  calc
+    stackPointer - 0xbb0 ≤ stackPointer - 0x7d0 :=
+      Nat.sub_le_sub_left (by decide : 0x7d0 ≤ 0xbb0) stackPointer
+    _ ≤ address := insideWriteFrame
 
 def MainExit (args : MainArgs) (outcome : MainOutcome)
     (_before after : EndpointState) : Prop :=
@@ -1395,7 +1398,8 @@ def MainDecodeHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (f
     | .success decoded =>
         UIntRep 2 after.machine.mem (args.stackPointer + 0x370) 0 ∧
         DecodeStatusLoadWitness after 0 ∧
-        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded) ∧
+        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
+        InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720) ∧
     readCount ≤ contracts.readInputBound args.input.size ∧
     allocatorCount ≤ contracts.allocatorGetBound args.input.size ∧
     decodeCount ≤ contracts.decodeBound args.input.size
@@ -1560,7 +1564,8 @@ def MainStatusLoadedHandoff (contracts : Level1ResolvedContracts) (args : MainAr
           some (extend_value true (BitVec.ofNat 16 status))
     | .success decoded =>
         after.machine.regs.get? x10 = some (0#64) ∧
-        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded) ∧
+        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
+        InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720) ∧
     readCount ≤ contracts.readInputBound args.input.size ∧
     allocatorCount ≤ contracts.allocatorGetBound args.input.size ∧
     decodeCount ≤ contracts.decodeBound args.input.size
@@ -1620,7 +1625,7 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
           afterRegisterWrite_destination state.machine 0x14cfc retired x10
             (extend_value true access.data)
   | success decoded =>
-      rcases outcomeRep with ⟨_statusRep, ⟨access, accessData⟩, decodedRep⟩
+      rcases outcomeRep with ⟨_statusRep, ⟨access, accessData⟩, decodedRep, initialized⟩
       obtain ⟨retired, run⟩ := main_decode_status_step
         (fromStep + (11 + readCount + allocatorCount + decodeCount)) state.machine configured
         (by simpa [EndpointPc] using atPc) code access
@@ -1642,7 +1647,7 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
       refine ⟨readCount, allocatorCount, decodeCount, after, readOutcome, allocatorOutcome,
         .success decoded, trace,
         readPositive, allocatorPositive, decodePositive, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
-        ⟨?_, ?_⟩, readBounded, allocatorBounded, decodeBounded⟩
+        ⟨?_, ?_, ?_⟩, readBounded, allocatorBounded, decodeBounded⟩
       · simpa using meaning
       · simpa [after, EndpointPc, afterMachine] using
           afterRegisterWrite_pc state.machine 0x14cfc retired x10 (extend_value true access.data)
@@ -1663,6 +1668,7 @@ theorem main_load_decode_status (contracts : Level1ResolvedContracts) (args : Ma
           afterRegisterWrite_destination state.machine 0x14cfc retired x10
             (extend_value true access.data)
       · simpa [after, afterMachine, afterRegisterWrite_mem] using decodedRep
+      · simpa [after, afterMachine, afterRegisterWrite_mem] using initialized
 
 /-- Handoff after the exact status branch selects main's success or failure route. -/
 def MainStatusBranchedHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (fromStep : Nat)
@@ -1690,7 +1696,8 @@ def MainStatusBranchedHandoff (contracts : Level1ResolvedContracts) (args : Main
     (match decodeOutcome with
     | .failure => EndpointPc after = some 0x14d1c
     | .success decoded => EndpointPc after = some 0x14d04 ∧
-        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded) ∧
+        StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
+        InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720) ∧
     readCount ≤ contracts.readInputBound args.input.size ∧
     allocatorCount ≤ contracts.allocatorGetBound args.input.size ∧
     decodeCount ≤ contracts.decodeBound args.input.size
@@ -1773,7 +1780,7 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
       · simp [after, EndpointPc, MachinePc, afterMachine, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
   | success decoded =>
-      rcases outcomeRep with ⟨statusAtState, decodedRep⟩
+      rcases outcomeRep with ⟨statusAtState, decodedRep, initialized⟩
       let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state.machine) 0x14d00
       have statusAtPremise : premise.regs.get? x10 = some (0#64) :=
         (stepPremiseState_writes state.machine 0x14d00).get x10 (by decide) |>.trans statusAtState
@@ -1825,8 +1832,11 @@ theorem main_branch_decode_status (contracts : Level1ResolvedContracts) (args : 
       · constructor
         · simp [after, EndpointPc, MachinePc, afterMachine, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
-        · rw [show after.machine.mem = state.machine.mem by rfl]
-          exact decodedRep
+        · exact ⟨by
+            rw [show after.machine.mem = state.machine.mem by rfl]
+            exact decodedRep, by
+            rw [show after.machine.mem = state.machine.mem by rfl]
+            exact initialized⟩
 
 /-- The status-selected route after the successful observation has been written. A rejected input
 remains at the first failure-route instruction; it performs no output work in this theorem. -/
@@ -1882,7 +1892,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
       · simpa using prefixTrace
       · exact ⟨rfl, selected, stdout⟩
   | success decoded =>
-      rcases selected with ⟨atPc, decodedRep⟩
+      rcases selected with ⟨atPc, decodedRep, initialized⟩
       let step0 := fromStep + (13 + readCount + allocatorCount + decodeCount)
       obtain ⟨retired0, run0⟩ := main_success_result_address_step step0 state.machine configured
         (by simpa [EndpointPc] using atPc) code (MainAddiSource.stackPointer sp)
@@ -1985,7 +1995,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
         refine ⟨(by show 0x14d10 ∈ Elflings.writeSuccessExitPcs; native_decide),
           (Nat.le_trans (by decide : 0x7d0 ≤ 0xbb0) entry.stackLower),
           entry.stackAligned, (by dsimp [writeArgs]; have := entry.stackFits; omega),
-          ?_, ?_, ?_, ?_, ?_, callCode, callCalleeSaved, ?_⟩
+          ?_, ?_, ?_, ?_, ?_, ?_, callCode, callCalleeSaved, ?_⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.writeSuccessEntry]
         · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -2002,6 +2012,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
               (afterRegisterWrite_destination state.machine 0x14d04 retired0 x10 value0
                 (by decide) (by decide)))
         · simpa [callState, writeArgs, callMemory] using decodedRep
+        · simpa [callState, writeArgs, callMemory] using initialized
         · refine
             { configured := callConfigured
               frameStore := ?_

@@ -166,7 +166,7 @@ let
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel2Manifest}/level2-manifest.json"))["instances"]; pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | {pc for row in rows for pc in row["exitPcs"]}); print(",".join("snapshot="+str(pc) for pc in pcs))')
     for vector in minimal block-number chain-id-zero legacy-requests legacy-payload \
         future-activation extra-data-33 public-key-overflow versioned-hash-overflow invalid; do
-      ${rv64.qemuRiscv64} -plugin ./trace.so,out="$vector.trace",input=${targets.public.zesuSszDecodeSmoke}/"$vector.ssz",input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,"$snapshots" \
+      ${rv64.qemuRiscv64} -plugin ./trace.so,out="$vector.trace",input=${targets.public.zesuSszDecodeSmoke}/"$vector.ssz",input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,capture_window=0x14d30,capture_window_width=720,"$snapshots" \
         ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
     done
     mkdir -p "$out"

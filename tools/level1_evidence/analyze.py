@@ -13,7 +13,8 @@ from elf_identity import load_image_sha256
 
 
 def parse_trace(path: Path) -> dict:
-    executed, executions, registers, loads, stores, host_writes, outputs = [], [], {}, [], [], [], []
+    executed, executions, registers, loads, stores, host_writes, outputs, windows = \
+        [], [], {}, [], [], [], [], []
     for number, line in enumerate(path.read_text().splitlines(), 1):
         parts = line.split()
         if not parts:
@@ -52,13 +53,19 @@ def parse_trace(path: Path) -> dict:
                 if len(payload) != length:
                     raise ValueError
                 outputs.append({"pc": pc, "address": address, "bytes": payload.hex()})
+            elif parts[0] == "W" and len(parts) == 5:
+                pc, address, width = map(int, parts[1:4])
+                payload = bytes.fromhex(parts[4])
+                if len(payload) != width:
+                    raise ValueError
+                windows.append({"pc": pc, "address": address, "bytes": payload.hex()})
             else:
                 raise ValueError
         except ValueError as error:
             raise ValueError(f"{path}:{number}: malformed trace record") from error
     return {"executed": executed, "executions": executions, "registers": registers,
             "loads": loads, "stores": stores, "hostWrites": host_writes,
-            "terminalOutputs": outputs}
+            "terminalOutputs": outputs, "memoryWindows": windows}
 
 
 def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
@@ -238,6 +245,26 @@ def validate_decode_runs(manifest: dict, traces: list[tuple[str, dict]]) -> list
     return reports
 
 
+def validate_initialized_decoded_prefixes(_vectors: list[dict],
+                                          traces: list[tuple[str, dict]]) -> list[dict]:
+    expected = {
+        label for label, trace in traces if 0x14d30 in trace["executed"]
+    }
+    captured = [
+        {"vector": label, **window}
+        for label, trace in traces for window in trace.get("memoryWindows", [])
+    ]
+    captured_labels = [row["vector"] for row in captured]
+    if len(captured_labels) != len(set(captured_labels)) or set(captured_labels) != expected:
+        raise ValueError(
+            f"initialized decoded-prefix captures do not match successful vectors: "
+            f"expected={sorted(expected)} captured={captured_labels}")
+    for window in captured:
+        if window["pc"] != 0x14d30 or len(bytes.fromhex(window["bytes"])) != 720:
+            raise ValueError("unexpected initialized decoded-prefix capture")
+    return captured
+
+
 def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
                 bindings: dict | None = None, inputs: dict[str, Path] | None = None,
                 structural_only: bool = False) -> dict:
@@ -268,6 +295,8 @@ def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
             "semantic result relation",
         ],
     }
+    report["initializedDecodedPrefixes"] = validate_initialized_decoded_prefixes(
+        vectors, parsed_traces)
     if not structural_only:
         report["sszDecodeObservedRuns"] = validate_decode_runs(manifest, parsed_traces)
     if bindings is not None and not structural_only:

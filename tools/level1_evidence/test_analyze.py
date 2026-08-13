@@ -6,7 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from analyze import make_report, parse_trace, reduce_trace, validate_decode_runs
+from analyze import (make_report, parse_trace, reduce_trace, validate_decode_runs,
+                     validate_initialized_decoded_prefixes)
 from elf_identity import load_image_sha256
 
 
@@ -105,6 +106,27 @@ class EvidenceTest(unittest.TestCase):
             self.assertEqual(parsed["terminalOutputs"], [{
                 "pc": 66000, "address": 4096, "bytes": "aabb",
             }])
+
+    def test_parser_reads_initialized_memory_window(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "trace"
+            trace.write_text("W 85296 4096 3 0102ff\n")
+            self.assertEqual(parse_trace(trace)["memoryWindows"], [{
+                "pc": 85296, "address": 4096, "bytes": "0102ff",
+            }])
+
+    def test_parser_rejects_wrong_memory_window_width(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "trace"
+            trace.write_text("W 85296 4096 4 0102ff\n")
+            with self.assertRaisesRegex(ValueError, "malformed"):
+                parse_trace(trace)
+
+    def test_rejects_missing_initialized_decoded_prefix(self):
+        vectors = [{"label": "ok"}]
+        with self.assertRaisesRegex(ValueError, "do not match"):
+            validate_initialized_decoded_prefixes(
+                vectors, [("ok", {"executed": [0x14d30], "memoryWindows": []})])
 
     def test_rejects_missing_exit_snapshot(self):
         trace = copy.deepcopy(self.trace)

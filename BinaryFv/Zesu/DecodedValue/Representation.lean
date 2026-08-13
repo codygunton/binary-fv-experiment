@@ -82,6 +82,11 @@ def BytesRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
     ∀ index (inBounds : index < bytes.size),
       mem.get? (address + index) = some (BitVec.ofNat 8 bytes[index].toNat)
 
+/-- Every byte in a fixed machine-memory window is initialized. The existential byte array records
+the concrete padding bytes without assigning them source-level meaning. -/
+def InitializedByteWindow (mem : Std.ExtHashMap Nat (BitVec 8)) (address width : Nat) : Prop :=
+  ∃ bytes : Array UInt8, bytes.size = width ∧ BytesRep mem address bytes
+
 def ArrayRep (stride : Nat) (elementRep : Std.ExtHashMap Nat (BitVec 8) → Nat → α → Prop)
     (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat) (values : Array α) : Prop :=
   address + values.size * stride ≤ 2 ^ 64 ∧
