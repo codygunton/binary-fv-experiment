@@ -195,7 +195,9 @@ def WriteSuccessEntry (args : WriteSuccessArgs) (state : EndpointState) : Prop :
   DwordWindowRep state.machine.mem (args.decodedAddress + 720) 16 ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   (∃ values, DecodeCalleeSavedAtRegisters values state) ∧
-  WriteSuccessMachineAccess args state.machine
+  WriteSuccessMachineAccess args state.machine ∧
+  StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x7d0) 0x7d0)
+    state.machine.mem args.decodedAddress args.decoded
 
 def WriteSuccessExit (args : WriteSuccessArgs) (bytes : Array UInt8)
     (before after : EndpointState) : Prop :=

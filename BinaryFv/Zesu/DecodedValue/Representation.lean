@@ -98,6 +98,17 @@ def ByteWindowRelocation (before after : Std.ExtHashMap Nat (BitVec 8))
     (source destination width : Nat) : Prop :=
   ∀ index, index < width → after.get? (destination + index) = before.get? (source + index)
 
+/-- Relocate one represented little-endian integer through a pointwise byte-window relation. -/
+theorem UIntRep.rebase {before after : Std.ExtHashMap Nat (BitVec 8)}
+    {width source destination value : Nat} (rep : UIntRep width before source value)
+    (destinationFits : destination + width ≤ 2 ^ 64)
+    (relocation : ByteWindowRelocation before after source destination width) :
+    UIntRep width after destination value := by
+  refine ⟨rep.1, destinationFits, ?_⟩
+  intro index inBounds
+  rw [relocation index inBounds]
+  exact rep.2.2 index inBounds
+
 theorem ByteWindowRelocation.atOffset {before after : Std.ExtHashMap Nat (BitVec 8)}
     {source destination total : Nat}
     (relocation : ByteWindowRelocation before after source destination total)
@@ -360,6 +371,23 @@ def StatelessInputRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
   SliceRep 16 ByteSliceRep mem (address + 752) decoded.witnessHeaders ∧
   ChainConfigRep mem (address + 768) decoded.chainConfig ∧
   SliceRep 16 ByteSliceRep mem (address + 832) decoded.publicKeys
+
+/-- The decoded representation remains valid after any memory change confined to `owned`. This is
+the caller-visible separation fact required when `writeSuccess` uses a stack frame below the decoded
+value while retaining heap objects reached through its slice descriptors. -/
+def StatelessInputRepStableOutside (owned : BinaryFv.RiscV.Region)
+    (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat) (decoded : ZesuDecodedResult) : Prop :=
+  ∀ after : Std.ExtHashMap Nat (BitVec 8),
+    (∀ byte, ¬ owned byte → after.get? byte = mem.get? byte) →
+      StatelessInputRep after address decoded
+
+theorem StatelessInputRepStableOutside.of_writesOnlyWithin
+    {before after : BinaryFv.RiscV.State} {owned : BinaryFv.RiscV.Region}
+    {address : Nat} {decoded : ZesuDecodedResult}
+    (stable : StatelessInputRepStableOutside owned before.mem address decoded)
+    (writes : BinaryFv.RiscV.WritesOnlyWithin owned before after) :
+    StatelessInputRep after.mem address decoded :=
+  stable after.mem writes
 
 set_option genInjectivity false in
 /-- The seven contiguous execution-payload byte fields emitted directly by `writeSuccess`. -/

@@ -1403,6 +1403,8 @@ def MainDecodeHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (f
         UIntRep 2 after.machine.mem (args.stackPointer + 0x370) 0 ∧
         DecodeStatusLoadWitness after 0 ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
+        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x7d0) 0x7d0)
+          after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
         DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧
     readCount ≤ contracts.readInputBound args.input.size ∧
@@ -1570,6 +1572,8 @@ def MainStatusLoadedHandoff (contracts : Level1ResolvedContracts) (args : MainAr
     | .success decoded =>
         after.machine.regs.get? x10 = some (0#64) ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
+        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x7d0) 0x7d0)
+          after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
         DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧
     readCount ≤ contracts.readInputBound args.input.size ∧
@@ -1703,6 +1707,8 @@ def MainStatusBranchedHandoff (contracts : Level1ResolvedContracts) (args : Main
     | .failure => EndpointPc after = some 0x14d1c
     | .success decoded => EndpointPc after = some 0x14d04 ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
+        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x7d0) 0x7d0)
+          after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
         DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧
     readCount ≤ contracts.readInputBound args.input.size ∧
@@ -1899,7 +1905,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
       · simpa using prefixTrace
       · exact ⟨rfl, selected, stdout⟩
   | success decoded =>
-      rcases selected with ⟨atPc, decodedRep, initialized720, initialized848⟩
+      rcases selected with ⟨atPc, decodedRep, decodedStable, initialized720, initialized848⟩
       let step0 := fromStep + (13 + readCount + allocatorCount + decodeCount)
       obtain ⟨retired0, run0⟩ := main_success_result_address_step step0 state.machine configured
         (by simpa [EndpointPc] using atPc) code (MainAddiSource.stackPointer sp)
@@ -2002,7 +2008,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
         refine ⟨(by show 0x14d10 ∈ Elflings.writeSuccessExitPcs; native_decide),
           (Nat.le_trans (by decide : 0x7d0 ≤ 0xbb0) entry.stackLower),
           entry.stackAligned, (by dsimp [writeArgs]; have := entry.stackFits; omega),
-          (by simp [writeArgs]), ?_, ?_, ?_, ?_, ?_, ?_, ?_, callCode, callCalleeSaved, ?_⟩
+          (by simp [writeArgs]), ?_, ?_, ?_, ?_, ?_, ?_, ?_, callCode, callCalleeSaved, ?_, ?_⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.writeSuccessEntry]
         · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -2064,6 +2070,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
             change address < args.stackPointer at upper
             exact entry.stackNotFileBacked address
               (writeSuccessFrameLower_of_mainFrameLower entry.stackLower lower) (by omega)
+        · simpa [callState, writeArgs, callMemory] using decodedStable
       let stepBound := contracts.writeSuccessBound
       let implements := contracts.writeSuccess
       obtain ⟨writeCount, after, bytes, writePositive, writeBounded, writeTrace, _writeExit,
