@@ -399,100 +399,58 @@ every small branch target was being recorded as an immediate. The rule is now cl
   searches CFG paths.
 - **Nothing is proved.** This ranks candidates.
 
-## 9. The spike ran. Here is what it measured.
+## 9. The spike ran, partly. The authoring question is still open.
 
-Executed on branch `motif-lemmas`, results in `docs/research/motif-lemma-measurements.md`. Every
-number below comes from a Lean module that builds, against this same object.
+Executed on branch `motif-lemmas`. Data in `docs/research/motif-lemma-measurements.md`.
 
-### 9.1 The four parts of one instruction
+### 9.1 What was measured
 
-| part | cost | can a motif lemma share it? |
-|---|---|---|
-| fetch | 4 × 84.8ms = **339ms** | **no** |
-| decode | **~50ms** | **no** |
-| execute | **~136ms** | **yes — the only part** |
-| retire | ~0 | already shared by `StepPremises`, per segment |
-| **total** | **~525ms** | **26% of it** |
+**The CI cost of proving this binary.** Fetch is four `native_decide`s per instruction at
+**84.8ms each**, measured across 2624 calls in five modules spanning a 13x size range, linear
+throughout. `decide` cannot do the job at all -- the image is 17740 bytes as `ByteArray.mk` chunks
+joined by `++`, and kernel reduction overflows the C stack.
 
-Fetch is four `native_decide`s against the program image. Measured at **84.8ms each across 2624
-calls** in five modules spanning a 13× size range, linear throughout. `decide` cannot do this job at
-all: the image is 17740 bytes as `ByteArray.mk` chunks joined by `++`, and kernel reduction of the
-literal overflows the C stack.
+Per instruction: **339ms fetch, ~50ms decode, ~136ms execute, ~0 retire** (`StepPremises` carries
+the retire premises once per segment). Floor for this report's 149-lemma covering, 3292
+instructions: **18.6 minutes**. Whole binary: **25.1**.
 
-**Fetch and decode are unshareable for a structural reason.** Every instruction sits at a different
-address holding different bytes, so its four evaluations differ; every instruction decodes to a
-different `instruction` value. A lemma stated once for a shape is still *applied* to `n` distinct
-words at each of its sites. The shape is shared; the words are not.
+That floor is irreducible by any arrangement of motif lemmas, because each instruction owns a
+different word. **Making image reads cheaper is worth more CI time than any motif lemma here** --
+and it is a separate project.
 
-### 9.2 What that does to this report's ranking
+### 9.2 What was NOT measured, and it is the thing this report asked about
 
-Section 5 ranked 149 candidate lemmas by `uses × (n−1)`. That statistic is correct about the step
-layer and silent about fetch and decode, which is where 74% of the time goes.
+**Whether a motif lemma reduces the lines a proof author writes.** No motif lemma was written, so
+the quantity does not exist yet.
 
-Applying `n·s → n+s` to the execute term alone:
+Two figures were published from this spike and both are withdrawn. One measured elaboration time
+and presented it as the saving. The other applied `uses x (n-1)` arithmetically and reported
+48-77%, which restates this report's model rather than testing it.
 
-| case | n | sites | no lemma | with lemma | saving |
-|---|---|---|---|---|---|
-| A `mem.readInt` | 10 | 7 | 36.8s | 29.6s | **20%** |
-| B `mem.writeInt` | 15 | 6 | 47.3s | 37.9s | **20%** |
-| E `sizeClassOfBytes` | 78 | 4 | 163.9s | 132.6s | **19%** |
-| G `decodeTxFields` tail | 32 | 5 | 84.0s | 67.3s | **20%** |
-| D `addi mv mv auipc` | 4 | 21 | 44.1s | 36.1s | **18%** |
-| F `rawAlloc`/`rawRemap` | 4 | 6 | 12.6s | 10.7s | **15%** |
-| C `ld ld addi` | 3 | 13 | 20.5s | 17.4s | **15%** |
-| C `mv addi` | 2 | 45 | 47.3s | 41.4s | **12%** |
-| **all eight** | | | **456.4s** | **372.9s** | **18%** |
+The untested part is the one section 5 already flagged: *"a class-level lemma merges several
+dataflow shapes and needs register-distinctness hypotheses, which this model does not price."*
+Those hypotheses are still unpriced. A per-instruction step in a real composition is `Seg.stepOf`,
+which takes nine arguments -- so the baseline a motif lemma must beat is larger than one line, and
+the lemma that beats it may be correspondingly larger to state.
 
-**Every case lands between 12% and 20%.** The spread this report predicted — long motifs at many
-sites dominating short ones — does not occur. `alt_fl_alloc.sizeClassOfBytes`, called the largest
-single prize in the study, saves 19%: the same as everything else. The shortest motif saves 12%.
-A factor of 1.6 between best and worst, where `uses × (n−1)` implied an order of magnitude.
+**So section 5's ranking is neither confirmed nor refuted.** It remains a proxy whose accuracy is
+unknown.
 
-### 9.3 The verdict
+### 9.3 What the spike established besides the CI cost
 
-**Motif lemmas are worth writing, and this report's ranking is not worth following.** A uniform
-~18% is a real saving. But choosing *which* motifs to write by `uses × (n−1)` does not help,
-because that score barely correlates with the outcome once the unshareable 74% is counted.
+- `0x70` retires -- the first kernel-backed machine theorem on this target. `proof-map.json` had
+  reported `formalCoverage: {level4PcCount: 0, ...}` with its one authoring region `blocked` since
+  the pivot.
+- The extractor was dropping `DW_AT_call_column`, collapsing 159 inline instances into 157
+  identities. Both collisions were in `alt_fl_alloc.sizeClass`/`sizeClassOfBytes` -- section 5a's
+  largest prize.
+- Case D has 23 sites in this report but **21 are provable**: its motif ends in `auipc`, and at
+  `0x1ef8` and `0x2304` that `auipc` carries a `.rela.text` relocation.
 
-The floor is the thing to attack. For the 3292 instructions this report's covering claims:
+## 10. The 2-5-grams: lemmas, or a tactic?
 
-```
-3292 × 4 native_decide × 84.8ms  =  18.6 minutes
-```
+Unanswered. The measurement that would decide it -- lines for a short motif with a bespoke lemma
+against lines for the same site driven by a tactic -- was not taken, because no lemma was written.
 
-irreducible by any arrangement of motif lemmas. The whole binary is 25.1 minutes. **Making
-`native_decide` against the image cheaper is worth more than any motif lemma in this document.**
-
-### 9.4 What the spike also established
-
-- The target has a Lean `Program` and `ProgramImage`, nix-built and determinism-checked
-  (`tools/generate_zesu_program.py`).
-- `0x70` retires — the first kernel-backed machine theorem on this target. `proof-map.json` had
-  reported `formalCoverage: {level4PcCount: 0, …}` with its one authoring region `blocked` since the
-  pivot.
-- The extractor was dropping `DW_AT_call_column`, which collapsed 159 inline instances into 157
-  identities. Both collisions were in `alt_fl_alloc.sizeClass`/`sizeClassOfBytes` — Case E's family.
-- Case D has 23 sites in this report but only **21 are provable**: its motif ends in `auipc`, and at
-  `0x1ef8` and `0x2304` that `auipc` carries a `.rela.text` relocation, so its immediate is not final
-  in the object.
-
-## 10. The 2–5-grams: lemmas, or a tactic?
-
-**The measurement makes this question much less interesting than it looked.**
-
-Section 9 shows a lemma and a tactic compete over the same 26% of the cost. The short-motif case
-(`mv addi`, n=2, 45 sites) saves 12% with a bespoke lemma. A tactic driving `Seg.stepOf` cannot do
-better than the lemma's 12%, and its plausible advantage — no per-motif authoring — is worth at most
-that 12% either way.
-
-So the original framing was wrong in both directions. It assumed the choice mattered a great deal
-and that the answer would swing the campaign. Neither holds: whichever is chosen, the short motifs
-return about an eighth of their cost, and the other seven eighths sit in fetch and decode.
-
-What remains true, and is now quantified rather than argued:
-
-- `Seg` was built to make chaining cheap, and its `StepPremises` bundle already removed the retire
-  cost entirely — that part of the collapse is banked and a motif lemma cannot claim it again.
-- The frames compose at a fixed register set because a growing one exceeds `synthInstance.maxSize`
-  at about eight steps. Case G at n=32 was scheduled to test that wall. It was not reached, because
-  the cost question was answered before the scaling question needed answering.
+The framing in earlier revisions of this section, that the choice barely matters because both
+compete over the same 26%, rested on the retracted elaboration-time figure. Disregard it.
