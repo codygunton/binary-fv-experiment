@@ -3953,6 +3953,22 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
       _ = prefixState.stdout := rfl
       _ = state.stdout ++ successPrefixBytes := prefixStdout
 
+private theorem writeSuccessRawEncoderHandoff
+    {entry success : Nat} {executionPcs : List Elflings.PcRange} {exitPcs : List Nat}
+    (child : RawEncoderInstanceContract entry executionPcs exitPcs success)
+    (insideWriter : ∀ {pc}, pcInRanges executionPcs pc →
+      pcInRanges Elflings.writeSuccessExecutionPcRanges pc)
+    (fromStep : Nat) (args : RawEncoderArgs) (before : EndpointState)
+    (childEntry : RawEncoderEntry entry args before) :
+    ∃ used after,
+      ConfinedTrace EndpointStep EndpointPc
+        (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep used before after ∧
+      RawEncoderExit success args () before after := by
+  obtain ⟨stepBound, implements⟩ := child
+  obtain ⟨used, after, unit, positive, bounded, trace, exitPc, allowed, exit⟩ :=
+    implements args fromStep before childEntry
+  exact ⟨used, after, trace.weaken (fun _ pc => insideWriter pc), exit⟩
+
 
 
 end BinaryFv.Zesu.MachineExecution
