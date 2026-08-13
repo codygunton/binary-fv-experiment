@@ -46,6 +46,18 @@ structure StepData (W : RegSet) (pc : BitVec 64) (stepNo : Nat) where
   destNotPc : dest ≠ PC
   destNotRetired : dest ≠ minstret
 
+/-- The same, for a store: it writes memory rather than a register, so `Seg.stepStore` consumes it
+and the segment learns nothing about registers. -/
+structure StoreData (M : Region) (pc : BitVec 64) (stepNo : Nat) where
+  width : Nat
+  address : Nat
+  value : BitVec (8 * width)
+  run : ∀ cur : State, ∃ r, Runs (try_step stepNo false) cur
+    (tryStepControlFlowAfterRetired
+      (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc)
+        address value) (Sail.BitVec.addInt pc 4) r) false
+  inside : ∀ other, address ≤ other → other < address + width → M other
+
 /-! ## Baseline — one site, no lemma -/
 
 theorem baselineChain {own exit : BitVec 64 → Prop}
@@ -65,7 +77,8 @@ theorem baselineChain {own exit : BitVec 64 → Prop}
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (keep : ∀ (d : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only d)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only d)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 10 base next
       (BitVec.ofNat 64 0x98) := by
   obtain ⟨n0, g0⟩ := seg.step (inRegion _) (notExit _)
@@ -103,7 +116,7 @@ theorem baselineChain {own exit : BitVec 64 → Prop}
 /-! ## The lemma -/
 
 /-- The 10 per-instruction bundles of one site, as one argument. -/
-structure MotifData (W : RegSet) (start : BitVec 64) where
+structure MotifData (W : RegSet) (M : Region) (start : BitVec 64) where
   s0 : StepData W start 0
   s1 : StepData W (start + 4) 1
   s2 : StepData W ((start + 4) + 4) 2
@@ -119,44 +132,45 @@ theorem motifCase {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {W : RegSet} {M : Region} {base cur : State} {kv : List RegVal} {start : BitVec 64}
     (seg : Seg own exit childSummary W M kv 0 0 base cur start)
-    (d : MotifData W start)
+    (d : MotifData W M start)
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (adv : ∀ q : BitVec 64, Sail.BitVec.addInt q 4 = q + 4)
     (keep : ∀ (r : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 10 base next ((((((((((start + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) := by
   obtain ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9⟩ := d
   obtain ⟨n0, g0⟩ := seg.step (inRegion _) (notExit _)
-    s0.dest s0.value (start + 4) (s0.run _) (adv _) bookkeeping s0.destination
-    s0.destNotPc s0.destNotRetired (keep _ _)
+    s0.dest s0.value (start + 4) (s0.run _) (adv _)
+    bookkeeping s0.destination s0.destNotPc s0.destNotRetired (keep _ _)
   obtain ⟨n1, g1⟩ := g0.step (inRegion _) (notExit _)
-    s1.dest s1.value ((start + 4) + 4) (s1.run _) (adv _) bookkeeping s1.destination
-    s1.destNotPc s1.destNotRetired (keep _ _)
+    s1.dest s1.value ((start + 4) + 4) (s1.run _) (adv _)
+    bookkeeping s1.destination s1.destNotPc s1.destNotRetired (keep _ _)
   obtain ⟨n2, g2⟩ := g1.step (inRegion _) (notExit _)
-    s2.dest s2.value (((start + 4) + 4) + 4) (s2.run _) (adv _) bookkeeping s2.destination
-    s2.destNotPc s2.destNotRetired (keep _ _)
+    s2.dest s2.value (((start + 4) + 4) + 4) (s2.run _) (adv _)
+    bookkeeping s2.destination s2.destNotPc s2.destNotRetired (keep _ _)
   obtain ⟨n3, g3⟩ := g2.step (inRegion _) (notExit _)
-    s3.dest s3.value ((((start + 4) + 4) + 4) + 4) (s3.run _) (adv _) bookkeeping s3.destination
-    s3.destNotPc s3.destNotRetired (keep _ _)
+    s3.dest s3.value ((((start + 4) + 4) + 4) + 4) (s3.run _) (adv _)
+    bookkeeping s3.destination s3.destNotPc s3.destNotRetired (keep _ _)
   obtain ⟨n4, g4⟩ := g3.step (inRegion _) (notExit _)
-    s4.dest s4.value (((((start + 4) + 4) + 4) + 4) + 4) (s4.run _) (adv _) bookkeeping s4.destination
-    s4.destNotPc s4.destNotRetired (keep _ _)
+    s4.dest s4.value (((((start + 4) + 4) + 4) + 4) + 4) (s4.run _) (adv _)
+    bookkeeping s4.destination s4.destNotPc s4.destNotRetired (keep _ _)
   obtain ⟨n5, g5⟩ := g4.step (inRegion _) (notExit _)
-    s5.dest s5.value ((((((start + 4) + 4) + 4) + 4) + 4) + 4) (s5.run _) (adv _) bookkeeping s5.destination
-    s5.destNotPc s5.destNotRetired (keep _ _)
+    s5.dest s5.value ((((((start + 4) + 4) + 4) + 4) + 4) + 4) (s5.run _) (adv _)
+    bookkeeping s5.destination s5.destNotPc s5.destNotRetired (keep _ _)
   obtain ⟨n6, g6⟩ := g5.step (inRegion _) (notExit _)
-    s6.dest s6.value (((((((start + 4) + 4) + 4) + 4) + 4) + 4) + 4) (s6.run _) (adv _) bookkeeping s6.destination
-    s6.destNotPc s6.destNotRetired (keep _ _)
+    s6.dest s6.value (((((((start + 4) + 4) + 4) + 4) + 4) + 4) + 4) (s6.run _) (adv _)
+    bookkeeping s6.destination s6.destNotPc s6.destNotRetired (keep _ _)
   obtain ⟨n7, g7⟩ := g6.step (inRegion _) (notExit _)
-    s7.dest s7.value ((((((((start + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) (s7.run _) (adv _) bookkeeping s7.destination
-    s7.destNotPc s7.destNotRetired (keep _ _)
+    s7.dest s7.value ((((((((start + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) (s7.run _) (adv _)
+    bookkeeping s7.destination s7.destNotPc s7.destNotRetired (keep _ _)
   obtain ⟨n8, g8⟩ := g7.step (inRegion _) (notExit _)
-    s8.dest s8.value (((((((((start + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) (s8.run _) (adv _) bookkeeping s8.destination
-    s8.destNotPc s8.destNotRetired (keep _ _)
+    s8.dest s8.value (((((((((start + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) (s8.run _) (adv _)
+    bookkeeping s8.destination s8.destNotPc s8.destNotRetired (keep _ _)
   obtain ⟨n9, g9⟩ := g8.step (inRegion _) (notExit _)
-    s9.dest s9.value ((((((((((start + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) (s9.run _) (adv _) bookkeeping s9.destination
-    s9.destNotPc s9.destNotRetired (keep _ _)
+    s9.dest s9.value ((((((((((start + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) (s9.run _) (adv _)
+    bookkeeping s9.destination s9.destNotPc s9.destNotRetired (keep _ _)
   exact ⟨n9, _, g9⟩
 
 /-! ## The 7 sites, one application each -/
@@ -165,91 +179,98 @@ theorem site_70 {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {W : RegSet} {M : Region} {base cur : State} {kv : List RegVal}
     (seg : Seg own exit childSummary W M kv 0 0 base cur (BitVec.ofNat 64 0x70))
-    (d : MotifData W (BitVec.ofNat 64 0x70))
+    (d : MotifData W M (BitVec.ofNat 64 0x70))
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (adv : ∀ q : BitVec 64, Sail.BitVec.addInt q 4 = q + 4)
     (keep : ∀ (r : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 10 base next (((((((((((BitVec.ofNat 64 0x70) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) :=
-  motifCase seg d inRegion notExit bookkeeping adv keep
+  motifCase seg d inRegion notExit bookkeeping adv keep keepStore
 
 theorem site_fc {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {W : RegSet} {M : Region} {base cur : State} {kv : List RegVal}
     (seg : Seg own exit childSummary W M kv 0 0 base cur (BitVec.ofNat 64 0xfc))
-    (d : MotifData W (BitVec.ofNat 64 0xfc))
+    (d : MotifData W M (BitVec.ofNat 64 0xfc))
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (adv : ∀ q : BitVec 64, Sail.BitVec.addInt q 4 = q + 4)
     (keep : ∀ (r : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 10 base next (((((((((((BitVec.ofNat 64 0xfc) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) :=
-  motifCase seg d inRegion notExit bookkeeping adv keep
+  motifCase seg d inRegion notExit bookkeeping adv keep keepStore
 
 theorem site_1fcc {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {W : RegSet} {M : Region} {base cur : State} {kv : List RegVal}
     (seg : Seg own exit childSummary W M kv 0 0 base cur (BitVec.ofNat 64 0x1fcc))
-    (d : MotifData W (BitVec.ofNat 64 0x1fcc))
+    (d : MotifData W M (BitVec.ofNat 64 0x1fcc))
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (adv : ∀ q : BitVec 64, Sail.BitVec.addInt q 4 = q + 4)
     (keep : ∀ (r : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 10 base next (((((((((((BitVec.ofNat 64 0x1fcc) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) :=
-  motifCase seg d inRegion notExit bookkeeping adv keep
+  motifCase seg d inRegion notExit bookkeeping adv keep keepStore
 
 theorem site_2130 {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {W : RegSet} {M : Region} {base cur : State} {kv : List RegVal}
     (seg : Seg own exit childSummary W M kv 0 0 base cur (BitVec.ofNat 64 0x2130))
-    (d : MotifData W (BitVec.ofNat 64 0x2130))
+    (d : MotifData W M (BitVec.ofNat 64 0x2130))
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (adv : ∀ q : BitVec 64, Sail.BitVec.addInt q 4 = q + 4)
     (keep : ∀ (r : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 10 base next (((((((((((BitVec.ofNat 64 0x2130) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) :=
-  motifCase seg d inRegion notExit bookkeeping adv keep
+  motifCase seg d inRegion notExit bookkeeping adv keep keepStore
 
 theorem site_2338 {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {W : RegSet} {M : Region} {base cur : State} {kv : List RegVal}
     (seg : Seg own exit childSummary W M kv 0 0 base cur (BitVec.ofNat 64 0x2338))
-    (d : MotifData W (BitVec.ofNat 64 0x2338))
+    (d : MotifData W M (BitVec.ofNat 64 0x2338))
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (adv : ∀ q : BitVec 64, Sail.BitVec.addInt q 4 = q + 4)
     (keep : ∀ (r : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 10 base next (((((((((((BitVec.ofNat 64 0x2338) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) :=
-  motifCase seg d inRegion notExit bookkeeping adv keep
+  motifCase seg d inRegion notExit bookkeeping adv keep keepStore
 
 theorem site_238c {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {W : RegSet} {M : Region} {base cur : State} {kv : List RegVal}
     (seg : Seg own exit childSummary W M kv 0 0 base cur (BitVec.ofNat 64 0x238c))
-    (d : MotifData W (BitVec.ofNat 64 0x238c))
+    (d : MotifData W M (BitVec.ofNat 64 0x238c))
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (adv : ∀ q : BitVec 64, Sail.BitVec.addInt q 4 = q + 4)
     (keep : ∀ (r : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 10 base next (((((((((((BitVec.ofNat 64 0x238c) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) :=
-  motifCase seg d inRegion notExit bookkeeping adv keep
+  motifCase seg d inRegion notExit bookkeeping adv keep keepStore
 
 theorem site_2b24 {own exit : BitVec 64 → Prop}
     {childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}
     {W : RegSet} {M : Region} {base cur : State} {kv : List RegVal}
     (seg : Seg own exit childSummary W M kv 0 0 base cur (BitVec.ofNat 64 0x2b24))
-    (d : MotifData W (BitVec.ofNat 64 0x2b24))
+    (d : MotifData W M (BitVec.ofNat 64 0x2b24))
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (adv : ∀ q : BitVec 64, Sail.BitVec.addInt q 4 = q + 4)
     (keep : ∀ (r : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 10 base next (((((((((((BitVec.ofNat 64 0x2b24) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) + 4) :=
-  motifCase seg d inRegion notExit bookkeeping adv keep
+  motifCase seg d inRegion notExit bookkeeping adv keep keepStore
 
 end BinaryFv.Zesu.Motifs.CaseA

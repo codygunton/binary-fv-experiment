@@ -8,45 +8,52 @@ Measured against the real Zesu SSZ decode endpoint (`zesu-ssz-decode.o`, `.text`
 
 ## 1. Result
 
-Four cases produced numbers. Four are `BLOCKED` — see §4, and the reason they are blocked is the
+Five cases produced numbers. Three are `BLOCKED` — see §4, and the reason they are blocked is the
 most useful thing in this document.
 
 | case | motif | n | sites | baseline (1 site) | lemma | per application | no lemma | with lemma | **saved** | break-even sites |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C2 | `mv addi` | 2 | 45 | 19 | 22 | 12 | 855 | 562 | **34%** | 3.1 |
-| C3 | `ld ld addi` | 3 | 13 | 23 | 26 | 12 | 299 | 182 | **39%** | 2.4 |
-| D | `addi mv mv auipc` | 4 | 21 | 27 | 30 | 12 | 567 | 282 | **50%** | 2.0 |
-| A | `mem.readInt` | 10 | 7 | 51 | 54 | 12 | 357 | 138 | **61%** | 1.4 |
-| **all four** | | | | | | | **2078** | **1164** | **44%** | |
+| C2 | `mv addi` | 2 | 45 | 20 | 23 | 13 | 900 | 608 | **32%** | 3.3 |
+| C3 | `ld ld addi` | 3 | 13 | 24 | 27 | 13 | 312 | 196 | **37%** | 2.5 |
+| D | `addi mv mv auipc` | 4 | 21 | 28 | 31 | 13 | 588 | 304 | **48%** | 2.1 |
+| A | `mem.readInt` | 10 | 7 | 52 | 55 | 13 | 364 | 146 | **60%** | 1.4 |
+| G | `decodeTxFields` tail | 32 | 5 | 136 | 139 | 13 | 680 | 204 | **70%** | 1.1 |
+| **all five** | | | | | | | **2844** | **1458** | **49%** | |
 
-**The saving rises monotonically with `n`: 34% → 39% → 50% → 61%.** That is what the n-gram study's
+**The saving rises monotonically with `n`: 32% → 37% → 48% → 60% → 70%**, across a 16× range in
+`n`. That is what the n-gram study's
 `uses × (n−1)` predicts, and it is now measured rather than assumed.
 
-**Every case pays.** Break-even is 1.4 to 3.1 sites and every case has more sites than that. Even
-the shortest motif — `mv addi` at n=2, the case most likely to come back negative — saves 34% across
+**Every case pays.** Break-even is 1.1 to 3.3 sites and every case has more sites than that. Even
+the shortest motif — `mv addi` at n=2, the case most likely to come back negative — saves 32% across
 its 45 sites.
+
+Case G is the important one: n=32, a **mixed** chain of 25 register writes, 4 stores and 3 more
+register writes, composed with `Seg.step` and `Seg.stepStore`. It extends the validated range from
+n=10 to n=32 and it is the only case whose break-even is near 1 — a lemma there pays at two sites.
 
 ### Why the numbers take this shape
 
-The baseline grows with `n` (one `Seg.step` block per instruction, ~4 lines each) while the
-application is flat at 12 lines regardless of `n`. The lemma costs the baseline plus 3 lines. So
+The baseline grows with `n` — one composition block per instruction, ~4 lines each — while the
+application is flat at **13 lines regardless of `n`**. The lemma costs the baseline plus 3 lines. So
 
 ```
-saved  =  1 − (baseline + 3 + s·12) / (s · baseline)
+saved  =  1 − (baseline + 3 + s·13) / (s · baseline),    baseline ≈ 4n + 12
 ```
 
-and since `baseline ≈ 4n + 11`, the saving rises with `n` and falls as the flat 12-line application
-comes to dominate. That is the mechanism behind `uses × (n−1)`, and it holds.
+The saving rises with `n` because the baseline does and the application does not. That is the
+mechanism behind `uses × (n−1)`, and the five measured points fit it.
 
 ### One caveat on the 12-line application
 
 Each `site_*` is a standalone theorem, so it restates its whole context — `own`, `exit`,
-`childSummary`, `W`, `M`, `base`, `cur`, `kv`, and six hypotheses. Inside a larger proof where that
-context is already in scope, an application is closer to one line. The measured 44% is therefore a
-**lower bound**; with inline applications the same four cases give 2078 → 122 lines, or 94%.
+`childSummary`, `W`, `M`, `base`, `cur`, `kv`, and seven hypotheses. Inside a larger proof where
+that context is already in scope, an application is closer to one line. The measured **49% is
+therefore a lower bound**; with one-line applications the same five cases give 2844 → 366 lines, or
+**87%**.
 
-Both bounds are reported because which one applies depends on how the covering is organised, and
-that is not yet decided.
+Both bounds are reported because which applies depends on how the covering is organised, and that
+is not decided.
 
 ## 2. Side conditions the study's model does not price
 
@@ -86,50 +93,62 @@ Line counts exclude comments and blanks, by the same rule everywhere:
 
 | case | motif | n | sites | reason |
 |---|---|---|---|---|
-| B | `mem.writeInt` | 15 | 6 | 13 of 15 instructions are stores |
-| G | `decodeTxFields` tail | 32 | 5 | 8 of 32 are stores |
-| F | `rawAlloc`/`rawRemap` | 4 | 3 | ends in `jalr` |
+| B | `mem.writeInt` | 15 | 6 | **its instances are not contiguous** — see below |
+| F | `rawAlloc`/`rawRemap` | 4 | 3 | ends in `jalr`; `Seg` cannot state a transfer |
 | E | `sizeClassOfBytes` | 78 | 4 | 48 of 78 are control transfers |
+
+**Case B is not a linear motif at all.** Its `mem.writeInt` instances are non-contiguous: the
+instance entered at `0x2cc0` holds 16 program counters spread over 36 instruction slots, and the six
+instances interleave — four of the six site pairs overlap. The scheduler wove them together. There
+is no 15-instruction linear window at those addresses to state a lemma over, so the address list the
+campaign inherited for Case B does not describe a motif.
+
+That is a defect in how the case was specified, not in the lemma: the list came from *instance
+bodies*, and an instance body is a set of program counters, not a run.
 
 `Seg.step` states a **register-writing fall-through** instruction. A store or a transfer cannot
 produce `afterRegisterWrite`, so a chain of `Seg.step`s does not describe the code at those
 addresses.
 
-**All four of these generated files typechecked.** They build clean and produce plausible savings —
-B 66%, G 71%, E 71%, F 19%. Those numbers are worthless: `StepData.run` is a *hypothesis*, so
-nothing forces it to be satisfiable at the real address, and at these sites it is not. The files
-were deleted rather than kept.
+**All of these generated files typechecked** on the first attempt, before the store and transfer
+kinds were handled. They built clean and produced plausible savings — B 66%, G 71%, E 71%, F 19%.
+Those numbers were worthless: `StepData.run` is a *hypothesis*, so nothing forces it satisfiable at
+the real address, and at those sites it was not.
+
+G was then done properly with a mixed `Seg.step`/`Seg.stepStore` chain and is now a measured case at
+70%. B, E and F remain blocked. The lesson stands for all four.
 
 This is the single most important methodological point in the campaign: **a Lean file that builds is
 not evidence that it says anything about the binary.** The check that caught it was cross-referencing
 every case's addresses against the CFG's mnemonics, not the compiler.
 
-`Seg` does provide `stepStore`, so B and G are reachable with a mixed generator. E and F contain
-transfers and need `FunctionInstanceContract` instead. Neither was attempted here — the plan's rule
-is to record `BLOCKED` and continue rather than redesign a case mid-run.
+`Seg.stepStore` reached G. E and F contain transfers and need `FunctionInstanceContract` instead;
+B needs a non-linear motif form that does not exist.
 
 ## 5. What this says about the n-gram study's ranking
 
 The study ranked 149 candidate lemmas by `uses × (n−1)` and its §5 flagged the unpriced cost as
 register-distinctness hypotheses.
 
-- **The ranking's shape is confirmed** on the four cases that could be measured: saving rises
-  monotonically with `n` across n = 2, 3, 4, 10.
+- **The ranking's shape is confirmed** on the five cases that could be measured: saving rises
+  monotonically with `n` across n = 2, 3, 4, 10, 32.
 - **The predicted unpriced cost did not appear.** Two different side conditions did.
-- **The ranking is untested above n = 10**, because every longer motif in the study contains stores
-  or transfers. That is not a coincidence — long straight-line runs of pure register writes are rare,
-  which the study itself measured as the falling coverage ceiling.
+- **The ranking now holds to n = 32**, once stores are composed with `Seg.stepStore`. Case G is a
+  mixed chain and behaves exactly as the trend predicts.
+- **Control transfers remain outside the measurement.** E and F need `FunctionInstanceContract`, and
+  E is the study's single largest prize at 7.0% of the binary.
 
-So the study's ordering is usable for selecting motifs among fall-through register writes, and
-unvalidated for anything else. Since B, E, F and G are four of its eight highest-value candidates,
-**the majority of its top-ranked prizes are still unpriced.**
+So the study's ordering is confirmed over `n` from 2 to 32 for straight-line code, and unvalidated
+for motifs containing control transfers. Case B shows a separate hazard the study's site counts do
+not expose: an "instance" is a set of program counters, and the scheduler may interleave several so
+that no linear window exists.
 
 ## 6. Provenance
 
 | artifact | file |
 |---|---|
 | generator (both sides) | `tools/generate_motif_case.py` |
-| cases | `BinaryFv/Zesu/Motifs/Case{A,C2,C3,D}.lean` |
+| cases | `BinaryFv/Zesu/Motifs/Case{A,C2,C3,D,G}.lean` |
 | composition primitive | `BinaryFv/RiscV/Elfling/Seg.lean:step` |
 | post-state | `BinaryFv/RiscV/Step/RegisterWrite.lean` |
 | image and geometry | `tools/generate_zesu_program.py`, nix `zesuSszDecodeProgramLean` |

@@ -85,22 +85,43 @@ structure StepData (W : RegSet) (pc : BitVec 64) (stepNo : Nat) where
   destination : W dest
   destNotPc : dest ≠ PC
   destNotRetired : dest ≠ minstret
+
+/-- The same, for a store: it writes memory rather than a register, so `Seg.stepStore` consumes it
+and the segment learns nothing about registers. -/
+structure StoreData (M : Region) (pc : BitVec 64) (stepNo : Nat) where
+  width : Nat
+  address : Nat
+  value : BitVec (8 * width)
+  run : ∀ cur : State, ∃ r, Runs (try_step stepNo false) cur
+    (tryStepControlFlowAfterRetired
+      (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc)
+        address value) (Sail.BitVec.addInt pc 4) r) false
+  inside : ∀ other, address ≤ other → other < address + width → M other
 '''
 
 
-def emit(case: str, n: int, sites: list[int]) -> str:
+def emit(case: str, n: int, sites: list[int], kinds: list[str]) -> str:
     first = sites[0]
     parts = [HEADER.format(case=case, n=n, sites=len(sites),
                            site_list=", ".join(f"`0x{a:x}`" for a in sites))]
 
     # --- baseline: one concrete site, n chained steps
-    decls = "\n".join(
-        f"    (s{k} : StepData W (BitVec.ofNat 64 0x{first + 4 * k:x}) {k})" for k in range(n))
+    def decl(k, addr, ind="    "):
+        return (f"{ind}(s{k} : StepData W {addr} {k})" if kinds[k] == "reg"
+                else f"{ind}(s{k} : StoreData M {addr} {k})")
+    decls = "\n".join(decl(k, f"(BitVec.ofNat 64 0x{first + 4 * k:x})") for k in range(n))
+    def step(k, nxt, adv):
+        prev = "seg" if k == 0 else f"g{k - 1}"
+        if kinds[k] == "reg":
+            return (f"  obtain ⟨n{k}, g{k}⟩ := {prev}.step (inRegion _) (notExit _)\n"
+                    f"    s{k}.dest s{k}.value {nxt} (s{k}.run _) {adv}\n"
+                    f"    bookkeeping s{k}.destination s{k}.destNotPc s{k}.destNotRetired"
+                    f" (keep _ _)")
+        return (f"  obtain ⟨n{k}, g{k}⟩ := {prev}.stepStore s{k}.address s{k}.value {nxt}\n"
+                f"    (inRegion _) (notExit _) (s{k}.run _) {adv} s{k}.inside bookkeeping"
+                f" (keepStore _)")
     steps = "\n".join(
-        f"""  obtain ⟨n{k}, g{k}⟩ := {"seg" if k == 0 else f"g{k - 1}"}.step (inRegion _) (notExit _)
-    s{k}.dest s{k}.value (BitVec.ofNat 64 0x{first + 4 * (k + 1):x}) (s{k}.run _) (by decide)
-    bookkeeping s{k}.destination s{k}.destNotPc s{k}.destNotRetired (keep _ _)"""
-        for k in range(n))
+        step(k, f"(BitVec.ofNat 64 0x{first + 4 * (k + 1):x})", "(by decide)") for k in range(n))
     parts.append(f'''
 /-! ## Baseline — one site, no lemma -/
 
@@ -112,7 +133,8 @@ theorem baselineChain {{own exit : BitVec 64 → Prop}}
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (keep : ∀ (d : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only d)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only d)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 {n} base next
       (BitVec.ofNat 64 0x{first + 4 * n:x}) := by
 {steps}
@@ -120,28 +142,28 @@ theorem baselineChain {{own exit : BitVec 64 → Prop}}
 ''')
 
     # --- the lemma
-    lemma_decls = "\n".join(f"  s{k} : StepData W {address(k)} {k}" for k in range(n))
-    lemma_steps = "\n".join(
-        f"""  obtain ⟨n{k}, g{k}⟩ := {"seg" if k == 0 else f"g{k - 1}"}.step (inRegion _) (notExit _)
-    s{k}.dest s{k}.value {address(k + 1)} (s{k}.run _) (adv _) bookkeeping s{k}.destination
-    s{k}.destNotPc s{k}.destNotRetired (keep _ _)""" for k in range(n))
+    lemma_decls = "\n".join(
+        (f"  s{k} : StepData W {address(k)} {k}" if kinds[k] == "reg"
+         else f"  s{k} : StoreData M {address(k)} {k}") for k in range(n))
+    lemma_steps = "\n".join(step(k, address(k + 1), "(adv _)") for k in range(n))
     parts.append(f'''
 /-! ## The lemma -/
 
 /-- The {n} per-instruction bundles of one site, as one argument. -/
-structure MotifData (W : RegSet) (start : BitVec 64) where
+structure MotifData (W : RegSet) (M : Region) (start : BitVec 64) where
 {lemma_decls}
 
 theorem motifCase {{own exit : BitVec 64 → Prop}}
     {{childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}}
     {{W : RegSet}} {{M : Region}} {{base cur : State}} {{kv : List RegVal}} {{start : BitVec 64}}
     (seg : Seg own exit childSummary W M kv 0 0 base cur start)
-    (d : MotifData W start)
+    (d : MotifData W M start)
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (adv : ∀ q : BitVec 64, Sail.BitVec.addInt q 4 = q + 4)
     (keep : ∀ (r : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 {n} base next {address(n)} := by
   obtain ⟨{", ".join(f"s{k}" for k in range(n))}⟩ := d
 {lemma_steps}
@@ -153,14 +175,15 @@ theorem motifCase {{own exit : BitVec 64 → Prop}}
     {{childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop}}
     {{W : RegSet}} {{M : Region}} {{base cur : State}} {{kv : List RegVal}}
     (seg : Seg own exit childSummary W M kv 0 0 base cur (BitVec.ofNat 64 0x{a:x}))
-    (d : MotifData W (BitVec.ofNat 64 0x{a:x}))
+    (d : MotifData W M (BitVec.ofNat 64 0x{a:x}))
     (inRegion : ∀ p, own p) (notExit : ∀ p, ¬ exit p)
     (bookkeeping : ∀ r, stepBookkeeping r → W r)
     (adv : ∀ q : BitVec 64, Sail.BitVec.addInt q 4 = q + 4)
     (keep : ∀ (r : Register) (l : List RegVal),
-      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l) :
+      RegsOutside (RegSet.union stepBookkeeping (RegSet.only r)) l)
+    (keepStore : ∀ l : List RegVal, RegsOutside stepBookkeeping l) :
     ∃ next kv', Seg own exit childSummary W M kv' 0 {n} base next {site_address(a, n)} :=
-  motifCase seg d inRegion notExit bookkeeping adv keep''' for a in sites)
+  motifCase seg d inRegion notExit bookkeeping adv keep keepStore''' for a in sites)
     parts.append(f'''
 /-! ## The {len(sites)} sites, one application each -/
 
@@ -205,11 +228,17 @@ def main() -> int:
     parser.add_argument("--case", required=True)
     parser.add_argument("--n", type=int, required=True)
     parser.add_argument("--sites", required=True, help="comma-separated hex, no 0x")
+    parser.add_argument("--kinds", default=None,
+                        help="comma-separated reg|store per instruction; default all reg")
     parser.add_argument("--out", type=pathlib.Path, required=True)
     arguments = parser.parse_args()
 
     sites = [int(x, 16) for x in arguments.sites.split(",")]
-    text = emit(arguments.case, arguments.n, sites)
+    kinds = (arguments.kinds.split(",") if arguments.kinds
+             else ["reg"] * arguments.n)
+    if len(kinds) != arguments.n:
+        raise SystemExit(f"--kinds has {len(kinds)} entries, need {arguments.n}")
+    text = emit(arguments.case, arguments.n, sites, kinds)
     arguments.out.parent.mkdir(parents=True, exist_ok=True)
     arguments.out.write_text(text)
 
