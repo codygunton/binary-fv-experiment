@@ -164,6 +164,13 @@ structure WriteSuccessArgs where
   decoded : ZesuDecodedResult
   inputSize : Nat
 
+/-- Every memory region the bare-metal `writeSuccess` execution may modify: its local stack frame
+and the two fixed output-context words written by `write_output`. -/
+def writeSuccessMemoryRegion (args : WriteSuccessArgs) : Region :=
+  Region.union (byteRange (args.stackPointer - 0x880) 0x880)
+    (Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
+      (byteRange (Elflings.ioContextAddress + 16) 8))
+
 set_option genInjectivity false in
 /-- Caller-derived machine permissions for the parent-owned `writeSuccess` instructions. -/
 structure WriteSuccessMachineAccess (args : WriteSuccessArgs) (state : MachineState) : Prop where
@@ -183,6 +190,8 @@ structure WriteSuccessMachineAccess (args : WriteSuccessArgs) (state : MachineSt
     StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
   outputLengthStore :
     StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
+  writerRegionBeforeOutputContext :
+    args.stackPointer + 0x380 ≤ Elflings.ioContextAddress
   frameNotCode : ∀ address, args.stackPointer - 0x880 ≤ address →
     address < args.stackPointer → Artifacts.programImage.readFileByte? address = none
 
@@ -210,7 +219,7 @@ def WriteSuccessExit (args : WriteSuccessArgs) (bytes : Array UInt8)
   after.stdout = before.stdout ++ bytes ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.exitCode = before.exitCode ∧
-  WritesOnlyWithin (byteRange (args.stackPointer - 0x880) 0x880)
+  WritesOnlyWithin (writeSuccessMemoryRegion args)
     before.machine after.machine ∧
   EndpointCallFrame before after
 

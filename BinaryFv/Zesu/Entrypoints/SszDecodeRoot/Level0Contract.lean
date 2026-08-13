@@ -2042,6 +2042,12 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
               decodedNoMMIO := ?_
               outputBufferStore := callDataAccess.outputBufferStore
               outputLengthStore := callDataAccess.outputLengthStore
+              writerRegionBeforeOutputContext := by
+                have stackBelowInput := entry.stackBelowInputBuffer
+                have inputBeforeContext :
+                    Elflings.inputBufferAddress ≤ Elflings.ioContextAddress := by native_decide
+                dsimp [writeArgs]
+                omega
               frameNotCode := ?_ }
           · intro offset width bound
             have stackLower := entry.stackLower

@@ -334,7 +334,7 @@ private def writeOutputExit (pc : BitVec 64) : Prop := pc = 0x101a0
 private def writeOutputWrites : RegSet :=
   RegSet.union stepBookkeeping (RegSet.only x5)
 
-private def writeOutputMemory : Region :=
+def writeOutputMemory : Region :=
   Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
     (byteRange (Elflings.ioContextAddress + 16) 8)
 
@@ -413,6 +413,7 @@ structure WriteOutputHandoff (fromStep : Nat) (buffer : Nat) (bytes : Array UInt
   stdin : after.stdin = before.stdin
   cursor : after.stdinCursor = before.stdinCursor
   exitCode : after.exitCode = before.exitCode
+  writes : WritesOnlyRegs writeOutputWrites before.machine after.machine
   memory : WritesOnlyWithin writeOutputMemory before.machine after.machine
   configured : ConfiguredMachinePre EndpointMachinePc after.machine
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
@@ -531,9 +532,13 @@ theorem writeOutputHandoff (fromStep buffer : Nat) (bytes : Array UInt8)
     exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges],
       by native_decide, by native_decide⟩
   refine ⟨after, prefixTrace.append (by simpa [beforeReturn] using finalTrace), ?_, rfl, rfl, rfl, rfl,
-    ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_⟩
   · simp [after, s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, Std.ExtDHashMap.get?_insert]
+  · have writes5 : WritesOnlyRegs writeOutputWrites s4 s5 := by
+      exact (jumpRetirement_writes s4 0x101a0
+        (Sail.BitVec.update returnAddress 0 0#1) r5).mono (fun _ h => Or.inl h)
+    simpa [after, s5] using WritesOnlyRegs.trans_same seg4.writes writes5
   · simpa [after, s5] using seg4.mem
   · have writes5 : WritesOnlyRegs writeOutputWrites s4 s5 := by
       exact (jumpRetirement_writes s4 0x101a0
