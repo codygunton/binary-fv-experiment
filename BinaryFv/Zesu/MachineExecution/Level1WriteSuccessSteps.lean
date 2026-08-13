@@ -3654,6 +3654,28 @@ theorem writeSuccessParentHashSourceStep (stepNo : Nat) (state : State)
   · rfl
   all_goals native_decide
 
+/-- Production `0x14ed4: addi a0,sp,0x634`, selecting the copied block hash. -/
+private theorem writeSuccessBlockHashSourceStep (stepNo : Nat) (state : State)
+    (stackPointer : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14ed4)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 stackPointer))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14ed4 retired x10
+        (BitVec.ofNat 64 (stackPointer + 0x634))) false := by
+  apply writeSuccessAddiX10FromSpStep stepNo 0x14ed4 0x634 0x634
+    0x13 0x05 0x41 0x63 state stackPointer configured atPc stack loaded
+  · simp only [iTypeResult]
+    change BitVec.ofNat 64 stackPointer + sign_extend (BitVec.ofNat 12 0x634) = _
+    rw [show sign_extend (m := 64) (0x634#12) = 0x634#64 by native_decide]
+    rw [← BitVec.ofNat_add]
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
 private theorem writeSuccessPayloadFieldSourceStep (stepNo pc offset : Nat)
     (imm : BitVec 12) (byte0 byte1 byte2 byte3 : UInt8) (state : State)
     (stackPointer : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -6286,4 +6308,122 @@ private theorem writeSuccessPostBlockNumberHandoff
       simpa [afterThreeStep, afterExtraStep, Nat.add_assoc] using baseFee.trace)
     simpa [afterThreeStep, afterExtraStep, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
   · rw [baseFee.stdout, extra.stdout, three.stdout]
+
+set_option genInjectivity false in
+/-- Parent block-hash pointer setup followed by the selected raw encoder. -/
+structure WriteSuccessBlockHashHandoff
+    (fromStep childUsed : Nat) (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
+    (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (1 + childUsed) before after
+  atPc : EndpointPc after = some 0x14ee4
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdout : after.stdout = before.stdout ++ args.decoded.payload.blockHash
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  memory : after.machine.mem = before.machine.mem
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+  payload : WriteSuccessPayloadContext args payloadBytes after
+
+/-- Execute `addi a0,sp,0x634` and consume the selected block-hash raw encoder. -/
+private theorem writeSuccessBlockHashHandoff
+    (child : WriteSuccessBlockHashInstanceContract) (fromStep : Nat) (args : WriteSuccessArgs)
+    (payloadBytes : Array UInt8) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x14ed4)
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem) :
+    ∃ childUsed after,
+      WriteSuccessBlockHashHandoff fromStep childUsed args payloadBytes before after := by
+  have seg0 : Seg writeSuccessParentPc (fun pc => pc = 0x14ed8)
+      (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
+      [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩]
+      fromStep 0 before.machine before.machine 0x14ed4 := {
+    trace := .refl _ _
+    confined := .nil
+    writes := .refl _ _
+    mem := fun _ _ => rfl
+    retired := access.configured.retiredCounter
+    atPc := atPc
+    regs := by intro pair member; simp at member; subst pair; exact stack }
+  obtain ⟨pointerMachine, seg1⟩ := seg0.step
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x14e88, 0x14ed8), by native_decide, by native_decide, by native_decide⟩)
+    (by native_decide) x10 (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x634)) 0x14ed8
+    (writeSuccessBlockHashSourceStep _ before.machine (args.stackPointer - 0x7d0)
+      access.configured atPc stack loaded)
+    (by native_decide) (by intro r h; exact Or.inl h)
+    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  let pointerState : EndpointState := { before with machine := pointerMachine }
+  have pointerTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 1 before pointerState := by
+    have machineTrace := seg1.confined 0 pointerMachine
+      (.exitAt _ _ 0x14ed8 seg1.atPc rfl)
+    simpa [pointerState] using liftWriteSuccessParentTrace before machineTrace
+  let rawArgs : RawEncoderArgs :=
+    { sourceAddress := args.stackPointer - 0x7d0 + 0x634
+      bytes := args.decoded.payload.blockHash }
+  have payloadFields := context.payloadRep
+  rcases payloadFields with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
+    transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
+    blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
+    stateRoot, receiptsRootSize, receiptsRoot, logsBloomSize, logsBloom, prevRandaoSize,
+    prevRandao, blockHashSize, blockHash⟩
+  have blockHashRep : BytesRep pointerMachine.mem rawArgs.sourceAddress rawArgs.bytes := by
+    simpa [rawArgs, seg1.memEq (by simp)] using blockHash
+  have childEntry : RawEncoderEntry Elflings.writeSuccessRawLine147Entry rawArgs pointerState := by
+    refine ⟨?_, ?_, blockHashRep, ?_⟩
+    · simpa [pointerState, EndpointPc, MachinePc] using seg1.atPc
+    · simpa [pointerState] using
+        seg1.reg x10 (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x634)) (by simp)
+    · simpa [pointerState, seg1.memEq (by simp)] using loaded
+  obtain ⟨childUsed, after, childTrace, childExit⟩ := writeSuccessRawEncoderHandoff child
+    (fun inside => by
+      simpa [Elflings.writeSuccessRawLine147ExecutionPcRanges] using
+        writeSuccessRawPc_in_writeSuccess inside (by omega) (by omega))
+    (fromStep + 1) rawArgs pointerState childEntry
+  rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, childMem, childFrame⟩
+  have memory : after.machine.mem = before.machine.mem :=
+    childMem.trans (seg1.memEq (by simp))
+  have pmaEq := childFrame.1 pma_regions (by simp [abiCalleePreserved])
+  have parentPmaEq := seg1.writes.get pma_regions (by simp [writeSuccessParentWrites])
+  have fullPmaEq := pmaEq.trans parentPmaEq
+  have childAccess : WriteSuccessMachineAccess args after.machine :=
+    { configured := configuredAfterEndpointCall (writeSuccessAccessOfSeg access seg1).configured
+        childFrame
+      frameLoad := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq fullPmaEq (access.frameLoad offset width inBounds)
+      frameStore := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq fullPmaEq (access.frameStore offset width inBounds)
+      frameNoMMIO := access.frameNoMMIO
+      decodedLoad := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq fullPmaEq (access.decodedLoad offset width inBounds)
+      decodedNoMMIO := access.decodedNoMMIO
+      frameNotCode := access.frameNotCode }
+  refine ⟨childUsed, after, {
+    trace := by
+      have all := pointerTrace.append (by simpa [Nat.add_assoc] using childTrace)
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
+    atPc := afterPc
+    stack := (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
+      (seg1.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
+    stdout := by simpa [rawArgs, pointerState] using stdout
+    stdin := by simpa [pointerState] using stdin
+    cursor := by simpa [pointerState] using cursor
+    exitCode := by simpa [pointerState] using exitCode
+    memory := memory
+    loaded := by simpa [memory] using loaded
+    access := childAccess
+    payload := {
+      destinationRep := by simpa [memory] using context.destinationRep
+      decodedBytesRep := by simpa [memory] using context.decodedBytesRep
+      bytesSize := context.bytesSize
+      stable := by simpa [memory] using context.stable
+      payloadRep := by simpa [memory] using context.payloadRep } }⟩
 end BinaryFv.Zesu.MachineExecution
