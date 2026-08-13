@@ -230,6 +230,115 @@ def decodeInputFrameMemory (args : DecodeInlineArgs) : Region :=
 def SavedWordReps (state : State) (words : List (Nat × Nat)) : Prop :=
   ∀ word ∈ words, UIntRep 8 state.mem word.1 word.2
 
+def decodeInputIncomingRegs (args : DecodeInlineArgs) (values : DecodeCalleeSavedValues) :
+    List RegVal :=
+  [⟨x1, BitVec.ofNat 64 args.boundary.returnAddress⟩,
+   ⟨x8, values.s0⟩, ⟨x9, values.s1⟩, ⟨x18, values.s2⟩, ⟨x19, values.s3⟩,
+   ⟨x20, values.s4⟩, ⟨x21, values.s5⟩, ⟨x22, values.s6⟩, ⟨x23, values.s7⟩,
+   ⟨x24, values.s8⟩, ⟨x25, values.s9⟩, ⟨x26, values.s10⟩, ⟨x27, values.s11⟩,
+   ⟨x10, BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)⟩,
+   ⟨x12, BitVec.ofNat 64 args.boundary.inputAddress⟩,
+   ⟨x13, BitVec.ofNat 64 args.boundary.input.size⟩]
+
+private theorem decodeInputIncomingRegs_hold (args : DecodeInlineArgs)
+    (values : DecodeCalleeSavedValues) (entry : DecodeBoundaryEntry args.boundary args.origin)
+    (saved : DecodeCalleeSavedAtRegisters values args.origin) :
+    RegsHold args.origin.machine (decodeInputIncomingRegs args values) := by
+  rcases entry with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, link, result, _, input, inputSize,
+    _, _, _, _, _, _, _, _, _⟩
+  rcases saved with ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11⟩
+  intro pair member
+  simp only [decodeInputIncomingRegs, List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl <;> assumption
+
+private theorem decodeInputFirstStackResult (stackPointer : Nat) (lower : 0xbb0 ≤ stackPointer)
+    (upper : stackPointer + 0x380 < 2 ^ 64) :
+    BitVec.ofNat 64 (stackPointer - 0x7f0) =
+      iTypeResult .ADDI 0x810 (BitVec.ofNat 64 stackPointer) := by
+  have sign : sign_extend (m := 64) (0x810#12) =
+      BitVec.ofNat 64 (2 ^ 64 - 0x7f0) := by native_decide
+  unfold iTypeResult
+  change BitVec.ofNat 64 (stackPointer - 0x7f0) =
+    BitVec.ofNat 64 stackPointer + sign_extend (m := 64) (0x810#12)
+  rw [sign, ← BitVec.ofNat_add]
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat]
+  have sum : stackPointer + (2 ^ 64 - 0x7f0) =
+      (stackPointer - 0x7f0) + 2 ^ 64 := by omega
+  rw [sum, Nat.add_mod_right, Nat.mod_eq_of_lt]
+  omega
+
+/-- The first parent-owned instruction allocates the save area and seeds the live-register
+accumulator used by all thirteen following saves. -/
+theorem decodeInputAllocateSaveArea (fromStep : Nat) (args : DecodeInlineArgs)
+    (values : DecodeCalleeSavedValues) (entry : DecodeBoundaryEntry args.boundary args.origin)
+    (saved : DecodeCalleeSavedAtRegisters values args.origin) :
+    ∃ next,
+      Seg decodeInputParentPc DecodeInlineInitialExecutionPc (fun _ _ _ _ _ => False)
+        decodeInputParentWrites (decodeInputFrameMemory args)
+        (⟨x2, BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)⟩ ::
+          decodeInputIncomingRegs args values)
+        fromStep 1 args.origin.machine next 0x1216c := by
+  rcases entry with ⟨_stdin, _returnPc, _allocator, atPc, loaded, stackLower, _stackAligned,
+    stackUpper, _inputFits, _separated, stackRead, _link, _result, _allocatorReg, _inputReg,
+    _sizeReg, _inputAddress, _inputSize, _allocatorState, _allocatorVtable, _savedReturn,
+    _input, access, _entrySaved⟩
+  let kv := decodeInputIncomingRegs args values
+  have seg0 : Seg decodeInputParentPc DecodeInlineInitialExecutionPc
+      (fun _ _ _ _ _ => False) decodeInputParentWrites (decodeInputFrameMemory args)
+      kv fromStep 0 args.origin.machine args.origin.machine 0x12168 := {
+    trace := Trace.refl fromStep args.origin.machine
+    confined := .nil
+    writes := WritesOnlyRegs.refl decodeInputParentWrites args.origin.machine
+    mem := fun _ _ => rfl
+    retired := access.configured.retiredCounter
+    atPc := atPc
+    regs := decodeInputIncomingRegs_hold args values
+      ⟨_stdin, _returnPc, _allocator, atPc, loaded, stackLower, _stackAligned, stackUpper,
+        _inputFits, _separated, stackRead, _link, _result, _allocatorReg, _inputReg, _sizeReg,
+        _inputAddress, _inputSize, _allocatorState, _allocatorVtable, _savedReturn, _input,
+        access, _entrySaved⟩ saved }
+  have decode : Runs
+      (ext_decode (fetchWord (0x13 : BitVec 8) (0x01 : BitVec 8) (0x01 : BitVec 8)
+        (0x81 : BitVec 8)))
+      (tryStepControlFlowAfterIncrement args.origin.machine)
+      (tryStepControlFlowAfterIncrement args.origin.machine)
+      (.ITYPE (0x810, .Regidx 2#5, .Regidx 2#5, .ADDI)) := by
+    obtain ⟨seccfgBits, seccfgRead, _⟩ := access.configured.seccfgPresent
+    have privilegeAfter :
+        (tryStepControlFlowAfterIncrement args.origin.machine).regs.get? cur_privilege =
+          some Privilege.Machine := by
+      calc
+        _ = args.origin.machine.regs.get? cur_privilege := by
+          simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged
+            args.origin.machine minstret_increment cur_privilege true (by decide)
+        _ = some Privilege.Machine := access.configured.normal.2.1
+    have seccfgAfter :
+        (tryStepControlFlowAfterIncrement args.origin.machine).regs.get? mseccfg =
+          some seccfgBits := by
+      calc
+        _ = args.origin.machine.regs.get? mseccfg := by
+          simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged
+            args.origin.machine minstret_increment mseccfg true (by decide)
+        _ = some seccfgBits := seccfgRead
+    decode_run
+  obtain ⟨retired, run⟩ := decodeInputAddiX2Step fromStep 0x12168 args.origin.machine 0x810
+    (BitVec.ofNat 64 args.boundary.stackPointer)
+    (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) 0x13 0x01 0x01 0x81
+    access.configured atPc stackRead loaded
+    (decodeInputFirstStackResult args.boundary.stackPointer stackLower stackUpper) decode
+    (base := by rfl)
+  exact seg0.step (by
+      exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold DecodeInlineInitialExecutionPc pcInRanges; native_decide) x2
+    (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) 0x1216c ⟨retired, run⟩
+    (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by
+      simpa [kv, decodeInputIncomingRegs, RegsOutside, RegSet.union, RegSet.only,
+        stepBookkeeping] using
+        (show RegsOutside (RegSet.union stepBookkeeping (RegSet.only x2)) kv by decide))
+
 private theorem instructionPreserved_disjoint_decodeInputParentWrites :
     RegSet.Disjoint instructionPreserved decodeInputParentWrites := by
   intro register preserved written
@@ -282,11 +391,12 @@ theorem decodeInputSaveStep {args : DecodeInlineArgs}
     (pcEq : pc = BitVec.ofNat 64 storePc)
     (inRegion : decodeInputParentPc (BitVec.ofNat 64 storePc))
     (notExit : ¬ DecodeInlineInitialExecutionPc (BitVec.ofNat 64 storePc))
-    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
-      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
-      (BitVec.ofNat 8 byte3.toNat)))
-      (tryStepStoreAfterIncrement cur) (tryStepStoreAfterIncrement cur)
-      (.STORE (imm, rs2, .Regidx 2#5, 8)))
+    (decodeOfConfigured : ConfiguredMachinePre EndpointMachinePc cur →
+      Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+        (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+        (BitVec.ofNat 8 byte3.toNat)))
+        (tryStepStoreAfterIncrement cur) (tryStepStoreAfterIncrement cur)
+        (.STORE (imm, rs2, .Regidx 2#5, 8)))
     (addressEq : BitVec.ofNat 64 stackPointer + sign_extend (m := 64) imm =
       BitVec.ofNat 64 (stackPointer + offset))
     (aligned : (stackPointer + offset) % 8 = 0)
@@ -308,6 +418,7 @@ theorem decodeInputSaveStep {args : DecodeInlineArgs}
   have configured := access.configured.mono
     (seg.agree instructionPreserved_disjoint_decodeInputParentWrites) seg.retired
   have code := decodeInputCodeOfSeg access loaded seg rfl stackLower
+  have decode := decodeOfConfigured configured
   have pma := storePmaAllows_of_agree
     (seg.agree platformPreserved_disjoint_decodeInputParentWrites)
     (access.frameStore frameOffset 8 frameBound)
@@ -355,5 +466,76 @@ theorem decodeInputSaveStep {args : DecodeInlineArgs}
   rcases member with head | tail
   · simpa [head] using currentRep
   · exact oldReps word tail
+
+/-- The first concrete save, `0x1216c: sd ra, 2024(sp)`. -/
+theorem decodeInputSaveRa {fromStep : Nat} {args : DecodeInlineArgs}
+    {values : DecodeCalleeSavedValues} {cur : State}
+    (seg : Seg decodeInputParentPc DecodeInlineInitialExecutionPc
+      (fun _ _ _ _ _ => False) decodeInputParentWrites (decodeInputFrameMemory args)
+      (⟨x2, BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)⟩ ::
+        decodeInputIncomingRegs args values)
+      fromStep 1 args.origin.machine cur 0x1216c)
+    (access : DecodeBoundaryMachineAccess args.boundary args.origin.machine)
+    (stackLower : 0xbb0 ≤ args.boundary.stackPointer)
+    (stackAligned : args.boundary.stackPointer % 16 = 0)
+    (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully args.origin.machine.mem) :
+    ∃ next,
+      Seg decodeInputParentPc DecodeInlineInitialExecutionPc (fun _ _ _ _ _ => False)
+        decodeInputParentWrites (decodeInputFrameMemory args)
+        (⟨x2, BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)⟩ ::
+          decodeInputIncomingRegs args values)
+        fromStep 2 args.origin.machine next 0x12170 ∧
+      SavedWordReps next
+        [(args.boundary.stackPointer - 0x7f0 + 0x7e8,
+          (BitVec.ofNat 64 args.boundary.returnAddress).toNat)] := by
+  apply decodeInputSaveStep seg access stackLower loaded [] (by
+    intro word member
+    simp at member) 0x1216c (args.boundary.stackPointer - 0x7f0) 0x7e8 0xba8
+    (BitVec.ofNat 64 args.boundary.returnAddress) 0x7e8 (.Regidx 1#5)
+    0x23 0x34 0x11 0x7e
+  · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
+  · intro premise writes
+    exact rX_x1_run premise (BitVec.ofNat 64 args.boundary.returnAddress)
+      ((writes.get x1 (by decide)).trans
+        (seg.reg x1 (BitVec.ofNat 64 args.boundary.returnAddress) (by
+          simp [decodeInputIncomingRegs])))
+  · omega
+  · native_decide
+  · intro word member
+    simp at member
+  · rfl
+  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
+  · unfold DecodeInlineInitialExecutionPc pcInRanges
+    native_decide
+  · intro configured
+    obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+    have privilegeAfter : (tryStepStoreAfterIncrement cur).regs.get? cur_privilege =
+        some Privilege.Machine := by
+      calc
+        _ = cur.regs.get? cur_privilege := by
+          simpa [tryStepStoreAfterIncrement] using writeReg_read_unchanged cur
+            minstret_increment cur_privilege true (by decide)
+        _ = some Privilege.Machine := configured.normal.2.1
+    have seccfgAfter : (tryStepStoreAfterIncrement cur).regs.get? mseccfg =
+        some seccfgBits := by
+      calc
+        _ = cur.regs.get? mseccfg := by
+          simpa [tryStepStoreAfterIncrement] using writeReg_read_unchanged cur
+            minstret_increment mseccfg true (by decide)
+        _ = some seccfgBits := seccfgRead
+    decode_run
+  · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x7e8#64 = _
+    rw [← BitVec.ofNat_add]
+  · omega
+  · omega
+  · exact of_decide_eq_true rfl
+  · native_decide
+  · rfl
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
 
 end BinaryFv.Zesu.MachineExecution
