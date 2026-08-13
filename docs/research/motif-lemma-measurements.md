@@ -1,65 +1,36 @@
-# What a motif lemma saves
+# CI cost of proving the Zesu SSZ endpoint
 
-Measurements from the motif lemma campaign, against the real Zesu SSZ decode endpoint
-(`zesu-ssz-decode.o`, `.text` sha256 `40396298bca935a5…`, 17740 bytes = 4435 instructions).
+Measured against the real endpoint (`zesu-ssz-decode.o`, `.text` sha256 `40396298bca935a5…`,
+17740 bytes = 4435 instructions). Every number comes from a Lean module that builds.
 
-## 0. A correction to an earlier version of this document
+## What this document is, and what it is not
 
-An earlier revision measured **elaboration time** and concluded that a motif lemma addresses only
-26% of the cost, saving 12–20% per case. **That measured the wrong quantity.** The campaign exists
-to reduce *proof authoring* cost — lines written and time spent writing them. Elaboration time is a
-real operational cost but it is not the bottleneck, and the two move in **opposite directions**.
+This measures **elaboration time** — what CI pays to check a proof. It is a real cost and the
+numbers are sound.
 
-They diverge because of `autoParam`. An obligation discharged by an `autoParam` still costs its full
-elaboration at every site, but it costs the author nothing, because nothing is written for it.
+**It does not answer the motif campaign's question.** That question is whether a motif lemma reduces
+the *lines a proof author writes*, and nothing here bears on it. An earlier revision claimed
+otherwise, twice, in opposite directions. Both claims are retracted:
 
-| quantity | shareable by a motif lemma? |
-|---|---|
-| elaboration time | **barely** — 4 `native_decide` per instruction, always, whatever the lemma |
-| lines at a call site | **almost entirely** — one line per obligation, and a lemma removes `n−1` of every `n` |
+- It first concluded a motif lemma addresses only 26% of the cost, saving 12–20% per case. That
+  measured elaboration time and presented it as the campaign's answer.
+- It then concluded lines obey `n·s → n+s`, saving 48–77%. That was arithmetic on the n-gram study's
+  own model, not a measurement of it, and its one supporting observation — that a call site is one
+  line — came from `fetchAt`, which is the fetch part only.
 
-The elaboration numbers below are kept because they are true and they bound CI cost. They are not
-the campaign's answer.
+The authoring measurement is being taken separately and will land in
+`motif-lemma-authoring-cost.md`. Until it does, **no saving figure in this repository is measured.**
 
-## 1. The answer: lines
+## Open
 
-At a call site, one obligation is **one line**, whatever part of the instruction it belongs to:
+`Seg.stepOf` (`BinaryFv/RiscV/Elfling/Seg.lean`) takes nine arguments — `after`, `run`,
+`stepWrites`, `stepMem`, `stepRetired`, `stepPc`, `learn`, `widen`, `keep`. A per-instruction step
+in a real composition is that, not a one-line fetch. Whether a motif lemma over `n` instructions
+costs less to write than `n` of those is unmeasured, and it is the only question that matters here.
 
-```
-fetchAt s 0x70 0x03 0x45 0x16 0x00 l
-```
+## 1. Rates
 
-Measured: the ten instructions of Case A's motif, one line each, in
-`BinaryFv/Zesu/Machine/AuthoringCost.lean`. The bytes stay explicit — they cannot be implicit,
-because `native_decide` needs a closed goal and a metavariable byte fails with *"Expected type must
-not contain metavariables"*. It is the four *proofs* an `autoParam` removes, not the four literals.
-
-So lines obey `n·s → n+s` across the **whole** instruction. A lemma is written once, containing `n`
-lines, then applied at each of `s` sites for one line apiece.
-
-| case | motif | n | sites | no lemma | with lemma | saving |
-|---|---|---|---|---|---|---|
-| G | `decodeTxFields` tail | 32 | 5 | 160 | 37 | **77%** |
-| B | `mem.writeInt` | 15 | 6 | 90 | 21 | **77%** |
-| A | `mem.readInt` | 10 | 7 | 70 | 17 | **76%** |
-| E | `sizeClassOfBytes` | 78 | 4 | 312 | 82 | **74%** |
-| D | `addi mv mv auipc` | 4 | 21 | 84 | 25 | **70%** |
-| C | `ld ld addi` | 3 | 13 | 39 | 16 | **59%** |
-| F | `rawAlloc`/`rawRemap` | 4 | 6 | 24 | 10 | **58%** |
-| C | `mv addi` | 2 | 45 | 90 | 47 | **48%** |
-| **all eight** | | | | **869** | **255** | **71%** |
-
-**The saving rises with `n`, exactly as the n-gram study predicted.** At seven sites: n=2 saves 36%,
-n=4 saves 61%, n=10 saves 76%, n=32 saves 83%.
-
-**So the study's ranking is sound in the currency that matters.** `uses × (n−1)` is a good proxy for
-lines saved, and the earlier revision of this document was wrong to say otherwise. Long motifs at
-many sites really do beat short ones: 77% against 48%, a spread the elaboration-time view flattened
-to 20% against 12%.
-
-## 2. Elaboration time, for completeness
-
-Not the campaign's answer, but it bounds CI cost and it is genuinely unshareable.
+`native_decide` against the program image, measured by building modules containing nothing else.
 
 | module | instructions | `native_decide` | wall clock | per call |
 |---|---|---|---|---|
@@ -70,39 +41,57 @@ Not the campaign's answer, but it bounds CI cost and it is genuinely unshareable
 | Case E, 4 sites | 312 | 1248 | 107.1s | 86ms |
 | **all five** | **656** | **2624** | **222.4s** | **84.8ms** |
 
-Linear across a 13× range. Per instruction: **339ms fetch, ~50ms decode, ~136ms execute, ~0 retire**.
+Linear across a 13× range in module size. Per instruction: **339ms fetch** (4 calls), **~50ms
+decode** (`decode_run`), **~136ms execute** (`execute_LOAD_lbu_run`, premises abstract), **~0
+retire** (`StepPremises` is carried per segment).
 
-`decide` cannot read the image at all — the `ByteArray` literal overflows the C stack — so
-`native_decide` is structural here, not a convenience. The pre-wipe layer had settled this: it used
-`native_decide` autoParams at 111 call sites.
+## 2. Why `native_decide` and not `decide`
 
-Floor for the 149-lemma covering's 3292 instructions: **18.6 minutes**. Whole binary: **25.1**.
-No arrangement of motif lemmas reduces it. That is a real argument for making image reads cheaper —
-but it is an argument about CI, not about authoring.
+`decide` cannot read the image at all. It is 17740 bytes emitted as `ByteArray.mk` chunks joined by
+`++`, and kernel reduction of that literal overflows the C stack in about three seconds. Raising
+`maxRecDepth` does not help — the C stack is what runs out, not the counter.
 
-## 3. What else the campaign established
+The pre-wipe layer had settled this: `RegisterWriteStep.fetchInstruction` at `d0f50581` took its
+four image lookups as `native_decide` `autoParam`s at 111 call sites. `tools/check_lean_trust.py`
+forbids `sorry`, custom axioms, `implemented_by`/`extern` and `unsafe` — not `native_decide`.
 
-- `0x70` retires — the first kernel-backed machine theorem on this target.
-  `proof-map.json` had reported `formalCoverage: {level4PcCount: 0, …}` with its one authoring
+This is structural: each instruction owns a different word, so no lemma shares its four evaluations.
+**It bounds CI, and it says nothing about authoring cost.**
+
+## 3. The CI floor
+
+| scope | instructions | `native_decide` | time |
+|---|---|---|---|
+| the study's 149-lemma covering | 3292 | 13168 | **18.6 min** |
+| the whole binary | 4435 | 17740 | **25.1 min** |
+
+Irreducible by any arrangement of motif lemmas. Making image reads cheaper is a real project worth
+roughly this much CI time — and a different project from this one.
+
+## 4. Other results, measured
+
+- **`0x70` retires** (`BinaryFv/Zesu/Machine/Step0x70.lean`) — the first kernel-backed machine
+  theorem on this target. `proof-map.json` had reported
+  `formalCoverage: {level4PcCount: 0, localPcCount: 0, rootPcCount: 0}` with its one authoring
   region `blocked` since the pivot.
-- The extractor dropped `DW_AT_call_column`, collapsing 159 inline instances into 157 identities.
-  Both collisions were in `alt_fl_alloc.sizeClass`/`sizeClassOfBytes` — Case E's family.
-- Case D has 23 sites in the study but **21 provable**: its motif ends in `auipc`, and at `0x1ef8`
-  and `0x2304` that `auipc` carries a `.rela.text` relocation.
-- The retire half was already collapsed by `StepPremises` before the campaign began — one bundle per
-  segment. That was the 2.33× in `PLAN_PROOF_PATTERNS.md`, and a motif lemma cannot claim it twice.
+- **The extractor dropped `DW_AT_call_column`**, collapsing 159 inline instances into 157
+  identities. Both collisions were in `alt_fl_alloc.sizeClass`/`sizeClassOfBytes`. Fixed in
+  `f961801e`.
+- **Case D has 21 provable sites, not 23.** Its motif ends in `auipc`, and at `0x1ef8` and `0x2304`
+  that `auipc` carries a `.rela.text` relocation, so its immediate is not final in the object.
+- **The retire half was already collapsed** by `StepPremises` before this campaign — one bundle per
+  segment. That was the 2.33× in `PLAN_PROOF_PATTERNS.md`.
 
-## 4. Provenance
+## 5. Provenance
 
 | fact | where |
 |---|---|
 | image and geometry | `tools/generate_zesu_program.py`, nix `zesuSszDecodeProgramLean`, determinism-checked |
-| the fetch obligation | `BinaryFv/Zesu/Machine/Target.lean:fetchInstruction` |
-| **lines per call site** | `BinaryFv/Zesu/Machine/AuthoringCost.lean` |
+| fetch obligation | `BinaryFv/Zesu/Machine/Target.lean:fetchInstruction` |
 | decode tactic | `BinaryFv/Zesu/Machine/DecodeTactic.lean`, ported from `d0f50581` |
 | retire step | `BinaryFv/Zesu/Machine/RegisterWrite.lean` |
 | one instruction end to end | `BinaryFv/Zesu/Machine/Step0x70.lean` |
-| elaboration timings | `CaseA.lean`, `CaseAAllSites.lean`, `CaseB/E/F/G.lean`, `ExecuteCost.lean` |
+| timings | `CaseA.lean`, `CaseAAllSites.lean`, `CaseB/E/F/G.lean`, `ExecuteCost.lean` |
 
 A wrong byte fails and names the address: `native_decide evaluated that the proposition
 programImage.readByte? 112 = some 4 is false`.
