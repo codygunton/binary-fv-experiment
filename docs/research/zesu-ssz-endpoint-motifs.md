@@ -418,39 +418,76 @@ That floor is irreducible by any arrangement of motif lemmas, because each instr
 different word. **Making image reads cheaper is worth more CI time than any motif lemma here** --
 and it is a separate project.
 
-### 9.2 What was NOT measured, and it is the thing this report asked about
+### 9.2 The authoring measurement: this report's ranking is confirmed
 
-**Whether a motif lemma reduces the lines a proof author writes.** No motif lemma was written, so
-the quantity does not exist yet.
+Five cases were written as motif lemmas and applied at every site. Lines, from files that build:
 
-Two figures were published from this spike and both are withdrawn. One measured elaboration time
-and presented it as the saving. The other applied `uses x (n-1)` arithmetically and reported
-48-77%, which restates this report's model rather than testing it.
+| case | motif | n | sites | no lemma | with lemma | **saved** | break-even |
+|---|---|---|---|---|---|---|---|
+| C | `mv addi` | 2 | 45 | 900 | 608 | **32%** | 3.3 sites |
+| C | `ld ld addi` | 3 | 13 | 312 | 196 | **37%** | 2.5 |
+| D | `addi mv mv auipc` | 4 | 21 | 588 | 304 | **48%** | 2.1 |
+| A | `mem.readInt` | 10 | 7 | 364 | 146 | **60%** | 1.4 |
+| G | `decodeTxFields` tail | 32 | 5 | 680 | 204 | **70%** | 1.1 |
+| **all five** | | | | **2844** | **1458** | **49%** | |
 
-The untested part is the one section 5 already flagged: *"a class-level lemma merges several
-dataflow shapes and needs register-distinctness hypotheses, which this model does not price."*
-Those hypotheses are still unpriced. A per-instruction step in a real composition is `Seg.stepOf`,
-which takes nine arguments -- so the baseline a motif lemma must beat is larger than one line, and
-the lemma that beats it may be correspondingly larger to state.
+**The saving rises monotonically with `n` across a 16x range, and every case pays.** That is what
+section 5's `uses x (n-1)` predicts. The mechanism is visible in the numbers: the baseline grows at
+about four lines per instruction while an application is flat at thirteen.
 
-**So section 5's ranking is neither confirmed nor refuted.** It remains a proxy whose accuracy is
-unknown.
+49% is a **lower bound**. Applications here are standalone theorems that restate their context;
+inline in a larger proof they are about one line, which gives 87% on the same five cases.
 
-### 9.3 What the spike established besides the CI cost
+### 9.3 Two side conditions this report does not price, and one it predicted that did not appear
 
-- `0x70` retires -- the first kernel-backed machine theorem on this target. `proof-map.json` had
-  reported `formalCoverage: {level4PcCount: 0, ...}` with its one authoring region `blocked` since
-  the pivot.
+- **`adv`** — `Sail.BitVec.addInt q 4 = q + 4`. A concrete site gets this by `decide`; a lemma over
+  a symbolic start cannot. One argument per site.
+- **Address association** — `(start + 4k) + 4` and `start + 4(k+1)` are not definitionally equal for
+  `BitVec`, so the flat form needs a rewrite at every step. Nesting the addresses avoids it. This
+  constrains how a motif lemma may be *stated*.
+- **Not** the register-distinctness hypotheses section 5 predicted. Those never appeared, because
+  `Seg.step` already takes `destination` and `keep` as parameters a caller carries per segment.
+
+### 9.4 Three cases could not be measured, and one of them exposes a defect in this report
+
+| case | motif | n | sites | reason |
+|---|---|---|---|---|
+| B | `mem.writeInt` | 15 | 6 | **its instances are not contiguous** |
+| F | `rawAlloc`/`rawRemap` | 4 | 3 | ends in `jalr` |
+| E | `sizeClassOfBytes` | 78 | 4 | 48 of 78 are control transfers |
+
+**Case B is not a linear motif.** The `mem.writeInt` instance entered at `0x2cc0` holds 16 program
+counters spread over 36 instruction slots, and four of its six site pairs overlap — the scheduler
+interleaved them. Section 5a counts these as six sites of one shape, which they are as *instances*;
+they are not six linear windows. **An instance is a set of program counters, not a run**, and this
+report's site counts do not distinguish the two.
+
+E and F need `FunctionInstanceContract` rather than `Seg`. E is section 5a's largest single prize.
+
+### 9.5 A methodological result worth more than the numbers
+
+Every blocked case's generated file **typechecked on the first attempt** and produced a plausible
+saving — B 66%, G 71%, E 71%, F 19%. All four were worthless: the per-instruction premises are
+hypotheses, and nothing forces them satisfiable at the real address. At those sites they are not.
+
+What caught it was cross-referencing each case's addresses against this artifact's own mnemonics.
+The compiler did not, and could not. **A Lean file that builds is not evidence that it says
+anything about the binary.**
+
+### 9.6 What else the spike established
+
+- `0x70` retires — the first kernel-backed machine theorem on this target.
 - The extractor was dropping `DW_AT_call_column`, collapsing 159 inline instances into 157
-  identities. Both collisions were in `alt_fl_alloc.sizeClass`/`sizeClassOfBytes` -- section 5a's
-  largest prize.
-- Case D has 23 sites in this report but **21 are provable**: its motif ends in `auipc`, and at
-  `0x1ef8` and `0x2304` that `auipc` carries a `.rela.text` relocation.
+  identities. Both collisions were in `alt_fl_alloc.sizeClass`/`sizeClassOfBytes`.
+- Case D has 21 provable sites, not 23: two of its `auipc`s carry `.rela.text` relocations.
+- CI cost, separately: 84.8ms per `native_decide`, an 18.6-minute floor for this report's covering.
 
-## 10. The 2-5-grams: lemmas, or a tactic?
+## 10. The 2-5-grams: worth writing
 
-Unanswered. The measurement that would decide it -- lines for a short motif with a bespoke lemma
-against lines for the same site driven by a tactic -- was not taken, because no lemma was written.
+Section 9.2 answers the part that matters. A bespoke lemma at n=2 saves **32%** over 45 sites and
+breaks even at 3.3 — so the short motifs pay, and the question of whether to write them is settled
+in favour of writing them.
 
-The framing in earlier revisions of this section, that the choice barely matters because both
-compete over the same 26%, rested on the retracted elaboration-time figure. Disregard it.
+Whether a *tactic* would beat the bespoke lemma is still untested. It is now a smaller question:
+the lemma already returns 32% at the shortest length, so a tactic competes for the remainder rather
+than for the whole prize.
