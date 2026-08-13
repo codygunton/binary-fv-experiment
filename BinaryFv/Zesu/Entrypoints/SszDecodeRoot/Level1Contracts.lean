@@ -106,6 +106,8 @@ def AllocatorGetEntry (args : AllocatorGetArgs) (state : EndpointState) : Prop :
   BytesRep state.machine.mem args.inputAddress args.input ∧
   LoadPmaAllows state.machine (BitVec.ofNat 64 args.stackPointer) 8 ∧
   LoadPmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
+  LoadMMIOAddressExcluded (BitVec.ofNat 64 args.stackPointer) 8 ∧
+  LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
   StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x10)) 8 ∧
   StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x18)) 8 ∧
   StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x10)) 8 ∧
@@ -127,8 +129,6 @@ def AllocatorGetExit (args : AllocatorGetArgs) (outcome : AllocatorGetOutcome)
   after.machine.regs.get? x11 = some (BitVec.ofNat 64 outcome.vtableAddress) ∧
   after.machine.regs.get? x12 = some (BitVec.ofNat 64 args.inputAddress) ∧
   after.machine.regs.get? x13 = some (BitVec.ofNat 64 args.input.size) ∧
-  after.machine.regs.get? x18 = some (BitVec.ofNat 64 args.input.size) ∧
-  after.machine.regs.get? x23 = some (BitVec.ofNat 64 args.inputAddress) ∧
   UIntRep 8 after.machine.mem args.stackPointer args.inputAddress ∧
   UIntRep 8 after.machine.mem (args.stackPointer + 8) args.input.size ∧
   UIntRep 8 after.machine.mem (args.stackPointer + 0x10) outcome.stateAddress ∧

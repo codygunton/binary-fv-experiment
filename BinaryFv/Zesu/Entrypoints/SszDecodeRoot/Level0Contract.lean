@@ -1040,8 +1040,6 @@ def MainAllocatorGetHandoff (contracts : Level1ResolvedContracts) (args : MainAr
     after.machine.regs.get? x11 = some (BitVec.ofNat 64 allocatorOutcome.vtableAddress) ∧
     after.machine.regs.get? x12 = some (BitVec.ofNat 64 readOutcome.inputAddress) ∧
     after.machine.regs.get? x13 = some (BitVec.ofNat 64 args.input.size) ∧
-    after.machine.regs.get? x18 = some (BitVec.ofNat 64 args.input.size) ∧
-    after.machine.regs.get? x23 = some (BitVec.ofNat 64 readOutcome.inputAddress) ∧
     UIntRep 8 after.machine.mem args.stackPointer readOutcome.inputAddress ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 8) args.input.size ∧
     UIntRep 8 after.machine.mem (args.stackPointer + 0x10) allocatorOutcome.stateAddress ∧
@@ -1071,6 +1069,7 @@ theorem main_call_allocator_get (contracts : Level1ResolvedContracts) (args : Ma
     refine ⟨allocatorGetExitPc_14cec, ?_, stackPointer, ?_, ?_,
       inputAddressRep, inputSizeRep, savedReturnRep, inputRep,
       dataAccess.stackLoad 0 8 (by omega), dataAccess.stackLoad 8 8 (by omega),
+      entry.stackNoMMIO 0 8 (by omega), entry.stackNoMMIO 8 8 (by omega),
       dataAccess.stackStore 0x10 8 (by omega), dataAccess.stackStore 0x18 8 (by omega),
       entry.stackNoMMIO 0x10 8 (by omega), entry.stackNoMMIO 0x18 8 (by omega),
       ?_, ?_, code, configured⟩
@@ -1097,7 +1096,7 @@ theorem main_call_allocator_get (contracts : Level1ResolvedContracts) (args : Ma
       allocatorTrace, _exitPc, _allowed, allocatorExit⟩ :=
     implements allocatorArgs (fromStep + (7 + readCount)) readState allocatorEntry
   rcases allocatorExit with ⟨vtableExact, afterPc, afterStack, stateAddress, vtableAddress, inputPointer,
-    inputLength, inputSize, inputAddress, inputAddressRep, inputSizeRep, stateAddressRep,
+    inputLength, inputAddressRep, inputSizeRep, stateAddressRep,
     vtableAddressRep, afterSavedReturn,
     afterInput, _memoryFrame, afterStdin, afterCursor, afterStdout, afterExitCode, callFrame⟩
   have wideAllocator : ConfinedTrace EndpointStep EndpointPc MainExecutionPc
@@ -1110,7 +1109,7 @@ theorem main_call_allocator_get (contracts : Level1ResolvedContracts) (args : Ma
     ConfiguredMachinePre.of_endpointCallFrame configured callFrame, callFrame.2.2.1,
     dataAccess.of_pma_regions_eq (callFrame.1 pma_regions (by simp [abiCalleePreserved])),
     vtableExact,
-    afterStack, stateAddress, vtableAddress, inputPointer, inputLength, inputSize, inputAddress,
+    afterStack, stateAddress, vtableAddress, inputPointer, inputLength,
     inputAddressRep, inputSizeRep, stateAddressRep, vtableAddressRep, afterSavedReturn, afterInput,
     afterStdin.trans stdin, afterCursor.trans stdinCursor,
     afterStdout.trans stdout, afterExitCode.trans exitCode, readBounded, allocatorBounded⟩
@@ -1151,7 +1150,7 @@ theorem main_prepare_decode_call (contracts : Level1ResolvedContracts) (args : M
   obtain ⟨readCount, allocatorCount, allocatorState, readOutcome, allocatorOutcome,
       prefixTrace, readPositive, allocatorPositive, pc0, configured0, code0, dataAccess0,
       vtableExact, sp0,
-      _a0, _a1, inputAddress0, inputLength0, _inputSize0, _inputAddress0,
+      _a0, _a1, inputAddress0, inputLength0,
       inputAddressRep0, inputSizeRep0, allocatorStateRep0, allocatorVtableRep0,
       savedReturnRep0, inputRep0, stdin0, cursor0, stdout0, exit0,
       readBounded, allocatorBounded⟩ :=
