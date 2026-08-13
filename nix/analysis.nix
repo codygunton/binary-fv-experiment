@@ -70,7 +70,7 @@ let
         --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
         --flame ${zesuSszDecodeCfg}/flame.json \
         --level 2 --output "$out/level2-manifest.json"
-      python ${../tools/test_level2_manifest.py} "$out/level2-manifest.json"
+      PYTHONPATH=${../tools} python ${../tools/test_level2_manifest.py} "$out/level2-manifest.json"
     '';
 
   zesuSszDecodeLevel1BoundaryBindings = pkgs.runCommand

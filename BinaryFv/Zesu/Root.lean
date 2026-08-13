@@ -3,8 +3,9 @@ import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Level0Contract
 /-!
 # Zesu SSZ decoder compliance root
 
-`root_compliance` is the unique public top of the proof. Its sole argument is the six immediate
-Level 1 contracts selected for `ssz_decode_root.main`.
+`root_compliance` is the unique public top of the proof. `hLevel1` contains only the six immediate
+Level 1 contracts selected for `ssz_decode_root.main`. It proves the honest total result modulo the
+fixed reviewed divergences; exact compliance is a separate input-scoped corollary.
 -/
 
 namespace BinaryFv.Zesu
@@ -22,10 +23,14 @@ theorem exportedContracts_of_level1
     unfold pcInList
     native_decide⟩
 
-/-- The shipped endpoint satisfies the fixed SSZ/RLP compliance relation if its six immediate
-Level 1 machine contracts hold. -/
-theorem root_compliance
-    (hLevel1 : Level1ContractAssumptions) : ComplianceModulo knownBugs :=
+/-- The sole public root of the compliance proof. Its only premise is the six selected Level 1
+machine contracts; the conclusion records the fixed reviewed divergences honestly. -/
+theorem root_compliance (hLevel1 : Level1ContractAssumptions) : ComplianceModulo knownBugs :=
   exportedContracts_of_level1 hLevel1
+
+/-- Exact compliance for one input whose domain and successful result avoid every reviewed bug. -/
+theorem compliance_for_input_of_avoids_known_bugs (hLevel1 : Level1ContractAssumptions)
+    (hAvoidKnownBugs : AvoidKnownBugs input) : ComplianceFor input :=
+  complianceFor_of_modulo hAvoidKnownBugs (root_compliance hLevel1)
 
 end BinaryFv.Zesu

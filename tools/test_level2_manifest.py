@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+from generate_level_manifest import canonical_qualified
+
 
 EXPECTED = Counter({
     "ssz_decode_observation.Encoder.raw": 10,
@@ -18,11 +20,24 @@ EXPECTED = Counter({
     "ssz_decode_observation.Encoder.optionalU64": 1,
     "ssz_decode_observation.Encoder.byteLists": 1,
     "ssz_decode_observation.Encoder.bytes": 1,
-    "ssz_decode_observation.Encoder.int__anon_1525": 1,
+    "ssz_decode_observation.Encoder.int": 1,
 })
 
 
+def test_anonymous_int_name_is_canonical() -> None:
+    base = {
+        "name": "ssz_decode_observation.Encoder.int__anon_1525",
+        "sourceFile": "deps/zesu/src/zkvm/ssz_decode_observation.zig",
+        "declLine": 19,
+    }
+    expected = "ssz_decode_observation.Encoder.int"
+    assert canonical_qualified(base) == expected
+    assert canonical_qualified({**base, "name": "ssz_decode_observation.Encoder.int__anon_9876"}) == expected
+    assert canonical_qualified({**base, "declLine": 20}) == base["name"]
+
+
 def main() -> int:
+    test_anonymous_int_name_is_canonical()
     manifest = json.loads(Path(sys.argv[1]).read_text())
     rows = manifest["instances"]
     assert manifest["schemaVersion"] == 1

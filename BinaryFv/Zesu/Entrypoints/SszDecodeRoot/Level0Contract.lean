@@ -104,6 +104,30 @@ def MainMeaningModulo (bugs : List KnownBug) (args : MainArgs) : MainOutcome →
       ((¬∃ sail, SailDecode args.input sail) ∧
         ∃ bug ∈ bugs, KnownBugApplies args.input zesu bug)
 
+/-- Exact SSZ/RLP meaning after excluding every currently reviewed implementation divergence. -/
+def MainMeaning (args : MainArgs) : MainOutcome → Prop
+  | .failure => ¬∃ decoded, SailDecode args.input decoded
+  | .success zesu => ∃ sail, SailDecode args.input sail ∧
+      decodedResultRel args.input zesu sail
+
+/-- The particular input avoids every reviewed Zesu/EVM-Sail divergence. Unlike the former global
+hypothesis, this cannot say that demonstrated bug-triggering inputs do not exist. -/
+structure AvoidKnownBugs (input : Array UInt8) : Prop where
+  successfulResult : ∀ zesu sail, SailDecode input sail →
+    decodedResultRelModuloKnownBugs input zesu sail → decodedResultRel input zesu sail
+  rejectedDomain : (¬∃ sail, SailDecode input sail) → ∀ zesu bug,
+    bug ∈ knownBugs → KnownBugApplies input zesu bug → False
+
+theorem mainMeaning_of_modulo {args : MainArgs} (hAvoidKnownBugs : AvoidKnownBugs args.input)
+    {outcome : MainOutcome} (meaning : MainMeaningModulo knownBugs args outcome) :
+    MainMeaning args outcome := by
+  cases outcome with
+  | failure => exact meaning
+  | success zesu =>
+      rcases meaning with ⟨sail, decoded, related⟩ | ⟨rejected, bug, listed, applies⟩
+      · exact ⟨sail, decoded, hAvoidKnownBugs.successfulResult zesu sail decoded related⟩
+      · exact False.elim (hAvoidKnownBugs.rejectedDomain rejected zesu bug listed applies)
+
 set_option genInjectivity false in
 /-- Concrete Linux/RV64 entry state for the exported endpoint. The two PMA/MMIO clauses are the
 actual stack stores at offsets `0x378` and `8`; no generated instruction run is assumed here. -/
@@ -157,6 +181,29 @@ def mainContractModulo (bugs : List KnownBug) (stepBound : MainArgs → Nat) :
 def ComplianceModulo (bugs : List KnownBug) : Prop :=
   ∃ stepBound, (mainContractModulo bugs stepBound).Implements EndpointStep EndpointPc
     MainExecutionPc (pcInList [Elflings.zkvmExitTerminalPc])
+
+def mainContractFor (input : Array UInt8) (stepBound : MainArgs → Nat) :
+    RelationalMachineContract EndpointState MainArgs MainOutcome :=
+  { allows := MainMeaning
+    entry := fun args state => args.input = input ∧ MainEntry args state
+    exit := MainExit
+    stepBound }
+
+/-- Exact endpoint compliance on one input known not to trigger a reviewed divergence. -/
+def ComplianceFor (input : Array UInt8) : Prop :=
+  ∃ stepBound, (mainContractFor input stepBound).Implements EndpointStep EndpointPc MainExecutionPc
+    (pcInList [Elflings.zkvmExitTerminalPc])
+
+theorem complianceFor_of_modulo (hAvoidKnownBugs : AvoidKnownBugs input)
+    (compliance : ComplianceModulo knownBugs) : ComplianceFor input := by
+  rcases compliance with ⟨stepBound, implements⟩
+  refine ⟨stepBound, ?_⟩
+  intro args fromStep before entry
+  rcases entry with ⟨rfl, entry⟩
+  obtain ⟨count, after, outcome, positive, bounded, trace, exitPc, meaning, exit⟩ :=
+    implements args fromStep before entry
+  exact ⟨count, after, outcome, positive, bounded, trace, exitPc,
+    mainMeaning_of_modulo hAvoidKnownBugs meaning, exit⟩
 
 /-- The parent contract derived by resolving Level 0 against its six selected children. -/
 abbrev ExportedContractAssumptions : Prop := ComplianceModulo knownBugs
