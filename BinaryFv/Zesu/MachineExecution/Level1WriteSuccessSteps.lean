@@ -81,6 +81,20 @@ private theorem writeSuccessChildStackFits {stackPointer : Nat} (lower : 0x810 �
   apply Nat.le_sub_of_add_le
   exact Nat.le_trans (by decide : 16 + 0x7d0 ≤ 0x810) lower
 
+private theorem writeSuccessChild16_in_child48 {stackPointer address : Nat}
+    (lower : 0x810 ≤ stackPointer)
+    (inside : byteRange (stackPointer - 0x7d0 - 16) 16 address) :
+    byteRange (stackPointer - 0x7d0 - 48) 48 address := by
+  unfold byteRange at inside ⊢
+  have fit : 48 ≤ stackPointer - 0x7d0 := by
+    apply Nat.le_sub_of_add_le
+    exact Nat.le_trans (by decide : 48 + 0x7d0 ≤ 0x810) lower
+  constructor
+  · exact Nat.le_trans (Nat.sub_le_sub_left (by decide : 16 ≤ 48) _) inside.1
+  · rw [Nat.sub_add_cancel fit]
+    rw [Nat.sub_add_cancel (Nat.le_trans (by decide : 16 ≤ 48) fit)] at inside
+    exact inside.2
+
 private theorem writeSuccessChildStackBound {stackPointer : Nat} (upper : stackPointer < 2 ^ 64) :
     stackPointer - 0x7d0 < 2 ^ 64 :=
   Nat.lt_of_le_of_lt (Nat.sub_le stackPointer 0x7d0) upper
@@ -6176,4 +6190,100 @@ private theorem writeSuccessThreeIntHandoff
     have all := firstTwo.append (by simpa [Nat.add_assoc] using timestampCall.trace)
     simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
   · rw [timestampCall.stdout, gasUsedCall.stdout, gasLimitCall.stdout]
+
+set_option genInjectivity false in
+/-- All scalar/byte encoder calls after block number and before the block-hash field. -/
+structure WriteSuccessPostBlockNumberHandoff
+    (fromStep gasLimitUsed gasUsedUsed timestampUsed extraDataUsed baseFeeUsed : Nat)
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
+    (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
+    (3 + gasLimitUsed + 3 + gasUsedUsed + 3 + timestampUsed + 4 + extraDataUsed +
+      3 + baseFeeUsed) before after
+  atPc : EndpointPc after = some 0x14ed4
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdout : after.stdout = before.stdout ++ encodeNatLE 8 args.decoded.payload.gasLimit ++
+    encodeNatLE 8 args.decoded.payload.gasUsed ++ encodeNatLE 8 args.decoded.payload.timestamp ++
+    encodeBytes args.decoded.payload.extraData ++ encodeNatLE 8 args.decoded.payload.baseFeePerGas
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  memory : WritesOnlyWithin
+    (byteRange (args.stackPointer - 0x7d0 - 48) 48) before.machine after.machine
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+  payload : WriteSuccessPayloadContext args payloadBytes after
+
+/-- Compose gas limit, gas used, timestamp, extra data, and base fee in production order. -/
+private theorem writeSuccessPostBlockNumberHandoff
+    (intChild : WriteSuccessIntInstanceContract) (bytesChild : WriteSuccessBytesInstanceContract)
+    (fromStep : Nat) (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
+    (before : EndpointState) (atPc : before.machine.regs.get? PC = some 0x14e94)
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x810 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
+    ∃ gasLimitUsed gasUsedUsed timestampUsed extraDataUsed baseFeeUsed after,
+      WriteSuccessPostBlockNumberHandoff fromStep gasLimitUsed gasUsedUsed timestampUsed
+        extraDataUsed baseFeeUsed args payloadBytes before after := by
+  obtain ⟨gasLimitUsed, gasUsedUsed, timestampUsed, afterThree, three⟩ :=
+    writeSuccessThreeIntHandoff intChild fromStep args payloadBytes before atPc stack context
+      access loaded aligned lower upper decodedAddress
+  let afterThreeStep := fromStep + 3 + gasLimitUsed + 3 + gasUsedUsed + 3 + timestampUsed
+  obtain ⟨extraDataUsed, afterExtra, extra⟩ := writeSuccessExtraDataHandoff bytesChild
+    afterThreeStep args payloadBytes afterThree three.atPc three.stack three.payload three.access
+    three.loaded aligned lower upper decodedAddress
+  let afterExtraStep := afterThreeStep + 4 + extraDataUsed
+  obtain ⟨baseFeeUsed, after, baseFee⟩ := writeSuccessIntCallHandoff intChild afterExtraStep
+    0x14ec8 0x14ed4 0x438 args.decoded.payload.baseFeePerGas 0x15ecc args afterExtra
+    extra.atPc extra.stack extra.payload.payloadRep.2.2.2.2.2.1 extra.access extra.loaded aligned
+    lower upper (fun step state => writeSuccessBaseFeeLoadStep step args state)
+    writeSuccessBaseFeeCallBaseStep writeSuccessBaseFeeCallStep
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x14e88, 0x14ed8), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x14e88, 0x14ed8), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x14e88, 0x14ed8), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
+    (by native_decide) (by native_decide) (by native_decide)
+  have payloadAfter := writeSuccessPayloadContextAfterInt decodedAddress lower upper extra.payload
+    baseFee
+  have threeMemory : WritesOnlyWithin
+      (byteRange (args.stackPointer - 0x7d0 - 48) 48) before.machine afterThree.machine :=
+    three.memory.mono (by
+      intro address inside
+      exact writeSuccessChild16_in_child48 lower inside)
+  have baseFeeMemory : WritesOnlyWithin
+      (byteRange (args.stackPointer - 0x7d0 - 48) 48) afterExtra.machine after.machine :=
+    baseFee.memory.mono (by
+      intro address inside
+      exact writeSuccessChild16_in_child48 lower inside)
+  refine ⟨gasLimitUsed, gasUsedUsed, timestampUsed, extraDataUsed, baseFeeUsed, after, {
+    trace := ?_
+    atPc := baseFee.atPc
+    stack := baseFee.stack
+    stdout := ?_
+    stdin := baseFee.stdin.trans (extra.stdin.trans three.stdin)
+    cursor := baseFee.cursor.trans (extra.cursor.trans three.cursor)
+    exitCode := baseFee.exitCode.trans (extra.exitCode.trans three.exitCode)
+    memory := WritesOnlyWithin.trans_same threeMemory
+      (WritesOnlyWithin.trans_same extra.memory baseFeeMemory)
+    loaded := baseFee.loaded
+    access := baseFee.access
+    payload := payloadAfter }⟩
+  · have throughExtra := three.trace.append (by
+      simpa [afterThreeStep, Nat.add_assoc] using extra.trace)
+    have all := throughExtra.append (by
+      simpa [afterThreeStep, afterExtraStep, Nat.add_assoc] using baseFee.trace)
+    simpa [afterThreeStep, afterExtraStep, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
+  · rw [baseFee.stdout, extra.stdout, three.stdout]
 end BinaryFv.Zesu.MachineExecution
