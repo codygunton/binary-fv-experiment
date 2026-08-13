@@ -2,15 +2,16 @@ import BinaryFv.RiscV.Instruction.Execute.Arithmetic
 import BinaryFv.RiscV.Instruction.Execute.Load
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.RiscV.Step.FallThrough
+import BinaryFv.RiscV.Step.RegisterWrite
+import BinaryFv.RiscV.Elfling.Seg
 import BinaryFv.Zesu.Machine.DecodeTactic
 
 /-!
 # The post-state of a register-writing fall-through instruction, and its retirement
 
-Ported from `d0f50581:BinaryFv/Zesu/MachineExecution/RegisterWriteStep.lean`, lines 56–151 and
-184–223, which are target-agnostic: they mention no address, no generated program and no artifact.
-What did not port is the part that did: `decodeRawExecutionPcs`, `decodeRawExit`, and the
-`Artifacts.programImage` reads, all replaced by `BinaryFv/Zesu/Machine/Target.lean`.
+Only `StepPremises` and `fallThroughRegisterWriteStep` live here. The post-state family
+(`afterRegisterWrite` and its five lemmas) is in `BinaryFv/RiscV/Step/RegisterWrite.lean`, which
+survived the wipe — and it must be *that* constant, because `Seg.step` is stated against it.
 
 `InstructionStepPlatform` went with the wipe, so `StepPremises` below replaces it. It is the same
 bundle under a name this branch owns, and it is assembled from `abstractPlatform_of_base` /
@@ -30,101 +31,12 @@ namespace BinaryFv.Zesu.Machine
 open BinaryFv BinaryFv.Binary BinaryFv.RiscV
 open PreSail LeanRV64DExecutable.Functions Register
 
-/-! ## The post-state -/
+/-! ## The post-state
 
-/-- Exact post-state of a register-writing fall-through instruction. -/
-def afterRegisterWrite (state : State) (pc retired : BitVec 64) (destination : Register)
-    (value : RegisterType destination) : State :=
-  tryStepControlFlowAfterRetired
-    { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
-      regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert
-        destination value }
-    (Sail.BitVec.addInt pc 4) retired
-
-theorem afterRegisterWrite_agree_of {P : Register → Prop} {state : State}
-    {pc retired : BitVec 64}
-    {destination : Register} {value : RegisterType destination}
-    (notDestination : ¬ P destination) (notPc : ¬ P PC) (notNextPc : ¬ P nextPC)
-    (notIncrement : ¬ P minstret_increment) (notRetired : ¬ P minstret) :
-    Agree P state (afterRegisterWrite state pc retired destination value) := by
-  intro register preserved
-  have different : destination ≠ register := by
-    intro equal
-    exact notDestination (equal ▸ preserved)
-  have differentPc : PC ≠ register := by
-    intro equal
-    subst register
-    exact notPc preserved
-  have differentNextPc : nextPC ≠ register := by
-    intro equal
-    subst register
-    exact notNextPc preserved
-  have differentIncrement : minstret_increment ≠ register := by
-    intro equal
-    subst register
-    exact notIncrement preserved
-  have differentRetired : minstret ≠ register := by
-    intro equal
-    subst register
-    exact notRetired preserved
-  simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-    different, differentPc, differentNextPc, differentIncrement, differentRetired]
-
-theorem afterRegisterWrite_agree {state : State} {pc retired : BitVec 64}
-    {destination : Register} {value : RegisterType destination}
-    (notPreserved : ¬ platformPreserved destination) :
-    Agree platformPreserved state (afterRegisterWrite state pc retired destination value) :=
-  afterRegisterWrite_agree_of notPreserved (by simp [platformPreserved])
-    (by simp [platformPreserved]) (by simp [platformPreserved]) (by simp [platformPreserved])
-
-theorem afterRegisterWrite_register (state : State) (pc retired : BitVec 64)
-    (destination register : Register) (value : RegisterType destination)
-    (notDestination : destination ≠ register) (notPc : PC ≠ register)
-    (notNextPc : nextPC ≠ register) (notIncrement : minstret_increment ≠ register)
-    (notRetired : minstret ≠ register) :
-    (afterRegisterWrite state pc retired destination value).regs.get? register =
-      state.regs.get? register := by
-  simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    coreControlFlowNextState, tryStepControlFlowAfterIncrement, Std.ExtDHashMap.get?_insert,
-    notDestination, notPc, notNextPc, notIncrement, notRetired]
-
-/-- The write set of a full register-writing retirement: the `try_step` bookkeeping, plus the
-instruction's destination.
-
-`destination` stays a separate `RegSet.only` rather than being folded into a closed set. That is
-what lets `RegSet.Disjoint.union` split a later obligation into a fact about the bookkeeping, proved
-once per preserved predicate, and one disequality about the destination. Widening the destination
-into a closed over-approximation looks tempting and is wrong: it strengthens the obligation into
-something false for `platformPreserved`, which holds `x1`. -/
-theorem afterRegisterWrite_writes (state : State) (pc retired : BitVec 64)
-    (destination : Register) (value : RegisterType destination) :
-    WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only destination)) state
-      (afterRegisterWrite state pc retired destination value) :=
-  fun r hr =>
-    afterRegisterWrite_register state pc retired destination r value
-      (fun h => hr (Or.inr h.symm))
-      (fun h => hr (Or.inl (Or.inl h.symm)))
-      (fun h => hr (Or.inl (Or.inr (Or.inl h.symm))))
-      (fun h => hr (Or.inl (Or.inr (Or.inr (Or.inr h.symm)))))
-      (fun h => hr (Or.inl (Or.inr (Or.inr (Or.inl h.symm)))))
-
-theorem afterRegisterWrite_mem (state : State) (pc retired : BitVec 64)
-    (destination : Register) (value : RegisterType destination) :
-    (afterRegisterWrite state pc retired destination value).mem = state.mem := rfl
-
-theorem afterRegisterWrite_retired_present (state : State) (pc retired : BitVec 64)
-    (destination : Register) (value : RegisterType destination) :
-    RetiredCounterPresent (afterRegisterWrite state pc retired destination value) := by
-  refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
-  simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]
-
-theorem afterRegisterWrite_pc (state : State) (pc retired : BitVec 64)
-    (destination : Register) (value : RegisterType destination) :
-    (afterRegisterWrite state pc retired destination value).regs.get? PC =
-      some (Sail.BitVec.addInt pc 4) := by
-  simp [afterRegisterWrite, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
-    Std.ExtDHashMap.get?_insert]
+`afterRegisterWrite` and its five lemmas are **not** redefined here. They survived the wipe in
+`BinaryFv/RiscV/Step/RegisterWrite.lean`, and `Seg.step` is stated against those, so a local copy
+would be a different constant that `Seg.step` refuses. An earlier revision of this file duplicated
+them; that was wasted work and it would have made the composition below impossible. -/
 
 /-! ## The step premises, bundled
 
