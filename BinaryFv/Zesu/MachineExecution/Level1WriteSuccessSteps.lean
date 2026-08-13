@@ -4228,6 +4228,8 @@ structure WriteSuccessSecondMemcpyHandoff (fromStep parentUsed prefixUsed memcpy
   versionedHashesRelocation : ByteWindowRelocation after.machine.mem after.machine.mem
     (args.decodedAddress + 592) (args.stackPointer - 0x7d0 + 0x388) 16
   sourceRep : BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes
+  fullCopy : ∃ fullBytes : Array UInt8, fullBytes.size = 720 ∧
+    BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) fullBytes
   tailReps : ∀ index (inBounds : index < 16),
     UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
       (tailValues ⟨index, inBounds⟩)
@@ -4675,6 +4677,7 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     destinationRep := by
       simpa [finalState, finalSeg.memEq (by simp)] using destinationRep
     sourceRep := by simpa [finalState, finalSeg.memEq (by simp)] using sourceRepAfter
+    fullCopy := ⟨fullBytes, fullSize, by simpa [finalState] using fullCopiedFinal⟩
     parentRootRep := by simpa [finalState] using rootFinal
     versionedHashesRelocation := by simpa [finalState] using versionedRelocation
     tailReps := tailAfter
@@ -5372,6 +5375,8 @@ structure WriteSuccessSixRawFieldsHandoff
     (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot
   bytesSize : bytes.size = 0x250
   sourceRep : BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes
+  fullCopy : ∃ fullBytes : Array UInt8, fullBytes.size = 720 ∧
+    BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) fullBytes
   tailReps : ∀ index (inBounds : index < 16),
     UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
       (tailValues ⟨index, inBounds⟩)
@@ -5426,6 +5431,7 @@ theorem writeSuccessSixRawFieldsHandoff
       parentRootRep := by simpa [rawMemory] using initialHandoff.parentRootRep
       bytesSize := initialHandoff.bytesSize
       sourceRep := by simpa [rawMemory] using initialHandoff.sourceRep
+      fullCopy := by simpa [rawMemory] using initialHandoff.fullCopy
       tailReps := by
         intro index inBounds
         simpa [rawMemory] using initialHandoff.tailReps index inBounds
@@ -6159,6 +6165,8 @@ structure WriteSuccessFirstIntHandoff
     (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot
   bytesSize : bytes.size = 0x250
   sourceRep : BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes
+  fullCopy : ∃ fullBytes : Array UInt8, fullBytes.size = 720 ∧
+    BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) fullBytes
   tailReps : ∀ index (inBounds : index < 16),
     UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
       (tailValues ⟨index, inBounds⟩)
@@ -6424,6 +6432,14 @@ theorem writeSuccessFirstIntHandoff
       parentRootRep := parentRootAfter
       bytesSize := handoff.bytesSize
       sourceRep := sourceAfter
+      fullCopy := by
+        obtain ⟨fullBytes, fullSize, fullRep⟩ := handoff.fullCopy
+        exact ⟨fullBytes, fullSize, fullRep.of_mem_eq callMemEq |>.of_writesOnlyWithin childMem (by
+          intro index inBounds inside
+          dsimp [childArgs] at inside
+          unfold byteRange at inside
+          rw [fullSize] at inBounds
+          omega)⟩
       tailReps := tailAfter
       saved := savedAfter
       loaded := loadedAfter
@@ -6467,8 +6483,8 @@ set_option genInjectivity false in
 /-- Payload bytes and semantics retained while shared encoder calls use their child stack frames. -/
 structure WriteSuccessPayloadContext (args : WriteSuccessArgs) (bytes : Array UInt8)
     (state : EndpointState) : Prop where
-  firstCopyRep : BytesRep state.machine.mem
-    (args.stackPointer - 0x7d0 + 0x138) bytes
+  fullCopy : ∃ fullBytes : Array UInt8, fullBytes.size = 720 ∧
+    BytesRep state.machine.mem (args.stackPointer - 0x7d0 + 0x138) fullBytes
   destinationRep : BytesRep state.machine.mem
     (args.stackPointer - 0x7d0 + 0x408) bytes
   parentRootRep : BytesRep state.machine.mem
@@ -6498,7 +6514,7 @@ private theorem writeSuccessPayloadContextAfterChild
     (context : WriteSuccessPayloadContext args bytes before)
     (memory : WritesOnlyWithin childMemory before.machine after.machine)
     (insideAllowed : ∀ address, childMemory address → writeSuccessMemoryRegion args address)
-    (outsideFirstCopy : ∀ index, index < bytes.size →
+    (outsideFirstCopy : ∀ index, index < 720 →
       ¬childMemory (args.stackPointer - 0x7d0 + 0x138 + index))
     (outsideDestination : ∀ index, index < bytes.size →
       ¬childMemory (args.stackPointer - 0x7d0 + 0x408 + index))
@@ -6516,7 +6532,10 @@ private theorem writeSuccessPayloadContextAfterChild
   have allowedMemory : WritesOnlyWithin (writeSuccessMemoryRegion args)
       before.machine after.machine := memory.mono insideAllowed
   have stableAfter := context.stable.afterWrites allowedMemory
-  have firstCopyAfter := context.firstCopyRep.of_writesOnlyWithin memory outsideFirstCopy
+  obtain ⟨fullBytes, fullSize, fullCopyRep⟩ := context.fullCopy
+  have fullCopyAfter := fullCopyRep.of_writesOnlyWithin memory (by
+    intro index inBounds
+    exact outsideFirstCopy index (by simpa [fullSize] using inBounds))
   have destinationAfter := context.destinationRep.of_writesOnlyWithin memory outsideDestination
   have parentRootAfter :=
     context.parentRootRep.of_writesOnlyWithin memory outsideParentRoot
@@ -6565,7 +6584,7 @@ private theorem writeSuccessPayloadContextAfterChild
     have relocation := ByteWindowRelocation.of_same_bytes decodedBytesAfter destinationAfter
     simpa [context.bytesSize] using relocation
   exact {
-    firstCopyRep := firstCopyAfter
+    fullCopy := ⟨fullBytes, fullSize, fullCopyAfter⟩
     destinationRep := destinationAfter
     parentRootRep := parentRootAfter
     decodedBytesRep := decodedBytesAfter
@@ -6818,6 +6837,7 @@ structure WriteSuccessSliceCallSetup
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 4 before callState
   atPc : EndpointPc callState = some (BitVec.ofNat 64 target)
+  link : callState.machine.regs.get? x1 = some (BitVec.ofNat 64 returnPc)
   stack : callState.machine.regs.get? x2 =
     some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
   address : callState.machine.regs.get? x10 = some (BitVec.ofNat 64 address)
@@ -7008,6 +7028,8 @@ private theorem writeSuccessSliceCallSetup
   exact ⟨callState, {
     trace := parentTrace
     atPc := by simpa [callState, EndpointPc] using callAtPc
+    link := by simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
     stack := stackCall
     address := addressCall
     length := lengthCall
@@ -7018,6 +7040,131 @@ private theorem writeSuccessSliceCallSetup
     exitCode := rfl
     loaded := by simpa [callState, callMemEq] using loaded
     access := by simpa [callState] using accessCall }⟩
+
+set_option genInjectivity false in
+/-- One late shared bytes call after the generic four-instruction parent setup. -/
+structure WriteSuccessLateBytesHandoff
+    (fromStep childUsed returnPc : Nat) (value : Array UInt8)
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
+    (before after : EndpointState) (savedValues : DecodeCalleeSavedValues) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+    fromStep (4 + childUsed) before after
+  atPc : EndpointPc after = some (BitVec.ofNat 64 returnPc)
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdout : after.stdout = before.stdout ++ encodeBytes value
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  saved : SavedWordReps after.machine (writeSuccessSavedWords args savedValues)
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+  memory : WritesOnlyWithin
+    (byteRange (args.stackPointer - 0x7d0 - 48) 48) before.machine after.machine
+
+/-- Consume the selected shared bytes contract from a completed late slice-call setup. -/
+private theorem writeSuccessLateBytesHandoff
+    (child : WriteSuccessBytesInstanceContract)
+    (fromStep pc returnPc dataAddress : Nat)
+    (args : WriteSuccessArgs) (payloadBytes value : Array UInt8)
+    (savedValues : DecodeCalleeSavedValues) (before callState : EndpointState)
+    (setup : WriteSuccessSliceCallSetup fromStep pc returnPc 0x15c6c dataAddress value.size
+      args before callState)
+    (bytesRep : BytesRep before.machine.mem dataAddress value)
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args savedValues))
+    (lower : 0x880 ≤ args.stackPointer) (upper : args.stackPointer < 2 ^ 64)
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20)
+    (returnListed : returnPc ∈ Elflings.writeSuccessBytesExitPcs) :
+    ∃ childUsed after,
+      WriteSuccessLateBytesHandoff fromStep childUsed returnPc value args payloadBytes
+        before after savedValues := by
+  let childValue : BytesEncoderValue := { address := dataAddress, bytes := value }
+  let childArgs : EncoderCallArgs BytesEncoderValue := {
+    returnAddress := returnPc
+    callerStack := args.stackPointer - 0x7d0
+    value := childValue }
+  have childEntry : EncoderCallEntry Elflings.writeSuccessBytesEntry
+      Elflings.writeSuccessBytesExitPcs BytesEncoderBinding childArgs callState := by
+    unfold EncoderCallEntry
+    refine ⟨(by simpa [childArgs] using returnListed),
+      writeSuccessChildStackBound upper, setup.atPc, ?_, ?_, ?_, setup.loaded⟩
+    · simpa [childArgs] using setup.link
+    · simpa [childArgs] using setup.stack
+    · refine ⟨bytesRep.1, ?_, ?_, ?_⟩
+      · simpa [childArgs, childValue] using setup.address
+      · simpa [childArgs, childValue] using setup.length
+      · simpa [childArgs, childValue, setup.memory] using bytesRep
+  have frameInWriter : ∀ address,
+      byteRange (args.stackPointer - 0x7d0 - 48) 48 address →
+      writeSuccessFrameMemory args address := by
+    intro address inside
+    exact writeSuccessChildFrame48_mem_frame lower inside
+  obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
+    (fun inside => by
+      unfold pcInRanges at inside ⊢
+      rcases inside with ⟨range, member, lo, hi⟩
+      simp only [Elflings.writeSuccessBytesExecutionPcRanges, List.mem_cons,
+        List.not_mem_nil, or_false] at member
+      rcases member with rfl | rfl | rfl
+      · exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges], lo, hi⟩
+      · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
+          by omega, by omega⟩
+      · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
+          by omega, hi⟩)
+    fromStep 4 args childValue before callState childArgs rfl childEntry setup.trace
+    ⟨setup.stdin, setup.cursor, setup.stdout, setup.exitCode⟩ setup.memory setup.access setup.loaded
+    lower frameInWriter
+  have payloadAfter := writeSuccessPayloadContextAfterChild decodedAddress lower upper
+    handoff.access.writerRegionBeforeOutputContext context handoff.memory
+    (fun address inside => Or.inl (frameInWriter address inside)) (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      omega) (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      omega) (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      omega) (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      rw [decodedAddress] at inside
+      omega) (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      rw [decodedAddress] at inside
+      omega) (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      omega) (by
+      intro values word member index inBounds inside
+      simp [writeSuccessLocalTailWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl <;> unfold byteRange at inside <;> omega)
+  have savedAfter : SavedWordReps after.machine (writeSuccessSavedWords args savedValues) := by
+    intro word member
+    exact (saved word member).of_writesOnlyWithin handoff.memory (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      simp [writeSuccessSavedWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl <;> omega)
+  exact ⟨childUsed, after, {
+    trace := handoff.trace
+    atPc := handoff.atPc
+    stack := handoff.stack
+    stdout := by simpa [childValue] using handoff.stdout
+    stdin := handoff.stdin
+    cursor := handoff.cursor
+    exitCode := handoff.exitCode
+    saved := savedAfter
+    payloadContext := payloadAfter
+    loaded := handoff.loaded
+    access := handoff.access
+    memory := handoff.memory }⟩
 
 set_option genInjectivity false in
 /-- Exact parent setup plus the shared bytes child for payload extra data. -/
@@ -7581,7 +7728,7 @@ private theorem writeSuccessBlockHashHandoff
     loaded := by simpa [memory] using loaded
     access := childAccess
     payload := {
-      firstCopyRep := by simpa [memory] using context.firstCopyRep
+      fullCopy := by simpa [memory] using context.fullCopy
       destinationRep := by simpa [memory] using context.destinationRep
       parentRootRep := by simpa [memory] using context.parentRootRep
       decodedBytesRep := by simpa [memory] using context.decodedBytesRep
@@ -8085,6 +8232,7 @@ private theorem writeSuccessTransactionsHandoff
     intro word member
     rw [List.mem_append] at member
     exact member.elim (savedAtChild word) (tailAtChild word)
+  obtain ⟨fullCopyBytes, fullCopySize, fullCopyRep⟩ := context.fullCopy
   let childArgs : InlineEncoderArgs (InlineArrayEncoderValue Transaction) :=
     { stackPointer := args.stackPointer - 0x7d0
       value := ⟨transactionAddress, args.decoded.payload.transactions⟩
@@ -8096,7 +8244,7 @@ private theorem writeSuccessTransactionsHandoff
       copiedSourceAddress := args.stackPointer - 0x7d0 + 0x138
       copiedParentRootBytes := args.decoded.parentBeaconBlockRoot
       copiedPayloadBytes := payloadBytes
-      copiedSourceBytes := payloadBytes
+      copiedSourceBytes := fullCopyBytes
       decoded := args.decoded }
   have childEntry : InlineEncoderEntry Elflings.writeSuccessTransactionsEntry
       (InlineArrayEncoderBinding
@@ -8141,7 +8289,7 @@ private theorem writeSuccessTransactionsHandoff
         stateRoot4, receiptsRootSize4, receiptsRoot4, logsBloomSize4, logsBloom4,
         prevRandaoSize4, prevRandao4, blockHashSize4, blockHash4⟩
     · refine ⟨?_, codeOfSeg seg4⟩
-      exact context.firstCopyRep.of_writesOnlyWithin seg4.mem (by
+      exact fullCopyRep.of_writesOnlyWithin seg4.mem (by
         intro index inBounds inside
         unfold setupMemory writeSuccessTransactionSetupMemory byteRange at inside
         rcases inside with inside | inside <;> omega)
@@ -8250,7 +8398,7 @@ private theorem writeSuccessTransactionsHandoff
     access := accessAfter
     memory := fullMemory
     payloadContext := {
-      firstCopyRep := by simpa [childArgs] using sourceAfter
+      fullCopy := ⟨fullCopyBytes, fullCopySize, by simpa [childArgs] using sourceAfter⟩
       destinationRep := destinationAfter
       parentRootRep := parentRootAfter
       decodedBytesRep := decodedBytesAfter
@@ -8603,6 +8751,7 @@ private theorem writeSuccessWithdrawalsHandoff
     intro word member
     rw [List.mem_append] at member
     exact member.elim (savedAtChild word) (tailAtChild word)
+  obtain ⟨fullCopyBytes, fullCopySize, fullCopyRep⟩ := context.fullCopy
   let childArgs : InlineEncoderArgs (InlineArrayEncoderValue Withdrawal) :=
     { stackPointer := args.stackPointer - 0x7d0
       value := ⟨withdrawalAddress, args.decoded.payload.withdrawals⟩
@@ -8614,7 +8763,7 @@ private theorem writeSuccessWithdrawalsHandoff
       copiedSourceAddress := args.stackPointer - 0x7d0 + 0x138
       copiedParentRootBytes := args.decoded.parentBeaconBlockRoot
       copiedPayloadBytes := payloadBytes
-      copiedSourceBytes := payloadBytes
+      copiedSourceBytes := fullCopyBytes
       decoded := args.decoded }
   have childEntry : InlineEncoderEntry Elflings.writeSuccessWithdrawalsEntry
       (InlineArrayEncoderBinding
@@ -8644,7 +8793,7 @@ private theorem writeSuccessWithdrawalsHandoff
         rw [show childState.machine.mem = before.machine.mem by
           simpa [childState] using seg2.memEq (by simp)]
         exact context.destinationRep),
-      (by exact ⟨by simpa [childState, seg2.memEq (by simp)] using context.firstCopyRep,
+      (by exact ⟨by simpa [childState, seg2.memEq (by simp)] using fullCopyRep,
         by simpa [childState, seg2.memEq (by simp)] using loaded⟩)⟩
     · simpa [childState, EndpointPc, MachinePc] using seg2.atPc
     · simpa [childState] using
@@ -8759,7 +8908,7 @@ private theorem writeSuccessWithdrawalsHandoff
     exitCode := by simpa [childState] using exitCode
     saved := savedAbiAfter
     payloadContext := {
-      firstCopyRep := by simpa [childArgs] using sourceAfter
+      fullCopy := ⟨fullCopyBytes, fullCopySize, by simpa [childArgs] using sourceAfter⟩
       destinationRep := destinationAfter
       parentRootRep := parentRootAfter
       decodedBytesRep := decodedBytesAfter
@@ -9430,7 +9579,6 @@ private theorem writeSuccessSlotSetupHandoff (fromStep : Nat) (args : WriteSucce
     access.writerRegionBeforeOutputContext context setupWrites
     (fun address inside => Or.inl (setupInWriter address inside)) (by
       intro index inBounds inside
-      rw [context.bytesSize] at inBounds
       unfold setupMemory writeSuccessSlotSetupMemory byteRange at inside
       rcases inside with inside | inside <;> omega)
     (by
@@ -10149,7 +10297,6 @@ private theorem writeSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessA
     (fun _ inside => Or.inr inside) (by
       intro index inBounds inside
       have bound := access.writerRegionBeforeOutputContext
-      rw [context.bytesSize] at inBounds
       unfold writeOutputMemory Region.union byteRange at inside
       rcases inside with inside | inside <;> omega) (by
       intro index inBounds inside
@@ -10319,6 +10466,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     intro word member
     rw [List.mem_append] at member
     exact member.elim (savedAtChild word) (tailAtChild word)
+  obtain ⟨fullCopyBytes, fullCopySize, fullCopyRep⟩ := context.fullCopy
   let childArgs : InlineEncoderArgs (InlineArrayEncoderValue (Array UInt8)) := {
     stackPointer := args.stackPointer - 0x7d0
     value := ⟨hashAddress, args.decoded.versionedHashes⟩
@@ -10330,7 +10478,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     copiedSourceAddress := args.stackPointer - 0x7d0 + 0x138
     copiedParentRootBytes := args.decoded.parentBeaconBlockRoot
     copiedPayloadBytes := payloadBytes
-    copiedSourceBytes := payloadBytes
+    copiedSourceBytes := fullCopyBytes
     decoded := args.decoded }
   have childEntry : InlineEncoderEntry Elflings.writeSuccessHashesEntry
       (InlineArrayEncoderBinding
@@ -10355,7 +10503,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
         context.versionedHashesRelocation
     · simpa [childState, seg2.memEq (by simp)] using context.payloadRep
     · simpa [childState, seg2.memEq (by simp)] using context.destinationRep
-    · exact ⟨by simpa [childState, seg2.memEq (by simp)] using context.firstCopyRep,
+    · exact ⟨by simpa [childState, seg2.memEq (by simp)] using fullCopyRep,
         by simpa [childState, seg2.memEq (by simp)] using loaded⟩
   obtain ⟨childUsed, after, childTrace, childExit⟩ := writeSuccessInlineEncoderHandoff child
     (fun inside => by
@@ -10449,7 +10597,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     access := accessAfter
     memory := fullMemory
     payloadContext := {
-      firstCopyRep := by simpa [childArgs] using sourceAfter
+      fullCopy := ⟨fullCopyBytes, fullCopySize, by simpa [childArgs] using sourceAfter⟩
       destinationRep := destinationAfter
       parentRootRep := parentRootAfter
       decodedBytesRep := decodedBytesAfter
