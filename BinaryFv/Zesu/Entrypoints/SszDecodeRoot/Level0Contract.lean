@@ -199,11 +199,11 @@ structure MainEntry (args : MainArgs) (state : EndpointState) : Prop where
 
 private theorem writeSuccessFrameLower_of_mainFrameLower
     {stackPointer address : Nat} (_stackLower : 0xbb0 ≤ stackPointer)
-    (insideWriteFrame : stackPointer - 0x7d0 ≤ address) :
+    (insideWriteFrame : stackPointer - 0x810 ≤ address) :
     stackPointer - 0xbb0 ≤ address := by
   calc
-    stackPointer - 0xbb0 ≤ stackPointer - 0x7d0 :=
-      Nat.sub_le_sub_left (by decide : 0x7d0 ≤ 0xbb0) stackPointer
+    stackPointer - 0xbb0 ≤ stackPointer - 0x810 :=
+      Nat.sub_le_sub_left (by decide : 0x810 ≤ 0xbb0) stackPointer
     _ ≤ address := insideWriteFrame
 
 def MainExit (args : MainArgs) (outcome : MainOutcome)
@@ -1403,7 +1403,7 @@ def MainDecodeHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (f
         UIntRep 2 after.machine.mem (args.stackPointer + 0x370) 0 ∧
         DecodeStatusLoadWitness after 0 ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
-        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x7d0) 0x7d0)
+        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x810) 0x810)
           after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
         DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧
@@ -1572,7 +1572,7 @@ def MainStatusLoadedHandoff (contracts : Level1ResolvedContracts) (args : MainAr
     | .success decoded =>
         after.machine.regs.get? x10 = some (0#64) ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
-        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x7d0) 0x7d0)
+        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x810) 0x810)
           after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
         DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧
@@ -1707,7 +1707,7 @@ def MainStatusBranchedHandoff (contracts : Level1ResolvedContracts) (args : Main
     | .failure => EndpointPc after = some 0x14d1c
     | .success decoded => EndpointPc after = some 0x14d04 ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
-        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x7d0) 0x7d0)
+        StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x810) 0x810)
           after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
         DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧
@@ -2006,7 +2006,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
             (decodeCalleeSaved_disjoint_write x1 (by simp [decodeCalleeSavedRegister])))⟩
       have writeEntry : WriteSuccessEntry writeArgs callState := by
         refine ⟨(by show 0x14d10 ∈ Elflings.writeSuccessExitPcs; native_decide),
-          (Nat.le_trans (by decide : 0x7d0 ≤ 0xbb0) entry.stackLower),
+          (Nat.le_trans (by decide : 0x810 ≤ 0xbb0) entry.stackLower),
           entry.stackAligned, (by dsimp [writeArgs]; have := entry.stackFits; omega),
           (by simp [writeArgs]), ?_, ?_, ?_, ?_, ?_, ?_, ?_, callCode, callCalleeSaved, ?_, ?_⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
@@ -2066,7 +2066,7 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
           · intro offset width bound
             simpa [writeArgs] using entry.stackNoMMIO offset width bound
           · intro address lower upper
-            change args.stackPointer - 0x7d0 ≤ address at lower
+            change args.stackPointer - 0x810 ≤ address at lower
             change address < args.stackPointer at upper
             exact entry.stackNotFileBacked address
               (writeSuccessFrameLower_of_mainFrameLower entry.stackLower lower) (by omega)

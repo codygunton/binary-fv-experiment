@@ -179,11 +179,11 @@ structure WriteSuccessMachineAccess (args : WriteSuccessArgs) (state : MachineSt
     LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer + offset)) width
   decodedNoMMIO : ∀ offset width, offset + width ≤ 0x380 →
     LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + offset)) width
-  frameNotCode : ∀ address, args.stackPointer - 0x7d0 ≤ address →
+  frameNotCode : ∀ address, args.stackPointer - 0x810 ≤ address →
     address < args.stackPointer → Artifacts.programImage.readFileByte? address = none
 
 def WriteSuccessEntry (args : WriteSuccessArgs) (state : EndpointState) : Prop :=
-  args.returnAddress ∈ Elflings.writeSuccessExitPcs ∧ 0x7d0 ≤ args.stackPointer ∧
+  args.returnAddress ∈ Elflings.writeSuccessExitPcs ∧ 0x810 ≤ args.stackPointer ∧
   args.stackPointer % 16 = 0 ∧ args.stackPointer < 2 ^ 64 ∧
   args.decodedAddress = args.stackPointer + 0x20 ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.writeSuccessEntry) ∧
@@ -196,7 +196,7 @@ def WriteSuccessEntry (args : WriteSuccessArgs) (state : EndpointState) : Prop :
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   (∃ values, DecodeCalleeSavedAtRegisters values state) ∧
   WriteSuccessMachineAccess args state.machine ∧
-  StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x7d0) 0x7d0)
+  StatelessInputRepStableOutside (byteRange (args.stackPointer - 0x810) 0x810)
     state.machine.mem args.decodedAddress args.decoded
 
 def WriteSuccessExit (args : WriteSuccessArgs) (bytes : Array UInt8)
@@ -206,7 +206,7 @@ def WriteSuccessExit (args : WriteSuccessArgs) (bytes : Array UInt8)
   after.stdout = before.stdout ++ bytes ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.exitCode = before.exitCode ∧
-  WritesOnlyWithin (byteRange (args.stackPointer - 0x7d0) 0x7d0)
+  WritesOnlyWithin (byteRange (args.stackPointer - 0x810) 0x810)
     before.machine after.machine ∧
   EndpointCallFrame before after
 
