@@ -460,6 +460,7 @@ def InlineEncoderEntry (entry : Nat) (bindValue : EndpointState → Value → Pr
     args.copiedVersionedHashesAddress 16 ∧
   ExecutionPayloadRep state.machine.mem args.copiedPayloadAddress args.decoded.payload ∧
   BytesRep state.machine.mem args.copiedPayloadAddress args.copiedPayloadBytes ∧
+  BytesRep state.machine.mem args.decodedAddress args.copiedSourceBytes ∧
   BytesRep state.machine.mem args.copiedSourceAddress args.copiedSourceBytes ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
@@ -479,6 +480,7 @@ def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
     args.copiedVersionedHashesAddress 16 ∧
   ExecutionPayloadRep after.machine.mem args.copiedPayloadAddress args.decoded.payload ∧
   BytesRep after.machine.mem args.copiedPayloadAddress args.copiedPayloadBytes ∧
+  BytesRep after.machine.mem args.decodedAddress args.copiedSourceBytes ∧
   BytesRep after.machine.mem args.copiedSourceAddress args.copiedSourceBytes ∧
   BinaryFv.RiscV.WritesOnlyWithin
     (inlineEncoderMemoryRegion args.stackPointer) before.machine after.machine ∧

@@ -4229,6 +4229,7 @@ structure WriteSuccessSecondMemcpyHandoff (fromStep parentUsed prefixUsed memcpy
     (args.decodedAddress + 592) (args.stackPointer - 0x7d0 + 0x388) 16
   sourceRep : BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes
   fullCopy : ∃ fullBytes : Array UInt8, fullBytes.size = 720 ∧
+    BytesRep after.machine.mem args.decodedAddress fullBytes ∧
     BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) fullBytes
   tailReps : ∀ index (inBounds : index < 16),
     UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
@@ -4677,7 +4678,8 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     destinationRep := by
       simpa [finalState, finalSeg.memEq (by simp)] using destinationRep
     sourceRep := by simpa [finalState, finalSeg.memEq (by simp)] using sourceRepAfter
-    fullCopy := ⟨fullBytes, fullSize, by simpa [finalState] using fullCopiedFinal⟩
+    fullCopy := ⟨fullBytes, fullSize, by simpa [finalState] using fullDecodedFinal,
+      by simpa [finalState] using fullCopiedFinal⟩
     parentRootRep := by simpa [finalState] using rootFinal
     versionedHashesRelocation := by simpa [finalState] using versionedRelocation
     tailReps := tailAfter
@@ -5376,6 +5378,7 @@ structure WriteSuccessSixRawFieldsHandoff
   bytesSize : bytes.size = 0x250
   sourceRep : BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes
   fullCopy : ∃ fullBytes : Array UInt8, fullBytes.size = 720 ∧
+    BytesRep after.machine.mem args.decodedAddress fullBytes ∧
     BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) fullBytes
   tailReps : ∀ index (inBounds : index < 16),
     UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
@@ -6433,8 +6436,15 @@ theorem writeSuccessFirstIntHandoff
       bytesSize := handoff.bytesSize
       sourceRep := sourceAfter
       fullCopy := by
-        obtain ⟨fullBytes, fullSize, fullRep⟩ := handoff.fullCopy
-        exact ⟨fullBytes, fullSize, fullRep.of_mem_eq callMemEq |>.of_writesOnlyWithin childMem (by
+        obtain ⟨fullBytes, fullSize, decodedRep, fullRep⟩ := handoff.fullCopy
+        exact ⟨fullBytes, fullSize,
+          decodedRep.of_mem_eq callMemEq |>.of_writesOnlyWithin childMem (by
+            intro index inBounds inside
+            dsimp [childArgs] at inside
+            unfold byteRange at inside
+            rw [fullSize, entry.2.2.2.2.1] at inBounds inside
+            omega),
+          fullRep.of_mem_eq callMemEq |>.of_writesOnlyWithin childMem (by
           intro index inBounds inside
           dsimp [childArgs] at inside
           unfold byteRange at inside
@@ -6484,6 +6494,7 @@ set_option genInjectivity false in
 structure WriteSuccessPayloadContext (args : WriteSuccessArgs) (bytes : Array UInt8)
     (state : EndpointState) : Prop where
   fullCopy : ∃ fullBytes : Array UInt8, fullBytes.size = 720 ∧
+    BytesRep state.machine.mem args.decodedAddress fullBytes ∧
     BytesRep state.machine.mem (args.stackPointer - 0x7d0 + 0x138) fullBytes
   destinationRep : BytesRep state.machine.mem
     (args.stackPointer - 0x7d0 + 0x408) bytes
@@ -6503,6 +6514,35 @@ structure WriteSuccessPayloadContext (args : WriteSuccessArgs) (bytes : Array UI
     (args.stackPointer - 0x7d0 + 0x488) value
   localTailReps : WriteSuccessLocalTailReps args state
   linkedTailReps : WriteSuccessLinkedTailReps args state
+
+/-- The first 720-byte copy carries the five execution-request descriptors verbatim. -/
+private theorem WriteSuccessPayloadContext.executionRequestsRep
+    {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
+    (context : WriteSuccessPayloadContext args bytes state)
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20)
+    (upper : args.stackPointer < 2 ^ 64) :
+    ExecutionRequestsRep state.machine.mem
+      (args.stackPointer - 0x7d0 + 0x398) args.decoded.executionRequests := by
+  obtain ⟨fullBytes, fullSize, decodedBytes, copiedBytes⟩ := context.fullCopy
+  have relocation := ByteWindowRelocation.of_same_bytes decodedBytes copiedBytes
+  have decoded := context.stable state.machine.mem (fun _ _ => rfl)
+  obtain ⟨deposits, withdrawals, consolidations, builderDeposits, builderExits⟩ :=
+    decoded.2.2.2.1
+  refine ⟨deposits.rebaseDescriptor (by omega) ?_,
+    withdrawals.rebaseDescriptor (by omega) ?_,
+    consolidations.rebaseDescriptor (by omega) ?_,
+    builderDeposits.rebaseDescriptor (by omega) ?_,
+    builderExits.rebaseDescriptor (by omega) ?_⟩
+  · simpa [decodedAddress, Nat.add_assoc] using relocation.atOffset 608 16 (by
+      rw [fullSize]; omega)
+  · simpa [decodedAddress, Nat.add_assoc] using relocation.atOffset 624 16 (by
+      rw [fullSize]; omega)
+  · simpa [decodedAddress, Nat.add_assoc] using relocation.atOffset 640 16 (by
+      rw [fullSize]; omega)
+  · simpa [decodedAddress, Nat.add_assoc] using relocation.atOffset 656 16 (by
+      rw [fullSize]; omega)
+  · simpa [decodedAddress, Nat.add_assoc] using relocation.atOffset 672 16 (by
+      rw [fullSize]; omega)
 
 /-- Transport copied payload semantics through one exact child frame inside the writer frame. -/
 private theorem writeSuccessPayloadContextAfterChild
@@ -6532,7 +6572,12 @@ private theorem writeSuccessPayloadContextAfterChild
   have allowedMemory : WritesOnlyWithin (writeSuccessMemoryRegion args)
       before.machine after.machine := memory.mono insideAllowed
   have stableAfter := context.stable.afterWrites allowedMemory
-  obtain ⟨fullBytes, fullSize, fullCopyRep⟩ := context.fullCopy
+  obtain ⟨fullBytes, fullSize, fullDecodedRep, fullCopyRep⟩ := context.fullCopy
+  have fullDecodedAfter := fullDecodedRep.of_writesOnlyWithin allowedMemory (by
+    intro index inBounds inside
+    unfold writeSuccessMemoryRegion writeSuccessMemoryRegionAt Region.union byteRange at inside
+    rw [decodedAddress] at inside
+    rcases inside with inside | inside | inside <;> omega)
   have fullCopyAfter := fullCopyRep.of_writesOnlyWithin memory (by
     intro index inBounds
     exact outsideFirstCopy index (by simpa [fullSize] using inBounds))
@@ -6584,7 +6629,7 @@ private theorem writeSuccessPayloadContextAfterChild
     have relocation := ByteWindowRelocation.of_same_bytes decodedBytesAfter destinationAfter
     simpa [context.bytesSize] using relocation
   exact {
-    fullCopy := ⟨fullBytes, fullSize, fullCopyAfter⟩
+    fullCopy := ⟨fullBytes, fullSize, fullDecodedAfter, fullCopyAfter⟩
     destinationRep := destinationAfter
     parentRootRep := parentRootAfter
     decodedBytesRep := decodedBytesAfter
@@ -8232,7 +8277,7 @@ private theorem writeSuccessTransactionsHandoff
     intro word member
     rw [List.mem_append] at member
     exact member.elim (savedAtChild word) (tailAtChild word)
-  obtain ⟨fullCopyBytes, fullCopySize, fullCopyRep⟩ := context.fullCopy
+  obtain ⟨fullCopyBytes, fullCopySize, fullDecodedRep, fullCopyRep⟩ := context.fullCopy
   let childArgs : InlineEncoderArgs (InlineArrayEncoderValue Transaction) :=
     { stackPointer := args.stackPointer - 0x7d0
       value := ⟨transactionAddress, args.decoded.payload.transactions⟩
@@ -8751,7 +8796,7 @@ private theorem writeSuccessWithdrawalsHandoff
     intro word member
     rw [List.mem_append] at member
     exact member.elim (savedAtChild word) (tailAtChild word)
-  obtain ⟨fullCopyBytes, fullCopySize, fullCopyRep⟩ := context.fullCopy
+  obtain ⟨fullCopyBytes, fullCopySize, fullDecodedRep, fullCopyRep⟩ := context.fullCopy
   let childArgs : InlineEncoderArgs (InlineArrayEncoderValue Withdrawal) :=
     { stackPointer := args.stackPointer - 0x7d0
       value := ⟨withdrawalAddress, args.decoded.payload.withdrawals⟩
@@ -10466,7 +10511,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     intro word member
     rw [List.mem_append] at member
     exact member.elim (savedAtChild word) (tailAtChild word)
-  obtain ⟨fullCopyBytes, fullCopySize, fullCopyRep⟩ := context.fullCopy
+  obtain ⟨fullCopyBytes, fullCopySize, fullDecodedRep, fullCopyRep⟩ := context.fullCopy
   let childArgs : InlineEncoderArgs (InlineArrayEncoderValue (Array UInt8)) := {
     stackPointer := args.stackPointer - 0x7d0
     value := ⟨hashAddress, args.decoded.versionedHashes⟩
