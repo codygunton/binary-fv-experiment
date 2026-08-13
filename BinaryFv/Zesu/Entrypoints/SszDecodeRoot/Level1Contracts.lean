@@ -164,6 +164,22 @@ structure WriteSuccessArgs where
   decoded : ZesuDecodedResult
   inputSize : Nat
 
+set_option genInjectivity false in
+/-- Caller-derived machine permissions for the parent-owned `writeSuccess` instructions. -/
+structure WriteSuccessMachineAccess (args : WriteSuccessArgs) (state : MachineState) : Prop where
+  configured : ConfiguredMachinePre EndpointMachinePc state
+  frameStore : ∀ offset width, offset + width ≤ 0x7d0 →
+    StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + offset)) width
+  frameNoMMIO : ∀ offset width, offset + width ≤ 0x7d0 →
+    StoreMMIOAddressExcluded
+      (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + offset)) width
+  decodedLoad : ∀ offset width, offset + width ≤ 0x380 →
+    LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  decodedNoMMIO : ∀ offset width, offset + width ≤ 0x380 →
+    LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  frameNotCode : ∀ address, args.stackPointer - 0x7d0 ≤ address →
+    address < args.stackPointer → Artifacts.programImage.readFileByte? address = none
+
 def WriteSuccessEntry (args : WriteSuccessArgs) (state : EndpointState) : Prop :=
   args.returnAddress ∈ Elflings.writeSuccessExitPcs ∧ 0x7d0 ≤ args.stackPointer ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.writeSuccessEntry) ∧
@@ -171,7 +187,8 @@ def WriteSuccessEntry (args : WriteSuccessArgs) (state : EndpointState) : Prop :
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.decodedAddress) ∧
   StatelessInputRep state.machine.mem args.decodedAddress args.decoded ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  WriteSuccessMachineAccess args state.machine
 
 def WriteSuccessExit (args : WriteSuccessArgs) (bytes : Array UInt8)
     (before after : EndpointState) : Prop :=

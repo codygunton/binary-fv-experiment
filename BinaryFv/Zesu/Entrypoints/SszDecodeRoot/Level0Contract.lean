@@ -193,6 +193,12 @@ structure MainEntry (args : MainArgs) (state : EndpointState) : Prop where
   stackNotFileBacked : ∀ address, args.stackPointer - 0xbb0 ≤ address →
     address < args.stackPointer + 0x380 → Artifacts.programImage.readFileByte? address = none
 
+private theorem writeSuccessFrameLower_of_mainFrameLower
+    {stackPointer address : Nat} (_stackLower : 0xbb0 ≤ stackPointer)
+    (insideWriteFrame : stackPointer - 0x7d0 ≤ address) :
+    stackPointer - 0xbb0 ≤ address := by
+  exact (Nat.sub_le_sub_left (by decide : 0x7d0 ≤ 0xbb0) stackPointer).trans insideWriteFrame
+
 def MainExit (args : MainArgs) (outcome : MainOutcome)
     (_before after : EndpointState) : Prop :=
   after.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.zkvmExitTerminalPc) ∧
@@ -1913,10 +1919,18 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
       let writeArgs : WriteSuccessArgs :=
         { returnAddress := 0x14d10, stackPointer := args.stackPointer,
           decodedAddress := args.stackPointer + 0x20, decoded, inputSize := args.input.size }
+      have callConfigured : ConfiguredMachinePre EndpointMachinePc callMachine :=
+        ConfiguredMachinePre.afterCall 0x14d0c 0x14d30 0x14d10 retired2 configured2
+      have callDataAccess : MainDataAccess args callMachine :=
+        (dataAccess.of_pma_regions_eq
+          ((afterRegisterWrite_writes state.machine 0x14d04 retired0 x10 value0).get pma_regions
+            (by decide))).of_pma_regions_eq
+          ((afterRegisterWrite_writes machine1 0x14d08 retired1 x1 0x14d08).get pma_regions
+            (by decide)) |>.of_pma_regions_eq (callWrites.get pma_regions (by decide))
       have writeEntry : WriteSuccessEntry writeArgs callState := by
         refine ⟨(by show 0x14d10 ∈ Elflings.writeSuccessExitPcs; native_decide),
           (Nat.le_trans (by decide : 0x7d0 ≤ 0xbb0) entry.stackLower),
-          ?_, ?_, ?_, ?_, ?_, callCode⟩
+          ?_, ?_, ?_, ?_, ?_, callCode, ?_⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.writeSuccessEntry]
         · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -1933,6 +1947,40 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
               (afterRegisterWrite_destination state.machine 0x14d04 retired0 x10 value0
                 (by decide) (by decide)))
         · simpa [callState, writeArgs, callMemory] using decodedRep
+        · refine
+            { configured := callConfigured
+              frameStore := ?_
+              frameNoMMIO := ?_
+              decodedLoad := ?_
+              decodedNoMMIO := ?_
+              frameNotCode := ?_ }
+          · intro offset width bound
+            have stackLower := entry.stackLower
+            have addressEq : writeArgs.stackPointer - 0x7d0 + offset =
+                args.stackPointer - 0xbb0 + (0x3e0 + offset) := by
+              dsimp [writeArgs]
+              omega
+            rw [addressEq]
+            exact
+              callDataAccess.decodeFrameStore (0x3e0 + offset) width (by omega)
+          · intro offset width bound
+            have stackLower := entry.stackLower
+            have addressEq : writeArgs.stackPointer - 0x7d0 + offset =
+                args.stackPointer - 0xbb0 + (0x3e0 + offset) := by
+              dsimp [writeArgs]
+              omega
+            rw [addressEq]
+            exact
+              entry.decodeFrameNoMMIO (0x3e0 + offset) width (by omega)
+          · intro offset width bound
+            simpa [writeArgs] using callDataAccess.stackLoad offset width bound
+          · intro offset width bound
+            simpa [writeArgs] using entry.stackNoMMIO offset width bound
+          · intro address lower upper
+            change args.stackPointer - 0x7d0 ≤ address at lower
+            change address < args.stackPointer at upper
+            exact entry.stackNotFileBacked address
+              (writeSuccessFrameLower_of_mainFrameLower entry.stackLower lower) (by omega)
       let stepBound := contracts.writeSuccessBound
       let implements := contracts.writeSuccess
       obtain ⟨writeCount, after, bytes, writePositive, writeBounded, writeTrace, _writeExit,
