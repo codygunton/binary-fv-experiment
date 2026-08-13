@@ -503,6 +503,42 @@ theorem RawPayloadFieldReps.fieldBytes {mem : Std.ExtHashMap Nat (BitVec 8)}
       exact fieldAt (offset := 556) (width := 32) (by omega) fields.blockHashSize
         fields.blockHash indexBound }
 
+theorem RawPayloadFieldBytes.fieldReps {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {address : Nat} {bytes : Array UInt8} {payload : ExecutionPayload}
+    (whole : BytesRep mem address bytes) (size : 588 ≤ bytes.size)
+    (fields : RawPayloadFieldBytes bytes payload) : RawPayloadFieldReps mem address payload := by
+  have fieldRep (offset width : Nat) (bound : offset + width ≤ bytes.size)
+      (field : Array UInt8) (fieldSize : field.size = width)
+      (fieldAt : ∀ index, index < width → bytes[offset + index]? = field[index]?) :
+      BytesRep mem (address + offset) field := by
+    refine ⟨by rw [fieldSize]; exact Nat.le_trans (by omega) whole.1, ?_⟩
+    intro index indexBound
+    have indexWidth : index < width := by omega
+    have hAt := fieldAt index indexWidth
+    have valueEq : bytes[offset + index]'(by omega) = field[index] := by
+      rw [Array.getElem?_eq_getElem (by omega), Array.getElem?_eq_getElem indexBound] at hAt
+      exact Option.some.inj hAt
+    rw [show address + offset + index = address + (offset + index) by omega,
+      whole.2 (offset + index) (by omega), valueEq]
+  exact {
+    parentHashSize := fields.parentHashSize
+    parentHash := fieldRep 152 32 (by omega) payload.parentHash fields.parentHashSize
+      fields.parentHash
+    feeRecipientSize := fields.feeRecipientSize
+    feeRecipient := fieldRep 184 20 (by omega) payload.feeRecipient fields.feeRecipientSize
+      fields.feeRecipient
+    stateRootSize := fields.stateRootSize
+    stateRoot := fieldRep 204 32 (by omega) payload.stateRoot fields.stateRootSize fields.stateRoot
+    receiptsRootSize := fields.receiptsRootSize
+    receiptsRoot := fieldRep 236 32 (by omega) payload.receiptsRoot fields.receiptsRootSize
+      fields.receiptsRoot
+    logsBloomSize := fields.logsBloomSize
+    logsBloom := fieldRep 268 256 (by omega) payload.logsBloom fields.logsBloomSize fields.logsBloom
+    prevRandaoSize := fields.prevRandaoSize
+    prevRandao := fieldRep 524 32 (by omega) payload.prevRandao fields.prevRandaoSize fields.prevRandao
+    blockHashSize := fields.blockHashSize
+    blockHash := fieldRep 556 32 (by omega) payload.blockHash fields.blockHashSize fields.blockHash }
+
 theorem RawPayloadFieldReps.of_writesOnlyWithin {before after : BinaryFv.RiscV.State}
     {address : Nat} {payload : ExecutionPayload} {owned : BinaryFv.RiscV.Region}
     (fields : RawPayloadFieldReps before.mem address payload)
