@@ -4734,4 +4734,75 @@ theorem writeSuccessSixRawFieldsHandoff
       simpa [Nat.add_assoc] using lastHandoff.trace
     simpa [Nat.add_assoc] using prefixAndFirst.append lastTrace
   · rw [lastHandoff.stdout, firstHandoff.stdout, initialHandoff.stdout]
+
+/-- Execute one parent-owned dword load from the writer's copied payload value. -/
+private theorem writeSuccessFrameDwordLoadStep (stepNo pc offset value : Nat)
+    (args : WriteSuccessArgs) (state : State) (rd : regidx) (destination : Register)
+    (result : RegisterType destination) (imm : BitVec 12)
+    (byte0 byte1 byte2 byte3 : UInt8)
+    (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (stack : state.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + offset) value)
+    (offsetBound : offset + 8 ≤ 0x7d0)
+    (aligned : (args.stackPointer - 0x7d0 + offset) % 8 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (addressEq : BitVec.ofNat 64 (args.stackPointer - 0x7d0) + sign_extend (m := 64) imm =
+      BitVec.ofNat 64 (args.stackPointer - 0x7d0 + offset))
+    (writeRun : ∀ premise, Runs (wX_bits rd (BitVec.ofNat 64 value)) premise
+      { premise with regs := premise.regs.insert destination result } ())
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (imm, .Regidx 2#5, rd, false, 8)))
+    (pcFits : pc < 2 ^ 64)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
+    (destinationNotNextPc : destination ≠ nextPC := by decide)
+    (destinationNotHart : destination ≠ hart_state := by decide)
+    (destinationNotIncrement : destination ≠ minstret_increment := by decide)
+    (destinationNotRetired : destination ≠ minstret := by decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination result) false := by
+  exact configuredDwordLoadStep stepNo pc state imm (.Regidx 2#5) rd destination
+    (args.stackPointer - 0x7d0) offset value result byte0 byte1 byte2 byte3 access.configured
+    atPc rep (access.frameLoad offset 8 offsetBound) (access.frameNoMMIO offset 8 offsetBound)
+    (by have := rep.2.1; omega) aligned loaded addressEq
+    (fun premise writes => rX_x2_run premise (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+    ((writes.get x2 (by decide)).trans stack)) writeRun decode (pcFits := pcFits)
+    (destinationNotNextPc := destinationNotNextPc) (destinationNotHart := destinationNotHart)
+    (destinationNotIncrement := destinationNotIncrement)
+    (destinationNotRetired := destinationNotRetired) (base := base)
+    (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+
+/-- Production `0x14e88: ld a0,0x408(sp)`. -/
+private theorem writeSuccessBlockNumberLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x14e88)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x408)
+      args.decoded.payload.blockNumber)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e88 retired x10
+        (BitVec.ofNat 64 args.decoded.payload.blockNumber)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x14e88 0x408
+    args.decoded.payload.blockNumber args state (.Regidx 10#5) x10
+    (BitVec.ofNat 64 args.decoded.payload.blockNumber) 0x408 0x03 0x35 0x81 0x40
+    access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x408#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 args.decoded.payload.blockNumber)
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
 end BinaryFv.Zesu.MachineExecution
