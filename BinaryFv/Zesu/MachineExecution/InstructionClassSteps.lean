@@ -152,7 +152,8 @@ theorem configuredDwordLoadStep (stepNo pc : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (addressEq : BitVec.ofNat 64 baseAddress + sign_extend (m := 64) imm =
       BitVec.ofNat 64 (baseAddress + offset))
-    (baseRun : ∀ premise, Runs (rX_bits rs1) premise premise (BitVec.ofNat 64 baseAddress))
+    (baseRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits rs1) premise premise (BitVec.ofNat 64 baseAddress))
     (writeRun : ∀ premise, Runs (wX_bits rd (BitVec.ofNat 64 value)) premise
       { premise with regs := premise.regs.insert destination result } ())
     (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
@@ -187,7 +188,8 @@ theorem configuredDwordLoadStep (stepNo pc : Nat) (state : State)
         (virtaddr.Virtaddr (BitVec.ofNat 64 (baseAddress + offset)))) := by
     simpa [addressEq] using get_transformed_data_addr_machine_data_run .load premise rs1 8
       (BitVec.ofNat 64 baseAddress) (sign_extend (m := 64) imm) mstatusBits seccfgBits
-      (baseRun premise) mstatusPremise privilegePremise mprvZero
+      (baseRun premise (stepPremiseState_writes state (BitVec.ofNat 64 pc)))
+      mstatusPremise privilegePremise mprvZero
       ((agree mseccfg (by simp [platformPreserved])).trans seccfgRead) pmmDisabled
   have physical := phys_access_check_machine_load_allowed premise
     (BitVec.ofNat 64 (baseAddress + offset)) 8

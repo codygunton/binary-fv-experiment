@@ -195,6 +195,99 @@ private theorem writeSuccessStoreDecodeReads {state : State}
           minstret_increment mseccfg true (by decide)
       _ = some seccfgBits := seccfgRead
 
+private theorem writeSuccessLoadDecodeReads {state : State}
+    (configured : ConfiguredMachinePre EndpointMachinePc state) :
+    ∃ seccfgBits,
+      (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+        some Privilege.Machine ∧
+      (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some seccfgBits := by
+  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+  refine ⟨seccfgBits, ?_, ?_⟩
+  · calc
+      _ = state.regs.get? cur_privilege := by
+        simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged state
+          minstret_increment cur_privilege true (by decide)
+      _ = some Privilege.Machine := configured.normal.2.1
+  · calc
+      _ = state.regs.get? mseccfg := by
+        simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged state
+          minstret_increment mseccfg true (by decide)
+      _ = some seccfgBits := seccfgRead
+
+/-- Execute one exact parent-owned dword load from the optimized decoded-value window. -/
+private theorem writeSuccessDecodedDwordLoadStep (stepNo pc offset value : Nat)
+    (args : WriteSuccessArgs) (state : State) (rd : regidx) (destination : Register)
+    (result : RegisterType destination) (imm : BitVec 12)
+    (byte0 byte1 byte2 byte3 : UInt8)
+    (access : WriteSuccessMachineAccess args state)
+    (decodedEq : args.decodedAddress = args.stackPointer + 0x20)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (baseRead : state.regs.get? x8 = some (BitVec.ofNat 64 args.decodedAddress))
+    (rep : UIntRep 8 state.mem (args.decodedAddress + offset) value)
+    (offsetBound : 0x20 + offset + 8 ≤ 0x380)
+    (aligned : (args.decodedAddress + offset) % 8 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (addressEq : BitVec.ofNat 64 args.decodedAddress + sign_extend (m := 64) imm =
+      BitVec.ofNat 64 (args.decodedAddress + offset))
+    (writeRun : ∀ premise, Runs (wX_bits rd (BitVec.ofNat 64 value)) premise
+      { premise with regs := premise.regs.insert destination result } ())
+    (decode : ConfiguredMachinePre EndpointMachinePc state →
+      Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+        (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+        (BitVec.ofNat 8 byte3.toNat)))
+        (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+        (.LOAD (imm, .Regidx 8#5, rd, false, 8)))
+    (destinationNotNextPc : destination ≠ nextPC)
+    (destinationNotHart : destination ≠ hart_state)
+    (destinationNotIncrement : destination ≠ minstret_increment)
+    (destinationNotRetired : destination ≠ minstret)
+    (pcFits : pc < 2 ^ 64 := by native_decide)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by native_decide)
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination result) false := by
+  have pma : LoadPmaAllows state (BitVec.ofNat 64 (args.decodedAddress + offset)) 8 := by
+    simpa [decodedEq, Nat.add_assoc] using access.decodedLoad (0x20 + offset) 8 offsetBound
+  have noMMIO : LoadMMIOAddressExcluded
+      (BitVec.ofNat 64 (args.decodedAddress + offset)) 8 := by
+    simpa [decodedEq, Nat.add_assoc] using access.decodedNoMMIO (0x20 + offset) 8 offsetBound
+  exact configuredDwordLoadStep stepNo pc state imm (.Regidx 8#5) rd destination
+    args.decodedAddress offset value result byte0 byte1 byte2 byte3 access.configured atPc rep
+    pma noMMIO (by have := rep.2.1; omega) aligned loaded addressEq
+    (fun premise writes => rX_x8_run premise (BitVec.ofNat 64 args.decodedAddress)
+      ((writes.get x8 (by decide)).trans baseRead))
+    writeRun (decode access.configured) (pcFits := pcFits) (base := base)
+    (destinationNotNextPc := destinationNotNextPc) (destinationNotHart := destinationNotHart)
+    (destinationNotIncrement := destinationNotIncrement)
+    (destinationNotRetired := destinationNotRetired)
+    (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+
+/-- Exact first decoded-tail load, `0x14d80: ld a0,720(s0)`. -/
+private theorem writeSuccessLoadDecoded720 (stepNo value : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (decodedEq : args.decodedAddress = args.stackPointer + 0x20)
+    (stackAligned : args.stackPointer % 16 = 0)
+    (atPc : state.regs.get? PC = some 0x14d80)
+    (baseRead : state.regs.get? x8 = some (BitVec.ofNat 64 args.decodedAddress))
+    (rep : UIntRep 8 state.mem (args.decodedAddress + 720) value)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14d80 retired x10 (BitVec.ofNat 64 value)) false := by
+  apply writeSuccessDecodedDwordLoadStep stepNo 0x14d80 720 value args state
+    (.Regidx 10#5) x10 (BitVec.ofNat 64 value) 0x2d0 0x03 0x35 0x04 0x2d access decodedEq
+    atPc baseRead rep (by omega) (by omega) loaded (base := by rfl)
+  · change BitVec.ofNat 64 args.decodedAddress + 0x2d0#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 value)
+  · intro configured
+    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  all_goals decide
+
 private theorem writeSuccessCodeOfSeg {args : WriteSuccessArgs} {W kv a n base cur pc}
     (access : WriteSuccessMachineAccess args base)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully base.mem)
@@ -210,6 +303,29 @@ private theorem writeSuccessCodeOfSeg {args : WriteSuccessArgs} {W kv a n base c
     rw [fileByte] at none
     cases none)
   exact unchanged.trans (loaded address byte fileByte)
+
+private theorem writeSuccessAccessOfSeg {args : WriteSuccessArgs} {kv a n base cur pc}
+    (access : WriteSuccessMachineAccess args base)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
+      (fun _ _ _ _ _ => False) writeSuccessParentWrites (writeSuccessFrameMemory args)
+      kv a n base cur pc) : WriteSuccessMachineAccess args cur := by
+  have disjoint : RegSet.Disjoint instructionPreserved writeSuccessParentWrites := by
+    intro register preserved written
+    rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl
+    · exact platformPreserved_disjoint register preserved.1 bookkeeping
+    all_goals simp [instructionPreserved, platformPreserved] at preserved
+  have pmaEq := seg.writes.get pma_regions (by simp [writeSuccessParentWrites, stepBookkeeping])
+  exact
+    { configured := access.configured.mono (seg.agree disjoint) seg.retired
+      frameStore := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width inBounds)
+      frameNoMMIO := access.frameNoMMIO
+      decodedLoad := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.decodedLoad offset width inBounds)
+      decodedNoMMIO := access.decodedNoMMIO
+      frameNotCode := access.frameNotCode }
 
 private theorem writeSuccessParentPc_in_execution {pc : BitVec 64}
     (inside : writeSuccessParentPc pc) :
@@ -1574,12 +1690,17 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
       BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes ∧
       BytesRep after.machine.mem args.decodedAddress bytes ∧
       bytes.size = 720 ∧
+      DwordWindowRep after.machine.mem (args.decodedAddress + 720) 16 ∧
       SavedWordReps after.machine (writeSuccessSavedWords args values) ∧
-      ConfiguredMachinePre EndpointMachinePc after.machine := by
+      after.machine.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) ∧
+      after.machine.regs.get? x8 = some (BitVec.ofNat 64 args.decodedAddress) ∧
+      Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+      WriteSuccessMachineAccess args after.machine := by
   obtain ⟨values, setupState, setup, savedWords, configured⟩ :=
     writeSuccessMemcpyCallSetup fromStep args state entry
   rcases entry with ⟨_, lower, _, fits, decodedEq, _, _, _, _, _,
-    ⟨bytes, bytesSize, sourceRep⟩, _, loaded, _, access⟩
+    ⟨bytes, bytesSize, sourceRep⟩, ⟨tailValues, tailReps⟩, loaded, _, access⟩
   have code := writeSuccessCodeOfSeg access loaded lower setup
   obtain ⟨retired, callRun⟩ := writeSuccessMemcpyCallStep (fromStep + 19) setupState
     configured setup.atPc (setup.reg x1 0xfd78 (by simp)) code
@@ -1706,9 +1827,104 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
           rfl | rfl | rfl <;> omega
       omega)
   have configuredAfter := configuredAfterEndpointCall callConfigured childFrame
+  have childPmaEq : after.machine.regs.get? pma_regions = state.machine.regs.get? pma_regions :=
+    (childFrame.1 pma_regions (by simp [abiCalleePreserved])).trans pmaEq
+  have accessAfter : WriteSuccessMachineAccess args after.machine :=
+    { configured := configuredAfter
+      frameStore := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq childPmaEq (access.frameStore offset width inBounds)
+      frameNoMMIO := access.frameNoMMIO
+      decodedLoad := fun offset width inBounds =>
+        dataPmaAllows_of_pma_regions_eq childPmaEq (access.decodedLoad offset width inBounds)
+      decodedNoMMIO := access.decodedNoMMIO
+      frameNotCode := access.frameNotCode }
+  have tailAfter : DwordWindowRep after.machine.mem (args.decodedAddress + 720) 16 := by
+    refine ⟨tailValues, ?_⟩
+    intro index inBounds
+    have atSetup := (tailReps index inBounds).of_writesOnlyWithin setup.mem (by
+      intro byte byteBound inside
+      unfold writeSuccessFrameMemory byteRange at inside
+      rw [decodedEq] at inside
+      omega)
+    exact atSetup.of_writesOnlyWithin childMem (by
+      intro byte byteBound inside
+      unfold byteRange at inside
+      simp [memcpyArgs, bytesSize] at inside
+      rw [decodedEq] at inside
+      omega)
   refine ⟨values, bytes, used, after, ?_, ?_, destinationRep, sourceRepAfter, bytesSize,
-    savedAfter, configuredAfter⟩
+    tailAfter, savedAfter, ?_, ?_, codeAfter, accessAfter⟩
   · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
   · simpa [EndpointPc, MachinePc, memcpyArgs] using childPc
+  · exact (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
+      ((callWrites.get x2 (by decide)).trans
+        (setup.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)))
+  · exact (childFrame.1 x8 (by simp [abiCalleePreserved])).trans
+      ((callWrites.get x8 (by decide)).trans
+        (setup.reg x8 (BitVec.ofNat 64 args.decodedAddress) (by simp)))
+
+/-- Append the first parent-owned decoded-tail load after the unconditional `memcpy`. -/
+theorem writeSuccessFirstTailLoadHandoff (fromStep : Nat) (args : WriteSuccessArgs)
+    (state : EndpointState) (entry : WriteSuccessEntry args state) :
+    ∃ values bytes, ∃ tailValues : Fin 16 → Nat, ∃ used after next,
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+        fromStep (20 + used) state after ∧
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
+        (fun _ _ _ _ _ => False) writeSuccessParentWrites (writeSuccessFrameMemory args)
+        [⟨x10, BitVec.ofNat 64 (tailValues ⟨0, by omega⟩)⟩,
+         ⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩,
+         ⟨x8, BitVec.ofNat 64 args.decodedAddress⟩]
+        (fromStep + 20 + used) 1 after.machine next 0x14d84 ∧
+      BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes ∧
+      bytes.size = 720 ∧
+      DwordWindowRep next.mem (args.decodedAddress + 720) 16 ∧
+      SavedWordReps next (writeSuccessSavedWords args values) ∧
+      Artifacts.programImage.fileBytesLoadedFaithfully next.mem ∧
+      WriteSuccessMachineAccess args next := by
+  obtain ⟨values, bytes, used, after, trace, atPc, _destinationRep, _sourceRep, bytesSize,
+    ⟨tailValues, tailReps⟩, saved, stackRead, baseRead, loaded, access⟩ :=
+    writeSuccessMemcpyHandoff fromStep args state entry
+  rcases entry with ⟨_, lower, aligned, _, decodedEq, _, _, _, _, _, _, _, _, _, _⟩
+  let kv : List RegVal :=
+    [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩,
+     ⟨x8, BitVec.ofNat 64 args.decodedAddress⟩]
+  have seg0 : Seg writeSuccessParentPc writeSuccessInitialExitPc
+      (fun _ _ _ _ _ => False) writeSuccessParentWrites (writeSuccessFrameMemory args)
+      kv (fromStep + 20 + used) 0 after.machine after.machine 0x14d80 :=
+    { trace := .refl _ _
+      confined := .nil
+      writes := .refl _ _
+      mem := fun _ _ => rfl
+      retired := access.configured.retiredCounter
+      atPc := atPc
+      regs := by
+        intro pair member
+        simp only [kv, List.mem_cons, List.not_mem_nil, or_false] at member
+        rcases member with rfl | rfl
+        · exact stackRead
+        · exact baseRead }
+  obtain ⟨retired, run⟩ := writeSuccessLoadDecoded720 (fromStep + 20 + used)
+    (tailValues ⟨0, by omega⟩) args after.machine access decodedEq aligned atPc baseRead
+    (tailReps 0 (by omega)) loaded
+  obtain ⟨retired', next, nextEq, seg1⟩ := seg0.stepWitness
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessInitialExitPc; native_decide) x10
+    (BitVec.ofNat 64 (tailValues ⟨0, by omega⟩)) 0x14d84 ⟨retired, run⟩
+    (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
+    (by simp [writeSuccessParentWrites]) (by decide) (by decide)
+    (by simp [kv, RegsOutside, stepBookkeeping])
+  have tailNext : DwordWindowRep next.mem (args.decodedAddress + 720) 16 := by
+    refine ⟨tailValues, ?_⟩
+    intro index inBounds
+    rw [nextEq]
+    simpa only [afterRegisterWrite_mem] using tailReps index inBounds
+  have savedNext : SavedWordReps next (writeSuccessSavedWords args values) := by
+    intro word member
+    rw [nextEq]
+    simpa only [afterRegisterWrite_mem] using saved word member
+  have codeNext := writeSuccessCodeOfSeg access loaded lower seg1
+  exact ⟨values, bytes, tailValues, used, after, next, trace, seg1, _destinationRep,
+    bytesSize, tailNext, savedNext, codeNext, writeSuccessAccessOfSeg access seg1⟩
 
 end BinaryFv.Zesu.MachineExecution
