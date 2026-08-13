@@ -428,6 +428,10 @@ private theorem writeSuccessAccessOfSeg {args : WriteSuccessArgs} {exit M kv a n
       decodedLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access.decodedLoad offset width inBounds)
       decodedNoMMIO := access.decodedNoMMIO
+      outputBufferStore :=
+        dataPmaAllows_of_pma_regions_eq pmaEq access.outputBufferStore
+      outputLengthStore :=
+        dataPmaAllows_of_pma_regions_eq pmaEq access.outputLengthStore
       frameNotCode := access.frameNotCode }
 
 private theorem writeSuccessConfiguredOfSeg {args : WriteSuccessArgs} {exit M kv a n base cur pc}
@@ -2159,6 +2163,8 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
       decodedLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq childPmaEq (access.decodedLoad offset width inBounds)
       decodedNoMMIO := access.decodedNoMMIO
+      outputBufferStore := dataPmaAllows_of_pma_regions_eq childPmaEq access.outputBufferStore
+      outputLengthStore := dataPmaAllows_of_pma_regions_eq childPmaEq access.outputLengthStore
       frameNotCode := access.frameNotCode }
   have parentMemory : WriteSuccessMemoryFrame args state.machine callMachine := by
     intro address outside
@@ -3538,6 +3544,8 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
       decodedLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access.decodedLoad offset width inBounds)
       decodedNoMMIO := access.decodedNoMMIO
+      outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq access.outputBufferStore
+      outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq access.outputLengthStore
       frameNotCode := access.frameNotCode }
   refine ⟨values, bytes, tailValues, parentUsed, childUsed, final, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
     ?_, ?_, bytesSize, fieldBytes, ?_, ?_, childFrame.2.2.1, accessFinal, ?_, finalMemory⟩
@@ -3843,6 +3851,8 @@ structure WriteSuccessSecondMemcpyHandoff (fromStep parentUsed prefixUsed memcpy
   bytesSize : bytes.size = 0x250
   destinationRep : BytesRep after.machine.mem
     (args.stackPointer - 0x7d0 + 0x408) bytes
+  parentRootRep : BytesRep after.machine.mem
+    (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot
   sourceRep : BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes
   tailReps : ∀ index (inBounds : index < 16),
     UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
@@ -4122,6 +4132,8 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
       decodedLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq childPmaEq (access.decodedLoad offset width inBounds)
       decodedNoMMIO := access.decodedNoMMIO
+      outputBufferStore := dataPmaAllows_of_pma_regions_eq childPmaEq access.outputBufferStore
+      outputLengthStore := dataPmaAllows_of_pma_regions_eq childPmaEq access.outputLengthStore
       frameNotCode := access.frameNotCode }
   have accessFinal := writeSuccessAccessOfSeg accessAfter finalSeg
   have tailAfter : ∀ index (inBounds : index < 16),
@@ -4179,11 +4191,32 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
       simp [memcpyArgs, bytesSize] at inside
       rw [decodedEq] at inside
       omega)
+  have fullDecodedFinal : BytesRep finalMachine.mem args.decodedAddress fullBytes := by
+    simpa [finalSeg.memEq (by simp)] using decodedBytesAtChild
   have decodedBytesFinal : BytesRep finalMachine.mem args.decodedAddress bytes := by
-    have fullFinal : BytesRep finalMachine.mem args.decodedAddress fullBytes := by
-      simpa [finalSeg.memEq (by simp)] using decodedBytesAtChild
     dsimp [bytes]
-    exact fullFinal.extractPrefix (by rw [fullSize]; omega)
+    exact fullDecodedFinal.extractPrefix (by rw [fullSize]; omega)
+  have rootBytesEq : fullBytes.extract 688 720 = args.decoded.parentBeaconBlockRoot := by
+    have sourceRoot := fullDecodedFinal.extractRange 688 32 (by rw [fullSize]; omega)
+    have semanticRoot := decodedFinal.2.2.2.2.2.1
+    exact BytesRep.unique sourceRoot semanticRoot (by
+      rw [Array.size_extract]
+      have sizeEq := decodedFinal.2.2.2.2.1
+      omega)
+  have rootAtPrefix : BytesRep prefixState.machine.mem
+      (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot := by
+    have extracted := fullRep.extractRange 688 32 (by rw [fullSize]; omega)
+    simpa [rootBytesEq, Nat.add_assoc] using extracted
+  have rootAtCall := rootAtPrefix.of_mem_eq callPrefixMemEq
+  have rootAtChild := rootAtCall.of_writesOnlyWithin childMem (by
+    intro index inBounds inside
+    unfold byteRange at inside
+    dsimp [memcpyArgs] at inside
+    rw [← rootBytesEq, Array.size_extract] at inBounds
+    omega)
+  have rootFinal : BytesRep finalMachine.mem
+      (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot := by
+    simpa [finalSeg.memEq (by simp)] using rootAtChild
   have destinationFinal : BytesRep finalMachine.mem
       (args.stackPointer - 0x7d0 + 0x408) bytes := by
     simpa [finalSeg.memEq (by simp)] using destinationRep
@@ -4205,6 +4238,7 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     destinationRep := by
       simpa [finalState, finalSeg.memEq (by simp)] using destinationRep
     sourceRep := by simpa [finalState, finalSeg.memEq (by simp)] using sourceRepAfter
+    parentRootRep := by simpa [finalState] using rootFinal
     tailReps := tailAfter
     saved := savedAfter
     loaded := by simpa [finalState, finalSeg.memEq (by simp)] using codeAfter
@@ -4339,6 +4373,8 @@ private theorem writeSuccessEncoderChildHandoff
     decodedLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq pmaEq (access.decodedLoad offset width bound)
     decodedNoMMIO := access.decodedNoMMIO
+    outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq access.outputBufferStore
+    outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq access.outputLengthStore
     frameNotCode := access.frameNotCode }
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem := by
     intro address byte fileByte
@@ -4426,6 +4462,8 @@ private theorem writeSuccessRawEncoderThenPointerHandoff
       decodedLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access.decodedLoad offset width inBounds)
       decodedNoMMIO := access.decodedNoMMIO
+      outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq access.outputBufferStore
+      outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq access.outputLengthStore
       frameNotCode := access.frameNotCode }
   have childLoaded : Artifacts.programImage.fileBytesLoadedFaithfully childAfter.machine.mem := by
     simpa [childMem] using childEntry.2.2.2
@@ -4836,6 +4874,8 @@ private theorem writeSuccessLastThreeRawHandoff
       decodedLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq3 (h2.access.decodedLoad offset width inBounds)
       decodedNoMMIO := h2.access.decodedNoMMIO
+      outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq3 h2.access.outputBufferStore
+      outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq3 h2.access.outputLengthStore
       frameNotCode := h2.access.frameNotCode }
   have fields3 : RawPayloadFieldReps after3.machine.mem
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
@@ -4884,6 +4924,8 @@ structure WriteSuccessSixRawFieldsHandoff
   exitCode : after.exitCode = before.exitCode
   destinationRep : BytesRep after.machine.mem
     (args.stackPointer - 0x7d0 + 0x408) bytes
+  parentRootRep : BytesRep after.machine.mem
+    (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot
   bytesSize : bytes.size = 0x250
   sourceRep : BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes
   tailReps : ∀ index (inBounds : index < 16),
@@ -4937,6 +4979,7 @@ theorem writeSuccessSixRawFieldsHandoff
       exitCode := lastHandoff.exitCode.trans
         (firstHandoff.exitCode.trans initialHandoff.exitCode)
       destinationRep := by simpa [rawMemory] using initialHandoff.destinationRep
+      parentRootRep := by simpa [rawMemory] using initialHandoff.parentRootRep
       bytesSize := initialHandoff.bytesSize
       sourceRep := by simpa [rawMemory] using initialHandoff.sourceRep
       tailReps := by
@@ -5537,6 +5580,8 @@ structure WriteSuccessFirstIntHandoff
   exitCode : after.exitCode = before.exitCode
   destinationRep : BytesRep after.machine.mem
     (args.stackPointer - 0x7d0 + 0x408) bytes
+  parentRootRep : BytesRep after.machine.mem
+    (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot
   bytesSize : bytes.size = 0x250
   sourceRep : BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes
   tailReps : ∀ index (inBounds : index < 16),
@@ -5708,6 +5753,12 @@ theorem writeSuccessFirstIntHandoff
       dsimp [childArgs] at inside
       unfold byteRange at inside
       omega)
+  have parentRootAtCall := handoff.parentRootRep.of_mem_eq callMemEq
+  have parentRootAfter := parentRootAtCall.of_writesOnlyWithin childMem (by
+      intro index inBounds inside
+      dsimp [childArgs] at inside
+      unfold byteRange at inside
+      omega)
   have decodedBytesAtCall := handoff.decodedBytesRep.of_mem_eq callMemEq
   have decodedBytesAfter := decodedBytesAtCall.of_writesOnlyWithin childMem (by
       intro index inBounds inside
@@ -5735,6 +5786,8 @@ theorem writeSuccessFirstIntHandoff
       decodedLoad := fun offset width bound =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access2.decodedLoad offset width bound)
       decodedNoMMIO := access2.decodedNoMMIO
+      outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq access2.outputBufferStore
+      outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq access2.outputLengthStore
       frameNotCode := access2.frameNotCode }
   have sourceAtCall := handoff.sourceRep.of_mem_eq callMemEq
   have sourceAfter := sourceAtCall.of_writesOnlyWithin childMem (by
@@ -5790,6 +5843,7 @@ theorem writeSuccessFirstIntHandoff
       cursor := cursor.trans (by simpa [callState] using handoff.cursor)
       exitCode := exitCode.trans (by simpa [callState] using handoff.exitCode)
       destinationRep := destinationAfter
+      parentRootRep := parentRootAfter
       bytesSize := handoff.bytesSize
       sourceRep := sourceAfter
       tailReps := tailAfter
@@ -5837,6 +5891,8 @@ structure WriteSuccessPayloadContext (args : WriteSuccessArgs) (bytes : Array UI
     (state : EndpointState) : Prop where
   destinationRep : BytesRep state.machine.mem
     (args.stackPointer - 0x7d0 + 0x408) bytes
+  parentRootRep : BytesRep state.machine.mem
+    (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot
   decodedBytesRep : BytesRep state.machine.mem args.decodedAddress bytes
   bytesSize : bytes.size = 0x250
   stable : StatelessInputRepStableOutside (writeSuccessFrameMemory args)
@@ -5859,6 +5915,8 @@ private theorem writeSuccessPayloadContextAfterChild
     (insideWriter : ∀ address, childMemory address → writeSuccessFrameMemory args address)
     (outsideDestination : ∀ index, index < bytes.size →
       ¬childMemory (args.stackPointer - 0x7d0 + 0x408 + index))
+    (outsideParentRoot : ∀ index, index < args.decoded.parentBeaconBlockRoot.size →
+      ¬childMemory (args.stackPointer - 0x7d0 + 0x3e8 + index))
     (outsideDecoded : ∀ index, index < bytes.size →
       ¬childMemory (args.decodedAddress + index)) :
     WriteSuccessPayloadContext args bytes after := by
@@ -5866,6 +5924,8 @@ private theorem writeSuccessPayloadContextAfterChild
     memory.mono insideWriter
   have stableAfter := context.stable.afterWrites writerMemory
   have destinationAfter := context.destinationRep.of_writesOnlyWithin memory outsideDestination
+  have parentRootAfter :=
+    context.parentRootRep.of_writesOnlyWithin memory outsideParentRoot
   have decodedBytesAfter := context.decodedBytesRep.of_writesOnlyWithin memory outsideDecoded
   obtain ⟨slotValue, slotRep⟩ := context.slotWord
   have slotAfter := slotRep.rebase (by omega)
@@ -5885,6 +5945,7 @@ private theorem writeSuccessPayloadContextAfterChild
     simpa [context.bytesSize] using relocation
   exact {
     destinationRep := destinationAfter
+    parentRootRep := parentRootAfter
     decodedBytesRep := decodedBytesAfter
     bytesSize := context.bytesSize
     stable := stableAfter
@@ -5911,6 +5972,10 @@ private theorem writeSuccessPayloadContextAfterInt
     intro index inBounds inside
     unfold byteRange at inside
     omega)
+  have parentRootAfter := context.parentRootRep.of_writesOnlyWithin call.memory (by
+    intro index inBounds inside
+    unfold byteRange at inside
+    omega)
   have decodedBytesAfter := context.decodedBytesRep.of_writesOnlyWithin call.memory (by
     intro index inBounds inside
     unfold byteRange at inside
@@ -5932,6 +5997,7 @@ private theorem writeSuccessPayloadContextAfterInt
     simpa [context.bytesSize] using relocation
   exact {
     destinationRep := destinationAfter
+    parentRootRep := parentRootAfter
     decodedBytesRep := decodedBytesAfter
     bytesSize := context.bytesSize
     stable := stableAfter
@@ -6114,6 +6180,8 @@ private theorem writeSuccessIntCallHandoff
       decodedLoad := fun position width bound =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access2.decodedLoad position width bound)
       decodedNoMMIO := access2.decodedNoMMIO
+      outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq access2.outputBufferStore
+      outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq access2.outputLengthStore
       frameNotCode := access2.frameNotCode }
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem := by
     intro address byte fileByte
@@ -6182,6 +6250,10 @@ private theorem writeSuccessPayloadContextAfterBytes
     intro index inBounds inside
     unfold byteRange at inside
     omega)
+  have parentRootAfter := context.parentRootRep.of_writesOnlyWithin memory (by
+    intro index inBounds inside
+    unfold byteRange at inside
+    omega)
   have decodedBytesAfter := context.decodedBytesRep.of_writesOnlyWithin memory (by
     intro index inBounds inside
     unfold byteRange at inside
@@ -6203,6 +6275,7 @@ private theorem writeSuccessPayloadContextAfterBytes
     simpa [context.bytesSize] using relocation
   exact {
     destinationRep := destinationAfter
+    parentRootRep := parentRootAfter
     decodedBytesRep := decodedBytesAfter
     bytesSize := context.bytesSize
     stable := stableAfter
@@ -6371,6 +6444,8 @@ private theorem writeSuccessExtraDataHandoff
       decodedLoad := fun position width bound =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access3.decodedLoad position width bound)
       decodedNoMMIO := access3.decodedNoMMIO
+      outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq access3.outputBufferStore
+      outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq access3.outputLengthStore
       frameNotCode := access3.frameNotCode }
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem := by
     intro address byte fileByte
@@ -6705,6 +6780,8 @@ private theorem writeSuccessBlockHashHandoff
       decodedLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq fullPmaEq (access.decodedLoad offset width inBounds)
       decodedNoMMIO := access.decodedNoMMIO
+      outputBufferStore := dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputBufferStore
+      outputLengthStore := dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputLengthStore
       frameNotCode := access.frameNotCode }
   refine ⟨childUsed, after, {
     trace := by
@@ -6722,6 +6799,7 @@ private theorem writeSuccessBlockHashHandoff
     access := childAccess
     payload := {
       destinationRep := by simpa [memory] using context.destinationRep
+      parentRootRep := by simpa [memory] using context.parentRootRep
       decodedBytesRep := by simpa [memory] using context.decodedBytesRep
       bytesSize := context.bytesSize
       stable := by simpa [memory] using context.stable
@@ -7195,7 +7273,9 @@ private theorem writeSuccessTransactionsHandoff
       value := ⟨transactionAddress, args.decoded.payload.transactions⟩
       savedWords := writeSuccessSavedWords args values
       decodedAddress := args.decodedAddress
+      copiedParentRootAddress := args.stackPointer - 0x7d0 + 0x3e8
       copiedPayloadAddress := args.stackPointer - 0x7d0 + 0x408
+      copiedParentRootBytes := args.decoded.parentBeaconBlockRoot
       copiedPayloadBytes := payloadBytes
       decoded := args.decoded }
   have childEntry : InlineEncoderEntry Elflings.writeSuccessTransactionsEntry
@@ -7207,7 +7287,7 @@ private theorem writeSuccessTransactionsHandoff
         288 TransactionRep) childArgs childState := by
     change 0xb0 ≤ args.stackPointer - 0x7d0 ∧
       args.stackPointer - 0x7d0 + 0x740 ≤ 2 ^ 64 ∧ _
-    refine ⟨(by omega), (by omega), ?_, ?_, ?_, savedAtChild, decodedAtChild, ?_,
+    refine ⟨(by omega), (by omega), ?_, ?_, ?_, savedAtChild, decodedAtChild, rfl, ?_, ?_,
       destinationAtChild, ?_⟩
     · simpa [childState, EndpointPc, MachinePc] using seg4.atPc
     · simpa [childState] using
@@ -7217,7 +7297,11 @@ private theorem writeSuccessTransactionsHandoff
           seg4.reg x10 (BitVec.ofNat 64 args.decoded.payload.transactions.size) (by simp)
       · exact ⟨args.stackPointer - 0x7d0, by
           simpa [childState] using
-            seg4.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp), pointerLocal⟩
+          seg4.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp), pointerLocal⟩
+    · exact context.parentRootRep.of_writesOnlyWithin seg4.mem (by
+        intro index inBounds inside
+        unfold setupMemory writeSuccessTransactionSetupMemory byteRange at inside
+        rcases inside with inside | inside <;> omega)
     · exact ⟨blockNumber4, gasLimit4, gasUsed4, timestamp4, extraData4, baseFee4,
         ⟨transactionAddress, addressRep4, countRep4, arrayRep4⟩, rawTransactions4,
         withdrawals4, blobGasUsed4, excessBlobGas4, slotNumber4, blockAccessList4,
@@ -7243,8 +7327,8 @@ private theorem writeSuccessTransactionsHandoff
           by omega, by omega⟩)
     (fromStep + 4) childArgs childState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, stackAfter,
-    bindingAfter, savedAfter, decodedAfter, payloadAfter, destinationAfter, childMemory, childAgree,
-    childRetired, loadedAfter⟩
+    bindingAfter, savedAfter, decodedAfter, parentRootAfter, payloadAfter, destinationAfter,
+    childMemory, childAgree, childRetired, loadedAfter⟩
   have childInWriter : ∀ address, inlineEncoderMemoryRegion childArgs.stackPointer address →
       writeSuccessFrameMemory args address := by
     intro address inside
@@ -7291,6 +7375,8 @@ private theorem writeSuccessTransactionsHandoff
     decodedLoad := fun offset width inBounds =>
       dataPmaAllows_of_pma_regions_eq pmaEq (accessAtChild.decodedLoad offset width inBounds)
     decodedNoMMIO := accessAtChild.decodedNoMMIO
+    outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq accessAtChild.outputBufferStore
+    outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq accessAtChild.outputLengthStore
     frameNotCode := accessAtChild.frameNotCode }
   refine ⟨childUsed, after, {
     trace := by
@@ -7310,6 +7396,7 @@ private theorem writeSuccessTransactionsHandoff
     memory := fullMemory
     payloadContext := {
       destinationRep := destinationAfter
+      parentRootRep := parentRootAfter
       decodedBytesRep := decodedBytesAfter
       bytesSize := context.bytesSize
       stable := stableAfter
@@ -7483,6 +7570,8 @@ private theorem writeSuccessRawTransactionsHandoff
     decodedLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq callPmaEq (access3.decodedLoad offset width bound)
     decodedNoMMIO := access3.decodedNoMMIO
+    outputBufferStore := dataPmaAllows_of_pma_regions_eq callPmaEq access3.outputBufferStore
+    outputLengthStore := dataPmaAllows_of_pma_regions_eq callPmaEq access3.outputLengthStore
     frameNotCode := access3.frameNotCode }
   have frameInWriter : ∀ address,
       byteRange (args.stackPointer - 0x7d0 - 64) 64 address →
@@ -7505,6 +7594,9 @@ private theorem writeSuccessRawTransactionsHandoff
     lower frameInWriter
   have payloadAfter := writeSuccessPayloadContextAfterChild decodedEq lower upper context handoff.memory
     frameInWriter (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      omega) (by
       intro index inBounds inside
       unfold byteRange at inside
       omega) (by
@@ -7632,7 +7724,9 @@ private theorem writeSuccessWithdrawalsHandoff
       value := ⟨withdrawalAddress, args.decoded.payload.withdrawals⟩
       savedWords := writeSuccessSavedWords args values
       decodedAddress := args.decodedAddress
+      copiedParentRootAddress := args.stackPointer - 0x7d0 + 0x3e8
       copiedPayloadAddress := args.stackPointer - 0x7d0 + 0x408
+      copiedParentRootBytes := args.decoded.parentBeaconBlockRoot
       copiedPayloadBytes := payloadBytes
       decoded := args.decoded }
   have childEntry : InlineEncoderEntry Elflings.writeSuccessWithdrawalsEntry
@@ -7642,7 +7736,13 @@ private theorem writeSuccessWithdrawalsHandoff
         48 WithdrawalRep) childArgs childState := by
     change 0xb0 ≤ args.stackPointer - 0x7d0 ∧
       args.stackPointer - 0x7d0 + 0x740 ≤ 2 ^ 64 ∧ _
-    refine ⟨by omega, by omega, ?_, ?_, ?_, savedAtChild, decodedAtChild,
+    refine ⟨by omega, by omega, ?_, ?_, ?_, savedAtChild, decodedAtChild, rfl,
+      (by
+        change BytesRep childState.machine.mem
+          (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot
+        rw [show childState.machine.mem = before.machine.mem by
+          simpa [childState] using seg2.memEq (by simp)]
+        exact context.parentRootRep),
       (by
         change ExecutionPayloadRep childState.machine.mem
           (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload
@@ -7684,8 +7784,8 @@ private theorem writeSuccessWithdrawalsHandoff
           by omega, by omega⟩)
     (fromStep + 2) childArgs childState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, stackAfter,
-    bindingAfter, savedAfter, decodedAfter, payloadAfter, destinationAfter, childMemory,
-    childAgree, childRetired, loadedAfter⟩
+    bindingAfter, savedAfter, decodedAfter, parentRootAfter, payloadAfter, destinationAfter,
+    childMemory, childAgree, childRetired, loadedAfter⟩
   have childInWriter : ∀ address, inlineEncoderMemoryRegion childArgs.stackPointer address →
       writeSuccessFrameMemory args address := by
     intro address inside
@@ -7735,6 +7835,8 @@ private theorem writeSuccessWithdrawalsHandoff
     decodedLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq pmaEq (accessAtChild.decodedLoad offset width bound)
     decodedNoMMIO := accessAtChild.decodedNoMMIO
+    outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq accessAtChild.outputBufferStore
+    outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq accessAtChild.outputLengthStore
     frameNotCode := accessAtChild.frameNotCode }
   exact ⟨childUsed, after, {
     trace := by
@@ -7749,6 +7851,7 @@ private theorem writeSuccessWithdrawalsHandoff
     saved := savedAfter
     payloadContext := {
       destinationRep := destinationAfter
+      parentRootRep := parentRootAfter
       decodedBytesRep := decodedBytesAfter
       bytesSize := context.bytesSize
       stable := stableAfter
@@ -8167,14 +8270,14 @@ private theorem writeSuccessBlockAccessLengthLoadStep (stepNo address length : N
     (args : WriteSuccessArgs) (state : State) (access : WriteSuccessMachineAccess args state)
     (atPc : state.regs.get? PC = some 0x15720)
     (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
-    (rep : ByteSliceRep state.mem (args.stackPointer - 0x7d0 + 0x490) address length)
+    (lengthRep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x498) length)
     (aligned : args.stackPointer % 16 = 0)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x15720 retired x11 (BitVec.ofNat 64 length)) false := by
   apply writeSuccessFrameDwordLoadStep stepNo 0x15720 0x498 length args state
     (.Regidx 11#5) x11 (BitVec.ofNat 64 length) 0x498 0x83 0x35 0x81 0x49
-    access atPc stack rep.2.1 (by omega) (by omega) loaded
+    access atPc stack lengthRep (by omega) (by omega) loaded
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x498#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x11_run premise _
@@ -8408,11 +8511,18 @@ private theorem writeSuccessSlotSetupHandoff (fromStep : Nat) (args : WriteSucce
   let after : EndpointState := { before with machine := machine4 }
   have setupWrites : WritesOnlyWithin setupMemory before.machine after.machine := by
     simpa [after] using seg4.mem
+  have parentRootSize : args.decoded.parentBeaconBlockRoot.size = 32 :=
+    (context.stable before.machine.mem (fun _ _ => rfl)).2.2.2.2.1
   have payloadAfter := writeSuccessPayloadContextAfterChild decodedEq lower upper context setupWrites
     setupInWriter (by
       intro index inBounds inside
       rw [context.bytesSize] at inBounds
       unfold setupMemory writeSuccessSlotSetupMemory byteRange at inside
+      rcases inside with inside | inside <;> omega)
+    (by
+      intro index inBounds inside
+      unfold setupMemory writeSuccessSlotSetupMemory byteRange at inside
+      rw [parentRootSize] at inBounds
       rcases inside with inside | inside <;> omega)
     (by
       intro index inBounds inside
@@ -8575,7 +8685,19 @@ private theorem writeSuccessOptionalHandoff
         (seg2.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
     · refine ⟨?_, ?_, ?_⟩
       · dsimp [childValue]
-        omega
+        cases optionEq : args.decoded.payload.slotNumber with
+        | none =>
+          have tagRep : UIntRep 1 callState.machine.mem
+              (args.stackPointer - 0x7d0 + 0x658 + 8) 0 := by
+            simpa [callState, callMemEq, OptionalUIntRep, optionEq] using setup.localRep
+          exact tagRep.2.1
+        | some value =>
+          have localValueRep := setup.localRep
+          rw [optionEq] at localValueRep
+          have tagRep : UIntRep 1 callState.machine.mem
+              (args.stackPointer - 0x7d0 + 0x658 + 8) 1 := by
+            simpa [callState, callMemEq] using localValueRep.2
+          exact tagRep.2.1
       · exact (callWrites.get x10 (by decide)).trans
           (seg2.reg x10 (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x658)) (by simp))
       · simpa [callState, callMemEq, childValue] using setup.localRep
@@ -8592,6 +8714,8 @@ private theorem writeSuccessOptionalHandoff
     decodedLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq callPmaEq (access2.decodedLoad offset width bound)
     decodedNoMMIO := access2.decodedNoMMIO
+    outputBufferStore := dataPmaAllows_of_pma_regions_eq callPmaEq access2.outputBufferStore
+    outputLengthStore := dataPmaAllows_of_pma_regions_eq callPmaEq access2.outputLengthStore
     frameNotCode := access2.frameNotCode }
   have frameInWriter : ∀ address,
       byteRange (args.stackPointer - 0x7d0 - 16) 16 address →
@@ -8614,6 +8738,9 @@ private theorem writeSuccessOptionalHandoff
     lower frameInWriter
   have payloadAfter := writeSuccessPayloadContextAfterChild decodedEq lower upper
     setup.payloadContext handoff.memory frameInWriter (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      omega) (by
       intro index inBounds inside
       unfold byteRange at inside
       omega) (by
@@ -8644,7 +8771,8 @@ private theorem writeSuccessOptionalHandoff
     memory := WritesOnlyWithin.trans_same
       (setup.memory.mono (fun address inside => by
         unfold writeSuccessSlotSetupMemory at inside
-        unfold writeSuccessFrameMemory byteRange
+        unfold writeSuccessFrameMemory
+        unfold byteRange at inside ⊢
         rcases inside with inside | inside <;> omega))
       (handoff.memory.mono frameInWriter) }⟩
   have all := setup.trace.append (by
@@ -8721,7 +8849,7 @@ private theorem writeSuccessBlockAccessHandoff
   obtain ⟨retired1, run1⟩ := writeSuccessBlockAccessLengthLoadStep (fromStep + 1) address
     args.decoded.payload.blockAccessList.size args _ access1 seg1.atPc
     (seg1.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
-    ⟨pointerRep, lengthRep, bytesRep⟩ aligned loaded1
+    lengthRep aligned loaded1
   have seg2 := seg1.stepKnown
     (by unfold writeSuccessParentPc; exact
       ⟨(0x156e8, 0x15730), by native_decide, by native_decide, by native_decide⟩)
@@ -8794,12 +8922,12 @@ private theorem writeSuccessBlockAccessHandoff
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, childArgs]
     · exact (callWrites.get x2 (by decide)).trans
         (seg3.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
-    · refine ⟨bytesRep.1, ?_, ?_, ?_⟩
+    · refine ⟨bytesRep.byteSliceBytesRep.1, ?_, ?_, ?_⟩
       · exact (callWrites.get x10 (by decide)).trans
           (seg3.reg x10 (BitVec.ofNat 64 address) (by simp))
       · exact (callWrites.get x11 (by decide)).trans
           (seg3.reg x11 (BitVec.ofNat 64 args.decoded.payload.blockAccessList.size) (by simp))
-      · simpa [callState, callMemEq, childArgs, value] using bytesRep
+      · simpa [callState, callMemEq, childArgs, value] using bytesRep.byteSliceBytesRep
     · simpa [callState, callMemEq] using loaded
   have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
   have accessCall : WriteSuccessMachineAccess args callMachine := {
@@ -8813,6 +8941,8 @@ private theorem writeSuccessBlockAccessHandoff
     decodedLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq callPmaEq (access3.decodedLoad offset width bound)
     decodedNoMMIO := access3.decodedNoMMIO
+    outputBufferStore := dataPmaAllows_of_pma_regions_eq callPmaEq access3.outputBufferStore
+    outputLengthStore := dataPmaAllows_of_pma_regions_eq callPmaEq access3.outputLengthStore
     frameNotCode := access3.frameNotCode }
   have frameInWriter : ∀ address,
       byteRange (args.stackPointer - 0x7d0 - 48) 48 address →
@@ -8835,6 +8965,9 @@ private theorem writeSuccessBlockAccessHandoff
     lower frameInWriter
   have payloadAfter := writeSuccessPayloadContextAfterChild decodedEq lower upper context
     handoff.memory frameInWriter (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      omega) (by
       intro index inBounds inside
       unfold byteRange at inside
       omega) (by
