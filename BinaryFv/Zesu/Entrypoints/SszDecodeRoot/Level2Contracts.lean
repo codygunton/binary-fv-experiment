@@ -157,51 +157,51 @@ def RawEncoderEntry (entry : Nat) (args : RawEncoderArgs) (state : EndpointState
   BytesRep state.machine.mem args.sourceAddress args.bytes ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
-def RawEncoderExit (exitPcs : List Nat) (args : RawEncoderArgs) (_outcome : Unit)
+def RawEncoderExit (successPc : Nat) (args : RawEncoderArgs) (_outcome : Unit)
     (before after : EndpointState) : Prop :=
-  (∃ pc, after.machine.regs.get? PC = some pc ∧ pcInList exitPcs pc) ∧
+  after.machine.regs.get? PC = some (BitVec.ofNat 64 successPc) ∧
   after.stdout = before.stdout ++ args.bytes ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.exitCode = before.exitCode ∧ after.machine.mem = before.machine.mem ∧
   EndpointCallFrame before after
 
-def rawEncoderContract (entry : Nat) (exitPcs : List Nat)
+def rawEncoderContract (entry successPc : Nat)
     (stepBound : RawEncoderArgs → Nat) :
     RelationalMachineContract EndpointState RawEncoderArgs Unit :=
   { allows := fun _ _ => True
     entry := RawEncoderEntry entry
-    exit := RawEncoderExit exitPcs
+    exit := RawEncoderExit successPc
     stepBound }
 
 def RawEncoderInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRange)
-    (exitPcs : List Nat) : Prop :=
+    (exitPcs : List Nat) (successPc : Nat) : Prop :=
   ∃ stepBound : Nat → Nat,
-    (rawEncoderContract entry exitPcs (fun args => stepBound args.bytes.size)).Implements
+    (rawEncoderContract entry successPc (fun args => stepBound args.bytes.size)).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
 
 def ConstantEncoderEntry (entry : Nat) (_args : Unit) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
-def ConstantEncoderExit (exitPcs : List Nat) (bytes : Array UInt8) (_args _outcome : Unit)
+def ConstantEncoderExit (successPc : Nat) (bytes : Array UInt8) (_args _outcome : Unit)
     (before after : EndpointState) : Prop :=
-  (∃ pc, after.machine.regs.get? PC = some pc ∧ pcInList exitPcs pc) ∧
+  after.machine.regs.get? PC = some (BitVec.ofNat 64 successPc) ∧
   after.stdout = before.stdout ++ bytes ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.exitCode = before.exitCode ∧ after.machine.mem = before.machine.mem ∧
   EndpointCallFrame before after
 
-def constantEncoderContract (entry : Nat) (exitPcs : List Nat) (bytes : Array UInt8)
+def constantEncoderContract (entry successPc : Nat) (bytes : Array UInt8)
     (stepBound : Nat) : RelationalMachineContract EndpointState Unit Unit :=
   { allows := fun _ _ => True
     entry := ConstantEncoderEntry entry
-    exit := ConstantEncoderExit exitPcs bytes
+    exit := ConstantEncoderExit successPc bytes
     stepBound := fun _ => stepBound }
 
 def ConstantEncoderInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRange)
-    (exitPcs : List Nat) (bytes : Array UInt8) : Prop :=
+    (exitPcs : List Nat) (successPc : Nat) (bytes : Array UInt8) : Prop :=
   ∃ stepBound : Nat,
-    (constantEncoderContract entry exitPcs bytes stepBound).Implements
+    (constantEncoderContract entry successPc bytes stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
 
 def successPrefixBytes : Array UInt8 := #[0x5a, 0x53, 0x53, 0x5a, 0x01, 0x01]
@@ -210,61 +210,63 @@ def failureRecordBytes : Array UInt8 := #[0x5a, 0x53, 0x53, 0x5a, 0x01, 0x00]
 abbrev WriteSuccessPrefixInstanceContract : Prop :=
   ConstantEncoderInstanceContract Elflings.writeSuccessRawLine131Entry
     Elflings.writeSuccessRawLine131ExecutionPcRanges
-    Elflings.writeSuccessRawLine131ExitPcs successPrefixBytes
+    Elflings.writeSuccessRawLine131ExitPcs 0x14e14 successPrefixBytes
 
 abbrev WriteFailureRecordInstanceContract : Prop :=
   ConstantEncoderInstanceContract Elflings.writeFailureRawLine127Entry
     Elflings.writeFailureRawLine127ExecutionPcRanges
-    Elflings.writeFailureRawLine127ExitPcs failureRecordBytes
+    Elflings.writeFailureRawLine127ExitPcs 0x14d24 failureRecordBytes
 
 abbrev WriteSuccessParentHashInstanceContract : Prop :=
   RawEncoderInstanceContract Elflings.writeSuccessRawLine135Entry
-    Elflings.writeSuccessRawLine135ExecutionPcRanges Elflings.writeSuccessRawLine135ExitPcs
+    Elflings.writeSuccessRawLine135ExecutionPcRanges Elflings.writeSuccessRawLine135ExitPcs 0x14e38
 
 abbrev WriteSuccessFeeRecipientInstanceContract : Prop :=
   RawEncoderInstanceContract Elflings.writeSuccessRawLine136Entry
-    Elflings.writeSuccessRawLine136ExecutionPcRanges Elflings.writeSuccessRawLine136ExitPcs
+    Elflings.writeSuccessRawLine136ExecutionPcRanges Elflings.writeSuccessRawLine136ExitPcs 0x14e48
 
 abbrev WriteSuccessStateRootInstanceContract : Prop :=
   RawEncoderInstanceContract Elflings.writeSuccessRawLine137Entry
-    Elflings.writeSuccessRawLine137ExecutionPcRanges Elflings.writeSuccessRawLine137ExitPcs
+    Elflings.writeSuccessRawLine137ExecutionPcRanges Elflings.writeSuccessRawLine137ExitPcs 0x14e58
 
 abbrev WriteSuccessReceiptsRootInstanceContract : Prop :=
   RawEncoderInstanceContract Elflings.writeSuccessRawLine138Entry
-    Elflings.writeSuccessRawLine138ExecutionPcRanges Elflings.writeSuccessRawLine138ExitPcs
+    Elflings.writeSuccessRawLine138ExecutionPcRanges Elflings.writeSuccessRawLine138ExitPcs 0x14e68
 
 abbrev WriteSuccessLogsBloomInstanceContract : Prop :=
   RawEncoderInstanceContract Elflings.writeSuccessRawLine139Entry
-    Elflings.writeSuccessRawLine139ExecutionPcRanges Elflings.writeSuccessRawLine139ExitPcs
+    Elflings.writeSuccessRawLine139ExecutionPcRanges Elflings.writeSuccessRawLine139ExitPcs 0x14e78
 
 abbrev WriteSuccessPrevRandaoInstanceContract : Prop :=
   RawEncoderInstanceContract Elflings.writeSuccessRawLine140Entry
-    Elflings.writeSuccessRawLine140ExecutionPcRanges Elflings.writeSuccessRawLine140ExitPcs
+    Elflings.writeSuccessRawLine140ExecutionPcRanges Elflings.writeSuccessRawLine140ExitPcs 0x14e88
 
 abbrev WriteSuccessBlockHashInstanceContract : Prop :=
   RawEncoderInstanceContract Elflings.writeSuccessRawLine147Entry
-    Elflings.writeSuccessRawLine147ExecutionPcRanges Elflings.writeSuccessRawLine147ExitPcs
+    Elflings.writeSuccessRawLine147ExecutionPcRanges Elflings.writeSuccessRawLine147ExitPcs 0x14ee4
 
 abbrev WriteSuccessParentBeaconRootInstanceContract : Prop :=
   RawEncoderInstanceContract Elflings.writeSuccessRawLine156Entry
-    Elflings.writeSuccessRawLine156ExecutionPcRanges Elflings.writeSuccessRawLine156ExitPcs
+    Elflings.writeSuccessRawLine156ExecutionPcRanges Elflings.writeSuccessRawLine156ExitPcs 0x1573c
 
 structure EncoderCallArgs (Value : Type) where
+  returnAddress : Nat
   callerStack : Nat
   value : Value
 
-def EncoderCallEntry (entry : Nat) (bindValue : EndpointState → Value → Prop)
+def EncoderCallEntry (entry : Nat) (exitPcs : List Nat) (bindValue : EndpointState → Value → Prop)
     (args : EncoderCallArgs Value) (state : EndpointState) : Prop :=
-  args.callerStack < 2 ^ 64 ∧
+  args.returnAddress ∈ exitPcs ∧ args.callerStack < 2 ^ 64 ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
+  state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.callerStack) ∧
   bindValue state args.value ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
-def EncoderCallExit (exitPcs : List Nat) (frameSize : Nat)
+def EncoderCallExit (frameSize : Nat)
     (encode : Value → Array UInt8) (args : EncoderCallArgs Value) (_outcome : Unit)
     (before after : EndpointState) : Prop :=
-  (∃ pc, after.machine.regs.get? PC = some pc ∧ pcInList exitPcs pc) ∧
+  after.machine.regs.get? PC = some (BitVec.ofNat 64 args.returnAddress) ∧
   after.stdout = before.stdout ++ encode args.value ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.exitCode = before.exitCode ∧
@@ -278,8 +280,8 @@ def encoderCallContract (entry : Nat) (exitPcs : List Nat) (frameSize : Nat)
     (encode : Value → Array UInt8) (bindValue : EndpointState → Value → Prop)
     (stepBound : Value → Nat) : RelationalMachineContract EndpointState (EncoderCallArgs Value) Unit :=
   { allows := fun _ _ => True
-    entry := EncoderCallEntry entry bindValue
-    exit := EncoderCallExit exitPcs frameSize encode
+    entry := EncoderCallEntry entry exitPcs bindValue
+    exit := EncoderCallExit frameSize encode
     stepBound := fun args => stepBound args.value }
 
 def EncoderCallInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRange)
@@ -433,10 +435,10 @@ def InlineEncoderEntry (entry : Nat) (bindValue : EndpointState → Value → Pr
   bindValue state args.value ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
 
-def InlineEncoderExit (exitPcs : List Nat) (encode : Value → Array UInt8)
+def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
     (preservedValue : EndpointState → Value → Prop) (args : InlineEncoderArgs Value)
     (_outcome : Unit) (before after : EndpointState) : Prop :=
-  (∃ pc, after.machine.regs.get? PC = some pc ∧ pcInList exitPcs pc) ∧
+  after.machine.regs.get? PC = some (BitVec.ofNat 64 successPc) ∧
   after.stdout = before.stdout ++ encode args.value ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.exitCode = before.exitCode ∧
@@ -448,19 +450,19 @@ def InlineEncoderExit (exitPcs : List Nat) (encode : Value → Array UInt8)
   BinaryFv.RiscV.RetiredCounterPresent after.machine ∧
   Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
 
-def inlineEncoderContract (entry : Nat) (exitPcs : List Nat)
+def inlineEncoderContract (entry successPc : Nat)
     (encode : Value → Array UInt8) (bindValue : EndpointState → Value → Prop)
     (stepBound : Value → Nat) : RelationalMachineContract EndpointState (InlineEncoderArgs Value) Unit :=
   { allows := fun _ _ => True
     entry := InlineEncoderEntry entry bindValue
-    exit := InlineEncoderExit exitPcs encode bindValue
+    exit := InlineEncoderExit successPc encode bindValue
     stepBound := fun args => stepBound args.value }
 
 def InlineEncoderInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRange)
-    (exitPcs : List Nat) (encode : Value → Array UInt8)
+    (exitPcs : List Nat) (successPc : Nat) (encode : Value → Array UInt8)
     (bindValue : EndpointState → Value → Prop) : Prop :=
   ∃ stepBound : Value → Nat,
-    (inlineEncoderContract entry exitPcs encode bindValue stepBound).Implements
+    (inlineEncoderContract entry successPc encode bindValue stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
 
 structure InlineArrayEncoderValue (Element : Type) where
@@ -477,7 +479,7 @@ def InlineArrayEncoderBinding (countBinding : EndpointState → Nat → Prop) (s
 
 abbrev WriteSuccessTransactionsInstanceContract : Prop :=
   InlineEncoderInstanceContract Elflings.writeSuccessTransactionsEntry
-    Elflings.writeSuccessTransactionsExecutionPcRanges Elflings.writeSuccessTransactionsExitPcs
+    Elflings.writeSuccessTransactionsExecutionPcRanges Elflings.writeSuccessTransactionsExitPcs 0x15668
     (fun value => encodeMany encodeTransaction value.values)
     (InlineArrayEncoderBinding
       (fun state count => state.machine.regs.get? x10 = some (BitVec.ofNat 64 count))
@@ -485,7 +487,7 @@ abbrev WriteSuccessTransactionsInstanceContract : Prop :=
 
 abbrev WriteSuccessWithdrawalsInstanceContract : Prop :=
   InlineEncoderInstanceContract Elflings.writeSuccessWithdrawalsEntry
-    Elflings.writeSuccessWithdrawalsExecutionPcRanges Elflings.writeSuccessWithdrawalsExitPcs
+    Elflings.writeSuccessWithdrawalsExecutionPcRanges Elflings.writeSuccessWithdrawalsExitPcs 0x156e8
     (fun value => encodeMany encodeWithdrawal value.values)
     (InlineArrayEncoderBinding
       (fun state count => state.machine.regs.get? x9 = some (BitVec.ofNat 64 count))
@@ -493,7 +495,7 @@ abbrev WriteSuccessWithdrawalsInstanceContract : Prop :=
 
 abbrev WriteSuccessHashesInstanceContract : Prop :=
   InlineEncoderInstanceContract Elflings.writeSuccessHashesEntry
-    Elflings.writeSuccessHashesExecutionPcRanges Elflings.writeSuccessHashesExitPcs
+    Elflings.writeSuccessHashesExecutionPcRanges Elflings.writeSuccessHashesExitPcs 0x158e0
     (fun value => encodeMany (fun hash => hash) value.values)
     (InlineArrayEncoderBinding
       (fun state count => state.machine.regs.get? x8 = some (BitVec.ofNat 64 count)) 32

@@ -40,13 +40,7 @@ theorem writeFailureInstanceContract_of_level2
     have returnEq : args.returnAddress = 0x14d24 := by
       simpa [Elflings.writeFailureExitPcs] using entry.1
     refine ⟨?_, by rfl, stdout, stdin, cursor, exitCode, mem, frame⟩
-    rcases exitAt with ⟨pc, atPc, listed⟩
-    have pcEq : pc = (0x14d24 : BitVec 64) := by
-      unfold pcInList at listed
-      apply BitVec.eq_of_toNat_eq
-      simpa [Elflings.writeFailureRawLine127ExitPcs] using listed
-    rw [pcEq] at atPc
     rw [returnEq]
-    exact atPc
+    exact exitAt
 
 end BinaryFv.Zesu.MachineExecution
