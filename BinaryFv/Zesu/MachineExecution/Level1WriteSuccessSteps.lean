@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.Level1DecodeInputSteps
+import BinaryFv.Zesu.MachineExecution.MemcpyProof
 
 /-!
 # Parent-owned `writeSuccess` steps
@@ -15,6 +16,8 @@ open PreSail LeanRV64DExecutable.Functions Register
 
 def writeSuccessParentPc (pc : BitVec 64) : Prop :=
   pcInRanges Elflings.writeSuccessOwnedPcRanges pc
+
+def writeSuccessInitialExitPc (pc : BitVec 64) : Prop := pc = 0x101d4
 
 def writeSuccessParentWrites : RegSet := fun register =>
   stepBookkeeping register ∨ register = x1 ∨ register = x2 ∨ register = x8 ∨
@@ -72,7 +75,7 @@ theorem writeSuccessAllocateFrame (fromStep : Nat) (args : WriteSuccessArgs)
     (state : EndpointState) (entry : WriteSuccessEntry args state)
     (values : DecodeCalleeSavedValues) (saved : DecodeCalleeSavedAtRegisters values state) :
     ∃ next,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -81,7 +84,7 @@ theorem writeSuccessAllocateFrame (fromStep : Nat) (args : WriteSuccessArgs)
   rcases entry with ⟨_return, lower, _aligned, fits, _decodedEq, atPc, _link, stack, _decoded, _rep,
     _initialized, loaded, _saved, access⟩
   let kv := writeSuccessIncomingRegs args values
-  have seg0 : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+  have seg0 : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       kv fromStep 0 state.machine state.machine 0x14d30 := {
     trace := Trace.refl fromStep state.machine
@@ -124,7 +127,7 @@ theorem writeSuccessAllocateFrame (fromStep : Nat) (args : WriteSuccessArgs)
   obtain ⟨retired', next, nextEq, seg1⟩ := seg0.stepWitness
     (by unfold writeSuccessParentPc; exact
       ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
-    (by unfold pcInList; native_decide) x2
+    (by unfold writeSuccessInitialExitPc; native_decide) x2
     (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) 0x14d34 ⟨retired, run⟩
     (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
     (Or.inr (Or.inl rfl)) (by decide) (by decide) (by
@@ -141,6 +144,38 @@ theorem writeSuccessAllocateFrame (fromStep : Nat) (args : WriteSuccessArgs)
 private theorem instructionPreserved_disjoint_bookkeeping :
     RegSet.Disjoint instructionPreserved stepBookkeeping :=
   platformPreserved_disjoint.weaken (fun _ preserved => preserved.1)
+
+private theorem instructionPreserved_abiCalleePreserved_local (register : Register)
+    (preserved : instructionPreserved register) : abiCalleePreserved register := by
+  rcases preserved with ⟨platform, notLink⟩
+  rcases platform with
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl
+  · exact (notLink rfl).elim
+  all_goals simp [abiCalleePreserved]
+
+private theorem configuredAfterWriteSuccessCall {state : State} (retired : BitVec 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc state) :
+    ConfiguredMachinePre EndpointMachinePc
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x14d7c 0x101d4 x1 0x14d80)
+        0x101d4 retired) := by
+  apply configured.mono
+  · simpa [callLinkState] using
+      (callRetirement_writes state 0x14d7c 0x101d4 retired x1 0x14d80).agree
+        (instructionPreserved_disjoint_bookkeeping.union
+          (RegSet.Disjoint.only (by simp [instructionPreserved])))
+  · simpa using tryStepControlFlowAfterRetired_retired_present
+      (callLinkState (tryStepControlFlowAfterIncrement state) 0x14d7c 0x101d4 x1 0x14d80)
+      0x101d4 retired
+
+private theorem configuredAfterEndpointCall {before after : EndpointState}
+    (configured : ConfiguredMachinePre EndpointMachinePc before.machine)
+    (frame : EndpointCallFrame before after) :
+    ConfiguredMachinePre EndpointMachinePc after.machine :=
+  configured.mono
+    (frame.1.weaken instructionPreserved_abiCalleePreserved_local)
+    frame.2.1
 
 private theorem writeSuccessStoreDecodeReads {state : State}
     (configured : ConfiguredMachinePre EndpointMachinePc state) :
@@ -164,7 +199,7 @@ private theorem writeSuccessCodeOfSeg {args : WriteSuccessArgs} {W kv a n base c
     (access : WriteSuccessMachineAccess args base)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully base.mem)
     (stackLower : 0x7d0 ≤ args.stackPointer)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) W (writeSuccessFrameMemory args) kv a n base cur pc) :
     Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
   intro address byte fileByte
@@ -176,10 +211,71 @@ private theorem writeSuccessCodeOfSeg {args : WriteSuccessArgs} {W kv a n base c
     cases none)
   exact unchanged.trans (loaded address byte fileByte)
 
+private theorem writeSuccessParentPc_in_execution {pc : BitVec 64}
+    (inside : writeSuccessParentPc pc) :
+    pcInRanges Elflings.writeSuccessExecutionPcRanges pc := by
+  unfold writeSuccessParentPc at inside
+  unfold pcInRanges at inside ⊢
+  rcases inside with ⟨range, member, lower, upper⟩
+  simp [Elflings.writeSuccessOwnedPcRanges] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl <;>
+    exact ⟨(0x14d30, 0x15a14), by simp [Elflings.writeSuccessExecutionPcRanges], by omega,
+      by omega⟩
+
+private theorem writeSuccessParentPc_not_observed {pc : BitVec 64}
+    (inside : writeSuccessParentPc pc) : ¬ BareMetalHostTransitionPc pc := by
+  unfold writeSuccessParentPc pcInRanges at inside
+  rcases inside with ⟨range, member, lower, upper⟩
+  simp [Elflings.writeSuccessOwnedPcRanges] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl <;>
+    simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+      exitContextStorePc] <;> omega
+
+private theorem liftWriteSuccessParentTrace (template : EndpointState)
+    {fromStep count : Nat} {before after : State}
+    (trace : ScopedTrace writeSuccessParentPc writeSuccessInitialExitPc
+      (fun _ _ _ _ _ => False) fromStep count before after) :
+    ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+      fromStep count { template with machine := before } { template with machine := after } := by
+  induction trace with
+  | exitAt fromStep state pc atPc exitPc => exact .refl fromStep { template with machine := state }
+  | ownStep fromStep count pc before middle after atPc inside notExit machineStep rest ih =>
+      refine ConfinedTrace.step fromStep count pc
+        { template with machine := before } { template with machine := middle }
+        { template with machine := after } ?_ ?_ ?_ ?_
+      · exact atPc
+      · exact writeSuccessParentPc_in_execution inside
+      · exact endpointStep_sail fromStep { template with machine := before } middle
+          (fun observed observedPc => by
+            change before.regs.get? PC = some observed at observedPc
+            rw [atPc] at observedPc
+            cases Option.some.inj observedPc
+            exact writeSuccessParentPc_not_observed inside)
+          machineStep
+      · simpa using ih
+  | childBody fromStep used count child before middle after body rest ih => exact body.elim
+  | inlineStep fromStep used count boundary program parent child before resume after transfer rest ih =>
+      exact transfer.body.elim
+  | inlineCallStep fromStep childUsed calleeUsed count boundary program parent child callee before
+      resume after transfer rest ih => exact transfer.body.elim
+  | callStep fromStep used count call program parent callee before resume after transfer rest ih =>
+      exact transfer.body.elim
+
+private theorem memcpyPc_in_writeSuccess {pc : BitVec 64}
+    (inside : pcInRanges Elflings.memcpyExecutionPcRanges pc) :
+    pcInRanges Elflings.writeSuccessExecutionPcRanges pc := by
+  unfold pcInRanges at inside ⊢
+  rcases inside with ⟨range, member, lower, upper⟩
+  simp [Elflings.memcpyExecutionPcRanges] at member
+  rcases member with rfl
+  exact ⟨(0x101d4, 0x101f8), by simp [Elflings.writeSuccessExecutionPcRanges], lower, upper⟩
+
 /-- Extend the writer prologue by one exact dword save, preserving all previously saved words. -/
 theorem writeSuccessSaveStep {args : WriteSuccessArgs} {base : State}
     {kv : List RegVal} {a n : Nat} {cur : State} {pc : BitVec 64}
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       kv a n base cur pc)
     (access : WriteSuccessMachineAccess args base)
@@ -198,7 +294,7 @@ theorem writeSuccessSaveStep {args : WriteSuccessArgs} {base : State}
     (aligned : (args.stackPointer - 0x7d0 + offset) % 8 = 0)
     (pcEq : pc = BitVec.ofNat 64 storePc)
     (inRegion : writeSuccessParentPc (BitVec.ofNat 64 storePc))
-    (notExit : ¬pcInList Elflings.writeSuccessExitPcs (BitVec.ofNat 64 storePc))
+    (notExit : ¬writeSuccessInitialExitPc (BitVec.ofNat 64 storePc))
     (decodeOfConfigured : ConfiguredMachinePre EndpointMachinePc cur →
       Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
         (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
@@ -215,7 +311,7 @@ theorem writeSuccessSaveStep {args : WriteSuccessArgs} {base : State}
     (read3 : Artifacts.programImage.readFileByte? (storePc + 3) = some byte3)
     (advance : Sail.BitVec.addInt (BitVec.ofNat 64 storePc) 4 = BitVec.ofNat 64 (storePc + 4)) :
     ∃ next,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         kv a (n + 1) base next (BitVec.ofNat 64 (storePc + 4)) ∧
       SavedWordReps next
@@ -279,14 +375,14 @@ theorem writeSuccessSaveStep {args : WriteSuccessArgs} {base : State}
 theorem writeSuccessSaveRa {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
       fromStep 1 state.machine cur 0x14d34)
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ next,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -311,7 +407,7 @@ theorem writeSuccessSaveRa {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -330,7 +426,7 @@ theorem writeSuccessSaveRa {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS0 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -340,7 +436,7 @@ theorem writeSuccessSaveS0 {fromStep : Nat} {args : WriteSuccessArgs}
         (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ next,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -367,7 +463,7 @@ theorem writeSuccessSaveS0 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -387,7 +483,7 @@ theorem writeSuccessSaveS0 {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS1 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -398,7 +494,7 @@ theorem writeSuccessSaveS1 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ nextState,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -425,7 +521,7 @@ theorem writeSuccessSaveS1 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -445,7 +541,7 @@ theorem writeSuccessSaveS1 {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS2 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -457,7 +553,7 @@ theorem writeSuccessSaveS2 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ nextState,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -485,7 +581,7 @@ theorem writeSuccessSaveS2 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -505,7 +601,7 @@ theorem writeSuccessSaveS2 {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS3 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -518,7 +614,7 @@ theorem writeSuccessSaveS3 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ nextState,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -547,7 +643,7 @@ theorem writeSuccessSaveS3 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -567,7 +663,7 @@ theorem writeSuccessSaveS3 {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS4 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -581,7 +677,7 @@ theorem writeSuccessSaveS4 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ nextState,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -611,7 +707,7 @@ theorem writeSuccessSaveS4 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -631,7 +727,7 @@ theorem writeSuccessSaveS4 {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS5 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -646,7 +742,7 @@ theorem writeSuccessSaveS5 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ nextState,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -677,7 +773,7 @@ theorem writeSuccessSaveS5 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -697,7 +793,7 @@ theorem writeSuccessSaveS5 {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS6 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -713,7 +809,7 @@ theorem writeSuccessSaveS6 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ nextState,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -745,7 +841,7 @@ theorem writeSuccessSaveS6 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -765,7 +861,7 @@ theorem writeSuccessSaveS6 {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS7 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -782,7 +878,7 @@ theorem writeSuccessSaveS7 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ nextState,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -815,7 +911,7 @@ theorem writeSuccessSaveS7 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -835,7 +931,7 @@ theorem writeSuccessSaveS7 {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS8 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -853,7 +949,7 @@ theorem writeSuccessSaveS8 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ nextState,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -887,7 +983,7 @@ theorem writeSuccessSaveS8 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -907,7 +1003,7 @@ theorem writeSuccessSaveS8 {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS9 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -926,7 +1022,7 @@ theorem writeSuccessSaveS9 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ nextState,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -961,7 +1057,7 @@ theorem writeSuccessSaveS9 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -981,7 +1077,7 @@ theorem writeSuccessSaveS9 {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS10 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -1001,7 +1097,7 @@ theorem writeSuccessSaveS10 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ nextState,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -1037,7 +1133,7 @@ theorem writeSuccessSaveS10 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -1057,7 +1153,7 @@ theorem writeSuccessSaveS10 {fromStep : Nat} {args : WriteSuccessArgs}
 theorem writeSuccessSaveS11 {fromStep : Nat} {args : WriteSuccessArgs}
     {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
     (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
       (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
         writeSuccessIncomingRegs args values)
@@ -1078,7 +1174,7 @@ theorem writeSuccessSaveS11 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)])
     (configured : ConfiguredMachinePre EndpointMachinePc cur) :
     ∃ nextState,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -1115,7 +1211,7 @@ theorem writeSuccessSaveS11 {fromStep : Nat} {args : WriteSuccessArgs}
   · rfl
   · unfold writeSuccessParentPc
     exact ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩
-  · unfold pcInList; native_decide
+  · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
     obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
     decode_run
@@ -1152,7 +1248,7 @@ def writeSuccessSavedWords (args : WriteSuccessArgs) (values : DecodeCalleeSaved
 theorem writeSuccessSavePrologue (fromStep : Nat) (args : WriteSuccessArgs)
     (state : EndpointState) (entry : WriteSuccessEntry args state) :
     ∃ values next,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
           writeSuccessIncomingRegs args values)
@@ -1345,7 +1441,7 @@ theorem writeSuccessMemcpySourceStep (stepNo : Nat) (state : State) (sourceValue
 theorem writeSuccessPrologueHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     (state : EndpointState) (entry : WriteSuccessEntry args state) :
     ∃ values next,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
         [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩,
          ⟨x8, BitVec.ofNat 64 args.decodedAddress⟩]
@@ -1365,7 +1461,7 @@ theorem writeSuccessPrologueHandoff (fromStep : Nat) (args : WriteSuccessArgs)
   obtain ⟨retired', next, nextEq, seg1⟩ := seg0.stepWitness
     (by unfold writeSuccessParentPc; exact
       ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
-    (by unfold pcInList; native_decide) x8 (BitVec.ofNat 64 args.decodedAddress) 0x14d6c
+    (by unfold writeSuccessInitialExitPc; native_decide) x8 (BitVec.ofNat 64 args.decodedAddress) 0x14d6c
     ⟨retired, run⟩ (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
     (Or.inr (Or.inr rfl)) (by decide) (by decide) (by simp [RegsOutside])
   have wordsNext : SavedWordReps next (writeSuccessSavedWords args values) := by
@@ -1391,7 +1487,7 @@ theorem writeSuccessPrologueHandoff (fromStep : Nat) (args : WriteSuccessArgs)
 theorem writeSuccessMemcpyCallSetup (fromStep : Nat) (args : WriteSuccessArgs)
     (state : EndpointState) (entry : WriteSuccessEntry args state) :
     ∃ values next,
-      Seg writeSuccessParentPc (pcInList Elflings.writeSuccessExitPcs)
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessParentWrites (writeSuccessFrameMemory args)
         [⟨x1, 0xfd78⟩, ⟨x11, BitVec.ofNat 64 args.decodedAddress⟩, ⟨x12, 0x2d0⟩,
          ⟨x10, BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x138)⟩,
@@ -1423,7 +1519,7 @@ theorem writeSuccessMemcpyCallSetup (fromStep : Nat) (args : WriteSuccessArgs)
   obtain ⟨retired0', state0, state0Eq, seg1⟩ := seg0.stepWitness
     (by unfold writeSuccessParentPc; exact
       ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
-    (by unfold pcInList; native_decide) x10
+    (by unfold writeSuccessInitialExitPc; native_decide) x10
     (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x138)) 0x14d70 ⟨retired0, run0⟩
     (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
     (by simp [writeSuccessParentWrites]) (by decide) (by decide)
@@ -1435,7 +1531,7 @@ theorem writeSuccessMemcpyCallSetup (fromStep : Nat) (args : WriteSuccessArgs)
   obtain ⟨retired1', state1, state1Eq, seg2⟩ := seg1.stepWitness
     (by unfold writeSuccessParentPc; exact
       ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
-    (by unfold pcInList; native_decide) x12 0x2d0 0x14d74 ⟨retired1, run1⟩
+    (by unfold writeSuccessInitialExitPc; native_decide) x12 0x2d0 0x14d74 ⟨retired1, run1⟩
     (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
     (by simp [writeSuccessParentWrites]) (by decide) (by decide)
     (by simp [RegsOutside, stepBookkeeping])
@@ -1447,7 +1543,7 @@ theorem writeSuccessMemcpyCallSetup (fromStep : Nat) (args : WriteSuccessArgs)
   obtain ⟨retired2', state2, state2Eq, seg3⟩ := seg2.stepWitness
     (by unfold writeSuccessParentPc; exact
       ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
-    (by unfold pcInList; native_decide) x11 (BitVec.ofNat 64 args.decodedAddress) 0x14d78
+    (by unfold writeSuccessInitialExitPc; native_decide) x11 (BitVec.ofNat 64 args.decodedAddress) 0x14d78
     ⟨retired2, run2⟩ (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
     (by simp [writeSuccessParentWrites]) (by decide) (by decide)
     (by simp [RegsOutside, stepBookkeeping])
@@ -1458,7 +1554,7 @@ theorem writeSuccessMemcpyCallSetup (fromStep : Nat) (args : WriteSuccessArgs)
   obtain ⟨retired3', state3, state3Eq, seg4⟩ := seg3.stepWitness
     (by unfold writeSuccessParentPc; exact
       ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
-    (by unfold pcInList; native_decide) x1 0xfd78 0x14d7c ⟨retired3, run3⟩
+    (by unfold writeSuccessInitialExitPc; native_decide) x1 0xfd78 0x14d7c ⟨retired3, run3⟩
     (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
     (by simp [writeSuccessParentWrites]) (by decide) (by decide)
     (by simp [RegsOutside, stepBookkeeping])
@@ -1467,5 +1563,152 @@ theorem writeSuccessMemcpyCallSetup (fromStep : Nat) (args : WriteSuccessArgs)
     simpa only [afterRegisterWrite_mem] using words
   exact ⟨values, state3, seg4, words3,
     access.configured.mono (seg4.agree disjoint) seg4.retired⟩
+
+/-- Execute the exact call and discharge the selected `memcpy` instance unconditionally. -/
+theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
+    (state : EndpointState) (entry : WriteSuccessEntry args state) :
+    ∃ values bytes used after,
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+        fromStep (20 + used) state after ∧
+      EndpointPc after = some 0x14d80 ∧
+      BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes ∧
+      BytesRep after.machine.mem args.decodedAddress bytes ∧
+      bytes.size = 720 ∧
+      SavedWordReps after.machine (writeSuccessSavedWords args values) ∧
+      ConfiguredMachinePre EndpointMachinePc after.machine := by
+  obtain ⟨values, setupState, setup, savedWords, configured⟩ :=
+    writeSuccessMemcpyCallSetup fromStep args state entry
+  rcases entry with ⟨_, lower, _, fits, decodedEq, _, _, _, _, _,
+    ⟨bytes, bytesSize, sourceRep⟩, loaded, _, access⟩
+  have code := writeSuccessCodeOfSeg access loaded lower setup
+  obtain ⟨retired, callRun⟩ := writeSuccessMemcpyCallStep (fromStep + 19) setupState
+    configured setup.atPc (setup.reg x1 0xfd78 (by simp)) code
+  let callMachine := tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement setupState) 0x14d7c 0x101d4 x1 0x14d80)
+    0x101d4 retired
+  let callState : EndpointState := { state with machine := callMachine }
+  have callAtPc : callMachine.regs.get? PC = some 0x101d4 := by
+    simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      Std.ExtDHashMap.get?_insert]
+  have callWrites := callRetirement_writes setupState 0x14d7c 0x101d4 retired x1 0x14d80
+  have callConfigured : ConfiguredMachinePre EndpointMachinePc callMachine :=
+    configuredAfterWriteSuccessCall retired configured
+  have sourceAtSetup : BytesRep setupState.mem args.decodedAddress bytes := by
+    refine ⟨sourceRep.1, ?_⟩
+    intro index indexBound
+    rw [setup.mem (args.decodedAddress + index) (by
+      intro inside
+      unfold writeSuccessFrameMemory byteRange at inside
+      rw [decodedEq] at inside
+      omega)]
+    exact sourceRep.2 index indexBound
+  have sourceAtCall : BytesRep callMachine.mem args.decodedAddress bytes := by
+    simpa [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+      sourceAtSetup
+  have wholeWrites : WritesOnlyRegs writeSuccessParentWrites state.machine callMachine :=
+    setup.writes.trans_same (callWrites.mono (by
+      intro register written
+      rcases written with bookkeeping | rfl
+      · exact Or.inl bookkeeping
+      · exact Or.inr (Or.inl rfl)))
+  have pmaEq := wholeWrites.get pma_regions (by
+    simp [writeSuccessParentWrites, stepBookkeeping])
+  let memcpyArgs : MemcpyArgs :=
+    { returnAddress := 0x14d80
+      destination := args.stackPointer - 0x7d0 + 0x138
+      source := args.decodedAddress
+      bytes }
+  have memcpyEntry : MemcpyEntry memcpyArgs callState := by
+    refine ⟨(show 0x14d80 ∈ Elflings.memcpyExitPcs by native_decide),
+      (by simp [memcpyArgs, bytesSize]), ?_, sourceAtCall.1, ?_,
+      ?_, ?_, ?_, ?_, ?_, sourceAtCall, ?_, ?_⟩
+    · dsimp [memcpyArgs]
+      rw [bytesSize]
+      omega
+    · left
+      dsimp [memcpyArgs]
+      rw [bytesSize, decodedEq]
+      omega
+    · simpa [callState, EndpointPc, MachinePc] using callAtPc
+    · simp [memcpyArgs, callState, callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+        callLinkState, Std.ExtDHashMap.get?_insert]
+    · exact (callWrites.get x10 (by decide)).trans
+        (setup.reg x10 (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x138)) (by simp))
+    · exact (callWrites.get x11 (by decide)).trans
+        (setup.reg x11 (BitVec.ofNat 64 args.decodedAddress) (by simp))
+    · rw [bytesSize]
+      exact (callWrites.get x12 (by decide)).trans (setup.reg x12 0x2d0 (by simp))
+    · simpa [callState, callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]
+        using code
+    · refine
+        { configured := callConfigured
+          sourcePma := ?_
+          destinationPma := ?_
+          sourceNotMMIO := ?_
+          destinationNotMMIO := ?_
+          destinationNotCode := ?_ }
+      · intro index indexBound
+        rw [bytesSize] at indexBound
+        dsimp [memcpyArgs]
+        rw [decodedEq]
+        exact dataPmaAllows_of_pma_regions_eq pmaEq (by
+          simpa [Nat.add_assoc] using access.decodedLoad (0x20 + index) 1 (by omega))
+      · intro index indexBound
+        rw [bytesSize] at indexBound
+        change StorePmaAllows callMachine
+          (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x138 + index)) 1
+        have original := access.frameStore (0x138 + index) 1 (by omega)
+        have moved := dataPmaAllows_of_pma_regions_eq pmaEq original
+        simpa [Nat.add_assoc] using moved
+      · intro index indexBound
+        rw [bytesSize] at indexBound
+        dsimp [memcpyArgs]
+        rw [decodedEq]
+        simpa [Nat.add_assoc] using access.decodedNoMMIO (0x20 + index) 1 (by omega)
+      · intro index indexBound
+        rw [bytesSize] at indexBound
+        change StoreMMIOAddressExcluded
+          (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x138 + index)) 1
+        simpa [Nat.add_assoc] using access.frameNoMMIO (0x138 + index) 1 (by omega)
+      · intro index indexBound
+        rw [bytesSize] at indexBound
+        change Artifacts.programImage.readFileByte?
+          (args.stackPointer - 0x7d0 + 0x138 + index) = none
+        exact access.frameNotCode _ (by omega) (by omega)
+  obtain ⟨memcpyBound, memcpyImpl⟩ := memcpyInstanceContract
+  obtain ⟨used, after, unit, positive, bounded, childTrace, childExitPc, _allowed,
+    childExit⟩ := memcpyImpl memcpyArgs (fromStep + 20) callState memcpyEntry
+  have endTrace : ScopedTrace writeSuccessParentPc writeSuccessInitialExitPc
+      (fun _ _ _ _ _ => False) (fromStep + 20) 0 callMachine callMachine :=
+    .exitAt (fromStep + 20) callMachine 0x101d4 callAtPc rfl
+  have callPrefix : ConfinedPrefix writeSuccessParentPc writeSuccessInitialExitPc
+      (fun _ _ _ _ _ => False) (fromStep + 19) 1 setupState callMachine :=
+    ConfinedPrefix.ownStep setup.atPc
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
+      (by unfold writeSuccessInitialExitPc; native_decide) callRun
+  have parentMachineTrace := setup.confined.trans callPrefix 0 callMachine endTrace
+  have parentTrace := liftWriteSuccessParentTrace state (by
+    simpa [Nat.add_assoc] using parentMachineTrace)
+  have childTrace' := childTrace.weaken (fun _ inside => memcpyPc_in_writeSuccess inside)
+  have fullTrace := parentTrace.append childTrace'
+  rcases childExit with ⟨childPc, stdin, cursor, stdout, exitCode, destinationRep,
+    sourceRepAfter, codeAfter, childMem, childFrame⟩
+  have savedAfter : SavedWordReps after.machine (writeSuccessSavedWords args values) := by
+    intro word member
+    exact (savedWords word member).of_writesOnlyWithin childMem (by
+      intro index indexBound inside
+      unfold byteRange at inside
+      simp [memcpyArgs, bytesSize] at inside
+      have addressLower : args.stackPointer - 0x7d0 + 0x768 ≤ word.1 := by
+        simp [writeSuccessSavedWords] at member
+        rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+          rfl | rfl | rfl <;> omega
+      omega)
+  have configuredAfter := configuredAfterEndpointCall callConfigured childFrame
+  refine ⟨values, bytes, used, after, ?_, ?_, destinationRep, sourceRepAfter, bytesSize,
+    savedAfter, configuredAfter⟩
+  · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
+  · simpa [EndpointPc, MachinePc, memcpyArgs] using childPc
 
 end BinaryFv.Zesu.MachineExecution
