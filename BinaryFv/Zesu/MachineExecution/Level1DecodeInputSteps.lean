@@ -144,6 +144,45 @@ theorem decodeInputBindS0Step (stepNo : Nat) (state : State) (value : BitVec 64)
           _ = some seccfgBits := seccfgRead
       decode_run) execute (base := by rfl)
 
+/-- Production error continuation `0x14ca8: mv s6, a0`. -/
+theorem decodeInputBindErrorS6Step (stepNo : Nat) (state : State) (status : BitVec 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14ca8)
+    (source : state.regs.get? x10 = some status)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14ca8 retired x22 status) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14ca8
+  have source' := (stepPremiseState_writes state 0x14ca8).get x10 (by decide) |>.trans source
+  have execute : Runs (execute (.ITYPE (0, .Regidx 10#5, .Regidx 22#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x22 status } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0 (.Regidx 10#5) (.Regidx 22#5) .ADDI) _ _ _
+    have resultEq : iTypeResult .ADDI 0 status = status := by
+      simp [iTypeResult, show sign_extend (m := 64) (0#12) = 0#64 by native_decide]
+    simpa only [resultEq] using
+      execute_ITYPE_run premise _ 0 (.Regidx 10#5) (.Regidx 22#5)
+        .ADDI status (rX_x10_run premise status source')
+        (wX_x22_run premise (iTypeResult .ADDI 0 status))
+  exact configuredRegisterWriteStep stepNo 0x14ca8 state x22 status
+    (.ITYPE (0, .Regidx 10#5, .Regidx 22#5, .ADDI)) 0x13 0x0b 0x05 0x00
+    configured atPc loaded (by
+      obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+      have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+          some Privilege.Machine := by
+        calc
+          _ = state.regs.get? cur_privilege := by
+            simpa [tryStepControlFlowAfterIncrement] using
+              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+          _ = some Privilege.Machine := configured.normal.2.1
+      have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+          some seccfgBits := by
+        calc
+          _ = state.regs.get? mseccfg := by
+            simpa [tryStepControlFlowAfterIncrement] using
+              writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+          _ = some seccfgBits := seccfgRead
+      decode_run) execute (base := by rfl)
+
 /-- An exact `sd offset(sp)`, parameterized by its generated source-register witness. -/
 theorem decodeInputStoreStep (stepNo pc offset : Nat) (state : State)
     (stackPointer : Nat) (value : BitVec 64) (imm : BitVec 12) (rs2 : regidx)
@@ -1697,5 +1736,192 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
   · exact (finalSeg.get x11 (by simp [decodeInputParentWrites])).trans allocatorReg
   · exact (finalSeg.get x12 (by simp [decodeInputParentWrites])).trans inputReg
   · exact (finalSeg.get x13 (by simp [decodeInputParentWrites])).trans sizeReg
+
+/-- The two parent-owned error instructions connect the initial child exit to its resume entry. -/
+theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
+    (values : DecodeCalleeSavedValues) (status : BitVec 64) (before : EndpointState)
+    (savedAtOrigin : DecodeCalleeSavedAtRegisters values args.origin)
+    (frame : DecodeInlineFrame args values before)
+    (atPc : before.machine.regs.get? PC = some 0x14ca8)
+    (statusAt : before.machine.regs.get? x10 = some status) :
+    ∃ after,
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.decodeInputExecutionPcRanges)
+        fromStep 2 before after ∧
+      DecodeInlineResumeEntry
+        { inline := args, saved := values, status := status } after := by
+  let seg0 := Seg.nil decodeInputParentPc DecodeInlineInitialExecutionPc
+    (fun _ _ _ _ _ => False) decodeInputParentWrites noMemory fromStep
+    frame.configured.retiredCounter atPc
+  have seg0Regs : RegsHold before.machine
+      [⟨x2, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)⟩, ⟨x10, status⟩] :=
+    .cons _ _ frame.atStack (.cons _ _ statusAt (.nil _))
+  have seg0' : Seg decodeInputParentPc DecodeInlineInitialExecutionPc
+      (fun _ _ _ _ _ => False) decodeInputParentWrites noMemory
+      [⟨x2, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)⟩, ⟨x10, status⟩]
+      fromStep 0 before.machine before.machine 0x14ca8 := { seg0 with regs := seg0Regs }
+  obtain ⟨retired0, run0⟩ := decodeInputBindErrorS6Step fromStep before.machine status
+    frame.configured atPc statusAt frame.code
+  obtain ⟨middle, seg1⟩ := seg0'.step
+    (by unfold decodeInputParentPc pcInRanges; native_decide)
+    (by unfold DecodeInlineInitialExecutionPc pcInRanges; native_decide)
+    x22 status 0x14cac ⟨retired0, run0⟩ (by decide)
+    (fun _ bookkeeping => Or.inl bookkeeping) (by simp [decodeInputParentWrites])
+    (by decide) (by decide) (by exact of_decide_eq_true rfl)
+  have configured1 := frame.configured.mono
+    (seg1.agree instructionPreserved_disjoint_decodeInputParentWrites) seg1.retired
+  have code1 : Artifacts.programImage.fileBytesLoadedFaithfully middle.mem := by
+    rw [seg1.memEq noMemory_empty]
+    exact frame.code
+  have decode1 : Runs (ext_decode (fetchWord 0x6f#8 0xd0#8 0x0f#8 0xe6#8))
+      (tryStepControlFlowAfterIncrement middle) (tryStepControlFlowAfterIncrement middle)
+      (.JAL (0x1fd660#21, zreg)) := by
+    obtain ⟨seccfgBits, seccfgRead, _⟩ := configured1.seccfgPresent
+    have privilegeAfter : (tryStepControlFlowAfterIncrement middle).regs.get? cur_privilege =
+        some Privilege.Machine := by
+      calc
+        _ = middle.regs.get? cur_privilege := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged middle minstret_increment cur_privilege true (by decide)
+        _ = some Privilege.Machine := configured1.normal.2.1
+    have seccfgAfter : (tryStepControlFlowAfterIncrement middle).regs.get? mseccfg =
+        some seccfgBits := by
+      calc
+        _ = middle.regs.get? mseccfg := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged middle minstret_increment mseccfg true (by decide)
+        _ = some seccfgBits := seccfgRead
+    decode_run
+  obtain ⟨retired1, run1⟩ := configuredJStep (fromStep + 1) 0x14cac 0x1230c middle
+    0x1fd660 0x6f 0xd0 0x0f 0xe6 configured1 seg1.atPc code1 decode1
+    (by native_decide) (by native_decide) (by native_decide) (base := by rfl)
+  obtain ⟨final, seg2⟩ := seg1.stepJump 0x1230c
+    (by unfold decodeInputParentPc pcInRanges; native_decide)
+    (by unfold DecodeInlineInitialExecutionPc pcInRanges; native_decide)
+    ⟨retired1, run1⟩ (fun _ bookkeeping => Or.inl bookkeeping)
+    (by exact of_decide_eq_true rfl)
+  have endTrace : ScopedTrace decodeInputParentPc DecodeInlineInitialExecutionPc
+      (fun _ _ _ _ _ => False) (fromStep + 2) 0 final final :=
+    .exitAt (fromStep + 2) final 0x1230c seg2.atPc (by
+      unfold DecodeInlineInitialExecutionPc pcInRanges
+      exact ⟨(0x121ac, 0x14ca8), by simp [Elflings.sszDecodeExecutionPcRanges],
+        by native_decide, by native_decide⟩)
+  have machineTrace : ScopedTrace decodeInputParentPc DecodeInlineInitialExecutionPc
+      (fun _ _ _ _ _ => False) fromStep 2 before.machine final := by
+    simpa using seg2.confined 0 final endTrace
+  let after : EndpointState := { before with machine := final }
+  refine ⟨after, liftDecodeInputParentTrace before machineTrace, savedAtOrigin, ?_, seg2.atPc, ?_⟩
+  · have memEq := seg2.memEq noMemory_empty
+    refine
+      { stackFits := frame.stackFits
+        atStack := seg2.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) (by simp)
+        saved := ?_
+        inputAddress := ?_
+        inputSize := ?_
+        savedReturn := ?_
+        input := ?_
+        code := ?_
+        configured := frame.configured.mono
+          (seg2.agree instructionPreserved_disjoint_decodeInputParentWrites) seg2.retired
+        stdin := frame.stdin
+        stdinCursor := frame.stdinCursor
+        stdout := frame.stdout
+        exitCode := frame.exitCode }
+    · have oldSaved := frame.saved
+      unfold DecodeCalleeSavedAtStack at oldSaved ⊢
+      simpa only [after, memEq] using oldSaved
+    · simpa only [after, memEq] using frame.inputAddress
+    · simpa only [after, memEq] using frame.inputSize
+    · simpa only [after, memEq] using frame.savedReturn
+    · simpa only [after, memEq] using frame.input
+    · simpa only [after, memEq] using frame.code
+  · exact seg2.reg x22 status (by simp)
+
+private theorem initialRegion_in_decodeRegion {pc : BitVec 64}
+    (inside : DecodeInlineInitialExecutionPc pc) : DecodeExecutionPc pc := by
+  unfold DecodeInlineInitialExecutionPc at inside
+  unfold DecodeExecutionPc
+  unfold pcInRanges at inside ⊢
+  rcases inside with ⟨range, member, lower, upper⟩
+  simp [Elflings.sszDecodeExecutionPcRanges] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl
+  · exact ⟨(0x101d4, 0x14cb0), by simp [Elflings.decodeInputExecutionPcRanges],
+      by omega, by omega⟩
+  · exact ⟨(0x101d4, 0x14cb0), by simp [Elflings.decodeInputExecutionPcRanges],
+      by omega, by omega⟩
+  · exact ⟨(0x15d38, 0x15d40), by simp [Elflings.decodeInputExecutionPcRanges], lower, upper⟩
+  · exact ⟨(0x15ffc, 0x161c0), by simp [Elflings.decodeInputExecutionPcRanges], lower, upper⟩
+  · exact ⟨(0x161d4, 0x171f8), by simp [Elflings.decodeInputExecutionPcRanges], lower, upper⟩
+
+/-- Resolve the Level-1 `decodeInput` contract from the exact Level-2 initial and resume contracts. -/
+theorem decodeInstanceContract_of_level2
+    (hLevel2 : SszDecodeLevel2InstanceContract) : DecodeInstanceContractModuloKnownBugs := by
+  obtain ⟨initialBound, initialImpl⟩ := hLevel2.initial
+  obtain ⟨resumeBound, resumeImpl⟩ := hLevel2.resume
+  refine ⟨fun inputSize => 19 + initialBound inputSize + resumeBound inputSize, ?_⟩
+  intro boundary fromStep origin boundaryEntry
+  let inline : DecodeInlineArgs := { boundary, origin }
+  obtain ⟨childMachine, prefixTrace, childEntry⟩ :=
+    decodeInputInitialHandoff fromStep inline boundaryEntry
+  let childBefore : EndpointState := { origin with machine := childMachine }
+  obtain ⟨initialCount, initialAfter, initialOutcome, initialPositive, initialBounded,
+    initialTrace, initialExitPc, initialMeaning, initialExit⟩ :=
+    initialImpl inline (fromStep + 17) childBefore childEntry
+  have initialTrace' := initialTrace.weaken
+    (fun pc inside => initialRegion_in_decodeRegion inside)
+  have prefixAndInitial : ConfinedTrace EndpointStep EndpointPc DecodeExecutionPc fromStep
+      (17 + initialCount) origin initialAfter := prefixTrace.append initialTrace'
+  rcases initialOutcome with result | status
+  · refine ⟨17 + initialCount, initialAfter, result, by omega, ?_, prefixAndInitial, ?_,
+      initialMeaning, initialExit⟩
+    · change 17 + initialCount ≤ 19 + initialBound boundary.input.size +
+        resumeBound boundary.input.size
+      change initialCount ≤ initialBound boundary.input.size at initialBounded
+      omega
+    · have returnEq : boundary.returnAddress = 0x14cfc := by
+        have member := boundaryEntry.2.1
+        simpa [Elflings.decodeInputExitPcs] using member
+      exact ⟨0x14cfc, by
+        change DecodeBoundaryExit boundary result origin initialAfter at initialExit
+        have pcReturn := initialExit.1
+        rw [returnEq] at pcReturn
+        exact pcReturn, by
+        unfold DecodeExitPc pcInList
+        native_decide⟩
+  · rcases initialExit with ⟨values, savedAtOrigin, frame, atError, statusAt⟩
+    obtain ⟨resumeBefore, errorTrace, resumeEntry⟩ :=
+      decodeInputErrorHandoff (fromStep + 17 + initialCount) inline values status initialAfter
+        savedAtOrigin frame atError statusAt
+    obtain ⟨resumeCount, final, unit, resumePositive, resumeBounded, resumeTrace,
+      resumeExitPc, resumeMeaning, resumeExit⟩ :=
+      resumeImpl { inline, saved := values, status := status }
+        (fromStep + 17 + initialCount + 2) resumeBefore resumeEntry
+    have errorTrace' : ConfinedTrace EndpointStep EndpointPc DecodeExecutionPc
+        (fromStep + 17 + initialCount) 2 initialAfter resumeBefore := by
+      simpa [DecodeExecutionPc] using errorTrace
+    have resumeTrace' := resumeTrace.weaken
+      (fun pc inside => initialRegion_in_decodeRegion inside)
+    have withError := prefixAndInitial.append (by
+      simpa [Nat.add_assoc] using errorTrace')
+    have fullTrace : ConfinedTrace EndpointStep EndpointPc DecodeExecutionPc fromStep
+        ((17 + initialCount + 2) + resumeCount) origin final := by
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+        withError.append (by simpa [Nat.add_assoc] using resumeTrace')
+    refine ⟨(17 + initialCount + 2) + resumeCount, final, .failure, by omega, ?_,
+      fullTrace, ?_, ?_, resumeExit⟩
+    · change 17 + initialCount + 2 + resumeCount ≤
+        19 + initialBound boundary.input.size + resumeBound boundary.input.size
+      change initialCount ≤ initialBound boundary.input.size at initialBounded
+      change resumeCount ≤ resumeBound boundary.input.size at resumeBounded
+      omega
+    · rcases resumeExitPc with ⟨pc, atPc, exit⟩
+      exact ⟨pc, atPc, by
+        unfold DecodeInlineResumeExitPc at exit
+        have pcEq : pc = (0x14cfc : BitVec 64) := by
+          apply BitVec.eq_of_toNat_eq
+          simpa using exit
+        rw [pcEq]
+        unfold DecodeExitPc pcInList
+        native_decide⟩
+    · exact resumeMeaning.2
 
 end BinaryFv.Zesu.MachineExecution
