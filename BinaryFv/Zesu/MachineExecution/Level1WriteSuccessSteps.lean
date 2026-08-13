@@ -410,9 +410,9 @@ private theorem writeSuccessCodeOfSeg {args : WriteSuccessArgs} {W kv a n base c
     cases none)
   exact unchanged.trans (loaded address byte fileByte)
 
-private theorem writeSuccessAccessOfSeg {args : WriteSuccessArgs} {exit M kv a n base cur pc}
+private theorem writeSuccessAccessOfSeg {args : WriteSuccessArgs} {owned exit M kv a n base cur pc}
     (access : WriteSuccessMachineAccess args base)
-    (seg : Seg writeSuccessParentPc exit
+    (seg : Seg owned exit
       (fun _ _ _ _ _ => False) writeSuccessParentWrites M
       kv a n base cur pc) : WriteSuccessMachineAccess args cur := by
   have disjoint : RegSet.Disjoint instructionPreserved writeSuccessParentWrites := by
@@ -2559,6 +2559,8 @@ private theorem writeSuccessTailPairStep {a n : Nat} {base cur : State} {bytes :
       (∀ i (bound : i < 16),
         UIntRep 8 next.mem (args.decodedAddress + 720 + i * 8) (tailValues ⟨i, bound⟩)) ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
+      UIntRep 8 next.mem (args.stackPointer - 0x7d0 + storeOffset)
+        (tailValues ⟨index, inBounds⟩) ∧
       BytesRep next.mem (args.stackPointer - 0x7d0 + 0x138) bytes ∧
       InitializedByteWindow next.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMachineAccess args next := by
@@ -2633,9 +2635,18 @@ private theorem writeSuccessTailPairStep {a n : Nat} {base cur : State} {bytes :
   have savedNext : SavedWordReps next (writeSuccessSavedWords args values) := by
     intro word member
     exact words2 word (by simp [member])
+  have storedNext : UIntRep 8 next.mem (args.stackPointer - 0x7d0 + storeOffset)
+      (tailValues ⟨index, inBounds⟩) := by
+    have valueEq : (BitVec.ofNat 64 (tailValues ⟨index, inBounds⟩)).toNat =
+        tailValues ⟨index, inBounds⟩ := by
+      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (tailBase index inBounds).1]
+    rw [valueEq] at words2
+    exact words2 (args.stackPointer - 0x7d0 + storeOffset,
+      tailValues ⟨index, inBounds⟩) (List.mem_cons_self)
   have initializedNext := initializedByteWindow_of_writeSuccessStore initializedLoaded nextEq
   have copiedNext := bytesRep_of_writeSuccessStore copiedLoaded (by omega) nextEq
-  exact ⟨next, by simpa [Nat.add_assoc] using seg2, tailNext, savedNext, copiedNext, initializedNext,
+  exact ⟨next, by simpa [Nat.add_assoc] using seg2, tailNext, savedNext, storedNext,
+    copiedNext, initializedNext,
     writeSuccessAccessOfSeg access seg2⟩
 
 /-- Extend the writer tail through the second exact load/store pair, ending at `0x14d90`. -/
@@ -2673,7 +2684,8 @@ theorem writeSuccessSecondTailPairHandoff (fromStep : Nat) (args : WriteSuccessA
     copiedFirst, initializedFirst, memoryFrame, ioFrame⟩ :=
     writeSuccessFirstTailPairHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
-  obtain ⟨next, seg2, tailNext, savedNext, copiedNext, initializedNext, accessNext⟩ :=
+  obtain ⟨next, seg2, tailNext, savedNext, _storedNext, copiedNext, initializedNext,
+    accessNext⟩ :=
     writeSuccessTailPairStep args values tailValues 1 (by omega)
       0x14d88 0x14d8c 728 0x10 0x2d8 0x10
       0x03 0x35 0x84 0x2d 0x23 0x38 0xa1 0x00 seg access loaded lower fits aligned
@@ -2742,7 +2754,7 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
     ioFrame⟩ :=
     writeSuccessSecondTailPairHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
-  obtain ⟨cur2, seg2, tail2, saved2, copied2, initialized2, access2⟩ :=
+  obtain ⟨cur2, seg2, tail2, saved2, stored2, copied2, initialized2, access2⟩ :=
     writeSuccessTailPairStep args values tailValues 2 (by omega)
       0x14d90 0x14d94 736 0x28 0x2e0 0x28
       0x03 0x35 0x04 0x2e 0x23 0x34 0xa1 0x02 seg1 access loaded lower fits aligned
@@ -2771,7 +2783,7 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
-  obtain ⟨cur3, seg3, tail3, saved3, copied3, initialized3, access3⟩ :=
+  obtain ⟨cur3, seg3, tail3, saved3, stored3, copied3, initialized3, access3⟩ :=
     writeSuccessTailPairStep args values tailValues 3 (by omega)
       0x14d98 0x14d9c 744 0x20 0x2e8 0x20
       0x03 0x35 0x84 0x2e 0x23 0x30 0xa1 0x02 seg2 access loaded lower fits aligned
@@ -2800,7 +2812,7 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
-  obtain ⟨cur4, seg4, tail4, saved4, copied4, initialized4, access4⟩ :=
+  obtain ⟨cur4, seg4, tail4, saved4, stored4, copied4, initialized4, access4⟩ :=
     writeSuccessTailPairStep args values tailValues 4 (by omega)
       0x14da0 0x14da4 752 0x38 0x2f0 0x38
       0x03 0x35 0x04 0x2f 0x23 0x3c 0xa1 0x02 seg3 access loaded lower fits aligned
@@ -2829,7 +2841,7 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
-  obtain ⟨cur5, seg5, tail5, saved5, copied5, initialized5, access5⟩ :=
+  obtain ⟨cur5, seg5, tail5, saved5, stored5, copied5, initialized5, access5⟩ :=
     writeSuccessTailPairStep args values tailValues 5 (by omega)
       0x14da8 0x14dac 760 0x30 0x2f8 0x30
       0x03 0x35 0x84 0x2f 0x23 0x38 0xa1 0x02 seg4 access loaded lower fits aligned
@@ -2858,7 +2870,7 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
-  obtain ⟨cur6, seg6, tail6, saved6, copied6, initialized6, access6⟩ :=
+  obtain ⟨cur6, seg6, tail6, saved6, stored6, copied6, initialized6, access6⟩ :=
     writeSuccessTailPairStep args values tailValues 6 (by omega)
       0x14db0 0x14db4 768 0x40 0x300 0x40
       0x03 0x35 0x04 0x30 0x23 0x30 0xa1 0x04 seg5 access loaded lower fits aligned
@@ -2887,7 +2899,7 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
-  obtain ⟨cur7, seg7, tail7, saved7, copied7, initialized7, access7⟩ :=
+  obtain ⟨cur7, seg7, tail7, saved7, stored7, copied7, initialized7, access7⟩ :=
     writeSuccessTailPairStep args values tailValues 7 (by omega)
       0x14db8 0x14dbc 776 0x48 0x308 0x48
       0x03 0x35 0x84 0x30 0x23 0x34 0xa1 0x04 seg6 access loaded lower fits aligned
@@ -2916,7 +2928,7 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
-  obtain ⟨cur8, seg8, tail8, saved8, copied8, initialized8, access8⟩ :=
+  obtain ⟨cur8, seg8, tail8, saved8, stored8, copied8, initialized8, access8⟩ :=
     writeSuccessTailPairStep args values tailValues 8 (by omega)
       0x14dc0 0x14dc4 784 0x08 0x310 0x08
       0x03 0x35 0x04 0x31 0x23 0x34 0xa1 0x00 seg7 access loaded lower fits aligned
@@ -2945,7 +2957,7 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
-  obtain ⟨cur9, seg9, tail9, saved9, copied9, initialized9, access9⟩ :=
+  obtain ⟨cur9, seg9, tail9, saved9, stored9, copied9, initialized9, access9⟩ :=
     writeSuccessTailPairStep args values tailValues 9 (by omega)
       0x14dc8 0x14dcc 792 0x50 0x318 0x50
       0x03 0x35 0x84 0x31 0x23 0x38 0xa1 0x04 seg8 access loaded lower fits aligned
@@ -3247,6 +3259,7 @@ private theorem writeSuccessTailStoreStep {a n : Nat} {base cur : State} {kv : L
     (stackHeld : ⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ∈ kv)
     (dataRun : ∀ premise, WritesOnlyRegs stepBookkeeping cur premise →
       Runs (rX_bits rs2) premise premise (BitVec.ofNat 64 sourceValue))
+    (sourceFits : sourceValue < 2 ^ 64)
     (storeBound : storeOffset + 8 ≤ 0x7d0)
     (storeBeforeCopied : storeOffset + 8 ≤ 0x138)
     (storeBelowSaved : storeOffset + 8 ≤ 0x748)
@@ -3277,6 +3290,7 @@ private theorem writeSuccessTailStoreStep {a n : Nat} {base cur : State} {kv : L
       (∀ i (bound : i < 16),
         UIntRep 8 next.mem (args.decodedAddress + 720 + i * 8) (tailValues ⟨i, bound⟩)) ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
+      UIntRep 8 next.mem (args.stackPointer - 0x7d0 + storeOffset) sourceValue ∧
       BytesRep next.mem (args.stackPointer - 0x7d0 + 0x138) bytes ∧
       InitializedByteWindow next.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMachineAccess args next := by
@@ -3306,9 +3320,16 @@ private theorem writeSuccessTailStoreStep {a n : Nat} {base cur : State} {kv : L
   have savedNext : SavedWordReps next (writeSuccessSavedWords args values) := by
     intro word member
     exact wordsNext word (by simp [member])
+  have storedNext : UIntRep 8 next.mem
+      (args.stackPointer - 0x7d0 + storeOffset) sourceValue := by
+    have valueEq : (BitVec.ofNat 64 sourceValue).toNat = sourceValue := by
+      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt sourceFits]
+    rw [valueEq] at wordsNext
+    exact wordsNext (args.stackPointer - 0x7d0 + storeOffset, sourceValue)
+      (List.mem_cons_self)
   have initializedNext := initializedByteWindow_of_writeSuccessStore initialized nextEq
   have copiedNext := bytesRep_of_writeSuccessStore copied (by omega) nextEq
-  exact ⟨next, nextSeg, tailNext, savedNext, copiedNext, initializedNext,
+  exact ⟨next, nextSeg, tailNext, savedNext, storedNext, copiedNext, initializedNext,
     writeSuccessAccessOfSeg access nextSeg⟩
 
 /-- Complete the 32-instruction decoded-tail transfer, ending at encoder prefix `0x14e00`. -/
@@ -3377,7 +3398,8 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
       (by native_decide)
   let kvWith14 : List RegVal :=
     ⟨x14, BitVec.ofNat 64 (tailValues ⟨14, by omega⟩)⟩ :: kvBase
-  obtain ⟨curS14, segS14, tailS14, savedS14, copiedS14, initializedS14, accessS14⟩ :=
+  obtain ⟨curS14, segS14, tailS14, savedS14, stored14, copiedS14, initializedS14,
+    accessS14⟩ :=
     writeSuccessTailStoreStep args values tailValues (tailValues ⟨14, by omega⟩)
       0x14de4 0x60 0x60 (.Regidx 14#5) 0x23 0x30 0xe1 0x06 segL14 access loaded
       lower fits decodedEq tailBase savedL14 initializedL14 copiedL14 (by simp)
@@ -3386,6 +3408,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
         ((writes.get x14 (by decide)).trans
           (segL14.reg x14 (BitVec.ofNat 64 (tailValues ⟨14, by omega⟩))
             (by simp))))
+      (tailBase 14 (by omega)).1
       (by omega) (by omega) (by omega) (by omega)
       (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x60#64 = _;
           rw [← BitVec.ofNat_add])
@@ -3426,7 +3449,8 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
       (by native_decide)
   let kvFinal : List RegVal :=
     ⟨x14, BitVec.ofNat 64 (tailValues ⟨15, by omega⟩)⟩ :: kvBase
-  obtain ⟨curS15, segS15, tailS15, savedS15, copiedS15, initializedS15, accessS15⟩ :=
+  obtain ⟨curS15, segS15, tailS15, savedS15, stored15, copiedS15, initializedS15,
+    accessS15⟩ :=
     writeSuccessTailStoreStep args values tailValues (tailValues ⟨15, by omega⟩)
       0x14dec 0x58 0x58 (.Regidx 14#5) 0x23 0x3c 0xe1 0x04 segL15 access loaded
       lower fits decodedEq tailBase savedL15 initializedL15 copiedL15 (by simp [kvBase])
@@ -3435,6 +3459,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
         ((writes.get x14 (by decide)).trans
           (segL15.reg x14 (BitVec.ofNat 64 (tailValues ⟨15, by omega⟩))
             (by simp [kvBase]))))
+      (tailBase 15 (by omega)).1
       (by omega) (by omega) (by omega) (by omega)
       (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x58#64 = _;
           rw [← BitVec.ofNat_add])
@@ -3449,7 +3474,8 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
         ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by simp [kvBase, RegsOutside, stepBookkeeping]) (by native_decide)
-  obtain ⟨curS10, segS10, tailS10, savedS10, copiedS10, initializedS10, accessS10⟩ :=
+  obtain ⟨curS10, segS10, tailS10, savedS10, stored10, copiedS10, initializedS10,
+    accessS10⟩ :=
     writeSuccessTailStoreStep args values tailValues (tailValues ⟨10, by omega⟩)
       0x14df0 0x128 0x128 (.Regidx 10#5) 0x23 0x34 0xa1 0x12 segS15 access loaded
       lower fits decodedEq tailBase savedS15 initializedS15 copiedS15 (by simp [kvBase])
@@ -3458,6 +3484,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
         ((writes.get x10 (by decide)).trans
           (segS15.reg x10 (BitVec.ofNat 64 (tailValues ⟨10, by omega⟩))
             (by simp [kvBase]))))
+      (tailBase 10 (by omega)).1
       (by omega) (by omega) (by omega) (by omega)
       (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x128#64 = _;
           rw [← BitVec.ofNat_add])
@@ -3472,7 +3499,8 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
         ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by simp [kvBase, RegsOutside, stepBookkeeping]) (by native_decide)
-  obtain ⟨curS11, segS11, tailS11, savedS11, copiedS11, initializedS11, accessS11⟩ :=
+  obtain ⟨curS11, segS11, tailS11, savedS11, stored11, copiedS11, initializedS11,
+    accessS11⟩ :=
     writeSuccessTailStoreStep args values tailValues (tailValues ⟨11, by omega⟩)
       0x14df4 0x130 0x130 (.Regidx 11#5) 0x23 0x38 0xb1 0x12 segS10 access loaded
       lower fits decodedEq tailBase savedS10 initializedS10 copiedS10 (by simp [kvBase])
@@ -3481,6 +3509,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
         ((writes.get x11 (by decide)).trans
           (segS10.reg x11 (BitVec.ofNat 64 (tailValues ⟨11, by omega⟩))
             (by simp [kvBase]))))
+      (tailBase 11 (by omega)).1
       (by omega) (by omega) (by omega) (by omega)
       (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x130#64 = _;
           rw [← BitVec.ofNat_add])
@@ -3495,7 +3524,8 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
         ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by simp [kvBase, RegsOutside, stepBookkeeping]) (by native_decide)
-  obtain ⟨curS12, segS12, tailS12, savedS12, copiedS12, initializedS12, accessS12⟩ :=
+  obtain ⟨curS12, segS12, tailS12, savedS12, stored12, copiedS12, initializedS12,
+    accessS12⟩ :=
     writeSuccessTailStoreStep args values tailValues (tailValues ⟨12, by omega⟩)
       0x14df8 0x118 0x118 (.Regidx 12#5) 0x23 0x3c 0xc1 0x10 segS11 access loaded
       lower fits decodedEq tailBase savedS11 initializedS11 copiedS11 (by simp [kvBase])
@@ -3504,6 +3534,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
         ((writes.get x12 (by decide)).trans
           (segS11.reg x12 (BitVec.ofNat 64 (tailValues ⟨12, by omega⟩))
             (by simp [kvBase]))))
+      (tailBase 12 (by omega)).1
       (by omega) (by omega) (by omega) (by omega)
       (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x118#64 = _;
           rw [← BitVec.ofNat_add])
@@ -3518,7 +3549,8 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
         ⟨(0x14d30, 0x14e00), by native_decide, by native_decide, by native_decide⟩)
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by simp [kvBase, RegsOutside, stepBookkeeping]) (by native_decide)
-  obtain ⟨curS13, segS13, tailS13, savedS13, copiedS13, initializedS13, accessS13⟩ :=
+  obtain ⟨curS13, segS13, tailS13, savedS13, stored13, copiedS13, initializedS13,
+    accessS13⟩ :=
     writeSuccessTailStoreStep args values tailValues (tailValues ⟨13, by omega⟩)
       0x14dfc 0x120 0x120 (.Regidx 13#5) 0x23 0x30 0xd1 0x12 segS12 access loaded
       lower fits decodedEq tailBase savedS12 initializedS12 copiedS12 (by simp [kvBase])
@@ -3527,6 +3559,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
         ((writes.get x13 (by decide)).trans
           (segS12.reg x13 (BitVec.ofNat 64 (tailValues ⟨13, by omega⟩))
             (by simp [kvBase]))))
+      (tailBase 13 (by omega)).1
       (by omega) (by omega) (by omega) (by omega)
       (by change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x120#64 = _;
           rw [← BitVec.ofNat_add])
@@ -9278,7 +9311,8 @@ private theorem writeSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessA
     (saved : SavedWordReps before.machine (writeSuccessSavedWords args values))
     (access : WriteSuccessMachineAccess args before.machine)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
-    (lower : 0x880 ≤ args.stackPointer) :
+    (lower : 0x880 ≤ args.stackPointer) (upper : args.stackPointer < 2 ^ 64)
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ after, WriteSuccessOutputHandoff fromStep args payloadBytes before after values := by
   have rootSize : args.decoded.parentBeaconBlockRoot.size = 32 :=
     (context.stable before.machine.mem (fun _ _ => rfl)).2.2.2.2.1
@@ -9318,8 +9352,18 @@ private theorem writeSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessA
     (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
     (by simp [RegsOutside, stepBookkeeping])
   have access2 := writeSuccessAccessOfSeg access seg2
-  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully _ := by
-    simpa [seg2.memEq (by simp)] using loaded
+  have outputSetupMemEq :
+      (afterRegisterWrite
+        (afterRegisterWrite before.machine 0x1572c retired0 x10
+          (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x3e8)))
+        0x15730 retired1 x11 32).mem = before.machine.mem := seg2.memEq (by simp)
+  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully
+      (afterRegisterWrite
+        (afterRegisterWrite before.machine 0x1572c retired0 x10
+          (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x3e8)))
+        0x15730 retired1 x11 32).mem := by
+    rw [outputSetupMemEq]
+    exact loaded
   obtain ⟨baseMachine, seg3⟩ := seg2.step
     (by exact Or.inr ⟨(0x15730, 0x1573c), by native_decide, by native_decide,
       by native_decide⟩)
@@ -9395,45 +9439,54 @@ private theorem writeSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessA
   obtain ⟨after, output⟩ := writeOutputHandoff (fromStep + 4)
     (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot 0x1573c callState
     (by simpa [callState] using callAtPc)
-    (by simpa [callState] using callWrites.destination)
-    (by simpa [callState] using (callWrites.get x10 (by decide)).trans
-      (seg3.reg x10 _ (by simp)))
-    (by rw [rootSize]; simpa [callState] using (callWrites.get x11 (by decide)).trans
-      (seg3.reg x11 32 (by simp)))
+    (by simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert])
+    (by simpa [callState] using ((callWrites.get x10 (by decide)).trans
+      (seg3.reg x10 _ (by simp))))
+    (by rw [rootSize]; simpa [callState] using ((callWrites.get x11 (by decide)).trans
+      (seg3.reg x11 32 (by simp))))
     (by simpa [callState, callMemEq] using context.parentRootRep)
     bufferOutside accessCall.outputBufferStore accessCall.outputLengthStore
     (by native_decide) accessCall.configured
     (by simpa [callState, callMemEq] using loaded)
+  have outputMemory : WritesOnlyWithin writeOutputMemory before.machine after.machine := by
+    intro address outside
+    exact (output.memory address outside).trans
+      (congrArg (fun mem => mem.get? address) callMemEq)
   have savedAfter : SavedWordReps after.machine (writeSuccessSavedWords args values) := by
     intro word member
-    exact (saved word member).of_writesOnlyWithin output.memory (by
+    exact (saved word member).of_writesOnlyWithin outputMemory (by
       intro index inBounds inside
       have bound := access.writerRegionBeforeOutputContext
-      unfold writeOutputMemory byteRange at inside
+      unfold writeOutputMemory Region.union byteRange at inside
       simp [writeSuccessSavedWords] at member
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl <;> rcases inside with inside | inside <;> omega)
-  have payloadAfter := writeSuccessPayloadContextAfterChild (by rfl) lower
-    (by have := context.stable before.machine.mem (fun _ _ => rfl); omega)
-    context output.memory (fun _ inside => Or.inr inside) (by
+  have payloadAfter := writeSuccessPayloadContextAfterChild
+    (childMemory := writeOutputMemory) decodedAddress lower upper
+    context outputMemory (fun _ inside => Or.inr inside) (by
       intro index inBounds inside
       have bound := access.writerRegionBeforeOutputContext
       rw [context.bytesSize] at inBounds
-      unfold writeOutputMemory byteRange at inside
+      unfold writeOutputMemory Region.union byteRange at inside
       rcases inside with inside | inside <;> omega) bufferOutside (by
       intro index inBounds inside
       have bound := access.writerRegionBeforeOutputContext
-      unfold writeOutputMemory byteRange at inside
+      rw [context.bytesSize] at inBounds
+      rw [decodedAddress] at inside
+      unfold writeOutputMemory Region.union byteRange at inside
       rcases inside with inside | inside <;> omega) (by
       intro index inBounds inside
       have bound := access.writerRegionBeforeOutputContext
-      unfold writeOutputMemory byteRange at inside
+      rw [decodedAddress] at inside
+      unfold writeOutputMemory Region.union byteRange at inside
       rcases inside with inside | inside <;> omega) (by
       intro index inBounds inside
       have bound := access.writerRegionBeforeOutputContext
-      unfold writeOutputMemory byteRange at inside
+      unfold writeOutputMemory Region.union byteRange at inside
       rcases inside with inside | inside <;> omega)
-  have outputPmaEq := output.writes.get pma_regions (by simp [writeOutputWrites, stepBookkeeping])
+  have outputPmaEq := output.preserved pma_regions
+    (by simp [instructionPreserved, platformPreserved])
   have accessAfter : WriteSuccessMachineAccess args after.machine := {
     configured := output.configured
     frameLoad := fun offset width bound =>
@@ -9451,7 +9504,7 @@ private theorem writeSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessA
   refine ⟨after, {
     trace := by simpa [Nat.add_assoc] using parentTrace.append output.trace
     atPc := output.atPc
-    stack := (output.writes.get x2 (by simp [writeOutputWrites, stepBookkeeping])).trans
+    stack := (output.preserved x2 (by simp [instructionPreserved])).trans
       ((callWrites.get x2 (by decide)).trans (seg3.reg x2 _ (by simp)))
     stdout := by simpa [callState] using output.stdout
     stdin := by simpa [callState] using output.stdin
@@ -9531,15 +9584,25 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
     (by simp [RegsOutside, stepBookkeeping])
   have access1 := writeSuccessAccessOfSeg access seg1
-  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully _ := by
-    simpa [seg1.memEq (by simp)] using loaded
+  have hashesAddressMemEq :
+      (afterRegisterWrite before.machine 0x1573c retired0 x9
+        (BitVec.ofNat 64 hashAddress)).mem = before.machine.mem := seg1.memEq (by simp)
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully
+      (afterRegisterWrite before.machine 0x1573c retired0 x9
+        (BitVec.ofNat 64 hashAddress)).mem := by
+    rw [hashesAddressMemEq]
+    exact loaded
   obtain ⟨machine2, seg2⟩ := seg1.step
     (by unfold writeSuccessParentPc; exact
       ⟨(0x1573c, 0x15744), by native_decide, by native_decide, by native_decide⟩)
     (by native_decide) x8 (BitVec.ofNat 64 args.decoded.versionedHashes.size)
     0x15744 (writeSuccessHashesCountLoadStep (fromStep + 1)
       args.decoded.versionedHashes.size args _ access1 seg1.atPc
-      (seg1.reg x2 _ (by simp)) (by simpa [seg1.memEq (by simp)] using countRep) aligned loaded1)
+      (seg1.reg x2 _ (by simp))
+      (by simpa [seg1.memEq (by simp)] using
+        (countRep : UIntRep 8 before.machine.mem
+          (args.stackPointer - 0x7d0 + 0x390) args.decoded.versionedHashes.size))
+      aligned loaded1)
     (by native_decide) (by intro r h; exact Or.inl h)
     (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
     (by simp [RegsOutside, stepBookkeeping])
@@ -9565,11 +9628,16 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
         (fun state address => state.machine.regs.get? x9 = some (BitVec.ofNat 64 address)) 32
         (fun mem address hash => hash.size = 32 ∧ BytesRep mem address hash))
       childArgs childState := by
+    unfold InlineEncoderEntry
+    dsimp only [childArgs]
     refine ⟨(by omega), (by omega), (by simpa [childState, EndpointPc, MachinePc] using seg2.atPc),
-      (by simpa [childState] using seg2.reg x2 _ (by simp)), ?_, ?_, ?_, rfl, ?_, ?_, ?_, ?_⟩
-    · exact ⟨arrayRep.1,
+      (by simpa [childState] using seg2.reg x2 _ (by simp)), ?_, ?_, ?_, rfl,
+      ?_, ?_, ?_, ?_, ?_⟩
+    · unfold InlineArrayEncoderBinding
+      exact ⟨arrayRep.1,
         by simpa [childState] using seg2.reg x8 _ (by simp),
-        by simpa [childState] using seg2.reg x9 _ (by simp), arrayRep⟩
+        by simpa [childState] using seg2.reg x9 _ (by simp),
+        by simpa [childState, seg2.memEq (by simp)] using arrayRep⟩
     · intro word member
       simpa [childState, seg2.memEq (by simp)] using saved word member
     · simpa [childState, seg2.memEq (by simp)] using decoded
@@ -9597,11 +9665,16 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
   have childInWriter : ∀ address, inlineEncoderMemoryRegion childArgs.stackPointer address →
       writeSuccessFrameMemory args address := by
     intro address inside
-    unfold inlineEncoderMemoryRegion writeSuccessFrameMemory byteRange at inside ⊢
+    unfold inlineEncoderMemoryRegion byteRange at inside
+    unfold writeSuccessFrameMemory byteRange
     dsimp [childArgs] at inside
     omega
+  have setupMemory : WriteSuccessMemoryFrame args before.machine childState.machine := by
+    simpa [childState] using seg2.mem.mono (by
+      intro address impossible
+      exact impossible.elim)
   have fullMemory : WriteSuccessMemoryFrame args before.machine after.machine :=
-    childMemory.mono childInWriter
+    WritesOnlyWithin.trans_same setupMemory (childMemory.mono childInWriter)
   have accessAtChild := writeSuccessAccessOfSeg access seg2
   have pmaEq := childAgree pma_regions (by simp [inlineEncoderPreserved])
   have accessAfter : WriteSuccessMachineAccess args after.machine := {
