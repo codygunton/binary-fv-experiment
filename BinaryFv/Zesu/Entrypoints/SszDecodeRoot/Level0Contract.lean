@@ -138,6 +138,10 @@ structure MainDataAccess (args : MainArgs) (state : State) : Prop where
     StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer + offset)) width
   inputContextLoad :
     LoadPmaAllows state (BitVec.ofNat 64 Elflings.ioContextAddress) 8
+  outputBufferStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
+  outputLengthStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
   exitCodeStore :
     StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 24)) 8
   decodeFrameLoad : ∀ offset width, offset + width ≤ 0xbb0 →
@@ -154,6 +158,8 @@ theorem MainDataAccess.of_pma_regions_eq {args : MainArgs} {before after : State
   stackStore offset width bound :=
     dataPmaAllows_of_pma_regions_eq regions (access.stackStore offset width bound)
   inputContextLoad := dataPmaAllows_of_pma_regions_eq regions access.inputContextLoad
+  outputBufferStore := dataPmaAllows_of_pma_regions_eq regions access.outputBufferStore
+  outputLengthStore := dataPmaAllows_of_pma_regions_eq regions access.outputLengthStore
   exitCodeStore := dataPmaAllows_of_pma_regions_eq regions access.exitCodeStore
   decodeFrameLoad offset width bound :=
     dataPmaAllows_of_pma_regions_eq regions (access.decodeFrameLoad offset width bound)
@@ -2034,6 +2040,8 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
               frameNoMMIO := ?_
               decodedLoad := ?_
               decodedNoMMIO := ?_
+              outputBufferStore := callDataAccess.outputBufferStore
+              outputLengthStore := callDataAccess.outputLengthStore
               frameNotCode := ?_ }
           · intro offset width bound
             have stackLower := entry.stackLower

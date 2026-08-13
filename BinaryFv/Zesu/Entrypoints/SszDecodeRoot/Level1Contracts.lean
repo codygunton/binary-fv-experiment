@@ -179,6 +179,10 @@ structure WriteSuccessMachineAccess (args : WriteSuccessArgs) (state : MachineSt
     LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer + offset)) width
   decodedNoMMIO : ∀ offset width, offset + width ≤ 0x380 →
     LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  outputBufferStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
+  outputLengthStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
   frameNotCode : ∀ address, args.stackPointer - 0x880 ≤ address →
     address < args.stackPointer → Artifacts.programImage.readFileByte? address = none
 
