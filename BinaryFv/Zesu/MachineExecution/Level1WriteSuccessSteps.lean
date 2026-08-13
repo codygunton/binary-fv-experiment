@@ -8139,6 +8139,95 @@ private theorem writeSuccessOptionalCallStep (stepNo : Nat) (state : State)
   · native_decide
   · native_decide
 
+/-- Production `0x1571c: ld a0,0x490(sp)`. -/
+private theorem writeSuccessBlockAccessPointerLoadStep (stepNo address : Nat)
+    (args : WriteSuccessArgs) (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x1571c)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x490) address)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x1571c retired x10 (BitVec.ofNat 64 address)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x1571c 0x490 address args state
+    (.Regidx 10#5) x10 (BitVec.ofNat 64 address) 0x490 0x03 0x35 0x01 0x49
+    access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x490#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x10_run premise _
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x15720: ld a1,0x498(sp)`. -/
+private theorem writeSuccessBlockAccessLengthLoadStep (stepNo address length : Nat)
+    (args : WriteSuccessArgs) (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x15720)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : ByteSliceRep state.mem (args.stackPointer - 0x7d0 + 0x490) address length)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15720 retired x11 (BitVec.ofNat 64 length)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x15720 0x498 length args state
+    (.Regidx 11#5) x11 (BitVec.ofNat 64 length) 0x498 0x83 0x35 0x81 0x49
+    access atPc stack rep.2.1 (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x498#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x11_run premise _
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x15724: auipc ra,0`. -/
+private theorem writeSuccessBlockAccessCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15724)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15724 retired x1 0x15724) false := by
+  apply configuredAuipcStep stepNo state 0x15724 0 0x97 0x00 0x00 0x00 configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x15728: jalr ra,0x548(ra)`, entering the shared bytes encoder. -/
+private theorem writeSuccessBlockAccessCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15728)
+    (baseRead : state.regs.get? x1 = some 0x15724)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x15728 0x15c6c x1 0x1572c)
+        0x15c6c retired) false := by
+  apply configuredJalrCallStep stepNo state 0x15728 0x15724 0x548 0x15c6c 0x1572c
+    0xe7 0x80 0x80 0x54 configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
 set_option genInjectivity false in
 /-- The four parent loads/stores that materialize the optional slot descriptor. -/
 structure WriteSuccessSlotSetupHandoff (fromStep : Nat) (args : WriteSuccessArgs)
