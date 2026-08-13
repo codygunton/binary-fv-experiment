@@ -4805,4 +4805,47 @@ private theorem writeSuccessBlockNumberLoadStep (stepNo : Nat) (args : WriteSucc
   · native_decide
   · rfl
   all_goals native_decide
+
+/-- Production `0x14e8c: auipc ra,1`. -/
+private theorem writeSuccessFirstIntCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e8c)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e8c retired x1 0x15e8c) false := by
+  apply configuredAuipcStep stepNo state 0x14e8c 1 0x97 0x10 0x00 0x00 configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x14e90: jalr ra,-380(ra)`, entering the shared integer encoder. -/
+private theorem writeSuccessFirstIntCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e90)
+    (baseRead : state.regs.get? x1 = some 0x15e8c)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e90 0x15d10 x1 0x14e94)
+        0x15d10 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x14e90 0x15e8c 0xe84 0x15d10 0x14e94
+    0xe7 0x80 0x40 0xe8 configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
 end BinaryFv.Zesu.MachineExecution
