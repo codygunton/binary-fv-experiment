@@ -204,6 +204,7 @@ structure ZkvmExitArgs where
 def ZkvmExitEntry (args : ZkvmExitArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.zkvmExitEntry) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.code) ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 (Elflings.ioContextAddress + 24)) 8 ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   ConfiguredMachinePre EndpointMachinePc state.machine
 
@@ -212,7 +213,8 @@ def ZkvmExitPost (args : ZkvmExitArgs) (_outcome : Unit)
   after.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.zkvmExitTerminalPc) ∧
   after.exitCode = some args.code ∧ after.stdin = before.stdin ∧
   after.stdinCursor = before.stdinCursor ∧ after.stdout = before.stdout ∧
-  after.machine.mem = before.machine.mem
+  WritesOnlyWithin (byteRange (Elflings.ioContextAddress + 24) 8)
+    before.machine after.machine
 
 def zkvmExitContract (stepBound : ZkvmExitArgs → Nat) :
     RelationalMachineContract EndpointState ZkvmExitArgs Unit :=
