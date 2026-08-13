@@ -414,6 +414,7 @@ structure WriteOutputHandoff (fromStep : Nat) (buffer : Nat) (bytes : Array UInt
   cursor : after.stdinCursor = before.stdinCursor
   exitCode : after.exitCode = before.exitCode
   writes : WritesOnlyRegs writeOutputWrites before.machine after.machine
+  stackPreserved : after.machine.regs.get? x2 = before.machine.regs.get? x2
   preserved : Agree instructionPreserved before.machine after.machine
   memory : WritesOnlyWithin writeOutputMemory before.machine after.machine
   configured : ConfiguredMachinePre EndpointMachinePc after.machine
@@ -533,13 +534,18 @@ theorem writeOutputHandoff (fromStep buffer : Nat) (bytes : Array UInt8)
     exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges],
       by native_decide, by native_decide⟩
   refine ⟨after, prefixTrace.append (by simpa [beforeReturn] using finalTrace), ?_, rfl, rfl, rfl,
-    rfl, ?_, ?_, ?_, ?_, ?_⟩
+    rfl, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · simp [after, s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, Std.ExtDHashMap.get?_insert]
   · have writes5 : WritesOnlyRegs writeOutputWrites s4 s5 := by
       exact (jumpRetirement_writes s4 0x101a0
         (Sail.BitVec.update returnAddress 0 0#1) r5).mono (fun _ h => Or.inl h)
     simpa [after, s5] using WritesOnlyRegs.trans_same seg4.writes writes5
+  · have writes5 : WritesOnlyRegs writeOutputWrites s4 s5 := by
+      exact (jumpRetirement_writes s4 0x101a0
+        (Sail.BitVec.update returnAddress 0 0#1) r5).mono (fun _ h => Or.inl h)
+    exact (WritesOnlyRegs.trans_same seg4.writes writes5).get x2
+      (by simp [writeOutputWrites, stepBookkeeping])
   · have writes5 : WritesOnlyRegs writeOutputWrites s4 s5 := by
       exact (jumpRetirement_writes s4 0x101a0
         (Sail.BitVec.update returnAddress 0 0#1) r5).mono (fun _ h => Or.inl h)
