@@ -285,11 +285,10 @@ private theorem main_load_half_step (stepNo : Nat) (state : State) (pc : Nat)
     (by decide) (by decide) counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1
     counters.2.2.2.2.1 counters.2.2.2.2.2⟩
 
-private theorem main_auipc_step (stepNo : Nat) (state : State) (pc : Nat)
+theorem configuredAuipcStep (stepNo : Nat) (state : State) (pc : Nat)
     (imm : BitVec 20) (byte0 byte1 byte2 byte3 : UInt8)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
-    (inside : mainGluePcs (BitVec.ofNat 64 pc))
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (pcFits : pc < 2 ^ 64)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
@@ -310,7 +309,7 @@ private theorem main_auipc_step (stepNo : Nat) (state : State) (pc : Nat)
         (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    endpointStepContext configured (BitVec.ofNat 64 pc) atPc inside
+    configured.stepContext (BitVec.ofNat 64 pc) atPc trivial
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -413,13 +412,12 @@ private theorem main_li_zero_step (stepNo : Nat) (state : State) (pc : Nat)
     (by decide) (by decide) counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1
     counters.2.2.2.2.1 counters.2.2.2.2.2⟩
 
-private theorem main_jalr_call_step (stepNo : Nat) (state : State) (pc : Nat)
+theorem configuredJalrCallStep (stepNo : Nat) (state : State) (pc : Nat)
     (callBase : BitVec 64) (imm : BitVec 12) (target returnPc : BitVec 64)
     (byte0 byte1 byte2 byte3 : UInt8)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
     (baseRead : state.regs.get? x1 = some callBase)
-    (inside : mainGluePcs (BitVec.ofNat 64 pc))
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (pcFits : pc < 2 ^ 64)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
@@ -441,7 +439,7 @@ private theorem main_jalr_call_step (stepNo : Nat) (state : State) (pc : Nat)
   subst target
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    endpointStepContext configured (BitVec.ofNat 64 pc) atPc inside
+    configured.stepContext (BitVec.ofNat 64 pc) atPc trivial
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -1457,8 +1455,7 @@ theorem main_write_success_call_base_step (stepNo : Nat) (state : State)
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d08).regs.insert
             x1 0x14d08 }
         0x14d0c retired) false := by
-  apply main_auipc_step stepNo state 0x14d08 0 0x97 0x00 0x00 0x00 configured atPc
-    (by refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide) loaded
+  apply configuredAuipcStep stepNo state 0x14d08 0 0x97 0x00 0x00 0x00 configured atPc loaded
   · native_decide
   · native_decide
   · native_decide
@@ -1677,8 +1674,7 @@ theorem main_success_exit_call_base_step (stepNo : Nat) (state : State)
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d14).regs.insert
             x1 0xfd14 }
         0x14d18 retired) false := by
-  apply main_auipc_step stepNo state 0x14d14 0xffffb 0x97 0xb0 0xff 0xff configured atPc
-    (by refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide) loaded
+  apply configuredAuipcStep stepNo state 0x14d14 0xffffb 0x97 0xb0 0xff 0xff configured atPc loaded
   · native_decide
   · native_decide
   · native_decide
@@ -1698,8 +1694,7 @@ theorem main_write_failure_call_base_step (stepNo : Nat) (state : State)
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d1c).regs.insert
             x1 0x15d1c }
         0x14d20 retired) false := by
-  apply main_auipc_step stepNo state 0x14d1c 1 0x97 0x10 0x00 0x00 configured atPc
-    (by refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide) loaded
+  apply configuredAuipcStep stepNo state 0x14d1c 1 0x97 0x10 0x00 0x00 configured atPc loaded
   · native_decide
   · native_decide
   · native_decide
@@ -1719,8 +1714,7 @@ theorem main_failure_exit_call_base_step (stepNo : Nat) (state : State)
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d28).regs.insert
             x1 0xfd28 }
         0x14d2c retired) false := by
-  apply main_auipc_step stepNo state 0x14d28 0xffffb 0x97 0xb0 0xff 0xff configured atPc
-    (by refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide) loaded
+  apply configuredAuipcStep stepNo state 0x14d28 0xffffb 0x97 0xb0 0xff 0xff configured atPc loaded
   · native_decide
   · native_decide
   · native_decide
@@ -1776,9 +1770,8 @@ theorem main_success_exit_call_step (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14d18 0x101c4 x1 0x14d1c)
         0x101c4 retired) false := by
-  apply main_jalr_call_step stepNo state 0x14d18 0xfd14 0x4b0 0x101c4 0x14d1c
-    0xe7 0x80 0x00 0x4b configured atPc baseRead
-    (by refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide) loaded
+  apply configuredJalrCallStep stepNo state 0x14d18 0xfd14 0x4b0 0x101c4 0x14d1c
+    0xe7 0x80 0x00 0x4b configured atPc baseRead loaded
   · native_decide
   · native_decide
   · native_decide
@@ -1801,9 +1794,8 @@ theorem main_write_failure_call_step (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14d20 0x161c0 x1 0x14d24)
         0x161c0 retired) false := by
-  apply main_jalr_call_step stepNo state 0x14d20 0x15d1c 0x4a4 0x161c0 0x14d24
-    0xe7 0x80 0x40 0x4a configured atPc baseRead
-    (by refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide) loaded
+  apply configuredJalrCallStep stepNo state 0x14d20 0x15d1c 0x4a4 0x161c0 0x14d24
+    0xe7 0x80 0x40 0x4a configured atPc baseRead loaded
   · native_decide
   · native_decide
   · native_decide
@@ -1826,9 +1818,8 @@ theorem main_failure_exit_call_step (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14d2c 0x101c4 x1 0x14d30)
         0x101c4 retired) false := by
-  apply main_jalr_call_step stepNo state 0x14d2c 0xfd28 0x49c 0x101c4 0x14d30
-    0xe7 0x80 0xc0 0x49 configured atPc baseRead
-    (by refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide) loaded
+  apply configuredJalrCallStep stepNo state 0x14d2c 0xfd28 0x49c 0x101c4 0x14d30
+    0xe7 0x80 0xc0 0x49 configured atPc baseRead loaded
   · native_decide
   · native_decide
   · native_decide

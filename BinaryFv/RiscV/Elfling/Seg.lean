@@ -223,6 +223,12 @@ theorem forget (seg : Seg own exit childSummary W M kv a n base cur pc) {kv' : L
     (sub : ∀ p ∈ kv', p ∈ kv) : Seg own exit childSummary W M kv' a n base cur pc :=
   { seg with regs := fun p hp => seg.regs p (sub p hp) }
 
+/-- Widen the register write frame before extending a segment with instructions that write more
+registers. The trace, memory frame, program counter, and recorded register values are unchanged. -/
+theorem widenWrites (seg : Seg own exit childSummary W M kv a n base cur pc) {W' : RegSet}
+    (sub : ∀ r, W r → W' r) : Seg own exit childSummary W' M kv a n base cur pc :=
+  { seg with writes := seg.writes.mono sub }
+
 /-! ### Extending a segment -/
 
 /--
