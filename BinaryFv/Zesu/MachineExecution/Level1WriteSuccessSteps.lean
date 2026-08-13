@@ -60,6 +60,15 @@ private theorem writeSuccessChildFrame_mem_frame {stackPointer address : Nat}
   · rw [Nat.sub_add_cancel lower]
     omega
 
+private theorem writeSuccessChildStackFits {stackPointer : Nat} (lower : 0x810 ≤ stackPointer) :
+    16 ≤ stackPointer - 0x7d0 := by
+  apply Nat.le_sub_of_add_le
+  exact Nat.le_trans (by decide : 16 + 0x7d0 ≤ 0x810) lower
+
+private theorem writeSuccessChildStackBound {stackPointer : Nat} (upper : stackPointer < 2 ^ 64) :
+    stackPointer - 0x7d0 < 2 ^ 64 :=
+  Nat.lt_of_le_of_lt (Nat.sub_le stackPointer 0x7d0) upper
+
 def writeSuccessIncomingRegs (args : WriteSuccessArgs) (values : DecodeCalleeSavedValues) :
     List RegVal :=
   [⟨x1, BitVec.ofNat 64 args.returnAddress⟩,
@@ -4870,6 +4879,270 @@ private theorem writeSuccessFirstIntCallStep (stepNo : Nat) (state : State)
   · native_decide
   · native_decide
 
+/-- Production `0x14e94: ld a0,0x410(sp)`. -/
+private theorem writeSuccessGasLimitLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x14e94)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x410)
+      args.decoded.payload.gasLimit)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e94 retired x10
+        (BitVec.ofNat 64 args.decoded.payload.gasLimit)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x14e94 0x410 args.decoded.payload.gasLimit
+    args state (.Regidx 10#5) x10 (BitVec.ofNat 64 args.decoded.payload.gasLimit)
+    0x410 0x03 0x35 0x01 0x41 access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x410#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 args.decoded.payload.gasLimit)
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x14e98: auipc ra,1`. -/
+private theorem writeSuccessGasLimitCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e98)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e98 retired x1 0x15e98) false := by
+  apply configuredAuipcStep stepNo state 0x14e98 1 0x97 0x10 0x00 0x00 configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x14e9c: jalr ra,-392(ra)`. -/
+private theorem writeSuccessGasLimitCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e9c)
+    (baseRead : state.regs.get? x1 = some 0x15e98)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e9c 0x15d10 x1 0x14ea0)
+        0x15d10 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x14e9c 0x15e98 0xe78 0x15d10 0x14ea0
+    0xe7 0x80 0x80 0xe7 configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
+/-- Production `0x14ea0: ld a0,0x418(sp)`. -/
+private theorem writeSuccessGasUsedLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x14ea0)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x418)
+      args.decoded.payload.gasUsed)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14ea0 retired x10
+        (BitVec.ofNat 64 args.decoded.payload.gasUsed)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x14ea0 0x418 args.decoded.payload.gasUsed
+    args state (.Regidx 10#5) x10 (BitVec.ofNat 64 args.decoded.payload.gasUsed)
+    0x418 0x03 0x35 0x81 0x41 access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x418#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 args.decoded.payload.gasUsed)
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x14ea4: auipc ra,1`. -/
+private theorem writeSuccessGasUsedCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14ea4)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14ea4 retired x1 0x15ea4) false := by
+  apply configuredAuipcStep stepNo state 0x14ea4 1 0x97 0x10 0x00 0x00 configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x14ea8: jalr ra,-404(ra)`. -/
+private theorem writeSuccessGasUsedCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14ea8)
+    (baseRead : state.regs.get? x1 = some 0x15ea4)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x14ea8 0x15d10 x1 0x14eac)
+        0x15d10 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x14ea8 0x15ea4 0xe6c 0x15d10 0x14eac
+    0xe7 0x80 0xc0 0xe6 configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
+/-- Production `0x14eac: ld a0,0x420(sp)`. -/
+private theorem writeSuccessTimestampLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x14eac)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x420)
+      args.decoded.payload.timestamp)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14eac retired x10
+        (BitVec.ofNat 64 args.decoded.payload.timestamp)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x14eac 0x420 args.decoded.payload.timestamp
+    args state (.Regidx 10#5) x10 (BitVec.ofNat 64 args.decoded.payload.timestamp)
+    0x420 0x03 0x35 0x01 0x42 access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x420#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 args.decoded.payload.timestamp)
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x14eb0: auipc ra,1`. -/
+private theorem writeSuccessTimestampCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14eb0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14eb0 retired x1 0x15eb0) false := by
+  apply configuredAuipcStep stepNo state 0x14eb0 1 0x97 0x10 0x00 0x00 configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x14eb4: jalr ra,-416(ra)`. -/
+private theorem writeSuccessTimestampCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14eb4)
+    (baseRead : state.regs.get? x1 = some 0x15eb0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x14eb4 0x15d10 x1 0x14eb8)
+        0x15d10 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x14eb4 0x15eb0 0xe60 0x15d10 0x14eb8
+    0xe7 0x80 0x00 0xe6 configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
+/-- Production `0x14ec8: ld a0,0x438(sp)`. -/
+private theorem writeSuccessBaseFeeLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x14ec8)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x438)
+      args.decoded.payload.baseFeePerGas)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14ec8 retired x10
+        (BitVec.ofNat 64 args.decoded.payload.baseFeePerGas)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x14ec8 0x438 args.decoded.payload.baseFeePerGas
+    args state (.Regidx 10#5) x10 (BitVec.ofNat 64 args.decoded.payload.baseFeePerGas)
+    0x438 0x03 0x35 0x81 0x43 access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x438#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 args.decoded.payload.baseFeePerGas)
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x14ecc: auipc ra,1`. -/
+private theorem writeSuccessBaseFeeCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14ecc)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14ecc retired x1 0x15ecc) false := by
+  apply configuredAuipcStep stepNo state 0x14ecc 1 0x97 0x10 0x00 0x00 configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x14ed0: jalr ra,-444(ra)`. -/
+private theorem writeSuccessBaseFeeCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14ed0)
+    (baseRead : state.regs.get? x1 = some 0x15ecc)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x14ed0 0x15d10 x1 0x14ed4)
+        0x15d10 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x14ed0 0x15ecc 0xe44 0x15d10 0x14ed4
+    0xe7 0x80 0x40 0xe4 configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
 set_option genInjectivity false in
 /-- State after the first shared integer encoder call, for payload block number. -/
 structure WriteSuccessFirstIntHandoff
@@ -5167,4 +5440,226 @@ theorem writeSuccessFirstIntHandoff
           args.decoded.payload.receiptsRoot ++ args.decoded.payload.logsBloom ++
           args.decoded.payload.prevRandao ++ encodeNatLE 8 args.decoded.payload.blockNumber := by
         rw [handoff.stdout]
+
+set_option genInjectivity false in
+/-- Reusable result of one parent `ld; auipc; jalr` sequence and the shared integer child. -/
+structure WriteSuccessIntCallHandoff
+    (fromStep childUsed returnPc value : Nat) (args : WriteSuccessArgs)
+    (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (3 + childUsed) before after
+  atPc : EndpointPc after = some (BitVec.ofNat 64 returnPc)
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdout : after.stdout = before.stdout ++ encodeNatLE 8 value
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  memory : WritesOnlyWithin
+    (byteRange (args.stackPointer - 0x7d0 - 16) 16) before.machine after.machine
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+
+/-- Compose one exact parent integer-call setup with the selected shared integer contract. -/
+private theorem writeSuccessIntCallHandoff
+    (intChild : WriteSuccessIntInstanceContract)
+    (fromStep pc returnPc offset value callBase : Nat)
+    (args : WriteSuccessArgs) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 before.machine.mem (args.stackPointer - 0x7d0 + offset) value)
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x810 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (loadStep : ∀ stepNo state,
+      WriteSuccessMachineAccess args state →
+      state.regs.get? PC = some (BitVec.ofNat 64 pc) →
+      state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) →
+      UIntRep 8 state.mem (args.stackPointer - 0x7d0 + offset) value →
+      args.stackPointer % 16 = 0 →
+      Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+      ∃ retired, Runs (try_step stepNo false) state
+        (afterRegisterWrite state pc retired x10 (BitVec.ofNat 64 value)) false)
+    (baseStep : ∀ stepNo state,
+      ConfiguredMachinePre EndpointMachinePc state →
+      state.regs.get? PC = some (BitVec.ofNat 64 (pc + 4)) →
+      Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+      ∃ retired, Runs (try_step stepNo false) state
+        (afterRegisterWrite state (BitVec.ofNat 64 (pc + 4)) retired x1
+          (BitVec.ofNat 64 callBase)) false)
+    (callStep : ∀ stepNo state,
+      ConfiguredMachinePre EndpointMachinePc state →
+      state.regs.get? PC = some (BitVec.ofNat 64 (pc + 8)) →
+      state.regs.get? x1 = some (BitVec.ofNat 64 callBase) →
+      Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+      ∃ retired, Runs (try_step stepNo false) state
+        (tryStepControlFlowAfterRetired
+          (callLinkState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 (pc + 8)) 0x15d10 x1 returnPc)
+          0x15d10 retired) false)
+    (owned0 : writeSuccessParentPc (BitVec.ofNat 64 pc))
+    (owned1 : writeSuccessParentPc (BitVec.ofNat 64 (pc + 4)))
+    (owned2 : writeSuccessParentPc (BitVec.ofNat 64 (pc + 8)))
+    (notExit0 : ¬writeSuccessFirstIntExitPc (BitVec.ofNat 64 pc))
+    (notExit1 : ¬writeSuccessFirstIntExitPc (BitVec.ofNat 64 (pc + 4)))
+    (notExit2 : ¬writeSuccessFirstIntExitPc (BitVec.ofNat 64 (pc + 8)))
+    (next0 : BitVec.ofNat 64 pc + 4 = BitVec.ofNat 64 (pc + 4))
+    (next1 : BitVec.ofNat 64 (pc + 4) + 4 = BitVec.ofNat 64 (pc + 8))
+    (returnListed : returnPc ∈ Elflings.writeSuccessIntExitPcs) :
+    ∃ childUsed after,
+      WriteSuccessIntCallHandoff fromStep childUsed returnPc value args before after := by
+  have seg0 : Seg writeSuccessParentPc writeSuccessFirstIntExitPc
+      (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
+      [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩]
+      fromStep 0 before.machine before.machine (BitVec.ofNat 64 pc) := {
+    trace := .refl _ _
+    confined := .nil
+    writes := .refl _ _
+    mem := fun _ _ => rfl
+    retired := access.configured.retiredCounter
+    atPc := atPc
+    regs := by intro pair member; simp at member; subst pair; exact stack }
+  obtain ⟨retired0, run0⟩ := loadStep _ before.machine access atPc stack rep aligned loaded
+  have seg1 := seg0.stepKnown owned0 notExit0 x10 (BitVec.ofNat 64 value)
+    (BitVec.ofNat 64 (pc + 4)) retired0 run0 next0 (by intro r h; exact Or.inl h)
+    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access1 := writeSuccessAccessOfSeg access seg1
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully
+      (afterRegisterWrite before.machine pc retired0 x10 (BitVec.ofNat 64 value)).mem := by
+    simpa [seg1.memEq (by simp)] using loaded
+  obtain ⟨baseMachine, seg2⟩ := seg1.step owned1 notExit1 x1
+    (BitVec.ofNat 64 callBase) (BitVec.ofNat 64 (pc + 8))
+    (baseStep _ _ access1.configured seg1.atPc loaded1)
+    next1 (by intro r h; exact Or.inl h)
+    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access2 := writeSuccessAccessOfSeg access seg2
+  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully baseMachine.mem := by
+    simpa [seg2.memEq (by simp)] using loaded
+  obtain ⟨retired2, callRun⟩ := callStep _ baseMachine access2.configured seg2.atPc
+    (seg2.reg x1 (BitVec.ofNat 64 callBase) (by simp)) loaded2
+  let callMachine := tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement baseMachine) (BitVec.ofNat 64 (pc + 8))
+      0x15d10 x1 returnPc)
+    0x15d10 retired2
+  let callState : EndpointState := { before with machine := callMachine }
+  have callWrites := callRetirement_writes baseMachine (BitVec.ofNat 64 (pc + 8))
+    0x15d10 retired2 x1 returnPc
+  have callAtPc : callMachine.regs.get? PC = some 0x15d10 := by
+    simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      Std.ExtDHashMap.get?_insert]
+  have callBaseMemEq : callMachine.mem = baseMachine.mem := by
+    change
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement baseMachine) (BitVec.ofNat 64 (pc + 8))
+          0x15d10 x1 returnPc)
+        0x15d10 retired2).mem = baseMachine.mem
+    rw [tryStepControlFlowAfterRetired_mem]
+    change
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement baseMachine)
+        (BitVec.ofNat 64 (pc + 8)) 0x15d10).mem =
+        baseMachine.mem
+    rw [controlFlowJumpState_mem]
+    rfl
+  have callMemEq : callMachine.mem = before.machine.mem :=
+    callBaseMemEq.trans (seg2.memEq (by simp))
+  let childArgs : EncoderCallArgs Nat :=
+    { returnAddress := returnPc
+      callerStack := args.stackPointer - 0x7d0
+      value }
+  have childEntry : EncoderCallEntry Elflings.writeSuccessIntEntry
+      Elflings.writeSuccessIntExitPcs UInt64EncoderBinding childArgs callState := by
+    unfold EncoderCallEntry
+    constructor
+    · exact returnListed
+    constructor
+    · change args.stackPointer - 0x7d0 < 2 ^ 64
+      exact writeSuccessChildStackBound upper
+    constructor
+    · simpa [callState] using callAtPc
+    constructor
+    · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, childArgs]
+    constructor
+    · exact (callWrites.get x2 (by decide)).trans
+        (seg2.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
+    constructor
+    · exact ⟨rep.1, (callWrites.get x10 (by decide)).trans
+        (seg2.reg x10 (BitVec.ofNat 64 value) (by simp))⟩
+    · simpa [callState, callMemEq] using loaded
+  obtain ⟨intBound, intImpl⟩ := intChild
+  obtain ⟨childUsed, after, unit, _positive, _bounded, childTrace, _childPc, _allowed,
+      childExit⟩ := intImpl childArgs (fromStep + 3) callState childEntry
+  rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, _frameFits, childMem,
+    childFrame⟩
+  have callPrefix : ConfinedPrefix writeSuccessParentPc writeSuccessFirstIntExitPc
+      (fun _ _ _ _ _ => False) (fromStep + 2) 1 baseMachine callMachine :=
+    ConfinedPrefix.ownStep seg2.atPc owned2 notExit2 callRun
+  have callEnd : ScopedTrace writeSuccessParentPc writeSuccessFirstIntExitPc
+      (fun _ _ _ _ _ => False) (fromStep + 3) 0 callMachine callMachine :=
+    .exitAt _ _ 0x15d10 callAtPc (Or.inl rfl)
+  have parentMachineTrace := seg2.confined.trans callPrefix 0 callMachine callEnd
+  have parentTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 3 before callState := by
+    simpa [callState] using liftWriteSuccessParentTrace before parentMachineTrace
+  have childTrace' := childTrace.weaken (fun _ inside =>
+    show pcInRanges Elflings.writeSuccessExecutionPcRanges _ from by
+      unfold pcInRanges at inside ⊢
+      rcases inside with ⟨range, member, lo, hi⟩
+      simp only [Elflings.writeSuccessIntExecutionPcRanges, List.mem_cons] at member
+      rcases member with rfl | member
+      · exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges], lo, hi⟩
+      · simp at member
+        subst range
+        exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
+          by omega, hi⟩)
+  have exactMemory : WritesOnlyWithin
+      (byteRange (args.stackPointer - 0x7d0 - 16) 16) before.machine after.machine := by
+    intro address outside
+    rw [childMem address (by simpa [childArgs] using outside), callMemEq]
+  have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
+  have pmaEq := (childFrame.1 pma_regions (by simp [abiCalleePreserved])).trans callPmaEq
+  have accessAfter : WriteSuccessMachineAccess args after.machine :=
+    { configured := configuredAfterEndpointCall
+        (configuredAfterWriteSuccessCall (BitVec.ofNat 64 (pc + 8)) 0x15d10 returnPc retired2
+          access2.configured)
+        childFrame
+      frameLoad := fun position width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access2.frameLoad position width bound)
+      frameStore := fun position width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access2.frameStore position width bound)
+      frameNoMMIO := access2.frameNoMMIO
+      decodedLoad := fun position width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access2.decodedLoad position width bound)
+      decodedNoMMIO := access2.decodedNoMMIO
+      frameNotCode := access2.frameNotCode }
+  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem := by
+    intro address byte fileByte
+    have outside : ¬byteRange (args.stackPointer - 0x7d0 - 16) 16 address := by
+      intro inside
+      have inWriter := writeSuccessChildFrame_mem_frame lower inside
+      unfold byteRange at inWriter
+      rw [Nat.sub_add_cancel lower] at inWriter
+      have notCode := access2.frameNotCode address inWriter.1 inWriter.2
+      exact Option.some_ne_none byte (fileByte.symm.trans notCode)
+    rw [exactMemory address outside]
+    exact loaded address byte fileByte
+  refine ⟨childUsed, after, {
+    trace := ?_
+    atPc := afterPc
+    stack := (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
+      ((callWrites.get x2 (by decide)).trans
+        (seg2.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)))
+    stdout := by simpa [callState, childArgs] using stdout
+    stdin := by simpa [callState] using stdin
+    cursor := by simpa [callState] using cursor
+    exitCode := by simpa [callState] using exitCode
+    memory := exactMemory
+    loaded := loadedAfter
+    access := accessAfter }⟩
+  have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
+  simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
 end BinaryFv.Zesu.MachineExecution
