@@ -57,6 +57,24 @@ class Level2AdmissionTests(unittest.TestCase):
             "pointerRegister": 10, "lengthRegister": 11,
             "encoding": "length-prefixed-bytes",
         })
+        transactions = next(row for row in result["instances"]
+                            if row["leanName"] == "writeSuccessTransactions")
+        self.assertEqual(transactions["measured"]["validatedEntryBinding"], {
+            "countRegister": 10, "addressBinding": "stack-u64-at-sp+104",
+            "encoding": "little-u64-prefix",
+        })
+        withdrawals = next(row for row in result["instances"]
+                           if row["leanName"] == "writeSuccessWithdrawals")
+        self.assertEqual(withdrawals["measured"]["validatedEntryBinding"], {
+            "countRegister": 9, "addressRegister": 8,
+            "encoding": "little-u64-prefix",
+        })
+        hashes = next(row for row in result["instances"]
+                      if row["leanName"] == "writeSuccessHashes")
+        self.assertEqual(hashes["measured"]["validatedEntryBinding"], {
+            "countRegister": 8, "addressRegister": 9,
+            "encoding": "little-u64-prefix",
+        })
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)

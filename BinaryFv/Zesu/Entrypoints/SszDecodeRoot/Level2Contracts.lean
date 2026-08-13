@@ -469,12 +469,13 @@ structure InlineArrayEncoderValue (Element : Type) where
   address : Nat
   values : Array Element
 
-def InlineArrayEncoderBinding (countBinding : EndpointState → Nat → Prop) (stride : Nat)
+def InlineArrayEncoderBinding (countBinding addressBinding : EndpointState → Nat → Prop)
+    (stride : Nat)
     (elementRep : Std.ExtHashMap Nat (BitVec 8) → Nat → Element → Prop)
     (state : EndpointState) (value : InlineArrayEncoderValue Element) : Prop :=
   value.address + value.values.size * stride ≤ 2 ^ 64 ∧
   countBinding state value.values.size ∧
-  state.machine.regs.get? x11 = some (BitVec.ofNat 64 value.address) ∧
+  addressBinding state value.address ∧
   ArrayRep stride elementRep state.machine.mem value.address value.values
 
 abbrev WriteSuccessTransactionsInstanceContract : Prop :=
@@ -483,6 +484,9 @@ abbrev WriteSuccessTransactionsInstanceContract : Prop :=
     (fun value => encodeMany encodeTransaction value.values)
     (InlineArrayEncoderBinding
       (fun state count => state.machine.regs.get? x10 = some (BitVec.ofNat 64 count))
+      (fun state address => ∃ stackPointer,
+        state.machine.regs.get? x2 = some (BitVec.ofNat 64 stackPointer) ∧
+        UIntRep 8 state.machine.mem (stackPointer + 104) address)
       288 TransactionRep)
 
 abbrev WriteSuccessWithdrawalsInstanceContract : Prop :=
@@ -491,6 +495,7 @@ abbrev WriteSuccessWithdrawalsInstanceContract : Prop :=
     (fun value => encodeMany encodeWithdrawal value.values)
     (InlineArrayEncoderBinding
       (fun state count => state.machine.regs.get? x9 = some (BitVec.ofNat 64 count))
+      (fun state address => state.machine.regs.get? x8 = some (BitVec.ofNat 64 address))
       48 WithdrawalRep)
 
 abbrev WriteSuccessHashesInstanceContract : Prop :=
@@ -498,7 +503,8 @@ abbrev WriteSuccessHashesInstanceContract : Prop :=
     Elflings.writeSuccessHashesExecutionPcRanges Elflings.writeSuccessHashesExitPcs 0x158e0
     (fun value => encodeMany (fun hash => hash) value.values)
     (InlineArrayEncoderBinding
-      (fun state count => state.machine.regs.get? x8 = some (BitVec.ofNat 64 count)) 32
+      (fun state count => state.machine.regs.get? x8 = some (BitVec.ofNat 64 count))
+      (fun state address => state.machine.regs.get? x9 = some (BitVec.ofNat 64 address)) 32
       (fun mem address hash => hash.size = 32 ∧ BytesRep mem address hash))
 
 /-- The exact unresolved contracts selected at UI Level 2. Linux read/exit and the shared `memcpy`

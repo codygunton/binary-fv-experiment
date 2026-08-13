@@ -136,6 +136,12 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
                 if not writes or bytes.fromhex(writes[0]["bytes"]) != count.to_bytes(8, "little"):
                     raise ValueError(f"{name} count binding mismatch")
             entry_binding = {"countRegister": count_register, "encoding": "little-u64-prefix"}
+            if name == "writeSuccessTransactions":
+                entry_binding["addressBinding"] = "stack-u64-at-sp+104"
+            elif name == "writeSuccessWithdrawals":
+                entry_binding["addressRegister"] = 8
+            elif name == "writeSuccessHashes":
+                entry_binding["addressRegister"] = 9
         rows.append({
             "id": instance["id"], "leanName": name, "qualified": instance["qualified"],
             "parentInstanceIds": instance["parentInstanceIds"],
