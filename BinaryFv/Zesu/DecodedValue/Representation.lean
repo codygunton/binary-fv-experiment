@@ -82,6 +82,11 @@ def BytesRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
     ∀ index (inBounds : index < bytes.size),
       mem.get? (address + index) = some (BitVec.ofNat 8 bytes[index].toNat)
 
+theorem BytesRep.of_mem_eq {before after : Std.ExtHashMap Nat (BitVec 8)}
+    {address : Nat} {bytes : Array UInt8} (rep : BytesRep before address bytes)
+    (memEq : after = before) : BytesRep after address bytes := by
+  simpa [memEq] using rep
+
 theorem BytesRep.of_writesOnlyWithin {address : Nat} {bytes : Array UInt8}
     {before after : BinaryFv.RiscV.State} {owned : BinaryFv.RiscV.Region}
     (rep : BytesRep before.mem address bytes)
