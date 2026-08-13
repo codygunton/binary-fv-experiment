@@ -7432,4 +7432,293 @@ private theorem writeSuccessRawTransactionsHandoff
     loaded := handoff.loaded
     access := handoff.access
     memory := handoff.memory.mono frameInWriter }⟩
+
+set_option genInjectivity false in
+/-- Exact withdrawals descriptor loads followed by the selected inline encoder. -/
+structure WriteSuccessWithdrawalsHandoff (fromStep childUsed : Nat)
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (before after : EndpointState)
+    (values : DecodeCalleeSavedValues) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (2 + childUsed) before after
+  atPc : EndpointPc after = some 0x156e8
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdout : after.stdout = before.stdout ++ encodeMany encodeWithdrawal
+    args.decoded.payload.withdrawals
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  saved : SavedWordReps after.machine (writeSuccessSavedWords args values)
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+  memory : WriteSuccessMemoryFrame args before.machine after.machine
+
+private theorem writeSuccessWithdrawalsHandoff
+    (child : WriteSuccessWithdrawalsInstanceContract) (fromStep : Nat)
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (values : DecodeCalleeSavedValues)
+    (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x15678)
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args values))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
+    ∃ childUsed after,
+      WriteSuccessWithdrawalsHandoff fromStep childUsed args payloadBytes before after values := by
+  rcases context.payloadRep with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
+    transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
+    blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
+    stateRoot, receiptsRootSize, receiptsRoot, logsBloomSize, logsBloom, prevRandaoSize,
+    prevRandao, blockHashSize, blockHash⟩
+  rcases withdrawals with ⟨withdrawalAddress, withdrawalAddressRep, withdrawalCountRep,
+    withdrawalArrayRep⟩
+  have seg0 : Seg writeSuccessParentPc (fun pc => pc = 0x15680)
+      (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
+      [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩]
+      fromStep 0 before.machine before.machine 0x15678 := {
+    trace := .refl _ _
+    confined := .nil
+    writes := .refl _ _
+    mem := fun _ _ => rfl
+    retired := access.configured.retiredCounter
+    atPc := atPc
+    regs := by intro pair member; simp at member; subst pair; exact stack }
+  obtain ⟨retired0, run0⟩ := writeSuccessWithdrawalsAddressLoadStep fromStep args
+    before.machine withdrawalAddress access atPc stack withdrawalAddressRep aligned loaded
+  obtain ⟨machine1, seg1⟩ := seg0.step
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x15668, 0x15680), by native_decide, by native_decide, by native_decide⟩)
+    (by native_decide) x8 (BitVec.ofNat 64 withdrawalAddress) 0x1567c ⟨retired0, run0⟩
+    (by native_decide) (by intro r h; exact Or.inl h)
+    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access1 := writeSuccessAccessOfSeg access seg1
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully machine1.mem := by
+    simpa [seg1.memEq (by simp)] using loaded
+  obtain ⟨retired1, run1⟩ := writeSuccessWithdrawalsCountLoadStep (fromStep + 1) args
+    machine1 args.decoded.payload.withdrawals.size access1 seg1.atPc
+    (seg1.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
+    (withdrawalCountRep.of_writesOnlyWithin seg1.mem (by
+      intro index inBounds inside
+      exact inside)) aligned loaded1
+  obtain ⟨machine2, seg2⟩ := seg1.step
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x15668, 0x15680), by native_decide, by native_decide, by native_decide⟩)
+    (by native_decide) x9 (BitVec.ofNat 64 args.decoded.payload.withdrawals.size) 0x15680
+    ⟨retired1, by simpa [Nat.add_assoc] using run1⟩ (by native_decide)
+    (by intro r h; exact Or.inl h) (by simp [writeSuccessParentWrites])
+    (by native_decide) (by native_decide) (by simp [RegsOutside, stepBookkeeping])
+  let childState : EndpointState := { before with machine := machine2 }
+  have parentTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 2 before childState := by
+    have machineTrace := seg2.confined 0 machine2 (.exitAt _ _ 0x15680 seg2.atPc rfl)
+    simpa [childState] using liftWriteSuccessParentTrace before machineTrace
+  have decodedAtChild := context.stable.of_writesOnlyWithin
+    (seg2.mem.mono (fun _ inside => inside.elim))
+  have savedAtChild : InlineEncoderSavedWords machine2.mem
+      (writeSuccessSavedWords args values) := by
+    intro word member
+    exact (saved word member).of_writesOnlyWithin seg2.mem (by
+      intro index inBounds inside
+      exact inside)
+  let childArgs : InlineEncoderArgs (InlineArrayEncoderValue Withdrawal) :=
+    { stackPointer := args.stackPointer - 0x7d0
+      value := ⟨withdrawalAddress, args.decoded.payload.withdrawals⟩
+      savedWords := writeSuccessSavedWords args values
+      decodedAddress := args.decodedAddress
+      copiedPayloadAddress := args.stackPointer - 0x7d0 + 0x408
+      copiedPayloadBytes := payloadBytes
+      decoded := args.decoded }
+  have childEntry : InlineEncoderEntry Elflings.writeSuccessWithdrawalsEntry
+      (InlineArrayEncoderBinding
+        (fun state count => state.machine.regs.get? x9 = some (BitVec.ofNat 64 count))
+        (fun state address => state.machine.regs.get? x8 = some (BitVec.ofNat 64 address))
+        48 WithdrawalRep) childArgs childState := by
+    change 0xb0 ≤ args.stackPointer - 0x7d0 ∧
+      args.stackPointer - 0x7d0 + 0x740 ≤ 2 ^ 64 ∧ _
+    refine ⟨by omega, by omega, ?_, ?_, ?_, savedAtChild, decodedAtChild,
+      (by
+        change ExecutionPayloadRep childState.machine.mem
+          (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload
+        rw [show childState.machine.mem = before.machine.mem by
+          simpa [childState] using seg2.memEq (by simp)]
+        exact context.payloadRep),
+      (by
+        change BytesRep childState.machine.mem
+          (args.stackPointer - 0x7d0 + 0x408) payloadBytes
+        rw [show childState.machine.mem = before.machine.mem by
+          simpa [childState] using seg2.memEq (by simp)]
+        exact context.destinationRep), ?_⟩
+    · simpa [childState, EndpointPc, MachinePc] using seg2.atPc
+    · simpa [childState] using
+        seg2.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
+    · exact ⟨withdrawalArrayRep.1,
+        by simpa [childState] using
+          seg2.reg x9 (BitVec.ofNat 64 args.decoded.payload.withdrawals.size) (by simp),
+        by simpa [childState] using
+          seg2.reg x8 (BitVec.ofNat 64 withdrawalAddress) (by simp),
+        by
+          change ArrayRep 48 WithdrawalRep childState.machine.mem withdrawalAddress
+            args.decoded.payload.withdrawals
+          rw [show childState.machine.mem = before.machine.mem by
+            simpa [childState] using seg2.memEq (by simp)]
+          exact withdrawalArrayRep⟩
+    · simpa [childState, seg2.memEq (by simp)] using loaded
+  obtain ⟨childUsed, after, childTrace, childExit⟩ := writeSuccessInlineEncoderHandoff child
+    (fun inside => by
+      unfold pcInRanges at inside ⊢
+      rcases inside with ⟨range, member, lo, hi⟩
+      simp [Elflings.writeSuccessWithdrawalsExecutionPcRanges] at member
+      rcases member with rfl | rfl | rfl | rfl
+      · exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges], lo, hi⟩
+      · exact ⟨(0x101d4, 0x101f8), by simp [Elflings.writeSuccessExecutionPcRanges], lo, hi⟩
+      · exact ⟨(0x14d30, 0x15a14), by simp [Elflings.writeSuccessExecutionPcRanges],
+          by omega, by omega⟩
+      · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
+          by omega, by omega⟩)
+    (fromStep + 2) childArgs childState childEntry
+  rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, stackAfter,
+    bindingAfter, savedAfter, decodedAfter, payloadAfter, destinationAfter, childMemory,
+    childAgree, childRetired, loadedAfter⟩
+  have childInWriter : ∀ address, inlineEncoderMemoryRegion childArgs.stackPointer address →
+      writeSuccessFrameMemory args address := by
+    intro address inside
+    unfold inlineEncoderMemoryRegion at inside
+    unfold writeSuccessFrameMemory
+    unfold byteRange at inside ⊢
+    dsimp [childArgs] at inside
+    omega
+  have parentMemory : WriteSuccessMemoryFrame args before.machine machine2 :=
+    seg2.mem.mono (fun _ inside => inside.elim)
+  have fullMemory : WriteSuccessMemoryFrame args before.machine after.machine :=
+    WritesOnlyWithin.trans_same parentMemory (childMemory.mono childInWriter)
+  have decodedBytesAfter := context.decodedBytesRep.of_writesOnlyWithin fullMemory (by
+    intro index inBounds inside
+    unfold writeSuccessFrameMemory byteRange at inside
+    rw [decodedEq] at inside
+    omega)
+  have stableAfter := context.stable.afterWrites fullMemory
+  have accessAtChild := writeSuccessAccessOfSeg access seg2
+  have pmaEq := childAgree pma_regions (by simp [inlineEncoderPreserved])
+  have accessAfter : WriteSuccessMachineAccess args after.machine := {
+    configured := accessAtChild.configured.mono
+      (childAgree.weaken instructionPreserved_inlineEncoderPreserved) childRetired
+    frameLoad := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq pmaEq (accessAtChild.frameLoad offset width bound)
+    frameStore := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq pmaEq (accessAtChild.frameStore offset width bound)
+    frameNoMMIO := accessAtChild.frameNoMMIO
+    decodedLoad := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq pmaEq (accessAtChild.decodedLoad offset width bound)
+    decodedNoMMIO := accessAtChild.decodedNoMMIO
+    frameNotCode := accessAtChild.frameNotCode }
+  exact ⟨childUsed, after, {
+    trace := by
+      have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace)
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
+    atPc := afterPc
+    stack := stackAfter
+    stdout := by simpa [childArgs, childState] using stdout
+    stdin := by simpa [childState] using stdin
+    cursor := by simpa [childState] using cursor
+    exitCode := by simpa [childState] using exitCode
+    saved := savedAfter
+    payloadContext := {
+      destinationRep := destinationAfter
+      decodedBytesRep := decodedBytesAfter
+      bytesSize := context.bytesSize
+      stable := stableAfter
+      payloadRep := payloadAfter }
+    loaded := loadedAfter
+    access := accessAfter
+    memory := fullMemory }⟩
+
+set_option genInjectivity false in
+/-- The transaction, raw-transaction, and withdrawal encoders in production order. -/
+structure WriteSuccessArrayPrefixHandoff (fromStep transactionsUsed rawUsed withdrawalsUsed : Nat)
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (before after : EndpointState)
+    (values : DecodeCalleeSavedValues) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
+    (4 + transactionsUsed + 4 + rawUsed + 2 + withdrawalsUsed) before after
+  atPc : EndpointPc after = some 0x156e8
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdout : after.stdout = before.stdout ++
+    encodeMany encodeTransaction args.decoded.payload.transactions ++
+    encodeMany encodeBytes args.decoded.payload.rawTransactions ++
+    encodeMany encodeWithdrawal args.decoded.payload.withdrawals
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  saved : SavedWordReps after.machine (writeSuccessSavedWords args values)
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+  memory : WriteSuccessMemoryFrame args before.machine after.machine
+
+private theorem writeSuccessArrayPrefixHandoff
+    (transactionsChild : WriteSuccessTransactionsInstanceContract)
+    (rawChild : WriteSuccessByteListsInstanceContract)
+    (withdrawalsChild : WriteSuccessWithdrawalsInstanceContract)
+    (fromStep : Nat) (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
+    (values : DecodeCalleeSavedValues) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x14ee4)
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args values))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
+    ∃ transactionsUsed rawUsed withdrawalsUsed after,
+      WriteSuccessArrayPrefixHandoff fromStep transactionsUsed rawUsed withdrawalsUsed
+        args payloadBytes before after values := by
+  obtain ⟨transactionsUsed, afterTransactions, transactions⟩ :=
+    writeSuccessTransactionsHandoff transactionsChild fromStep args payloadBytes values before
+      atPc stack context saved access loaded aligned lower upper decodedEq
+  let rawStart := fromStep + 4 + transactionsUsed
+  obtain ⟨rawUsed, afterRaw, raw⟩ :=
+    writeSuccessRawTransactionsHandoff rawChild rawStart args payloadBytes values
+      afterTransactions transactions.atPc transactions.stack transactions.payloadContext
+      transactions.saved transactions.access transactions.loaded aligned lower upper decodedEq
+  let withdrawalsStart := rawStart + 4 + rawUsed
+  obtain ⟨withdrawalsUsed, after, withdrawals⟩ :=
+    writeSuccessWithdrawalsHandoff withdrawalsChild withdrawalsStart args payloadBytes values
+      afterRaw raw.atPc raw.stack raw.payloadContext raw.saved raw.access raw.loaded aligned lower
+      upper decodedEq
+  refine ⟨transactionsUsed, rawUsed, withdrawalsUsed, after, {
+    trace := ?_
+    atPc := withdrawals.atPc
+    stack := withdrawals.stack
+    stdout := ?_
+    stdin := withdrawals.stdin.trans (raw.stdin.trans transactions.stdin)
+    cursor := withdrawals.cursor.trans (raw.cursor.trans transactions.cursor)
+    exitCode := withdrawals.exitCode.trans (raw.exitCode.trans transactions.exitCode)
+    saved := withdrawals.saved
+    payloadContext := withdrawals.payloadContext
+    loaded := withdrawals.loaded
+    access := withdrawals.access
+    memory := WritesOnlyWithin.trans_same
+      (WritesOnlyWithin.trans_same transactions.memory raw.memory) withdrawals.memory }⟩
+  · have firstTwo := transactions.trace.append (by
+      simpa [rawStart, Nat.add_assoc] using raw.trace)
+    have firstTwo' : ConfinedTrace EndpointStep EndpointPc
+        (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
+        (4 + transactionsUsed + 4 + rawUsed) before afterRaw := by
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using firstTwo
+    have last : ConfinedTrace EndpointStep EndpointPc
+        (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+        (fromStep + (4 + transactionsUsed + 4 + rawUsed)) (2 + withdrawalsUsed)
+        afterRaw after := by
+      simpa only [rawStart, withdrawalsStart, Nat.add_assoc] using withdrawals.trace
+    simpa [Nat.add_assoc] using firstTwo'.append last
+  · rw [withdrawals.stdout, raw.stdout, transactions.stdout]
 end BinaryFv.Zesu.MachineExecution
