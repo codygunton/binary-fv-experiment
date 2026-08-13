@@ -19,6 +19,164 @@ namespace BinaryFv.Zesu
 open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.RiscV
 
+/-! ## Inlined `ssz.decode` boundary
+
+The generated Level 2 instance starts at `0x121ac`, after `decodeInput` has saved its frame and
+bound the result, allocator, and input arguments. Its error path leaves the inline instance at
+`0x14ca8`; two parent-owned instructions copy the error value to `s6` and jump to the generated
+re-entry at `0x1230c`. Keeping the initial and resumed runs separate makes those two instructions an
+obligation of `level1Contracts_of_level2`, rather than silently absorbing them into `hLevel2`.
+-/
+
+structure DecodeInlineArgs where
+  boundary : DecodeBoundaryArgs
+  origin : EndpointState
+
+structure DecodeCalleeSavedValues where
+  ra : BitVec 64
+  s0 : BitVec 64
+  s1 : BitVec 64
+  s2 : BitVec 64
+  s3 : BitVec 64
+  s4 : BitVec 64
+  s5 : BitVec 64
+  s6 : BitVec 64
+  s7 : BitVec 64
+  s8 : BitVec 64
+  s9 : BitVec 64
+  s10 : BitVec 64
+  s11 : BitVec 64
+
+def DecodeCalleeSavedAtRegisters (values : DecodeCalleeSavedValues)
+    (state : EndpointState) : Prop :=
+  state.machine.regs.get? x1 = some values.ra ∧
+  state.machine.regs.get? x8 = some values.s0 ∧
+  state.machine.regs.get? x9 = some values.s1 ∧
+  state.machine.regs.get? x18 = some values.s2 ∧
+  state.machine.regs.get? x19 = some values.s3 ∧
+  state.machine.regs.get? x20 = some values.s4 ∧
+  state.machine.regs.get? x21 = some values.s5 ∧
+  state.machine.regs.get? x22 = some values.s6 ∧
+  state.machine.regs.get? x23 = some values.s7 ∧
+  state.machine.regs.get? x24 = some values.s8 ∧
+  state.machine.regs.get? x25 = some values.s9 ∧
+  state.machine.regs.get? x26 = some values.s10 ∧
+  state.machine.regs.get? x27 = some values.s11
+
+def DecodeCalleeSavedAtStack (stackPointer : Nat) (values : DecodeCalleeSavedValues)
+    (state : EndpointState) : Prop :=
+  UIntRep 8 state.machine.mem (stackPointer + 0xba8) values.ra.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xba0) values.s0.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xb98) values.s1.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xb90) values.s2.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xb88) values.s3.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xb80) values.s4.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xb78) values.s5.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xb70) values.s6.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xb68) values.s7.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xb60) values.s8.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xb58) values.s9.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xb50) values.s10.toNat ∧
+  UIntRep 8 state.machine.mem (stackPointer + 0xb48) values.s11.toNat
+
+set_option genInjectivity false in
+structure DecodeInlineFrame (args : DecodeInlineArgs) (values : DecodeCalleeSavedValues)
+    (state : EndpointState) : Prop where
+  stackFits : 0xbb0 ≤ args.boundary.stackPointer
+  atStack : state.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
+  saved : DecodeCalleeSavedAtStack (args.boundary.stackPointer - 0xbb0) values state
+  inputAddress : UIntRep 8 state.machine.mem args.boundary.stackPointer args.boundary.inputAddress
+  inputSize : UIntRep 8 state.machine.mem (args.boundary.stackPointer + 8)
+    args.boundary.input.size
+  savedReturn : UIntRep 8 state.machine.mem (args.boundary.stackPointer + 0x378)
+    args.boundary.savedReturnAddress
+  input : BytesRep state.machine.mem args.boundary.inputAddress args.boundary.input
+  code : Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  configured : ConfiguredMachinePre EndpointMachinePc state.machine
+  stdin : state.stdin = args.origin.stdin
+  stdinCursor : state.stdinCursor = args.origin.stdinCursor
+  stdout : state.stdout = args.origin.stdout
+  exitCode : state.exitCode = args.origin.exitCode
+
+def DecodeInlineInitialEntry (args : DecodeInlineArgs) (state : EndpointState) : Prop :=
+  DecodeBoundaryEntry args.boundary args.origin ∧
+  ∃ values : DecodeCalleeSavedValues,
+    DecodeCalleeSavedAtRegisters values args.origin ∧
+    DecodeInlineFrame args values state ∧
+    state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.sszDecodeEntry) ∧
+    state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.boundary.returnAddress) ∧
+    state.machine.regs.get? x10 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) ∧
+    state.machine.regs.get? x11 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x10)) ∧
+    state.machine.regs.get? x12 = some (BitVec.ofNat 64 args.boundary.inputAddress) ∧
+    state.machine.regs.get? x13 = some (BitVec.ofNat 64 args.boundary.input.size)
+
+inductive DecodeInlineInitialOutcome where
+  | final (outcome : DecodeBoundaryOutcome)
+  | resume (status : BitVec 64)
+
+def DecodeInlineInitialMeaning (args : DecodeInlineArgs) : DecodeInlineInitialOutcome → Prop
+  | .final outcome => DecodeMeaningModuloKnownBugs args.boundary outcome
+  | .resume status => status ≠ 0 ∧ DecodeMeaningModuloKnownBugs args.boundary .failure
+
+def DecodeInlineInitialExit (args : DecodeInlineArgs) (outcome : DecodeInlineInitialOutcome)
+    (_before after : EndpointState) : Prop :=
+  match outcome with
+  | .final result => DecodeBoundaryExit args.boundary result args.origin after
+  | .resume status =>
+      ∃ values, DecodeCalleeSavedAtRegisters values args.origin ∧
+        DecodeInlineFrame args values after ∧
+        after.machine.regs.get? PC = some (BitVec.ofNat 64 0x14ca8) ∧
+        after.machine.regs.get? x10 = some status
+
+def decodeInlineInitialContract (stepBound : DecodeInlineArgs → Nat) :
+    RelationalMachineContract EndpointState DecodeInlineArgs DecodeInlineInitialOutcome :=
+  { allows := DecodeInlineInitialMeaning
+    entry := DecodeInlineInitialEntry
+    exit := DecodeInlineInitialExit
+    stepBound }
+
+structure DecodeInlineResumeArgs where
+  inline : DecodeInlineArgs
+  saved : DecodeCalleeSavedValues
+  status : BitVec 64
+
+def DecodeInlineResumeEntry (args : DecodeInlineResumeArgs) (state : EndpointState) : Prop :=
+  DecodeCalleeSavedAtRegisters args.saved args.inline.origin ∧
+  DecodeInlineFrame args.inline args.saved state ∧
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 0x1230c) ∧
+  state.machine.regs.get? x22 = some args.status
+
+def decodeInlineResumeContract (stepBound : DecodeInlineResumeArgs → Nat) :
+    RelationalMachineContract EndpointState DecodeInlineResumeArgs Unit :=
+  { allows := fun args _ =>
+      args.status ≠ 0 ∧ DecodeMeaningModuloKnownBugs args.inline.boundary .failure
+    entry := DecodeInlineResumeEntry
+    exit := fun args _ _ after =>
+      DecodeBoundaryExit args.inline.boundary .failure args.inline.origin after
+    stepBound }
+
+def DecodeInlineInitialExecutionPc (pc : BitVec 64) : Prop :=
+  pcInRanges Elflings.sszDecodeExecutionPcRanges pc
+
+def DecodeInlineInitialExitPc (pc : BitVec 64) : Prop :=
+  pcInList Elflings.sszDecodeExitPcs pc
+
+def DecodeInlineResumeExitPc (pc : BitVec 64) : Prop := pc.toNat = 0x14cfc
+
+/-- The exact generated Level 2 decoder instance. The second implementation obligation is the
+continuation reached only after `level1Contracts_of_level2` retires the two parent-owned error-path
+instructions at `0x14ca8` and `0x14cac`. -/
+structure SszDecodeLevel2InstanceContract : Prop where
+  initial : ∃ initialBound : Nat → Nat,
+    (decodeInlineInitialContract (fun args => initialBound args.boundary.input.size)).Implements
+      EndpointStep EndpointPc DecodeInlineInitialExecutionPc DecodeInlineInitialExitPc
+  resume : ∃ resumeBound : Nat → Nat,
+    (decodeInlineResumeContract (fun args => resumeBound args.inline.boundary.input.size)).Implements
+      EndpointStep EndpointPc DecodeInlineInitialExecutionPc DecodeInlineResumeExitPc
+
 structure RawEncoderArgs where
   sourceAddress : Nat
   bytes : Array UInt8
@@ -374,7 +532,7 @@ abbrev WriteSuccessHashesInstanceContract : Prop :=
 /-- The exact unresolved contracts selected at UI Level 2. Linux read/exit and the shared `memcpy`
 are omitted because `level1Contracts_of_level2` must discharge those three leaves unconditionally. -/
 structure Level2ContractAssumptions : Prop where
-  sszDecode : DecodeInstanceContractModuloKnownBugs
+  sszDecode : SszDecodeLevel2InstanceContract
   writeSuccessPrefix : WriteSuccessPrefixInstanceContract
   writeSuccessParentHash : WriteSuccessParentHashInstanceContract
   writeSuccessFeeRecipient : WriteSuccessFeeRecipientInstanceContract
