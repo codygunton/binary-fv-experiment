@@ -4,7 +4,10 @@ import BinaryFv.RiscV.Instruction.Execute.DataAddress
 import BinaryFv.RiscV.Step.FallThrough
 import BinaryFv.RiscV.Step.RegisterWrite
 import BinaryFv.RiscV.Step.Store
+import BinaryFv.RiscV.Step.AbstractPremise
+import BinaryFv.RiscV.Step.LandingPad
 import BinaryFv.RiscV.Proof.ImageFetch
+import BinaryFv.RiscV.Instruction.DecodeTactic
 
 /-!
 # Shared instruction-class steps for the Zesu endpoint
@@ -157,5 +160,78 @@ theorem configuredDwordStoreStep (stepNo pc : Nat) (state afterWrite : State)
   · simpa [tryStepStoreAfterIncrement, tryStepControlFlowAfterIncrement] using noFetchMMIO
   · simpa [tryStepStoreAfterIncrement, tryStepControlFlowAfterIncrement] using interrupts
   · simpa [tryStepStoreAfterIncrement, tryStepControlFlowAfterIncrement] using notExpected
+
+/-- Retire a production `ret` (`jalr x0, 0(ra)`) from a configured endpoint state. -/
+theorem configuredRetStep (stepNo pc : Nat) (state : State) (returnAddress : BitVec 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (link : state.regs.get? x1 = some returnAddress)
+    (targetAligned : Sail.BitVec.access returnAddress 1 = 0#1)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (pcFits : pc < 2 ^ 64 := by native_decide)
+    (read0 : Artifacts.programImage.readFileByte? pc = some 0x67 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some 0x80 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some 0x00 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some 0x00 := by native_decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+          (Sail.BitVec.update returnAddress 0 0#1))
+        (Sail.BitVec.update returnAddress 0 0#1) retired) false := by
+  obtain ⟨retired, counters⟩ := configured.counters
+  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
+    configured.stepContext (BitVec.ofNat 64 pc) atPc trivial
+  rcases platform with ⟨misaBits, mstatusBits, pcRead, misaRead, mstatusRead, privilegeAfter,
+    pcLow0, pcLow1, alignedVirt, alignedPhys, pmpDisabled, pmaAllowed⟩
+  have platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state)
+      (BitVec.ofNat 64 pc) :=
+    ⟨misaBits, mstatusBits, pcRead, misaRead, mstatusRead, privilegeAfter,
+      pcLow0, pcLow1, alignedVirt, alignedPhys, pmpDisabled, pmaAllowed⟩
+  obtain ⟨mseccfgBits, mseccfgRead, _⟩ := configured.seccfgPresent
+  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+      some mseccfgBits := by
+    calc
+      _ = state.regs.get? mseccfg := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+      _ = some mseccfgBits := mseccfgRead
+  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Artifacts.programImage
+    (tryStepControlFlowAfterIncrement state) pc pcFits loadedAfter 0x67 0x80 0x00 0x00
+      read0 read1 read2 read3
+  have decode : Runs (ext_decode (fetchWord 0x67#8 0x80#8 0x00#8 0x00#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.JALR (0#12, .Regidx 1#5, zreg)) := by
+    decode_run
+  let premise := coreControlFlowNextState
+    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+  have linkAtPremise : premise.regs.get? x1 = some returnAddress :=
+    (stepPremiseState_writes state (BitVec.ofNat 64 pc)).get x1 (by decide) |>.trans link
+  have returnRead : Runs (rX_bits (.Regidx 1#5)) premise premise returnAddress :=
+    rX_x1_run premise returnAddress linkAtPremise
+  have nextRead : Runs (get_next_pc ()) premise premise
+      (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) := by
+    unfold get_next_pc
+    exact readReg_run premise nextPC _ (by simp [premise, coreControlFlowNextState])
+  have helpElp := updateElpState_run_atStepPremise state (BitVec.ofNat 64 pc)
+    (.Regidx 1#5) mseccfgBits configured.normal.2.1 mseccfgRead
+  have misaAtPremise : premise.regs.get? misa = some misaBits :=
+    (by
+      calc
+        premise.regs.get? misa = (tryStepControlFlowAfterIncrement state).regs.get? misa := by
+          simpa [premise, coreControlFlowNextState] using
+            writeReg_read_unchanged (tryStepControlFlowAfterIncrement state) nextPC misa
+              (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) (by decide)
+        _ = some misaBits := misaRead)
+  have zca := currentlyEnabledZca_run premise misaBits misaAtPremise
+  exact ⟨retired, tryStepRetRetires stepNo state (BitVec.ofNat 64 pc) retired (.Regidx 1#5)
+    (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) returnAddress 0 0
+    0x67#8 0x80#8 0x00#8 0x00#8 (_get_Misa_C misaBits == 1#1)
+    platform noMMIO bytes interrupts (by unfold BaseInstructionEncoding; decide) decode notExpected
+    helpElp nextRead returnRead
+    targetAligned zca counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1
+    counters.2.2.2.2.1 counters.2.2.2.2.2⟩
 
 end BinaryFv.Zesu.MachineExecution

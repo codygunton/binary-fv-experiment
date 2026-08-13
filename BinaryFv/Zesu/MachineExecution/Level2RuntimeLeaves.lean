@@ -1,6 +1,7 @@
 import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Level2Contracts
 import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.RiscV.Instruction.DecodeTactic
+import BinaryFv.RiscV.Instruction.Execute.Load
 import BinaryFv.RiscV.Elfling.Seg
 
 /-!
@@ -16,6 +17,527 @@ namespace BinaryFv.Zesu.MachineExecution
 open BinaryFv.Binary BinaryFv.RiscV
 open PreSail LeanRV64DExecutable.Functions Register
 open MemoryAccessType mem_payload page_based_mem_type
+
+private theorem ofNatAlignedEight (address : Nat) (fits : address < 2 ^ 64)
+    (aligned : address % 8 = 0) :
+    is_aligned_vaddr (virtaddr.Virtaddr (BitVec.ofNat 64 address)) 8 = true ∧
+      is_aligned_paddr (physaddr.Physaddr (BitVec.ofNat 64 address)) 8 = true := by
+  have tmodEight : ((address : Nat) : Int).tmod 8 = 0 := congrArg Int.ofNat aligned
+  constructor
+  · unfold is_aligned_vaddr
+    simp only
+    change ((((BitVec.ofNat 64 address).toNat : Int).tmod 8) == 0) = true
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt fits]
+    simpa [tmodEight]
+  · unfold is_aligned_paddr
+    simp only
+    change ((((BitVec.ofNat 64 address).toNat : Int).tmod 8) == 0) = true
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt fits]
+    simpa [tmodEight]
+
+private theorem configuredAuipcX5Step (stepNo pc : Nat) (state : State)
+    (immediate : BitVec 20) (result : BitVec 64)
+    (byte0 byte1 byte2 byte3 : UInt8)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (resultEq : result = BitVec.ofNat 64 pc + sign_extend (m := 64) (immediate ++ 0x000#12))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.UTYPE (immediate, .Regidx 5#5, .AUIPC)))
+    (pcFits : pc < 2 ^ 64) (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x5 result) false := by
+  let premise := coreControlFlowNextState
+    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+  have pcRead : Runs (readReg PC) premise premise (BitVec.ofNat 64 pc) := by
+    apply readReg_run
+    simp [premise, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, atPc]
+  have execute : Runs (execute (.UTYPE (immediate, .Regidx 5#5, .AUIPC))) premise
+      { premise with regs := premise.regs.insert x5 result } (.Retire_Success ()) := by
+    change Runs (execute_UTYPE immediate (.Regidx 5#5) .AUIPC) _ _ _
+    rw [resultEq]
+    exact execute_UTYPE_auipc_run premise _ immediate (.Regidx 5#5)
+      (BitVec.ofNat 64 pc) pcRead (wX_x5_run premise _)
+  exact configuredRegisterWriteStep stepNo pc state x5 result
+    (.UTYPE (immediate, .Regidx 5#5, .AUIPC)) byte0 byte1 byte2 byte3 configured atPc loaded
+    decode execute (pcFits := pcFits) (base := base) (read0 := read0) (read1 := read1)
+    (read2 := read2) (read3 := read3)
+
+private theorem configuredAddiX5Step (stepNo pc : Nat) (state : State)
+    (immediate : BitVec 12) (source result : BitVec 64)
+    (byte0 byte1 byte2 byte3 : UInt8)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (sourceRead : state.regs.get? x5 = some source)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (resultEq : result = iTypeResult .ADDI immediate source)
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (immediate, .Regidx 5#5, .Regidx 5#5, .ADDI)))
+    (pcFits : pc < 2 ^ 64) (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x5 result) false := by
+  let premise := coreControlFlowNextState
+    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+  have sourceAtPremise : premise.regs.get? x5 = some source :=
+    (stepPremiseState_writes state (BitVec.ofNat 64 pc)).get x5 (by decide) |>.trans sourceRead
+  have execute : Runs (execute (.ITYPE (immediate, .Regidx 5#5, .Regidx 5#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x5 result } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE immediate (.Regidx 5#5) (.Regidx 5#5) .ADDI) _ _ _
+    rw [resultEq]
+    exact execute_ITYPE_run premise _ immediate (.Regidx 5#5) (.Regidx 5#5) .ADDI source
+      (rX_x5_run premise source sourceAtPremise) (wX_x5_run premise _)
+  exact configuredRegisterWriteStep stepNo pc state x5 result
+    (.ITYPE (immediate, .Regidx 5#5, .Regidx 5#5, .ADDI)) byte0 byte1 byte2 byte3
+    configured atPc loaded decode execute (pcFits := pcFits) (base := base)
+    (read0 := read0) (read1 := read1)
+    (read2 := read2) (read3 := read3)
+
+/-- Production `0x10140: auipc t0, 0x2000a`. -/
+theorem readInputBufferBaseHighStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10140))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x10140 retired x5 0x2001a140) false := by
+  obtain ⟨seccfgBits, seccfgRead, pmmDisabled⟩ := configured.seccfgPresent
+  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine := by
+    calc
+      _ = state.regs.get? cur_privilege := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+      _ = some Privilege.Machine := configured.normal.2.1
+  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+      some seccfgBits := by
+    exact (by
+      calc
+        _ = state.regs.get? mseccfg := by
+          simpa [tryStepControlFlowAfterIncrement] using
+            writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+        _ = some seccfgBits := seccfgRead)
+  exact configuredAuipcX5Step stepNo 0x10140 state 0x2000a 0x2001a140
+    0x97 0xa2 0x00 0x20 configured atPc loaded (by native_decide) (by decode_run)
+    (by native_decide) (by rfl)
+
+/-- Production `0x10144: addi t0, t0, -320`. -/
+theorem readInputBufferBaseLowStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10144))
+    (sourceRead : state.regs.get? x5 = some (BitVec.ofNat 64 0x2001a140))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x10144 retired x5 Elflings.inputBufferAddress) false := by
+  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine := by
+    calc
+      _ = state.regs.get? cur_privilege := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+      _ = some Privilege.Machine := configured.normal.2.1
+  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+      some seccfgBits := by
+    calc
+      _ = state.regs.get? mseccfg := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+      _ = some seccfgBits := seccfgRead
+  exact configuredAddiX5Step stepNo 0x10144 state 0xec0 0x2001a140
+    Elflings.inputBufferAddress 0x93 0x82 0x02 0xec configured atPc sourceRead loaded
+    (by native_decide) (by decode_run) (by native_decide) (by rfl)
+
+/-- Production `0x1014c: auipc t0, 0x2400a`. -/
+theorem readInputContextBaseHighStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1014c))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x1014c retired x5 0x2401a14c) false := by
+  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine := by
+    calc
+      _ = state.regs.get? cur_privilege := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+      _ = some Privilege.Machine := configured.normal.2.1
+  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+      some seccfgBits := by
+    calc
+      _ = state.regs.get? mseccfg := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+      _ = some seccfgBits := seccfgRead
+  exact configuredAuipcX5Step stepNo 0x1014c state 0x2400a 0x2401a14c
+    0x97 0xa2 0x00 0x24 configured atPc loaded (by native_decide) (by decode_run)
+    (by native_decide) (by rfl)
+
+/-- Production `0x10150: addi t0, t0, -148`. -/
+theorem readInputContextBaseLowStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10150))
+    (sourceRead : state.regs.get? x5 = some (BitVec.ofNat 64 0x2401a14c))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x10150 retired x5 Elflings.ioContextAddress) false := by
+  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine := by
+    calc
+      _ = state.regs.get? cur_privilege := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+      _ = some Privilege.Machine := configured.normal.2.1
+  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+      some seccfgBits := by
+    calc
+      _ = state.regs.get? mseccfg := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+      _ = some seccfgBits := seccfgRead
+  exact configuredAddiX5Step stepNo 0x10150 state 0xf6c 0x2401a14c
+    Elflings.ioContextAddress 0x93 0x82 0xc2 0xf6 configured atPc sourceRead loaded
+    (by native_decide) (by decode_run) (by native_decide) (by rfl)
+
+/-- Production `0x10154: ld t1, 0(t0)`. -/
+theorem readInputLoadSizeStep (stepNo : Nat) (state : State) (inputSize : Nat)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10154))
+    (contextRead : state.regs.get? x5 = some (BitVec.ofNat 64 Elflings.ioContextAddress))
+    (sizeRep : UIntRep 8 state.mem Elflings.ioContextAddress inputSize)
+    (pma : LoadPmaAllows state (BitVec.ofNat 64 Elflings.ioContextAddress) 8)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x10154 retired x6 (BitVec.ofNat 64 inputSize)) false := by
+  obtain ⟨seccfgBits, seccfgRead, pmmDisabled⟩ := configured.seccfgPresent
+  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine := by
+    calc
+      _ = state.regs.get? cur_privilege := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+      _ = some Privilege.Machine := configured.normal.2.1
+  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+      some seccfgBits := by
+    calc
+      _ = state.regs.get? mseccfg := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+      _ = some seccfgBits := seccfgRead
+  have decode : Runs (ext_decode (fetchWord 0x03 0xb3 0x02 0x00))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (0, .Regidx 5#5, .Regidx 6#5, false, 8)) := by
+    decode_run
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x10154
+  have agree : Agree platformPreserved state premise :=
+    (stepPremiseState_writes state 0x10154).agree platformPreserved_disjoint
+  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := configured.mstatusStoreMode
+  have mstatusPremise : premise.regs.get? mstatus = some mstatusBits :=
+    (agree mstatus (by simp [platformPreserved])).trans mstatusRead
+  have privilegePremise : premise.regs.get? cur_privilege = some .Machine :=
+    (agree cur_privilege (by simp [platformPreserved])).trans configured.normal.2.1
+  have contextPremise : premise.regs.get? x5 =
+      some (BitVec.ofNat 64 Elflings.ioContextAddress) :=
+    (stepPremiseState_writes state 0x10154).get x5 (by decide) |>.trans contextRead
+  have addressRun : Runs
+      (get_transformed_data_addr (.Regidx 5#5) (sign_extend (m := 64) (0#12))
+        (Load Data) 8) premise premise
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr (BitVec.ofNat 64 Elflings.ioContextAddress))) := by
+    simpa using get_transformed_data_addr_machine_data_run .load premise (.Regidx 5#5) 8
+      (BitVec.ofNat 64 Elflings.ioContextAddress) (sign_extend (m := 64) (0#12))
+      mstatusBits seccfgBits
+      (rX_x5_run premise (BitVec.ofNat 64 Elflings.ioContextAddress) contextPremise)
+      mstatusPremise privilegePremise mprvZero
+      ((agree mseccfg (by simp [platformPreserved])).trans seccfgRead) pmmDisabled
+  have physical := phys_access_check_machine_load_allowed premise
+    (BitVec.ofNat 64 Elflings.ioContextAddress) 8
+    (fetchPmpDisabled_of_normal (normalExecutionState_of_platformPreserved agree configured.normal))
+    (loadPmaAllows_of_agree agree pma) (by native_decide)
+  have noMMIO := loadMemoryNoMMIO_of_state_layout_excluded premise
+    (BitVec.ofNat 64 Elflings.ioContextAddress) 8
+    (by unfold LoadMMIOAddressExcluded DataMMIOAddressExcluded; constructor <;> rfl)
+    ((agree htif_tohost_base (by simp [platformPreserved])).trans configured.htifDisabled)
+  have bytes : ∀ (index : Nat) (bound : index <
+      (BinaryFv.RiscV.Sep.leBytes 8 (BitVec.ofNat 64 inputSize)).length),
+      premise.mem.get? (Elflings.ioContextAddress + index) =
+        some (BinaryFv.RiscV.Sep.leBytes 8 (BitVec.ofNat 64 inputSize))[index] := by
+    intro index bound
+    simpa [premise, coreControlFlowNextState, tryStepControlFlowAfterIncrement] using
+      sizeRep.leBytes index (by simpa only [BinaryFv.RiscV.Sep.leBytes_length] using bound)
+  have execute : Runs (execute (.LOAD (0, .Regidx 5#5, .Regidx 6#5, false, 8))) premise
+      { premise with regs := premise.regs.insert x6 (BitVec.ofNat 64 inputSize) }
+      (.Retire_Success ()) := by
+    change Runs (execute_LOAD 0 (.Regidx 5#5) (.Regidx 6#5) false 8) _ _ _
+    exact execute_LOAD_ld_run premise _ 0 (.Regidx 5#5) (.Regidx 6#5)
+      (BitVec.ofNat 64 Elflings.ioContextAddress) mstatusBits (BitVec.ofNat 64 inputSize)
+      mstatusPremise privilegePremise mprvZero addressRun (by native_decide) physical noMMIO bytes
+      (wX_x6_run premise (BitVec.ofNat 64 inputSize))
+  exact configuredRegisterWriteStep stepNo 0x10154 state x6 (BitVec.ofNat 64 inputSize)
+    (.LOAD (0, .Regidx 5#5, .Regidx 6#5, false, 8)) 0x03 0xb3 0x02 0x00
+    configured atPc loaded decode execute (base := by rfl)
+
+/-- Production `0x10148: sd t0, 0(a0)`. -/
+theorem readInputStorePointerStep (stepNo : Nat) (state : State) (bufferSlot : Nat)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10148))
+    (slotRead : state.regs.get? x10 = some (BitVec.ofNat 64 bufferSlot))
+    (pointerRead : state.regs.get? x5 = some (BitVec.ofNat 64 Elflings.inputBufferAddress))
+    (aligned : bufferSlot % 8 = 0) (fits : bufferSlot + 16 < 2 ^ 64)
+    (pma : StorePmaAllows state (BitVec.ofNat 64 bufferSlot) 8)
+    (notMMIO : StoreMMIOAddressExcluded (BitVec.ofNat 64 bufferSlot) 8)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement state) 0x10148)
+          bufferSlot (BitVec.ofNat 64 Elflings.inputBufferAddress))
+        0x10148 retired) false := by
+  let premise := coreStoreNextState (tryStepStoreAfterIncrement state) 0x10148
+  have agree : Agree platformPreserved state premise :=
+    (stepPremiseState_writes state 0x10148).agree platformPreserved_disjoint
+  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := configured.mstatusStoreMode
+  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := configured.seccfgPresent
+  have mstatusPremise : premise.regs.get? mstatus = some mstatusBits :=
+    (agree mstatus (by simp [platformPreserved])).trans mstatusRead
+  have privilegePremise : premise.regs.get? cur_privilege = some .Machine :=
+    (agree cur_privilege (by simp [platformPreserved])).trans configured.normal.2.1
+  have mseccfgPremise : premise.regs.get? mseccfg = some mseccfgBits :=
+    (agree mseccfg (by simp [platformPreserved])).trans mseccfgRead
+  have slotPremise : premise.regs.get? x10 = some (BitVec.ofNat 64 bufferSlot) :=
+    (stepPremiseState_writes state 0x10148).get x10 (by decide) |>.trans slotRead
+  have pointerPremise : premise.regs.get? x5 =
+      some (BitVec.ofNat 64 Elflings.inputBufferAddress) :=
+    (stepPremiseState_writes state 0x10148).get x5 (by decide) |>.trans pointerRead
+  have addressRun : Runs
+      (get_transformed_data_addr (.Regidx 10#5) (sign_extend (m := 64) (0#12))
+        (Store Data) 8) premise premise
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr (BitVec.ofNat 64 bufferSlot))) := by
+    have zero : sign_extend (m := 64) (0#12) = 0#64 := by native_decide
+    have zeroOffset : BitVec.ofNat 64 bufferSlot + sign_extend (m := 64) (0#12) =
+        BitVec.ofNat 64 bufferSlot := by simp [zero]
+    simpa [zeroOffset] using get_transformed_data_addr_machine_data_run .store premise
+      (.Regidx 10#5) 8
+      (BitVec.ofNat 64 bufferSlot) (sign_extend (m := 64) (0#12))
+      mstatusBits mseccfgBits (rX_x10_run premise (BitVec.ofNat 64 bufferSlot) slotPremise)
+      mstatusPremise privilegePremise mprvZero mseccfgPremise pmmDisabled
+  have physical := phys_access_check_machine_store_allowed premise
+    (BitVec.ofNat 64 bufferSlot) 8
+    (fetchPmpDisabled_of_normal (normalExecutionState_of_platformPreserved agree configured.normal))
+    (storePmaAllows_of_agree agree pma)
+    (ofNatAlignedEight bufferSlot (by omega) aligned).2
+  have noMMIO := storeMemoryNoMMIO_of_state_layout_excluded premise
+    (BitVec.ofNat 64 bufferSlot) 8 notMMIO
+    ((agree htif_tohost_base (by simp [platformPreserved])).trans configured.htifDisabled)
+  let afterWrite := afterWriteBytes (width := 8) premise (BitVec.ofNat 64 bufferSlot).toNat
+    (BitVec.ofNat 64 Elflings.inputBufferAddress)
+  have access : ConfiguredDwordStoreAccess state afterWrite 0x10148 0
+      (.Regidx 10#5) (.Regidx 5#5) :=
+    ⟨_, mstatusBits, _, mstatusPremise, privilegePremise, mprvZero,
+      rX_x5_run premise (BitVec.ofNat 64 Elflings.inputBufferAddress) pointerPremise,
+      addressRun, (ofNatAlignedEight bufferSlot (by omega) aligned).1, physical, noMMIO,
+      writeBytes_run_exact premise (BitVec.ofNat 64 bufferSlot).toNat
+        (BitVec.ofNat 64 Elflings.inputBufferAddress)⟩
+  have privilegeAfter : (tryStepStoreAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine := by
+    calc
+      _ = state.regs.get? cur_privilege := by
+        simpa [tryStepStoreAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+      _ = some Privilege.Machine := configured.normal.2.1
+  have seccfgAfter : (tryStepStoreAfterIncrement state).regs.get? mseccfg =
+      some mseccfgBits := by
+    calc
+      _ = state.regs.get? mseccfg := by
+        simpa [tryStepStoreAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+      _ = some mseccfgBits := mseccfgRead
+  have decode : Runs (ext_decode (fetchWord 0x23 0x30 0x55 0x00))
+      (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
+      (.STORE (0, .Regidx 5#5, .Regidx 10#5, 8)) := by
+    decode_run
+  simpa [afterWrite, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : bufferSlot < 2 ^ 64)] using
+    configuredDwordStoreStep stepNo 0x10148 state afterWrite 0
+    (.Regidx 10#5) (.Regidx 5#5) 0x23 0x30 0x55 0x00 configured atPc loaded decode access
+    (base := by rfl)
+
+/-- Production `0x10158: sd t1, 0(a1)`. -/
+theorem readInputStoreSizeStep (stepNo : Nat) (state : State) (sizeSlot inputSize : Nat)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x10158))
+    (slotRead : state.regs.get? x11 = some (BitVec.ofNat 64 sizeSlot))
+    (sizeRead : state.regs.get? x6 = some (BitVec.ofNat 64 inputSize))
+    (aligned : sizeSlot % 8 = 0) (fits : sizeSlot + 8 < 2 ^ 64)
+    (pma : StorePmaAllows state (BitVec.ofNat 64 sizeSlot) 8)
+    (notMMIO : StoreMMIOAddressExcluded (BitVec.ofNat 64 sizeSlot) 8)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement state) 0x10158)
+          sizeSlot (BitVec.ofNat 64 inputSize))
+        0x10158 retired) false := by
+  let premise := coreStoreNextState (tryStepStoreAfterIncrement state) 0x10158
+  have agree : Agree platformPreserved state premise :=
+    (stepPremiseState_writes state 0x10158).agree platformPreserved_disjoint
+  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := configured.mstatusStoreMode
+  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := configured.seccfgPresent
+  have mstatusPremise : premise.regs.get? mstatus = some mstatusBits :=
+    (agree mstatus (by simp [platformPreserved])).trans mstatusRead
+  have privilegePremise : premise.regs.get? cur_privilege = some .Machine :=
+    (agree cur_privilege (by simp [platformPreserved])).trans configured.normal.2.1
+  have mseccfgPremise : premise.regs.get? mseccfg = some mseccfgBits :=
+    (agree mseccfg (by simp [platformPreserved])).trans mseccfgRead
+  have slotPremise : premise.regs.get? x11 = some (BitVec.ofNat 64 sizeSlot) :=
+    (stepPremiseState_writes state 0x10158).get x11 (by decide) |>.trans slotRead
+  have sizePremise : premise.regs.get? x6 = some (BitVec.ofNat 64 inputSize) :=
+    (stepPremiseState_writes state 0x10158).get x6 (by decide) |>.trans sizeRead
+  have addressRun : Runs
+      (get_transformed_data_addr (.Regidx 11#5) (sign_extend (m := 64) (0#12))
+        (Store Data) 8) premise premise
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr (BitVec.ofNat 64 sizeSlot))) := by
+    have zero : sign_extend (m := 64) (0#12) = 0#64 := by native_decide
+    have zeroOffset : BitVec.ofNat 64 sizeSlot + sign_extend (m := 64) (0#12) =
+        BitVec.ofNat 64 sizeSlot := by simp [zero]
+    simpa [zeroOffset] using get_transformed_data_addr_machine_data_run .store premise
+      (.Regidx 11#5) 8 (BitVec.ofNat 64 sizeSlot) (sign_extend (m := 64) (0#12))
+      mstatusBits mseccfgBits (rX_x11_run premise (BitVec.ofNat 64 sizeSlot) slotPremise)
+      mstatusPremise privilegePremise mprvZero mseccfgPremise pmmDisabled
+  have physical := phys_access_check_machine_store_allowed premise
+    (BitVec.ofNat 64 sizeSlot) 8
+    (fetchPmpDisabled_of_normal (normalExecutionState_of_platformPreserved agree configured.normal))
+    (storePmaAllows_of_agree agree pma)
+    (ofNatAlignedEight sizeSlot (by omega) aligned).2
+  have noMMIO := storeMemoryNoMMIO_of_state_layout_excluded premise
+    (BitVec.ofNat 64 sizeSlot) 8 notMMIO
+    ((agree htif_tohost_base (by simp [platformPreserved])).trans configured.htifDisabled)
+  let afterWrite := afterWriteBytes (width := 8) premise (BitVec.ofNat 64 sizeSlot).toNat
+    (BitVec.ofNat 64 inputSize)
+  have access : ConfiguredDwordStoreAccess state afterWrite 0x10158 0
+      (.Regidx 11#5) (.Regidx 6#5) :=
+    ⟨_, mstatusBits, _, mstatusPremise, privilegePremise, mprvZero,
+      rX_x6_run premise (BitVec.ofNat 64 inputSize) sizePremise,
+      addressRun, (ofNatAlignedEight sizeSlot (by omega) aligned).1, physical, noMMIO,
+      writeBytes_run_exact premise (BitVec.ofNat 64 sizeSlot).toNat
+        (BitVec.ofNat 64 inputSize)⟩
+  have privilegeAfter : (tryStepStoreAfterIncrement state).regs.get? cur_privilege =
+      some Privilege.Machine := by
+    calc
+      _ = state.regs.get? cur_privilege := by
+        simpa [tryStepStoreAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+      _ = some Privilege.Machine := configured.normal.2.1
+  have seccfgAfter : (tryStepStoreAfterIncrement state).regs.get? mseccfg =
+      some mseccfgBits := by
+    calc
+      _ = state.regs.get? mseccfg := by
+        simpa [tryStepStoreAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+      _ = some mseccfgBits := mseccfgRead
+  have decode : Runs (ext_decode (fetchWord 0x23 0xb0 0x65 0x00))
+      (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
+      (.STORE (0, .Regidx 6#5, .Regidx 11#5, 8)) := by
+    decode_run
+  simpa [afterWrite, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : sizeSlot < 2 ^ 64)] using
+    configuredDwordStoreStep stepNo 0x10158 state afterWrite 0
+      (.Regidx 11#5) (.Regidx 6#5) 0x23 0xb0 0x65 0x00 configured atPc loaded decode access
+      (base := by rfl)
+
+private def readInputWrites : RegSet :=
+  RegSet.union stepBookkeeping (RegSet.union (RegSet.only x5) (RegSet.only x6))
+
+private def readInputMemory (args : ReadInputArgs) : Region :=
+  Region.union (byteRange args.bufferSlot 8) (byteRange args.sizeSlot 8)
+
+private theorem instructionPreserved_disjoint_readInputWrites :
+    RegSet.Disjoint instructionPreserved readInputWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  all_goals simp [instructionPreserved, platformPreserved] at preserved
+
+private theorem readInputPcInside (pc : BitVec 64)
+    (literal : pc = 0x10140 ∨ pc = 0x10144 ∨ pc = 0x10148 ∨ pc = 0x1014c ∨
+      pc = 0x10150 ∨ pc = 0x10154 ∨ pc = 0x10158) :
+    pcInRanges Elflings.readInputExecutionPcRanges pc := by
+  rcases literal with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    exact ⟨(0x10140, 0x10190), by native_decide, by native_decide, by native_decide⟩
+
+private theorem readInputPcNotExit (pc : BitVec 64)
+    (literal : pc = 0x10140 ∨ pc = 0x10144 ∨ pc = 0x10148 ∨ pc = 0x1014c ∨
+      pc = 0x10150 ∨ pc = 0x10154 ∨ pc = 0x10158) :
+    ¬ pcInList Elflings.readInputExitPcs pc := by
+  rcases literal with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    unfold pcInList <;> native_decide
+
+private theorem readInputPcNotObserved (pc : BitVec 64)
+    (literal : pc = 0x10140 ∨ pc = 0x10144 ∨ pc = 0x10148 ∨ pc = 0x1014c ∨
+      pc = 0x10150 ∨ pc = 0x10154 ∨ pc = 0x10158) :
+    ¬ BareMetalHostTransitionPc pc := by
+  rcases literal with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    simp only [BareMetalHostTransitionPc] <;> native_decide
+
+private theorem readInputConfinedSailStep (stepNo : Nat) (before : EndpointState)
+    (after : State) (pc : BitVec 64)
+    (literal : pc = 0x10140 ∨ pc = 0x10144 ∨ pc = 0x10148 ∨ pc = 0x1014c ∨
+      pc = 0x10150 ∨ pc = 0x10154 ∨ pc = 0x10158)
+    (atPc : EndpointPc before = some pc) (step : MachineStep stepNo before.machine after) :
+    ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.readInputExecutionPcRanges)
+      stepNo 1 before { before with machine := after } := by
+  apply ConfinedTrace.step stepNo 0 pc before { before with machine := after }
+    { before with machine := after }
+  · exact atPc
+  · exact readInputPcInside pc literal
+  · exact endpointStep_sail stepNo before after (fun target targetPc => by
+      rw [atPc] at targetPc
+      cases Option.some.inj targetPc
+      exact readInputPcNotObserved pc literal) step
+  · exact .refl (stepNo + 1) _
+
+private theorem readInput_region_not_file (args : ReadInputArgs) (entry : ReadInputEntry args before)
+    {address : Nat} (inside : readInputMemory args address) :
+    Artifacts.programImage.readFileByte? address = none := by
+  rcases entry with ⟨_returnPc, _inputBound, _stdin, _cursor, _atPc, _returnReg,
+    _bufferReg, _sizeReg, sizeEq, _aligned, _fits, _bytes, _context, _saved, _pmaBuffer,
+    _pmaSize, _loadPma, _mmioBuffer, _mmioSize, _inputOutside, _contextOutside, _savedOutside,
+    notFile, _loaded, _configured⟩
+  unfold readInputMemory Region.union byteRange at inside
+  rcases inside with inside | inside
+  · exact notFile address inside.1 (by omega)
+  · exact notFile address (by omega) (by omega)
+
+private theorem readInput_code_of_seg (args : ReadInputArgs) (entry : ReadInputEntry args before)
+    {fromStep count : Nat} {after : State} {kv : List RegVal} {pc : BitVec 64}
+    (seg : Seg (pcInRanges Elflings.readInputExecutionPcRanges)
+      (pcInList Elflings.readInputExitPcs) (fun _ _ _ _ _ => False)
+      readInputWrites (readInputMemory args) kv fromStep count before.machine after pc) :
+    Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
+  have entryCopy := entry
+  rcases entry with ⟨_returnPc, _inputBound, _stdin, _cursor, _atPc, _returnReg,
+    _bufferReg, _sizeReg, _sizeEq, _aligned, _fits, _bytes, _context, _saved, _pmaBuffer,
+    _pmaSize, _loadPma, _mmioBuffer, _mmioSize, _inputOutside, _contextOutside, _savedOutside,
+    _notFile, loaded, _configured⟩
+  intro address byte file
+  rw [seg.mem address]
+  · exact loaded address byte file
+  · intro inside
+    have noFile := readInput_region_not_file args entryCopy inside
+    rw [noFile] at file
+    cases file
 
 /-- Production `0x101c4: auipc t0, 0x2400a`. -/
 theorem zkvmExitLoadContextBaseStep (stepNo : Nat) (state : State)

@@ -1,6 +1,7 @@
 import BinaryFv.Zesu.DecodedValue.Observers
 import BinaryFv.RiscV.Platform.StoreMemoryWrite
 import BinaryFv.RiscV.Logic.MemoryWriteFrame
+import BinaryFv.RiscV.Logic.SepLogic
 import LeanRV64DExecutable
 
 /-!
@@ -39,6 +40,18 @@ theorem UIntRep.of_writesOnlyWithin {width address value : Nat}
   intro index inBounds
   rw [writes (address + index) (outside index inBounds)]
   exact rep.2.2 index inBounds
+
+/-- Expose a `UIntRep` byte window in the Sail little-endian form consumed by dword loads. -/
+theorem UIntRep.leBytes {n address value : Nat} {mem : Std.ExtHashMap Nat (BitVec 8)}
+    (rep : UIntRep n mem address value) (index : Nat) (bound : index < n) :
+    mem.get? (address + index) =
+      some (getElem (BinaryFv.RiscV.Sep.leBytes n (BitVec.ofNat (8 * n) value)) index (by
+        simpa only [BinaryFv.RiscV.Sep.leBytes_length] using bound)) := by
+  rw [rep.2.2 index bound]
+  congr 1
+  apply BitVec.eq_of_toNat_eq
+  simp [byteAt, BinaryFv.RiscV.Sep.leBytes, Nat.shiftRight_eq_div_pow]
+  rw [Nat.mod_eq_of_lt rep.1]
 
 /-- An exact eight-byte Sail store establishes the corresponding little-endian integer
 representation. -/

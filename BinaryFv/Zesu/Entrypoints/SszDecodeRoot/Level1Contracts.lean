@@ -43,12 +43,21 @@ def ReadInputEntry (args : ReadInputArgs) (state : EndpointState) : Prop :=
   LoadPmaAllows state.machine (BitVec.ofNat 64 Elflings.ioContextAddress) 8 ∧
   StoreMMIOAddressExcluded (BitVec.ofNat 64 args.bufferSlot) 8 ∧
   StoreMMIOAddressExcluded (BitVec.ofNat 64 args.sizeSlot) 8 ∧
+  (args.bufferSlot + 16 ≤ Elflings.inputBufferAddress ∨
+    Elflings.inputBufferAddress + args.input.size ≤ args.bufferSlot) ∧
+  (args.bufferSlot + 16 ≤ Elflings.ioContextAddress ∨
+    Elflings.ioContextAddress + 8 ≤ args.bufferSlot) ∧
+  (args.bufferSlot + 16 ≤ args.savedFrameAddress ∨
+    args.savedFrameAddress + 8 ≤ args.bufferSlot) ∧
+  (∀ address, args.bufferSlot ≤ address → address < args.bufferSlot + 16 →
+    Artifacts.programImage.readFileByte? address = none) ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   ConfiguredMachinePre EndpointMachinePc state.machine
 
 def ReadInputExit (args : ReadInputArgs) (outcome : ReadInputOutcome)
     (before after : EndpointState) : Prop :=
   after.machine.regs.get? PC = some (BitVec.ofNat 64 args.returnAddress) ∧
+  outcome.inputAddress = Elflings.inputBufferAddress ∧
   after.stdin = before.stdin ∧ after.stdinCursor = args.input.size ∧
   after.stdout = before.stdout ∧ after.exitCode = before.exitCode ∧
   UIntRep 8 after.machine.mem args.bufferSlot outcome.inputAddress ∧
@@ -90,11 +99,24 @@ def AllocatorGetEntry (args : AllocatorGetArgs) (state : EndpointState) : Prop :
   args.returnAddress ∈ Elflings.allocatorGetExitPcs ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.allocatorGetEntry) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
+  args.stackPointer % 8 = 0 ∧ args.stackPointer + 0x20 < 2 ^ 64 ∧
   UIntRep 8 state.machine.mem args.stackPointer args.inputAddress ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 8) args.input.size ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.savedReturnAddress ∧
   BytesRep state.machine.mem args.inputAddress args.input ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  LoadPmaAllows state.machine (BitVec.ofNat 64 args.stackPointer) 8 ∧
+  LoadPmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x10)) 8 ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x18)) 8 ∧
+  StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x10)) 8 ∧
+  StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x18)) 8 ∧
+  (args.stackPointer + 0x20 ≤ args.inputAddress ∨
+    args.inputAddress + args.input.size ≤ args.stackPointer + 0x10) ∧
+  (∀ address, args.stackPointer + 0x10 ≤ address →
+    address < args.stackPointer + 0x20 →
+    Artifacts.programImage.readFileByte? address = none) ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  ConfiguredMachinePre EndpointMachinePc state.machine
 
 def AllocatorGetExit (args : AllocatorGetArgs) (outcome : AllocatorGetOutcome)
     (before after : EndpointState) : Prop :=

@@ -904,6 +904,7 @@ def MainReadInputHandoff (contracts : Level1ResolvedContracts) (args : MainArgs)
   ∃ (childCount : Nat) (after : EndpointState) (outcome : ReadInputOutcome),
     ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep (7 + childCount) before after ∧
     0 < childCount ∧ EndpointPc after = some 0x14ccc ∧
+    outcome.inputAddress = Elflings.inputBufferAddress ∧
     ConfiguredMachinePre EndpointMachinePc after.machine ∧
     Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
     MainDataAccess args after.machine ∧
@@ -949,7 +950,7 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
       ?_, ?_, ?_, ?_, ?_, callDataAccess.stackStore 0 8 (by omega),
       callDataAccess.stackStore 8 8 (by omega), callDataAccess.inputContextLoad,
       entry.stackNoMMIO 0 8 (by omega), entry.stackNoMMIO 8 8 (by omega),
-      callCode, callConfigured⟩
+      ?_, ?_, ?_, ?_, callCode, callConfigured⟩
     · simpa [callState] using stdin
     · simpa [callState] using cursor
     · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
@@ -977,6 +978,23 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
         simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, controlFlowJumpState, coreControlFlowNextState,
           tryStepControlFlowAfterIncrement])
+    · left
+      change args.stackPointer + 16 ≤ Elflings.inputBufferAddress
+      have stackBelowInput := entry.stackBelowInputBuffer
+      omega
+    · left
+      change args.stackPointer + 16 ≤ Elflings.ioContextAddress
+      have stackBelowInput := entry.stackBelowInputBuffer
+      have inputBeforeContext : Elflings.inputBufferAddress ≤ Elflings.ioContextAddress := by
+        native_decide
+      omega
+    · left
+      change args.stackPointer + 16 ≤ args.stackPointer + 0x378
+      omega
+    · intro address lower upper
+      change args.stackPointer ≤ address at lower
+      change address < args.stackPointer + 16 at upper
+      exact entry.stackNotFileBacked address lower (by omega)
   let stepBound := contracts.readInputBound
   let implements := contracts.readInput
   obtain ⟨childCount, after, outcome, positive, bounded, childTrace, _exitPc,
@@ -985,12 +1003,14 @@ theorem main_call_read_input (contracts : Level1ResolvedContracts) (args : MainA
           sizeSlot := args.stackPointer + 8, savedFrameAddress := args.stackPointer + 0x378,
           savedReturnAddress := args.returnAddress, input := args.input }
         (fromStep + 7) callState readEntry
-  rcases childExit with ⟨afterPc, afterStdin, afterCursor, afterStdout, afterExitCode,
+  rcases childExit with ⟨afterPc, inputAddressExact, afterStdin, afterCursor, afterStdout,
+    afterExitCode,
     bufferRep, sizeRep, inputRep, savedReturnRep, _memoryFrame, callFrame⟩
   have wideChild : ConfinedTrace EndpointStep EndpointPc MainExecutionPc (fromStep + 7)
       childCount callState after := childTrace.weaken (fun pc inside => Or.inr (Or.inl inside))
   refine ⟨childCount, after, outcome, callTrace.append wideChild, positive,
     (by simpa [EndpointPc] using afterPc),
+    inputAddressExact,
     ConfiguredMachinePre.of_endpointCallFrame
       (ConfiguredMachinePre.afterCall 0x14cc8 0x10140 0x14ccc retired configured) callFrame,
     callFrame.2.2.1,
@@ -1037,8 +1057,9 @@ def MainAllocatorGetHandoff (contracts : Level1ResolvedContracts) (args : MainAr
 theorem main_call_allocator_get (contracts : Level1ResolvedContracts) (args : MainArgs)
     (fromStep : Nat) (before : EndpointState) (entry : MainEntry args before) :
     MainAllocatorGetHandoff contracts args fromStep before := by
-  obtain ⟨readCount, readState, readOutcome, readTrace, readPositive, readPc, configured,
-      code, dataAccess, stackPointer, stdin, stdinCursor, stdout, exitCode,
+  obtain ⟨readCount, readState, readOutcome, readTrace, readPositive, readPc,
+      readInputAddressExact, configured, code, dataAccess, stackPointer, stdin, stdinCursor,
+      stdout, exitCode,
       inputAddressRep, inputSizeRep,
       inputRep, savedReturnRep, readBounded⟩ :=
     main_call_read_input contracts args fromStep before entry
@@ -1047,9 +1068,29 @@ theorem main_call_allocator_get (contracts : Level1ResolvedContracts) (args : Ma
       inputAddress := readOutcome.inputAddress, input := args.input,
       savedReturnAddress := args.returnAddress }
   have allocatorEntry : AllocatorGetEntry allocatorArgs readState := by
-    refine ⟨allocatorGetExitPc_14cec, ?_, stackPointer,
-      inputAddressRep, inputSizeRep, savedReturnRep, inputRep, code⟩
-    simpa [allocatorArgs, EndpointPc, Elflings.allocatorGetEntry] using readPc
+    refine ⟨allocatorGetExitPc_14cec, ?_, stackPointer, ?_, ?_,
+      inputAddressRep, inputSizeRep, savedReturnRep, inputRep,
+      dataAccess.stackLoad 0 8 (by omega), dataAccess.stackLoad 8 8 (by omega),
+      dataAccess.stackStore 0x10 8 (by omega), dataAccess.stackStore 0x18 8 (by omega),
+      entry.stackNoMMIO 0x10 8 (by omega), entry.stackNoMMIO 0x18 8 (by omega),
+      ?_, ?_, code, configured⟩
+    · simpa [allocatorArgs, EndpointPc, Elflings.allocatorGetEntry] using readPc
+    · have divisibleByEight : args.stackPointer % 8 = 0 := by
+        obtain ⟨multiple, multipleEq⟩ := Nat.dvd_of_mod_eq_zero entry.stackAligned
+        exact Nat.mod_eq_zero_of_dvd ⟨2 * multiple, by omega⟩
+      simpa [allocatorArgs] using divisibleByEight
+    · have frameFits := entry.stackFits
+      change args.stackPointer + 0x20 < 2 ^ 64
+      omega
+    · left
+      change args.stackPointer + 0x20 ≤ readOutcome.inputAddress
+      rw [readInputAddressExact]
+      have stackBelowInput := entry.stackBelowInputBuffer
+      omega
+    · intro address lower upper
+      change args.stackPointer + 0x10 ≤ address at lower
+      change address < args.stackPointer + 0x20 at upper
+      exact entry.stackNotFileBacked address (by omega) (by omega)
   let stepBound := contracts.allocatorGetBound
   let implements := contracts.allocatorGet
   obtain ⟨allocatorCount, after, allocatorOutcome, allocatorPositive, allocatorBounded,
