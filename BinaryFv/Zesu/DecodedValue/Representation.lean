@@ -87,6 +87,57 @@ the concrete padding bytes without assigning them source-level meaning. -/
 def InitializedByteWindow (mem : Std.ExtHashMap Nat (BitVec 8)) (address width : Nat) : Prop :=
   ∃ bytes : Array UInt8, bytes.size = width ∧ BytesRep mem address bytes
 
+private noncomputable def bytesOfPresentWindow (mem : Std.ExtHashMap Nat (BitVec 8))
+    (address width : Nat) (present : ∀ index, index < width → ∃ byte, mem.get? (address + index) = some byte) :
+    Array UInt8 :=
+  Array.ofFn fun index : Fin width => UInt8.ofNat (present index index.isLt).choose.toNat
+
+theorem initializedByteWindow_of_present {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {address width : Nat} (fits : address + width ≤ 2 ^ 64)
+    (present : ∀ index, index < width → ∃ byte, mem.get? (address + index) = some byte) :
+    InitializedByteWindow mem address width := by
+  let bytes := bytesOfPresentWindow mem address width present
+  have size : bytes.size = width := by simp [bytes, bytesOfPresentWindow]
+  refine ⟨bytes, size, ?_, ?_⟩
+  · simpa [size] using fits
+  intro index inBounds
+  have chosen := (present index (by simpa [bytes, bytesOfPresentWindow] using inBounds)).choose_spec
+  rw [chosen]
+  congr 2
+  apply BitVec.eq_of_toNat_eq
+  simp [bytes, bytesOfPresentWindow]
+
+private theorem memory_present_afterByteWrites (state : BinaryFv.RiscV.State)
+    (writes : List (Nat × BitVec 8)) (address : Nat)
+    (present : ∃ byte, state.mem.get? address = some byte) :
+    ∃ byte, (BinaryFv.RiscV.afterByteWrites state writes).mem.get? address = some byte := by
+  induction writes generalizing state with
+  | nil => simpa [BinaryFv.RiscV.afterByteWrites] using present
+  | cons write writes ih =>
+      apply ih
+      by_cases same : write.1 = address
+      · subst same
+        exact ⟨write.2, by simp⟩
+      · obtain ⟨byte, byteAt⟩ := present
+        refine ⟨byte, ?_⟩
+        change Std.ExtDHashMap.Const.get? (state.mem.inner.insert write.1 write.2) address =
+          some byte
+        rw [Std.ExtDHashMap.Const.get?_insert]
+        rw [if_neg (by simpa using same)]
+        exact byteAt
+
+theorem InitializedByteWindow.afterWriteBytes {memAddress width storeAddress storeWidth : Nat}
+    {state : BinaryFv.RiscV.State} {value : BitVec (8 * storeWidth)}
+    (window : InitializedByteWindow state.mem memAddress width) :
+    InitializedByteWindow
+      (BinaryFv.RiscV.afterWriteBytes state storeAddress value).mem memAddress width := by
+  obtain ⟨bytes, size, rep⟩ := window
+  apply initializedByteWindow_of_present
+  · simpa [size] using rep.1
+  · intro index inBounds
+    apply memory_present_afterByteWrites
+    exact ⟨BitVec.ofNat 8 bytes[index].toNat, rep.2 index (by simpa [size] using inBounds)⟩
+
 /-- Consecutive initialized machine words, used for optimized struct slots that Zig reads even when
 their source-level optional payload is absent. -/
 def DwordWindowRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address count : Nat) : Prop :=
