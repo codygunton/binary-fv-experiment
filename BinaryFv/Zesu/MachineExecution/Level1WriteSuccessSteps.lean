@@ -7721,4 +7721,256 @@ private theorem writeSuccessArrayPrefixHandoff
       simpa only [rawStart, withdrawalsStart, Nat.add_assoc] using withdrawals.trace
     simpa [Nat.add_assoc] using firstTwo'.append last
   · rw [withdrawals.stdout, raw.stdout, transactions.stdout]
+
+/-- Production `0x156e8: ld a0,0x470(sp)`. -/
+private theorem writeSuccessBlobGasUsedLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x156e8)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x470)
+      args.decoded.payload.blobGasUsed)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x156e8 retired x10
+        (BitVec.ofNat 64 args.decoded.payload.blobGasUsed)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x156e8 0x470 args.decoded.payload.blobGasUsed
+    args state (.Regidx 10#5) x10 (BitVec.ofNat 64 args.decoded.payload.blobGasUsed)
+    0x470 0x03 0x35 0x01 0x47 access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x470#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x10_run premise _
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x156ec: auipc ra,0`. -/
+private theorem writeSuccessBlobGasUsedCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x156ec)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x156ec retired x1 0x156ec) false := by
+  apply configuredAuipcStep stepNo state 0x156ec 0 0x97 0x00 0x00 0x00 configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x156f0: jalr ra,0x624(ra)`. -/
+private theorem writeSuccessBlobGasUsedCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x156f0)
+    (baseRead : state.regs.get? x1 = some 0x156ec)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x156f0 0x15d10 x1 0x156f4)
+        0x15d10 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x156f0 0x156ec 0x624 0x15d10 0x156f4
+    0xe7 0x80 0x40 0x62 configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
+/-- Production `0x156f4: ld a0,0x478(sp)`. -/
+private theorem writeSuccessExcessBlobGasLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x156f4)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x478)
+      args.decoded.payload.excessBlobGas)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x156f4 retired x10
+        (BitVec.ofNat 64 args.decoded.payload.excessBlobGas)) false := by
+  apply writeSuccessFrameDwordLoadStep stepNo 0x156f4 0x478 args.decoded.payload.excessBlobGas
+    args state (.Regidx 10#5) x10 (BitVec.ofNat 64 args.decoded.payload.excessBlobGas)
+    0x478 0x03 0x35 0x81 0x47 access atPc stack rep (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x478#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x10_run premise _
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x156f8: auipc ra,0`. -/
+private theorem writeSuccessExcessBlobGasCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x156f8)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x156f8 retired x1 0x156f8) false := by
+  apply configuredAuipcStep stepNo state 0x156f8 0 0x97 0x00 0x00 0x00 configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x156fc: jalr ra,0x618(ra)`. -/
+private theorem writeSuccessExcessBlobGasCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x156fc)
+    (baseRead : state.regs.get? x1 = some 0x156f8)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x156fc 0x15d10 x1 0x15700)
+        0x15d10 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x156fc 0x156f8 0x618 0x15d10 0x15700
+    0xe7 0x80 0x80 0x61 configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
+set_option genInjectivity false in
+/-- The two blob-gas scalar encoders following withdrawals. -/
+structure WriteSuccessBlobScalarsHandoff (fromStep blobUsed excessUsed : Nat)
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (before after : EndpointState)
+    (values : DecodeCalleeSavedValues) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
+    (3 + blobUsed + 3 + excessUsed) before after
+  atPc : EndpointPc after = some 0x15700
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdout : after.stdout = before.stdout ++ encodeNatLE 8 args.decoded.payload.blobGasUsed ++
+    encodeNatLE 8 args.decoded.payload.excessBlobGas
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  saved : SavedWordReps after.machine (writeSuccessSavedWords args values)
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+  memory : WriteSuccessMemoryFrame args before.machine after.machine
+
+private theorem writeSuccessBlobScalarsHandoff
+    (child : WriteSuccessIntInstanceContract) (fromStep : Nat)
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (values : DecodeCalleeSavedValues)
+    (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x156e8)
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args values))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
+    ∃ blobUsed excessUsed after,
+      WriteSuccessBlobScalarsHandoff fromStep blobUsed excessUsed
+        args payloadBytes before after values := by
+  rcases context.payloadRep with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
+    transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
+    blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
+    stateRoot, receiptsRootSize, receiptsRoot, logsBloomSize, logsBloom, prevRandaoSize,
+    prevRandao, blockHashSize, blockHash⟩
+  obtain ⟨blobUsed, afterBlob, blob⟩ := writeSuccessIntCallHandoff child fromStep
+    0x156e8 0x156f4 0x470 args.decoded.payload.blobGasUsed 0x156ec args before atPc stack
+    blobGasUsed access loaded aligned lower upper
+    (fun stepNo state => writeSuccessBlobGasUsedLoadStep stepNo args state)
+    writeSuccessBlobGasUsedCallBaseStep writeSuccessBlobGasUsedCallStep
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x156e8, 0x15730), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x156e8, 0x15730), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x156e8, 0x15730), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
+    (by native_decide) (by native_decide) (by native_decide)
+  have contextBlob := writeSuccessPayloadContextAfterInt decodedEq lower upper context blob
+  have savedBlob : SavedWordReps afterBlob.machine (writeSuccessSavedWords args values) := by
+    intro word member
+    exact (saved word member).of_writesOnlyWithin blob.memory (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      simp [writeSuccessSavedWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl <;> omega)
+  let excessStart := fromStep + 3 + blobUsed
+  obtain ⟨excessUsed, after, excess⟩ := writeSuccessIntCallHandoff child excessStart
+    0x156f4 0x15700 0x478 args.decoded.payload.excessBlobGas 0x156f8 args afterBlob blob.atPc
+    blob.stack contextBlob.payloadRep.2.2.2.2.2.2.2.2.2.2.1 blob.access blob.loaded aligned
+    lower upper (fun stepNo state => writeSuccessExcessBlobGasLoadStep stepNo args state)
+    writeSuccessExcessBlobGasCallBaseStep
+    writeSuccessExcessBlobGasCallStep
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x156e8, 0x15730), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x156e8, 0x15730), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x156e8, 0x15730), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
+    (by native_decide) (by native_decide) (by native_decide)
+  have contextAfter := writeSuccessPayloadContextAfterInt decodedEq lower upper contextBlob excess
+  have savedAfter : SavedWordReps after.machine (writeSuccessSavedWords args values) := by
+    intro word member
+    exact (savedBlob word member).of_writesOnlyWithin excess.memory (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      simp [writeSuccessSavedWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl <;> omega)
+  refine ⟨blobUsed, excessUsed, after, {
+    trace := ?_
+    atPc := excess.atPc
+    stack := excess.stack
+    stdout := ?_
+    stdin := excess.stdin.trans blob.stdin
+    cursor := excess.cursor.trans blob.cursor
+    exitCode := excess.exitCode.trans blob.exitCode
+    saved := savedAfter
+    payloadContext := contextAfter
+    loaded := excess.loaded
+    access := excess.access
+    memory := WritesOnlyWithin.trans_same
+      (blob.memory.mono (fun address inside => by
+        unfold writeSuccessFrameMemory
+        exact writeSuccessChildFrame_mem_frame lower inside))
+      (excess.memory.mono (fun address inside => by
+        unfold writeSuccessFrameMemory
+        exact writeSuccessChildFrame_mem_frame lower inside)) }⟩
+  · have second : ConfinedTrace EndpointStep EndpointPc
+        (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+        (fromStep + (3 + blobUsed)) (3 + excessUsed) afterBlob after := by
+      simpa [excessStart, Nat.add_assoc] using excess.trace
+    simpa [Nat.add_assoc] using blob.trace.append second
+  · rw [excess.stdout, blob.stdout]
 end BinaryFv.Zesu.MachineExecution
