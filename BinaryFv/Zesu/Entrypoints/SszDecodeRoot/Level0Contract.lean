@@ -1400,7 +1400,7 @@ def MainDecodeHandoff (contracts : Level1ResolvedContracts) (args : MainArgs) (f
         DecodeStatusLoadWitness after 0 ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
-        InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 848) ∧
+        DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧
     readCount ≤ contracts.readInputBound args.input.size ∧
     allocatorCount ≤ contracts.allocatorGetBound args.input.size ∧
     decodeCount ≤ contracts.decodeBound args.input.size
@@ -1567,7 +1567,7 @@ def MainStatusLoadedHandoff (contracts : Level1ResolvedContracts) (args : MainAr
         after.machine.regs.get? x10 = some (0#64) ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
-        InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 848) ∧
+        DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧
     readCount ≤ contracts.readInputBound args.input.size ∧
     allocatorCount ≤ contracts.allocatorGetBound args.input.size ∧
     decodeCount ≤ contracts.decodeBound args.input.size
@@ -1700,7 +1700,7 @@ def MainStatusBranchedHandoff (contracts : Level1ResolvedContracts) (args : Main
     | .success decoded => EndpointPc after = some 0x14d04 ∧
         StatelessInputRep after.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 720 ∧
-        InitializedByteWindow after.machine.mem (args.stackPointer + 0x20) 848) ∧
+        DwordWindowRep after.machine.mem (args.stackPointer + 0x20 + 720) 16) ∧
     readCount ≤ contracts.readInputBound args.input.size ∧
     allocatorCount ≤ contracts.allocatorGetBound args.input.size ∧
     decodeCount ≤ contracts.decodeBound args.input.size

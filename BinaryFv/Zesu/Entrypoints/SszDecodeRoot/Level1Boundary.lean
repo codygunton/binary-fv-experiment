@@ -179,7 +179,7 @@ def DecodeBoundaryExit (args : DecodeBoundaryArgs) (outcome : DecodeBoundaryOutc
         DecodeStatusLoadWitness state 0 ∧
         StatelessInputRep state.machine.mem (args.stackPointer + 0x20) decoded ∧
         InitializedByteWindow state.machine.mem (args.stackPointer + 0x20) 720 ∧
-        InitializedByteWindow state.machine.mem (args.stackPointer + 0x20) 848
+        DwordWindowRep state.machine.mem (args.stackPointer + 0x20 + 720) 16
 
 /-- The strict contract shape. The reviewed Level 1 contract will instantiate its bound and widen
 only the fixed accept/reject domains represented by `knownBugs`. -/

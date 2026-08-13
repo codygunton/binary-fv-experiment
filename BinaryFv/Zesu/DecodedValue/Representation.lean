@@ -87,6 +87,13 @@ the concrete padding bytes without assigning them source-level meaning. -/
 def InitializedByteWindow (mem : Std.ExtHashMap Nat (BitVec 8)) (address width : Nat) : Prop :=
   ∃ bytes : Array UInt8, bytes.size = width ∧ BytesRep mem address bytes
 
+/-- Consecutive initialized machine words, used for optimized struct slots that Zig reads even when
+their source-level optional payload is absent. -/
+def DwordWindowRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address count : Nat) : Prop :=
+  ∃ values : Fin count → Nat,
+    ∀ index (inBounds : index < count), UIntRep 8 mem (address + index * 8)
+      (values ⟨index, inBounds⟩)
+
 def ArrayRep (stride : Nat) (elementRep : Std.ExtHashMap Nat (BitVec 8) → Nat → α → Prop)
     (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat) (values : Array α) : Prop :=
   address + values.size * stride ≤ 2 ^ 64 ∧

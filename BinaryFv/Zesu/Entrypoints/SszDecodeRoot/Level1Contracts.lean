@@ -190,7 +190,7 @@ def WriteSuccessEntry (args : WriteSuccessArgs) (state : EndpointState) : Prop :
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.decodedAddress) ∧
   StatelessInputRep state.machine.mem args.decodedAddress args.decoded ∧
   InitializedByteWindow state.machine.mem args.decodedAddress 720 ∧
-  InitializedByteWindow state.machine.mem args.decodedAddress 848 ∧
+  DwordWindowRep state.machine.mem (args.decodedAddress + 720) 16 ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   (∃ values, DecodeCalleeSavedAtRegisters values state) ∧
   WriteSuccessMachineAccess args state.machine
