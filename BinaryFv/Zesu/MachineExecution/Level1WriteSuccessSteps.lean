@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.Level1DecodeInputSteps
+import BinaryFv.Zesu.MachineExecution.Level2RuntimeLeaves
 import BinaryFv.Zesu.MachineExecution.MemcpyProof
 
 /-!
@@ -1872,6 +1873,39 @@ private theorem writeSuccessAddiX12FromZeroStep (stepNo pc value : Nat) (imm : B
       (wX_x12_run premise (iTypeResult .ADDI imm 0))
   exact configuredRegisterWriteStep stepNo pc state x12 (BitVec.ofNat 64 value)
     (.ITYPE (imm, .Regidx 0#5, .Regidx 12#5, .ADDI)) byte0 byte1 byte2 byte3
+    configured atPc loaded decode execute (pcFits := pcFits) (base := base)
+    (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+
+private theorem writeSuccessAddiX11FromZeroStep (stepNo pc value : Nat) (imm : BitVec 12)
+    (byte0 byte1 byte2 byte3 : UInt8) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (resultEq : iTypeResult .ADDI imm 0 = BitVec.ofNat 64 value)
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (imm, .Regidx 0#5, .Regidx 11#5, .ADDI)))
+    (pcFits : pc < 2 ^ 64) (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x11
+        (BitVec.ofNat 64 value)) false := by
+  let premise := coreControlFlowNextState
+    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+  have execute : Runs (execute (.ITYPE (imm, .Regidx 0#5, .Regidx 11#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x11 (BitVec.ofNat 64 value) }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE imm (.Regidx 0#5) (.Regidx 11#5) .ADDI) _ _ _
+    simpa only [resultEq] using execute_ITYPE_run premise _ imm (.Regidx 0#5)
+      (.Regidx 11#5) .ADDI 0 (rX_x0_run premise)
+      (wX_x11_run premise (iTypeResult .ADDI imm 0))
+  exact configuredRegisterWriteStep stepNo pc state x11 (BitVec.ofNat 64 value)
+    (.ITYPE (imm, .Regidx 0#5, .Regidx 11#5, .ADDI)) byte0 byte1 byte2 byte3
     configured atPc loaded decode execute (pcFits := pcFits) (base := base)
     (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
 
@@ -5552,6 +5586,89 @@ private theorem writeSuccessBaseFeeCallStep (stepNo : Nat) (state : State)
   · native_decide
   · rfl
   · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
+/-- Production `0x1572c: addi a0,sp,0x3e8`. -/
+private theorem writeSuccessOutputBufferStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x1572c)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x1572c retired x10
+        (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x3e8))) false := by
+  apply writeSuccessAddiX10FromSpStep stepNo 0x1572c 0x3e8 0x3e8
+    0x13 0x05 0x81 0x3e state (args.stackPointer - 0x7d0) access.configured atPc stack loaded
+  · simp only [iTypeResult]
+    change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + sign_extend (0x3e8#12) = _
+    rw [show sign_extend (m := 64) (0x3e8#12) = 0x3e8#64 by native_decide]
+    rw [← BitVec.ofNat_add]
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x15730: li a1,32`. -/
+private theorem writeSuccessOutputLengthStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15730)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15730 retired x11 32) false := by
+  apply writeSuccessAddiX11FromZeroStep stepNo 0x15730 32 32
+    0x93 0x05 0x00 0x02 state configured atPc loaded
+  · native_decide
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+/-- Production `0x15734: auipc ra,-5`. -/
+private theorem writeSuccessOutputCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15734)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15734 retired x1 0x10734) false := by
+  apply configuredAuipcStep stepNo state 0x15734 0xffffb 0x97 0xb0 0xff 0xff
+    configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x15738: jalr ra,-0x5a4(ra)`, entering bare-metal `write_output`. -/
+private theorem writeSuccessOutputCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15738)
+    (baseRead : state.regs.get? x1 = some 0x10734)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x15738 0x10190 x1 0x1573c)
+        0x10190 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x15738 0x10734 0xa5c 0x10190 0x1573c
+    0xe7 0x80 0xc0 0xa5 configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
     decode_run
   · native_decide
   · native_decide
