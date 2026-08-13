@@ -37,6 +37,9 @@ def WriteSuccessIoFrame (before after : EndpointState) : Prop :=
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.stdout = before.stdout ∧ after.exitCode = before.exitCode
 
+def WriteSuccessMemoryFrame (args : WriteSuccessArgs) (before after : State) : Prop :=
+  WritesOnlyWithin (writeSuccessFrameMemory args) before after
+
 def writeSuccessIncomingRegs (args : WriteSuccessArgs) (values : DecodeCalleeSavedValues) :
     List RegVal :=
   [⟨x1, BitVec.ofNat 64 args.returnAddress⟩,
@@ -1703,6 +1706,7 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
       after.machine.regs.get? x8 = some (BitVec.ofNat 64 args.decodedAddress) ∧
       Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
       WriteSuccessMachineAccess args after.machine ∧
+      WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after := by
   obtain ⟨values, setupState, setup, savedWords, configured⟩ :=
     writeSuccessMemcpyCallSetup fromStep args state entry
@@ -1845,6 +1849,19 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
         dataPmaAllows_of_pma_regions_eq childPmaEq (access.decodedLoad offset width inBounds)
       decodedNoMMIO := access.decodedNoMMIO
       frameNotCode := access.frameNotCode }
+  have parentMemory : WriteSuccessMemoryFrame args state.machine callMachine := by
+    intro address outside
+    simpa [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+      setup.mem address outside
+  have childMemory : WriteSuccessMemoryFrame args callMachine after.machine :=
+    childMem.mono (by
+      intro address inside
+      unfold byteRange at inside
+      unfold writeSuccessFrameMemory byteRange
+      simp [memcpyArgs, bytesSize] at inside
+      omega)
+  have wholeMemory : WriteSuccessMemoryFrame args state.machine after.machine :=
+    WritesOnlyWithin.trans_same parentMemory childMemory
   have tailAfterReps : ∀ index (inBounds : index < 16),
       UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
         (tailValues ⟨index, inBounds⟩) := by
@@ -1863,7 +1880,8 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
   have tailAfter : DwordWindowRep after.machine.mem (args.decodedAddress + 720) 16 :=
     ⟨tailValues, tailAfterReps⟩
   refine ⟨values, bytes, tailValues, used, after, ?_, ?_, destinationRep, sourceRepAfter,
-    bytesSize, tailAfter, tailAfterReps, savedAfter, ?_, ?_, codeAfter, accessAfter, ?_⟩
+    bytesSize, tailAfter, tailAfterReps, savedAfter, ?_, ?_, codeAfter, accessAfter,
+    wholeMemory, ?_⟩
   · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
   · simpa [EndpointPc, MachinePc, memcpyArgs] using childPc
   · exact (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
@@ -1903,9 +1921,11 @@ theorem writeSuccessFirstTailLoadHandoff (fromStep : Nat) (args : WriteSuccessAr
       SavedWordReps next (writeSuccessSavedWords args values) ∧
       Artifacts.programImage.fileBytesLoadedFaithfully next.mem ∧
       WriteSuccessMachineAccess args next ∧
+      WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after := by
   obtain ⟨values, bytes, tailValues, used, after, trace, atPc, _destinationRep, _sourceRep,
-    bytesSize, _tailWindow, tailReps, saved, stackRead, baseRead, loaded, access, ioFrame⟩ :=
+    bytesSize, _tailWindow, tailReps, saved, stackRead, baseRead, loaded, access, memoryFrame,
+    ioFrame⟩ :=
     writeSuccessMemcpyHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, _, decodedEq, _, _, _, _, _, _, _, _, _, _⟩
   let kv : List RegVal :=
@@ -1952,7 +1972,7 @@ theorem writeSuccessFirstTailLoadHandoff (fromStep : Nat) (args : WriteSuccessAr
   have codeNext := writeSuccessCodeOfSeg access loaded lower seg1
   exact ⟨values, bytes, tailValues, used, after, next, trace, seg1, _destinationRep,
     bytesSize, ⟨tailValues, tailReps⟩, tailReps, saved, loaded, access, tailNext,
-    tailNextReps, savedNext, codeNext, writeSuccessAccessOfSeg access seg1, ioFrame⟩
+    tailNextReps, savedNext, codeNext, writeSuccessAccessOfSeg access seg1, memoryFrame, ioFrame⟩
 
 /-- Append `0x14d84: sd a0,24(sp)` after the first decoded-tail load. -/
 theorem writeSuccessFirstTailPairHandoff (fromStep : Nat) (args : WriteSuccessArgs)
@@ -1980,11 +2000,12 @@ theorem writeSuccessFirstTailPairHandoff (fromStep : Nat) (args : WriteSuccessAr
       SavedWordReps next (writeSuccessSavedWords args values) ∧
       Artifacts.programImage.fileBytesLoadedFaithfully next.mem ∧
       WriteSuccessMachineAccess args next ∧
+      WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after := by
   obtain ⟨values, bytes, tailValues, used, after, loadedState, trace, loadedSeg,
     destinationRep, bytesSize, _tailWindowAtBase, tailAtBase, _savedAtBase, loadedAtBase,
     accessAtBase, _tailWindowAtLoad, _tailAtLoad, savedAtLoad, _loadedAtLoad, accessAtLoad,
-    ioFrame⟩ :=
+    memoryFrame, ioFrame⟩ :=
     writeSuccessFirstTailLoadHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _⟩
   refine ⟨values, bytes, tailValues, used, after, ?_⟩
@@ -2033,7 +2054,7 @@ theorem writeSuccessFirstTailPairHandoff (fromStep : Nat) (args : WriteSuccessAr
   exact ⟨next, trace, seg2, destinationRep, bytesSize, tailAtBase, loadedAtBase, accessAtBase,
     tailNext, tailNextReps, savedNext,
     writeSuccessCodeOfSeg accessAtBase loadedAtBase lower seg2,
-    writeSuccessAccessOfSeg accessAtBase seg2, ioFrame⟩
+    writeSuccessAccessOfSeg accessAtBase seg2, memoryFrame, ioFrame⟩
 
 /-- Reusable exact `ld a0,offset(s0); sd a0,slot(sp)` pair for the decoded writer tail. -/
 private theorem writeSuccessTailPairStep {a n : Nat} {base cur : State}
@@ -2193,10 +2214,11 @@ theorem writeSuccessSecondTailPairHandoff (fromStep : Nat) (args : WriteSuccessA
           (tailValues ⟨index, inBounds⟩)) ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
       WriteSuccessMachineAccess args next ∧
+      WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after := by
   obtain ⟨values, bytes, tailValues, used, after, first, trace, seg, destinationRep,
     bytesSize, tailBase, loaded, access, _tailWindow, tailFirst, saved, _code, _accessFirst,
-    ioFrame⟩ :=
+    memoryFrame, ioFrame⟩ :=
     writeSuccessFirstTailPairHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _⟩
   obtain ⟨next, seg2, tailNext, savedNext, accessNext⟩ :=
@@ -2229,7 +2251,7 @@ theorem writeSuccessSecondTailPairHandoff (fromStep : Nat) (args : WriteSuccessA
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
   exact ⟨values, bytes, tailValues, used, after, next, trace, seg2, destinationRep, bytesSize,
-    tailBase, loaded, access, tailNext, savedNext, accessNext, ioFrame⟩
+    tailBase, loaded, access, tailNext, savedNext, accessNext, memoryFrame, ioFrame⟩
 
 /-- Compose the first ten decoded-tail load/store pairs, ending at `0x14dd0`. -/
 theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSuccessArgs)
@@ -2255,9 +2277,10 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
           (tailValues ⟨index, inBounds⟩)) ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
       WriteSuccessMachineAccess args next ∧
+      WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after := by
   obtain ⟨values, bytes, tailValues, used, after, cur1, trace, seg1, destinationRep,
-    bytesSize, tailBase, loaded, access, tail1, saved1, access1, ioFrame⟩ :=
+    bytesSize, tailBase, loaded, access, tail1, saved1, access1, memoryFrame, ioFrame⟩ :=
     writeSuccessSecondTailPairHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _⟩
   obtain ⟨cur2, seg2, tail2, saved2, access2⟩ :=
@@ -2493,7 +2516,7 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
       (by unfold writeSuccessInitialExitPc; native_decide)
       (by rfl) (by rfl) (by omega) (by omega) (by native_decide) (by native_decide)
   exact ⟨values, bytes, tailValues, used, after, cur9, trace, seg9, destinationRep,
-    bytesSize, tailBase, loaded, access, tail9, saved9, access9, ioFrame⟩
+    bytesSize, tailBase, loaded, access, tail9, saved9, access9, memoryFrame, ioFrame⟩
 
 /-- Append one exact decoded-tail load while retaining the earlier live tail values. -/
 private theorem writeSuccessTailLoadStep {a n : Nat} {base cur : State} {kv : List RegVal}
@@ -2616,9 +2639,10 @@ theorem writeSuccessFirstFourFinalLoadsHandoff (fromStep : Nat) (args : WriteSuc
           (tailValues ⟨index, inBounds⟩)) ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
       WriteSuccessMachineAccess args next ∧
+      WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after := by
   obtain ⟨values, bytes, tailValues, used, after, cur9, trace, seg9, destinationRep,
-    bytesSize, tailBase, loaded, access, _tail9, saved9, _access9, ioFrame⟩ :=
+    bytesSize, tailBase, loaded, access, _tail9, saved9, _access9, memoryFrame, ioFrame⟩ :=
     writeSuccessFirstTenTailPairsHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, _, decodedEq, _, _, _, _, _, _, _, _, _, _⟩
   let kv0 : List RegVal :=
@@ -2719,7 +2743,7 @@ theorem writeSuccessFirstFourFinalLoadsHandoff (fromStep : Nat) (args : WriteSuc
       (by native_decide)
   exact ⟨values, bytes, tailValues, used, after, cur13, trace,
     by simpa [Nat.add_assoc] using seg13, destinationRep, bytesSize, tailBase, loaded, access,
-    tail13, saved13, access13, ioFrame⟩
+    tail13, saved13, access13, memoryFrame, ioFrame⟩
 
 /-- Append one exact child-frame store while retaining tail values and ABI saves. -/
 private theorem writeSuccessTailStoreStep {a n : Nat} {base cur : State} {kv : List RegVal}
@@ -2820,9 +2844,10 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
           (tailValues ⟨index, inBounds⟩)) ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
       WriteSuccessMachineAccess args next ∧
+      WriteSuccessMemoryFrame args state.machine next ∧
       WriteSuccessIoFrame state after := by
   obtain ⟨values, bytes, tailValues, used, after, cur13, trace, seg13, destinationRep,
-    bytesSize, tailBase, loaded, access, _tail13, saved13, _access13, ioFrame⟩ :=
+    bytesSize, tailBase, loaded, access, _tail13, saved13, _access13, memoryFrame, ioFrame⟩ :=
     writeSuccessFirstFourFinalLoadsHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _⟩
   let kvBase : List RegVal := [⟨x13, BitVec.ofNat 64 (tailValues ⟨13, by omega⟩)⟩,
@@ -3022,7 +3047,8 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
       (by rfl) (by simp [kvBase, RegsOutside, stepBookkeeping]) (by native_decide)
   exact ⟨values, bytes, tailValues, used, after, curS13, trace,
     by simpa [kvBase, kvFinal, Nat.add_assoc] using segS13, destinationRep, bytesSize,
-    tailS13, savedS13, accessS13, ioFrame⟩
+    tailS13, savedS13, accessS13,
+    WritesOnlyWithin.trans_same memoryFrame segS13.mem, ioFrame⟩
 
 
 
