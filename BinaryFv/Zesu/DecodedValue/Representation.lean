@@ -172,10 +172,11 @@ theorem BytesRep.rebase {before after : Std.ExtHashMap Nat (BitVec 8)}
   rw [relocation index inBounds]
   exact rep.2 index inBounds
 
-theorem ByteWindowRelocation.of_same_bytes {mem : Std.ExtHashMap Nat (BitVec 8)}
+theorem ByteWindowRelocation.of_same_bytes
+    {before after : Std.ExtHashMap Nat (BitVec 8)}
     {source destination : Nat} {bytes : Array UInt8}
-    (sourceRep : BytesRep mem source bytes) (destinationRep : BytesRep mem destination bytes) :
-    ByteWindowRelocation mem mem source destination bytes.size := by
+    (sourceRep : BytesRep before source bytes) (destinationRep : BytesRep after destination bytes) :
+    ByteWindowRelocation before after source destination bytes.size := by
   intro index inBounds
   rw [sourceRep.2 index inBounds, destinationRep.2 index inBounds]
 
