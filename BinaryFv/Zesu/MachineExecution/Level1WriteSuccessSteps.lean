@@ -11273,7 +11273,8 @@ private theorem writeSuccessExtraDataHandoff
     (upper : args.stackPointer < 2 ^ 64)
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
-      WriteSuccessExtraDataHandoff fromStep childUsed args payloadBytes before after := by
+      WriteSuccessExtraDataHandoff fromStep childUsed args payloadBytes before after ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound bytesChild args.inputSize := by
   obtain ⟨extraAddress, pointerRep, lengthRep, extraRep⟩ := context.payloadRep.2.2.2.2.1
   have seg0 : Seg writeSuccessParentPc writeSuccessBytesCallExitPc
       (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
@@ -11373,9 +11374,9 @@ private theorem writeSuccessExtraDataHandoff
           (seg3.reg x11 (BitVec.ofNat 64 args.decoded.payload.extraData.size) (by simp))
       · simpa [childArgs, value, callState, callMemEq] using extraBytes
     · simpa [callState, callMemEq] using loaded
-  obtain ⟨bytesBound, bytesImpl⟩ := bytesChild
-  obtain ⟨childUsed, after, unit, _positive, _bounded, childTrace, _childPc, _allowed,
-      childExit⟩ := bytesImpl childArgs (fromStep + 4) callState childEntry
+  obtain ⟨childUsed, after, unit, _positive, bounded, childTrace, _childPc, _allowed,
+      childExit⟩ := EncoderCallInstanceContract.implements bytesChild childArgs
+        (fromStep + 4) callState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, _frameFits, childMem,
     childFrame⟩
   have callPrefix : ConfinedPrefix writeSuccessParentPc writeSuccessBytesCallExitPc
@@ -11438,7 +11439,7 @@ private theorem writeSuccessExtraDataHandoff
     exact loaded address byte fileByte
   have payloadAfter := writeSuccessPayloadContextAfterBytes decodedAddress lower upper
     access.writerRegionBeforeOutputContext context exactMemory
-  exact ⟨childUsed, after, {
+  refine ⟨childUsed, after, {
     trace := by
       have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
@@ -11453,7 +11454,8 @@ private theorem writeSuccessExtraDataHandoff
     memory := exactMemory
     loaded := loadedAfter
     access := accessAfter
-    payload := payloadAfter }⟩
+    payload := payloadAfter }, ?_⟩
+  simpa [encoderCallContract, childArgs] using bounded
 
 set_option genInjectivity false in
 /-- The gas-limit, gas-used, and timestamp integer calls following the block-number call. -/
@@ -11492,8 +11494,10 @@ private theorem writeSuccessThreeIntHandoff
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ gasLimitUsed gasUsedUsed timestampUsed after,
       WriteSuccessThreeIntHandoff fromStep gasLimitUsed gasUsedUsed timestampUsed
-        args bytes before after := by
-  obtain ⟨gasLimitUsed, afterGasLimit, gasLimitCall, _gasLimitBounded⟩ :=
+        args bytes before after ∧
+      3 + gasLimitUsed + 3 + gasUsedUsed + 3 + timestampUsed ≤
+        9 + 3 * EncoderCallInstanceContract.stepBound intChild args.inputSize := by
+  obtain ⟨gasLimitUsed, afterGasLimit, gasLimitCall, gasLimitBounded⟩ :=
     writeSuccessIntCallHandoff intChild fromStep 0x14e94 0x14ea0 0x410
       args.decoded.payload.gasLimit 0x15e98 args before atPc stack context.payloadRep.2.1
       access loaded aligned lower upper (fun step state => writeSuccessGasLimitLoadStep step args state)
@@ -11510,7 +11514,7 @@ private theorem writeSuccessThreeIntHandoff
       (by native_decide) (by native_decide) (by native_decide)
   have contextGasLimit := writeSuccessPayloadContextAfterInt decodedAddress lower upper context
     gasLimitCall
-  obtain ⟨gasUsedUsed, afterGasUsed, gasUsedCall, _gasUsedBounded⟩ :=
+  obtain ⟨gasUsedUsed, afterGasUsed, gasUsedCall, gasUsedBounded⟩ :=
     writeSuccessIntCallHandoff intChild (fromStep + 3 + gasLimitUsed) 0x14ea0 0x14eac 0x418
       args.decoded.payload.gasUsed 0x15ea4 args afterGasLimit gasLimitCall.atPc gasLimitCall.stack
       contextGasLimit.payloadRep.2.2.1 gasLimitCall.access gasLimitCall.loaded aligned lower upper
@@ -11528,7 +11532,7 @@ private theorem writeSuccessThreeIntHandoff
       (by native_decide) (by native_decide) (by native_decide)
   have contextGasUsed := writeSuccessPayloadContextAfterInt decodedAddress lower upper
     contextGasLimit gasUsedCall
-  obtain ⟨timestampUsed, after, timestampCall, _timestampBounded⟩ :=
+  obtain ⟨timestampUsed, after, timestampCall, timestampBounded⟩ :=
     writeSuccessIntCallHandoff intChild
       (fromStep + 3 + gasLimitUsed + 3 + gasUsedUsed) 0x14eac 0x14eb8 0x420
       args.decoded.payload.timestamp 0x15eb0 args afterGasUsed gasUsedCall.atPc gasUsedCall.stack
@@ -11559,12 +11563,13 @@ private theorem writeSuccessThreeIntHandoff
       (WritesOnlyWithin.trans_same gasUsedCall.memory timestampCall.memory)
     loaded := timestampCall.loaded
     access := timestampCall.access
-    payload := contextTimestamp }⟩
+    payload := contextTimestamp }, ?_⟩
   · have firstTwo := gasLimitCall.trace.append (by
       simpa [Nat.add_assoc] using gasUsedCall.trace)
     have all := firstTwo.append (by simpa [Nat.add_assoc] using timestampCall.trace)
     simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
   · rw [timestampCall.stdout, gasUsedCall.stdout, gasLimitCall.stdout]
+  · omega
 
 set_option genInjectivity false in
 /-- All scalar/byte encoder calls after block number and before the block-hash field. -/
@@ -11606,16 +11611,20 @@ private theorem writeSuccessPostBlockNumberHandoff
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ gasLimitUsed gasUsedUsed timestampUsed extraDataUsed baseFeeUsed after,
       WriteSuccessPostBlockNumberHandoff fromStep gasLimitUsed gasUsedUsed timestampUsed
-        extraDataUsed baseFeeUsed args payloadBytes before after := by
-  obtain ⟨gasLimitUsed, gasUsedUsed, timestampUsed, afterThree, three⟩ :=
+        extraDataUsed baseFeeUsed args payloadBytes before after ∧
+      3 + gasLimitUsed + 3 + gasUsedUsed + 3 + timestampUsed + 4 + extraDataUsed +
+          3 + baseFeeUsed ≤
+        16 + 4 * EncoderCallInstanceContract.stepBound intChild args.inputSize +
+          EncoderCallInstanceContract.stepBound bytesChild args.inputSize := by
+  obtain ⟨gasLimitUsed, gasUsedUsed, timestampUsed, afterThree, three, threeBounded⟩ :=
     writeSuccessThreeIntHandoff intChild fromStep args payloadBytes before atPc stack context
       access loaded aligned lower upper decodedAddress
   let afterThreeStep := fromStep + 3 + gasLimitUsed + 3 + gasUsedUsed + 3 + timestampUsed
-  obtain ⟨extraDataUsed, afterExtra, extra⟩ := writeSuccessExtraDataHandoff bytesChild
+  obtain ⟨extraDataUsed, afterExtra, extra, extraBounded⟩ := writeSuccessExtraDataHandoff bytesChild
     afterThreeStep args payloadBytes afterThree three.atPc three.stack three.payload three.access
     three.loaded aligned lower upper decodedAddress
   let afterExtraStep := afterThreeStep + 4 + extraDataUsed
-  obtain ⟨baseFeeUsed, after, baseFee, _baseFeeBounded⟩ :=
+  obtain ⟨baseFeeUsed, after, baseFee, baseFeeBounded⟩ :=
     writeSuccessIntCallHandoff intChild afterExtraStep
     0x14ec8 0x14ed4 0x438 args.decoded.payload.baseFeePerGas 0x15ecc args afterExtra
     extra.atPc extra.stack extra.payload.payloadRep.2.2.2.2.2.1 extra.access extra.loaded aligned
@@ -11656,13 +11665,14 @@ private theorem writeSuccessPostBlockNumberHandoff
       (WritesOnlyWithin.trans_same extra.memory baseFeeMemory)
     loaded := baseFee.loaded
     access := baseFee.access
-    payload := payloadAfter }⟩
+    payload := payloadAfter }, ?_⟩
   · have throughExtra := three.trace.append (by
       simpa [afterThreeStep, Nat.add_assoc] using extra.trace)
     have all := throughExtra.append (by
       simpa [afterThreeStep, afterExtraStep, Nat.add_assoc] using baseFee.trace)
     simpa [afterThreeStep, afterExtraStep, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
   · rw [baseFee.stdout, extra.stdout, three.stdout]
+  · omega
 
 set_option genInjectivity false in
 /-- Parent block-hash pointer setup followed by the selected raw encoder. -/
