@@ -265,6 +265,14 @@ private theorem take_fixed_encode (value : Array UInt8) (width : Nat)
     take (pre ++ (value ++ suffix)) width pre.size = some (value, pre.size + width) := by
   simpa [size] using take_middle pre value suffix
 
+private theorem unsigned_encodeUIntRep {width address value : Nat}
+    {mem : Std.ExtHashMap Nat (BitVec 8)} (rep : UIntRep width mem address value)
+    (pre suffix : Array UInt8) :
+    unsigned (pre ++ (encodeNatLE width value ++ suffix)) width pre.size =
+      some (value, pre.size + width) := by
+  apply unsigned_encodeNatLE
+  simpa [show 256 = 2 ^ 8 by decide, Nat.pow_mul] using rep.1
+
 private theorem parseWithdrawal_of_reads {input : Array UInt8} {start p1 p2 p3 finish : Nat}
     {index validator amount : Nat} {address : Array UInt8}
     (indexRead : u64 input start = some (index, p1))
@@ -324,5 +332,86 @@ private theorem parseWithdrawal_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {ad
       Array.append_assoc] using read
   simpa [input, encodeWithdrawal, Array.size_append, encodeNatLE_size, addressSize,
     Nat.add_assoc] using parseWithdrawal_of_reads indexRead validatorRead addressRead amountRead
+
+private theorem parseAuthorization_of_reads {input : Array UInt8}
+    {start p1 p2 p3 p4 p5 finish chainId nonce v r s : Nat} {address : Array UInt8}
+    (chainRead : u256 input start = some (chainId, p1))
+    (addressRead : take input 20 p1 = some (address, p2))
+    (nonceRead : u64 input p2 = some (nonce, p3))
+    (vRead : u64 input p3 = some (v, p4))
+    (rRead : u256 input p4 = some (r, p5))
+    (sRead : u256 input p5 = some (s, finish)) :
+    parseAuthorization input start = some ({ chainId, address, nonce, v, r, s }, finish) := by
+  change StateT.run ((do pure {
+    chainId := ← u256 input
+    address := ← take input 20
+    nonce := ← u64 input
+    v := ← u64 input
+    r := ← u256 input
+    s := ← u256 input }) : Parser Authorization) start = _
+  have chainRead' : StateT.run (u256 input) start = some (chainId, p1) := chainRead
+  have addressRead' : StateT.run (take input 20) p1 = some (address, p2) := addressRead
+  have nonceRead' : StateT.run (u64 input) p2 = some (nonce, p3) := nonceRead
+  have vRead' : StateT.run (u64 input) p3 = some (v, p4) := vRead
+  have rRead' : StateT.run (u256 input) p4 = some (r, p5) := rRead
+  have sRead' : StateT.run (u256 input) p5 = some (s, finish) := sRead
+  simp_all [StateT.run_bind]
+
+private theorem parseAuthorization_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} :
+    ParserEncodes parseAuthorization encodeAuthorization (AuthorizationRep mem address) := by
+  intro value rep pre suffix
+  rcases rep with ⟨chainRep, rRep, sRep, nonceRep, vRep, addressSize, _addressRep⟩
+  let input := pre ++ (encodeAuthorization value ++ suffix)
+  have inputEq : input = pre ++ (encodeNatLE 32 value.chainId ++
+      (value.address ++ (encodeNatLE 8 value.nonce ++ (encodeNatLE 8 value.v ++
+      (encodeNatLE 32 value.r ++ (encodeNatLE 32 value.s ++ suffix)))))) := by
+    simp [input, encodeAuthorization, Array.append_assoc]
+  have chainRead : u256 input pre.size = some (value.chainId, pre.size + 32) := by
+    rw [inputEq]
+    exact unsigned_encodeUIntRep chainRep pre
+      (value.address ++ (encodeNatLE 8 value.nonce ++ (encodeNatLE 8 value.v ++
+        (encodeNatLE 32 value.r ++ (encodeNatLE 32 value.s ++ suffix)))))
+  have addressRead : take input 20 (pre.size + 32) =
+      some (value.address, pre.size + 32 + 20) := by
+    rw [inputEq]
+    have read := take_fixed_encode value.address 20 addressSize
+      (pre ++ encodeNatLE 32 value.chainId)
+      (encodeNatLE 8 value.nonce ++ (encodeNatLE 8 value.v ++
+        (encodeNatLE 32 value.r ++ (encodeNatLE 32 value.s ++ suffix))))
+    simpa [Array.size_append, encodeNatLE_size, Nat.add_assoc] using read
+  have nonceRead : u64 input (pre.size + 32 + 20) =
+      some (value.nonce, pre.size + 32 + 20 + 8) := by
+    rw [inputEq]
+    have read := unsigned_encodeUIntRep nonceRep
+      (pre ++ encodeNatLE 32 value.chainId ++ value.address)
+      (encodeNatLE 8 value.v ++ (encodeNatLE 32 value.r ++ (encodeNatLE 32 value.s ++ suffix)))
+    simpa [u64, Array.size_append, encodeNatLE_size, addressSize, Nat.add_assoc,
+      Array.append_assoc] using read
+  have vRead : u64 input (pre.size + 32 + 20 + 8) =
+      some (value.v, pre.size + 32 + 20 + 8 + 8) := by
+    rw [inputEq]
+    have read := unsigned_encodeUIntRep vRep
+      (pre ++ encodeNatLE 32 value.chainId ++ value.address ++ encodeNatLE 8 value.nonce)
+      (encodeNatLE 32 value.r ++ (encodeNatLE 32 value.s ++ suffix))
+    simpa [u64, Array.size_append, encodeNatLE_size, addressSize, Nat.add_assoc,
+      Array.append_assoc] using read
+  have rRead : u256 input (pre.size + 32 + 20 + 8 + 8) =
+      some (value.r, pre.size + 32 + 20 + 8 + 8 + 32) := by
+    rw [inputEq]
+    have read := unsigned_encodeUIntRep rRep
+      (pre ++ encodeNatLE 32 value.chainId ++ value.address ++ encodeNatLE 8 value.nonce ++
+        encodeNatLE 8 value.v) (encodeNatLE 32 value.s ++ suffix)
+    simpa [u256, Array.size_append, encodeNatLE_size, addressSize, Nat.add_assoc,
+      Array.append_assoc] using read
+  have sRead : u256 input (pre.size + 32 + 20 + 8 + 8 + 32) =
+      some (value.s, pre.size + 32 + 20 + 8 + 8 + 32 + 32) := by
+    rw [inputEq]
+    have read := unsigned_encodeUIntRep sRep
+      (pre ++ encodeNatLE 32 value.chainId ++ value.address ++ encodeNatLE 8 value.nonce ++
+        encodeNatLE 8 value.v ++ encodeNatLE 32 value.r) suffix
+    simpa [u256, Array.size_append, encodeNatLE_size, addressSize, Nat.add_assoc,
+      Array.append_assoc] using read
+  simpa [input, encodeAuthorization, Array.size_append, encodeNatLE_size, addressSize,
+    Nat.add_assoc] using parseAuthorization_of_reads chainRead addressRead nonceRead vRead rRead sRead
 
 end BinaryFv.Zesu
