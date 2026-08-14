@@ -105,6 +105,30 @@ private theorem writeSuccessChildFrame64_mem_frame {stackPointer address : Nat}
   · rw [Nat.sub_add_cancel lower]
     omega
 
+private theorem writeSuccessChildFrame_writes_writerFrame {args : WriteSuccessArgs}
+    {before after : State} (lower : 0x880 ≤ args.stackPointer)
+    (writes : WritesOnlyWithin
+      (byteRange (args.stackPointer - 0x7d0 - 16) 16) before after) :
+    WriteSuccessMemoryFrame args before after := by
+  intro address outside
+  exact writes address (fun inside => outside (writeSuccessChildFrame_mem_frame lower inside))
+
+private theorem writeSuccessChildFrame48_writes_writerFrame {args : WriteSuccessArgs}
+    {before after : State} (lower : 0x880 ≤ args.stackPointer)
+    (writes : WritesOnlyWithin
+      (byteRange (args.stackPointer - 0x7d0 - 48) 48) before after) :
+    WriteSuccessMemoryFrame args before after := by
+  intro address outside
+  exact writes address (fun inside => outside (writeSuccessChildFrame48_mem_frame lower inside))
+
+private theorem writeSuccessChildFrame64_writes_writerFrame {args : WriteSuccessArgs}
+    {before after : State} (lower : 0x880 ≤ args.stackPointer)
+    (writes : WritesOnlyWithin
+      (byteRange (args.stackPointer - 0x7d0 - 64) 64) before after) :
+    WriteSuccessMemoryFrame args before after := by
+  intro address outside
+  exact writes address (fun inside => outside (writeSuccessChildFrame64_mem_frame lower inside))
+
 private theorem writeSuccessChildStackFits {stackPointer : Nat} (lower : 0x880 ≤ stackPointer) :
     16 ≤ stackPointer - 0x7d0 := by
   apply Nat.le_sub_of_add_le
@@ -7658,6 +7682,7 @@ structure WriteSuccessLateBytesHandoff
   payloadContext : WriteSuccessPayloadContext args payloadBytes after
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess args after.machine
+  writerMemory : WriteSuccessMemoryFrame args before.machine after.machine
   memory : WritesOnlyWithin
     (byteRange (args.stackPointer - 0x7d0 - 48) 48) before.machine after.machine
 
@@ -7848,6 +7873,7 @@ private theorem writeSuccessLateBytesHandoff
     payloadContext := payloadAfter
     loaded := handoff.loaded
     access := handoff.access
+    writerMemory := writeSuccessChildFrame48_writes_writerFrame lower handoff.memory
     memory := handoff.memory }⟩
 
 /-- The first execution-request bytes call, `0x158e0..0x158ec`, through its selected child. -/
@@ -8004,6 +8030,7 @@ structure WriteSuccessRequestsHandoff
   payloadContext : WriteSuccessPayloadContext args payloadBytes after
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess args after.machine
+  memory : WriteSuccessMemoryFrame args before.machine after.machine
 
 /-- Compose the five repeated execution-request byte encoders. -/
 private theorem writeSuccessRequestsHandoff
@@ -8121,7 +8148,16 @@ private theorem writeSuccessRequestsHandoff
     saved := h5.saved
     payloadContext := h5.payloadContext
     loaded := h5.loaded
-    access := h5.access }⟩
+    access := h5.access
+    memory := WritesOnlyWithin.trans_same
+      (WritesOnlyWithin.trans_same
+        (WritesOnlyWithin.trans_same
+          (WritesOnlyWithin.trans_same
+            (writeSuccessChildFrame48_writes_writerFrame lower h1.memory)
+            (writeSuccessChildFrame48_writes_writerFrame lower h2.memory))
+          (writeSuccessChildFrame48_writes_writerFrame lower h3.memory))
+        (writeSuccessChildFrame48_writes_writerFrame lower h4.memory))
+      (writeSuccessChildFrame48_writes_writerFrame lower h5.memory) }⟩
   · have t2 := h1.trace.append (by simpa [Nat.add_assoc] using h2.trace)
     have t3 := t2.append (by simpa [Nat.add_assoc] using h3.trace)
     have t4 := t3.append (by simpa [Nat.add_assoc] using h4.trace)
@@ -8149,6 +8185,7 @@ structure WriteSuccessLateByteListsHandoff
   payloadContext : WriteSuccessPayloadContext args payloadBytes after
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess args after.machine
+  memory : WriteSuccessMemoryFrame args before.machine after.machine
 
 /-- Consume the selected byte-list child once its exact four-step parent setup is complete. -/
 private theorem writeSuccessLateByteListsFromSetup
@@ -8236,7 +8273,8 @@ private theorem writeSuccessLateByteListsFromSetup
     saved := savedAfter
     payloadContext := payloadAfter
     loaded := handoff.loaded
-    access := handoff.access }⟩
+    access := handoff.access
+    memory := writeSuccessChildFrame64_writes_writerFrame lower handoff.memory }⟩
 
 /-- One literal late byte-list site, sharing the four-step `Seg` and selected-child composition. -/
 private theorem writeSuccessLateByteListsSite
@@ -8352,7 +8390,8 @@ private theorem writeSuccessLateByteListsSite
     saved := savedAfter
     payloadContext := payloadAfter
     loaded := handoff.loaded
-    access := handoff.access }⟩
+    access := handoff.access
+    memory := writeSuccessChildFrame64_writes_writerFrame lower handoff.memory }⟩
 
 set_option genInjectivity false in
 /-- The three witness byte-list encoders in production order through `0x15960`. -/
@@ -8376,6 +8415,7 @@ structure WriteSuccessWitnessListsHandoff
   payloadContext : WriteSuccessPayloadContext args payloadBytes after
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess args after.machine
+  memory : WriteSuccessMemoryFrame args before.machine after.machine
 
 /-- Compose the three repeated witness byte-list calls. -/
 private theorem writeSuccessWitnessListsHandoff
@@ -8450,6 +8490,14 @@ private theorem writeSuccessWitnessListsHandoff
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+  have memory1 : WriteSuccessMemoryFrame args before.machine s1.machine :=
+    h1.memory
+  have memory2 : WriteSuccessMemoryFrame args s1.machine s2.machine :=
+    h2.memory
+  have memory3 : WriteSuccessMemoryFrame args s2.machine s3.machine :=
+    h3.memory
+  have memory12 := WritesOnlyWithin.trans_same memory1 memory2
+  have memory123 := WritesOnlyWithin.trans_same memory12 memory3
   refine ⟨nodesUsed, codesUsed, headersUsed, s3, {
     trace := ?_
     atPc := h3.atPc
@@ -8461,7 +8509,8 @@ private theorem writeSuccessWitnessListsHandoff
     saved := h3.saved
     payloadContext := h3.payloadContext
     loaded := h3.loaded
-    access := h3.access }⟩
+    access := h3.access
+    memory := memory123 }⟩
   · have t2 := h1.trace.append (by simpa [Nat.add_assoc] using h2.trace)
     simpa only [Nat.add_assoc] using
       t2.append (by simpa only [Nat.add_assoc] using h3.trace)
@@ -8538,6 +8587,7 @@ structure WriteSuccessChainIdHandoff
   payloadContext : WriteSuccessPayloadContext args payloadBytes after
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess args after.machine
+  memory : WriteSuccessMemoryFrame args before.machine after.machine
 
 private theorem writeSuccessChainIdHandoff
     (child : WriteSuccessIntInstanceContract) (fromStep : Nat) (args : WriteSuccessArgs)
@@ -8589,7 +8639,8 @@ private theorem writeSuccessChainIdHandoff
     saved := savedAfter
     payloadContext := payloadAfter
     loaded := handoff.loaded
-    access := handoff.access }⟩
+    access := handoff.access
+    memory := writeSuccessChildFrame_writes_writerFrame lower handoff.memory }⟩
 
 /-- Production `0x1596c: ld s0,0x48(sp)`, loading the optional fork-name pointer. -/
 private theorem writeSuccessForkNamePointerLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -10239,6 +10290,7 @@ structure WriteSuccessActiveForkHandoff
   payloadContext : WriteSuccessPayloadContext args payloadBytes after
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess args after.machine
+  memory : WriteSuccessMemoryFrame args before.machine after.machine
 
 set_option genInjectivity false in
 structure WriteSuccessLateOptionalHandoff
@@ -10511,6 +10563,7 @@ structure WriteSuccessChainOptionalsHandoff
   payloadContext : WriteSuccessPayloadContext args payloadBytes after
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess args after.machine
+  memory : WriteSuccessMemoryFrame args before.machine after.machine
 
 private theorem writeSuccessChainOptionalsHandoff
     (child : WriteSuccessOptionalU64InstanceContract) (fromStep : Nat)
@@ -10607,7 +10660,10 @@ private theorem writeSuccessChainOptionalsHandoff
     saved := finalSaved
     payloadContext := finalContext
     loaded := timestamp.loaded
-    access := timestamp.access }⟩
+    access := timestamp.access
+    memory := WritesOnlyWithin.trans_same
+      (writeSuccessChildFrame_writes_writerFrame lower block.memory)
+      (writeSuccessChildFrame_writes_writerFrame lower timestamp.memory) }⟩
 
 /-- The public-key site's exact `mv; ld; auipc; jalr` parent setup. -/
 private theorem writeSuccessPublicKeysSetup
@@ -11114,7 +11170,13 @@ private theorem writeSuccessActiveForkHandoff
     saved := savedAfter
     payloadContext := payloadAfter
     loaded := call.loaded
-    access := call.access }⟩
+    access := call.access
+    memory := by
+      have pointerMemory : WriteSuccessMemoryFrame args before.machine pointerState.machine := by
+        intro address outside
+        rfl
+      exact WritesOnlyWithin.trans_same pointerMemory
+        (writeSuccessChildFrame_writes_writerFrame lower call.memory) }⟩
 
 set_option genInjectivity false in
 /-- Exact parent setup plus the shared bytes child for payload extra data. -/
