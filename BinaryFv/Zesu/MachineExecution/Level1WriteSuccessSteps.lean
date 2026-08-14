@@ -6544,6 +6544,63 @@ private theorem WriteSuccessPayloadContext.executionRequestsRep
   · simpa [decodedAddress, Nat.add_assoc] using relocation.atOffset 672 16 (by
       rw [fullSize]; omega)
 
+/-- The linked tail stores materialize the witness-nodes slice descriptor at `sp+0x10`. -/
+private theorem WriteSuccessPayloadContext.witnessNodesRep
+    {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
+    (context : WriteSuccessPayloadContext args bytes state) :
+    SliceRep 16 ByteSliceRep state.machine.mem
+      (args.stackPointer - 0x7d0 + 0x10) args.decoded.witnessNodes := by
+  have decoded := context.stable state.machine.mem (fun _ _ => rfl)
+  obtain ⟨address, addressRep, countRep, arrayRep⟩ := decoded.2.2.2.2.2.2.1
+  obtain ⟨values, local, source⟩ := context.linkedTailReps
+  have addressEq : values ⟨0, by omega⟩ = address :=
+    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) addressRep
+  have countEq : values ⟨1, by omega⟩ = args.decoded.witnessNodes.size :=
+    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) countRep
+  refine ⟨address, ?_, ?_, arrayRep⟩
+  · simpa [writeSuccessLocalTailWords, addressEq] using
+      local (args.stackPointer - 0x7d0 + 0x18, values ⟨0, by omega⟩) (by simp)
+  · simpa [writeSuccessLocalTailWords, countEq] using
+      local (args.stackPointer - 0x7d0 + 0x10, values ⟨1, by omega⟩) (by simp)
+
+/-- The linked tail stores materialize the witness-codes slice descriptor at `sp+0x20`. -/
+private theorem WriteSuccessPayloadContext.witnessCodesRep
+    {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
+    (context : WriteSuccessPayloadContext args bytes state) :
+    SliceRep 16 ByteSliceRep state.machine.mem
+      (args.stackPointer - 0x7d0 + 0x20) args.decoded.witnessCodes := by
+  have decoded := context.stable state.machine.mem (fun _ _ => rfl)
+  obtain ⟨address, addressRep, countRep, arrayRep⟩ := decoded.2.2.2.2.2.2.2.1
+  obtain ⟨values, local, source⟩ := context.linkedTailReps
+  have addressEq : values ⟨2, by omega⟩ = address :=
+    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) addressRep
+  have countEq : values ⟨3, by omega⟩ = args.decoded.witnessCodes.size :=
+    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) countRep
+  refine ⟨address, ?_, ?_, arrayRep⟩
+  · simpa [writeSuccessLocalTailWords, addressEq] using
+      local (args.stackPointer - 0x7d0 + 0x28, values ⟨2, by omega⟩) (by simp)
+  · simpa [writeSuccessLocalTailWords, countEq] using
+      local (args.stackPointer - 0x7d0 + 0x20, values ⟨3, by omega⟩) (by simp)
+
+/-- The linked tail stores materialize the witness-headers slice descriptor at `sp+0x30`. -/
+private theorem WriteSuccessPayloadContext.witnessHeadersRep
+    {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
+    (context : WriteSuccessPayloadContext args bytes state) :
+    SliceRep 16 ByteSliceRep state.machine.mem
+      (args.stackPointer - 0x7d0 + 0x30) args.decoded.witnessHeaders := by
+  have decoded := context.stable state.machine.mem (fun _ _ => rfl)
+  obtain ⟨address, addressRep, countRep, arrayRep⟩ := decoded.2.2.2.2.2.2.2.2.1
+  obtain ⟨values, local, source⟩ := context.linkedTailReps
+  have addressEq : values ⟨4, by omega⟩ = address :=
+    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) addressRep
+  have countEq : values ⟨5, by omega⟩ = args.decoded.witnessHeaders.size :=
+    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) countRep
+  refine ⟨address, ?_, ?_, arrayRep⟩
+  · simpa [writeSuccessLocalTailWords, addressEq] using
+      local (args.stackPointer - 0x7d0 + 0x38, values ⟨4, by omega⟩) (by simp)
+  · simpa [writeSuccessLocalTailWords, countEq] using
+      local (args.stackPointer - 0x7d0 + 0x30, values ⟨5, by omega⟩) (by simp)
+
 /-- Transport copied payload semantics through one exact child frame inside the writer frame. -/
 private theorem writeSuccessPayloadContextAfterChild
     {args : WriteSuccessArgs} {bytes : Array UInt8} {before after : EndpointState}
@@ -7552,6 +7609,254 @@ private theorem writeSuccessRequestsHandoff
     simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
       t4.append (by simpa [Nat.add_assoc] using h5.trace)
   · rw [h5.stdout, h4.stdout, h3.stdout, h2.stdout, h1.stdout]
+
+set_option genInjectivity false in
+/-- One late shared byte-list call after its four parent setup instructions. -/
+structure WriteSuccessLateByteListsHandoff
+    (fromStep childUsed returnPc : Nat) (value : Array (Array UInt8))
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
+    (before after : EndpointState) (savedValues : DecodeCalleeSavedValues) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (4 + childUsed) before after
+  atPc : EndpointPc after = some (BitVec.ofNat 64 returnPc)
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdout : after.stdout = before.stdout ++ encodeMany encodeBytes value
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  saved : SavedWordReps after.machine (writeSuccessSavedWords args savedValues)
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+
+/-- One literal late byte-list site, sharing the four-step `Seg` and selected-child composition. -/
+private theorem writeSuccessLateByteListsSite
+    (child : WriteSuccessByteListsInstanceContract)
+    (fromStep pc returnPc addressOffset lengthOffset immediate : Nat)
+    (a0 a1 a2 a3 l0 l1 l2 l3 j0 j1 j2 j3 : UInt8)
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (value : Array (Array UInt8))
+    (savedValues : DecodeCalleeSavedValues) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (descriptor : SliceRep 16 ByteSliceRep before.machine.mem
+      (args.stackPointer - 0x7d0 + lengthOffset) value)
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args savedValues))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20)
+    (returnEq : pc + 16 = returnPc) (targetEq : pc + 8 + immediate = 0x15c10)
+    (owned0 : writeSuccessParentPc (BitVec.ofNat 64 pc))
+    (owned1 : writeSuccessParentPc (BitVec.ofNat 64 (pc + 4)))
+    (owned2 : writeSuccessParentPc (BitVec.ofNat 64 (pc + 8)))
+    (owned3 : writeSuccessParentPc (BitVec.ofNat 64 (pc + 12)))
+    (before0 : BitVec.ofNat 64 pc ≠ 0x15c10)
+    (before1 : BitVec.ofNat 64 (pc + 4) ≠ 0x15c10)
+    (before2 : BitVec.ofNat 64 (pc + 8) ≠ 0x15c10)
+    (before3 : BitVec.ofNat 64 (pc + 12) ≠ 0x15c10)
+    (next0 : Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = BitVec.ofNat 64 (pc + 4))
+    (next1 : Sail.BitVec.addInt (BitVec.ofNat 64 (pc + 4)) 4 = BitVec.ofNat 64 (pc + 8))
+    (next2 : Sail.BitVec.addInt (BitVec.ofNat 64 (pc + 8)) 4 = BitVec.ofNat 64 (pc + 12))
+    (returnListed : returnPc ∈ Elflings.writeSuccessByteListsExitPcs) :
+    ∃ childUsed after,
+      WriteSuccessLateByteListsHandoff fromStep childUsed returnPc value args payloadBytes
+        before after savedValues := by
+  obtain ⟨address, addressRep, lengthRep, arrayRep⟩ := descriptor
+  obtain ⟨callState, setup⟩ := writeSuccessSliceCallSetup fromStep pc returnPc 0x15c10
+    addressOffset lengthOffset address value.size (pc + 8) args before atPc stack addressRep
+    lengthRep access loaded aligned
+    (fun step state access pcRead stackRead rep aligned loaded =>
+      writeSuccessLateSliceLoadStep step pc addressOffset address (.Regidx 10#5) x10
+        a0 a1 a2 a3 args state access pcRead stackRead rep aligned loaded
+        (fun premise => wX_x10_run premise _))
+    (fun step state access pcRead stackRead rep aligned loaded =>
+      writeSuccessLateSliceLoadStep step (pc + 4) lengthOffset value.size (.Regidx 11#5) x11
+        l0 l1 l2 l3 args state access pcRead stackRead rep aligned loaded
+        (fun premise => wX_x11_run premise _))
+    (fun step state configured pcRead loaded =>
+      writeSuccessLateSliceCallBaseStep step (pc + 8) state configured pcRead loaded)
+    (fun step state configured pcRead base loaded =>
+      writeSuccessLateSliceCallStep step (pc + 12) 0x15c10 returnPc immediate
+        j0 j1 j2 j3 state configured pcRead base loaded (by omega) (by omega))
+    owned0 owned1 owned2 owned3 before0 before1 before2 before3 next0 next1 next2
+  let childValue : ByteListsEncoderValue := { address := address, values := value }
+  let childArgs : EncoderCallArgs ByteListsEncoderValue := {
+    returnAddress := returnPc
+    callerStack := args.stackPointer - 0x7d0
+    value := childValue }
+  have childEntry : EncoderCallEntry Elflings.writeSuccessByteListsEntry
+      Elflings.writeSuccessByteListsExitPcs ByteListsEncoderBinding childArgs callState := by
+    unfold EncoderCallEntry
+    refine ⟨by simpa [childArgs] using returnListed, writeSuccessChildStackBound upper,
+      setup.atPc, ?_, ?_, ?_, setup.loaded⟩
+    · simpa [childArgs] using setup.link
+    · simpa [childArgs] using setup.stack
+    · refine ⟨arrayRep.1, ?_, ?_, ?_⟩
+      · simpa [childArgs, childValue] using setup.address
+      · simpa [childArgs, childValue] using setup.length
+      · simpa [childArgs, childValue, setup.memory] using arrayRep
+  have frameInWriter : ∀ address,
+      byteRange (args.stackPointer - 0x7d0 - 64) 64 address →
+      writeSuccessFrameMemory args address := fun _ inside =>
+    writeSuccessChildFrame64_mem_frame lower inside
+  obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
+    (fun inside => by
+      unfold pcInRanges at inside ⊢
+      rcases inside with ⟨range, member, lo, hi⟩
+      simp [Elflings.writeSuccessByteListsExecutionPcRanges] at member
+      rcases member with rfl | rfl | rfl
+      · exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges], lo, hi⟩
+      · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
+          by omega, by omega⟩
+      · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
+          by omega, by omega⟩)
+    fromStep 4 args childValue before callState childArgs rfl childEntry setup.trace
+    ⟨setup.stdin, setup.cursor, setup.stdout, setup.exitCode⟩ setup.memory setup.access setup.loaded
+    lower frameInWriter
+  have payloadAfter := writeSuccessPayloadContextAfterChild decodedAddress lower upper
+    handoff.access.writerRegionBeforeOutputContext context handoff.memory
+    (fun address inside => Or.inl (frameInWriter address inside)) (by
+      intro index inBounds inside; unfold byteRange at inside; omega) (by
+      intro index inBounds inside; unfold byteRange at inside; omega) (by
+      intro index inBounds inside; unfold byteRange at inside; omega) (by
+      intro index inBounds inside; unfold byteRange at inside; rw [decodedAddress] at inside; omega)
+    (by intro index inBounds inside; unfold byteRange at inside;
+      rw [decodedAddress] at inside; omega) (by
+      intro index inBounds inside; unfold byteRange at inside; omega) (by
+      intro values word member index inBounds inside
+      simp [writeSuccessLocalTailWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl <;> unfold byteRange at inside <;> omega)
+  have savedAfter : SavedWordReps after.machine (writeSuccessSavedWords args savedValues) := by
+    intro word member
+    exact (saved word member).of_writesOnlyWithin handoff.memory (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      simp [writeSuccessSavedWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl <;> omega)
+  exact ⟨childUsed, after, {
+    trace := handoff.trace
+    atPc := handoff.atPc
+    stack := handoff.stack
+    stdout := by simpa [childValue] using handoff.stdout
+    stdin := handoff.stdin
+    cursor := handoff.cursor
+    exitCode := handoff.exitCode
+    saved := savedAfter
+    payloadContext := payloadAfter
+    loaded := handoff.loaded
+    access := handoff.access }⟩
+
+set_option genInjectivity false in
+/-- The three witness byte-list encoders in production order through `0x15960`. -/
+structure WriteSuccessWitnessListsHandoff
+    (fromStep nodesUsed codesUsed headersUsed : Nat) (args : WriteSuccessArgs)
+    (payloadBytes : Array UInt8) (savedValues : DecodeCalleeSavedValues)
+    (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
+    (4 + nodesUsed + 4 + codesUsed + 4 + headersUsed) before after
+  atPc : EndpointPc after = some 0x15960
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdout : after.stdout = before.stdout ++ encodeMany encodeBytes args.decoded.witnessNodes ++
+    encodeMany encodeBytes args.decoded.witnessCodes ++
+    encodeMany encodeBytes args.decoded.witnessHeaders
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  saved : SavedWordReps after.machine (writeSuccessSavedWords args savedValues)
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+
+/-- Compose the three repeated witness byte-list calls. -/
+private theorem writeSuccessWitnessListsHandoff
+    (child : WriteSuccessByteListsInstanceContract) (fromStep : Nat) (args : WriteSuccessArgs)
+    (payloadBytes : Array UInt8) (savedValues : DecodeCalleeSavedValues)
+    (before : EndpointState) (atPc : before.machine.regs.get? PC = some 0x15930)
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args savedValues))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
+    ∃ nodesUsed codesUsed headersUsed after,
+      WriteSuccessWitnessListsHandoff fromStep nodesUsed codesUsed headersUsed args payloadBytes
+        savedValues before after := by
+  obtain ⟨nodesUsed, s1, h1⟩ := writeSuccessLateByteListsSite child fromStep
+    0x15930 0x15940 0x18 0x10 0x2d8 0x03 0x35 0x81 0x01 0x83 0x35 0x01 0x01
+    0xe7 0x80 0x80 0x2d args payloadBytes args.decoded.witnessNodes savedValues before
+    atPc stack context.witnessNodesRep context saved access loaded aligned lower upper decodedAddress
+    (by native_decide) (by native_decide)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+  obtain ⟨codesUsed, s2, h2⟩ := writeSuccessLateByteListsSite child
+    (fromStep + 4 + nodesUsed) 0x15940 0x15950 0x28 0x20 0x2c8
+    0x03 0x35 0x81 0x02 0x83 0x35 0x01 0x02 0xe7 0x80 0x80 0x2c
+    args payloadBytes args.decoded.witnessCodes savedValues s1
+    (by simpa [EndpointPc, MachinePc] using h1.atPc) h1.stack h1.payloadContext.witnessCodesRep
+    h1.payloadContext h1.saved h1.access h1.loaded aligned lower upper decodedAddress
+    (by native_decide) (by native_decide)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+  obtain ⟨headersUsed, s3, h3⟩ := writeSuccessLateByteListsSite child
+    (fromStep + 4 + nodesUsed + 4 + codesUsed) 0x15950 0x15960 0x38 0x30 0x2b8
+    0x03 0x35 0x81 0x03 0x83 0x35 0x01 0x03 0xe7 0x80 0x80 0x2b
+    args payloadBytes args.decoded.witnessHeaders savedValues s2
+    (by simpa [EndpointPc, MachinePc] using h2.atPc) h2.stack h2.payloadContext.witnessHeadersRep
+    h2.payloadContext h2.saved h2.access h2.loaded aligned lower upper decodedAddress
+    (by native_decide) (by native_decide)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+  refine ⟨nodesUsed, codesUsed, headersUsed, s3, {
+    trace := ?_
+    atPc := h3.atPc
+    stack := h3.stack
+    stdout := ?_
+    stdin := h3.stdin.trans (h2.stdin.trans h1.stdin)
+    cursor := h3.cursor.trans (h2.cursor.trans h1.cursor)
+    exitCode := h3.exitCode.trans (h2.exitCode.trans h1.exitCode)
+    saved := h3.saved
+    payloadContext := h3.payloadContext
+    loaded := h3.loaded
+    access := h3.access }⟩
+  · have t2 := h1.trace.append (by simpa [Nat.add_assoc] using h2.trace)
+    simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+      t2.append (by simpa [Nat.add_assoc] using h3.trace)
+  · rw [h3.stdout, h2.stdout, h1.stdout]
 
 set_option genInjectivity false in
 /-- Exact parent setup plus the shared bytes child for payload extra data. -/
