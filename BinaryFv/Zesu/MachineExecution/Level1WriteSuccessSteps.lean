@@ -9604,6 +9604,81 @@ private theorem writeSuccessActivationTimestampCallStep (stepNo : Nat) (state : 
       writeSuccessLoadDecodeReads configured; decode_run)
     (by native_decide) (by native_decide) (by native_decide)
 
+/-- Production `0x159c8: mv a0,s0` before the public-key byte-list child. -/
+private theorem writeSuccessPublicKeysAddressStep (stepNo : Nat) (state : State)
+    (address : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x159c8)
+    (source : state.regs.get? x8 = some (BitVec.ofNat 64 address))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x159c8 retired x10 (BitVec.ofNat 64 address)) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x159c8
+  have source' := (stepPremiseState_writes state 0x159c8).get x8 (by decide) |>.trans source
+  have resultEq : iTypeResult .ADDI 0 (BitVec.ofNat 64 address) =
+      BitVec.ofNat 64 address := by
+    simp [iTypeResult, show sign_extend (m := 64) (0#12) = 0#64 by native_decide]
+  have execute : Runs (execute (.ITYPE (0, .Regidx 8#5, .Regidx 10#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x10 (BitVec.ofNat 64 address) }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0 (.Regidx 8#5) (.Regidx 10#5) .ADDI) _ _ _
+    simpa only [resultEq] using execute_ITYPE_run premise _ 0 (.Regidx 8#5)
+      (.Regidx 10#5) .ADDI (BitVec.ofNat 64 address)
+      (rX_x8_run premise (BitVec.ofNat 64 address) source')
+      (wX_x10_run premise (iTypeResult .ADDI 0 (BitVec.ofNat 64 address)))
+  exact configuredRegisterWriteStep stepNo 0x159c8 state x10 (BitVec.ofNat 64 address)
+    (.ITYPE (0, .Regidx 8#5, .Regidx 10#5, .ADDI)) 0x13 0x05 0x04 0x00
+    configured atPc loaded (by
+      obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+        writeSuccessLoadDecodeReads configured
+      decode_run) execute (base := by rfl)
+
+/-- Production `0x159cc: ld a1,0x58(sp)` before the public-key byte-list child. -/
+private theorem writeSuccessPublicKeysLengthStep (stepNo : Nat) (state : State)
+    (args : WriteSuccessArgs) (length : Nat) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x159cc)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x58) length)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x159cc retired x11 (BitVec.ofNat 64 length)) false := by
+  exact writeSuccessLateSliceLoadStep stepNo 0x159cc 0x58 length (.Regidx 11#5) x11
+    (BitVec.ofNat 64 length) 0x83 0x35 0x81 0x05 args state access atPc stack rep
+    (by omega) (by omega) loaded (fun premise => wX_x11_run premise _) (by native_decide)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by native_decide) (by decide) (by decide) (by decide) (by decide)
+    (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+
+private theorem writeSuccessPublicKeysCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x159d0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x159d0 retired x1 0x159d0) false :=
+  writeSuccessLateSliceCallBaseStep stepNo 0x159d0 state configured atPc loaded
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured; decode_run)
+
+private theorem writeSuccessPublicKeysCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x159d4)
+    (base : state.regs.get? x1 = some 0x159d0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x159d4 0x15c10 x1 0x159d8)
+        0x15c10 retired) false :=
+  writeSuccessLateSliceCallStep stepNo 0x159d4 0x15c10 0x159d8 0x240
+    0xe7 0x80 0x00 0x24 state configured atPc base loaded (by native_decide)
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide) (by native_decide) (by rfl)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured; decode_run)
+    (by native_decide) (by native_decide) (by native_decide)
+
 set_option genInjectivity false in
 /-- Both fork-name routes reconverged at `0x159a0`. -/
 structure WriteSuccessForkNameHandoff
