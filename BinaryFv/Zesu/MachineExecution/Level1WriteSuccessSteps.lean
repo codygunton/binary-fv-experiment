@@ -9260,6 +9260,309 @@ private theorem writeSuccessForkNameBooleanHandoff
         x8Preserved.trans addressReg,
         countAfter, arrayAfter⟩ }⟩
 
+/-- Compose the present fork-name route's four parent instructions and selected bytes child. -/
+private theorem writeSuccessForkNamePresentBytesHandoff
+    (child : WriteSuccessBytesInstanceContract) (fromStep address : Nat)
+    (args : WriteSuccessArgs) (payloadBytes bytes : Array UInt8)
+    (values : DecodeCalleeSavedValues) (before : EndpointState)
+    (atPc : EndpointPc before = some 0x15980)
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (addressReg : before.machine.regs.get? x8 = some (BitVec.ofNat 64 address))
+    (countRep : UIntRep 8 before.machine.mem
+      (args.stackPointer - 0x7d0 + 0x08) bytes.size)
+    (arrayRep : ArrayRep 1 (fun mem address byte => UIntRep 1 mem address byte.toNat)
+      before.machine.mem address bytes)
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args values))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
+    ∃ childUsed after,
+      WriteSuccessLateBytesHandoff fromStep childUsed 0x15990 bytes args payloadBytes
+        before after values := by
+  let exitPc : BitVec 64 → Prop := fun pc => pc = 0x15c6c
+  have seg0 : Seg writeSuccessParentPc exitPc
+      (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
+      [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩,
+        ⟨x8, BitVec.ofNat 64 address⟩]
+      fromStep 0 before.machine before.machine 0x15980 := {
+    trace := .refl _ _
+    confined := .nil
+    writes := .refl _ _
+    mem := fun _ _ => rfl
+    retired := access.configured.retiredCounter
+    atPc := atPc
+    regs := by
+      intro pair member
+      simp at member
+      rcases member with rfl | rfl
+      · exact stack
+      · exact addressReg }
+  obtain ⟨retired0, run0⟩ := writeSuccessForkNameBytesAddressStep fromStep before.machine
+    address access.configured atPc addressReg loaded
+  have seg1 := seg0.stepKnown
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by simp [exitPc]) x10 (BitVec.ofNat 64 address) 0x15984 retired0 run0
+    (by native_decide) (by intro r h; exact Or.inl h)
+    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access1 := writeSuccessAccessOfSeg access seg1
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully
+      (afterRegisterWrite before.machine 0x15980 retired0 x10
+        (BitVec.ofNat 64 address)).mem := by
+    simpa [seg1.memEq (by simp)] using loaded
+  have countRep1 : UIntRep 8
+      (afterRegisterWrite before.machine 0x15980 retired0 x10
+        (BitVec.ofNat 64 address)).mem
+      (args.stackPointer - 0x7d0 + 0x08) bytes.size := by
+    simpa only [afterRegisterWrite_mem] using countRep
+  obtain ⟨retired1, run1⟩ := writeSuccessForkNameBytesLengthStep (fromStep + 1) _ args
+    bytes.size access1 seg1.atPc (seg1.reg x2 _ (by simp)) countRep1 aligned loaded1
+  have seg2 := seg1.stepKnown
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by simp [exitPc]) x11 (BitVec.ofNat 64 bytes.size) 0x15988 retired1 run1
+    (by native_decide) (by intro r h; exact Or.inl h)
+    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access2 := writeSuccessAccessOfSeg access seg2
+  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully
+      (afterRegisterWrite
+        (afterRegisterWrite before.machine 0x15980 retired0 x10 (BitVec.ofNat 64 address))
+        0x15984 retired1 x11 (BitVec.ofNat 64 bytes.size)).mem := by
+    simpa only [afterRegisterWrite_mem] using loaded
+  obtain ⟨baseMachine, seg3⟩ := seg2.step
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by simp [exitPc]) x1 0x15988 0x1598c
+    (writeSuccessForkNameBytesCallBaseStep (fromStep + 2) _ access2.configured seg2.atPc loaded2)
+    (by native_decide) (by intro r h; exact Or.inl h)
+    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access3 := writeSuccessAccessOfSeg access seg3
+  have loaded3 : Artifacts.programImage.fileBytesLoadedFaithfully baseMachine.mem := by
+    simpa [seg3.memEq (by simp)] using loaded
+  obtain ⟨retired3, callRun⟩ := writeSuccessForkNameBytesCallStep (fromStep + 3)
+    baseMachine access3.configured seg3.atPc (seg3.reg x1 0x15988 (by simp)) loaded3
+  let callMachine := tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement baseMachine) 0x1598c 0x15c6c x1 0x15990)
+    0x15c6c retired3
+  let callState : EndpointState := { before with machine := callMachine }
+  have callWrites := callRetirement_writes baseMachine 0x1598c 0x15c6c retired3 x1 0x15990
+  have callAtPc : callMachine.regs.get? PC = some 0x15c6c := by
+    simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      Std.ExtDHashMap.get?_insert]
+  have callMemEq : callMachine.mem = before.machine.mem := by
+    calc
+      callMachine.mem = baseMachine.mem := by
+        change (tryStepControlFlowAfterRetired
+          (callLinkState (tryStepControlFlowAfterIncrement baseMachine)
+            0x1598c 0x15c6c x1 0x15990) 0x15c6c retired3).mem = _
+        rw [tryStepControlFlowAfterRetired_mem]
+        change (controlFlowJumpState (tryStepControlFlowAfterIncrement baseMachine)
+          0x1598c 0x15c6c).mem = _
+        rw [controlFlowJumpState_mem]
+        rfl
+      _ = before.machine.mem := seg3.memEq (by simp)
+  have callPrefix : ConfinedPrefix writeSuccessParentPc exitPc
+      (fun _ _ _ _ _ => False) (fromStep + 3) 1 baseMachine callMachine :=
+    ConfinedPrefix.ownStep seg3.atPc
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+      (by simp [exitPc]) callRun
+  have callEnd : ScopedTrace writeSuccessParentPc exitPc
+      (fun _ _ _ _ _ => False) (fromStep + 4) 0 callMachine callMachine :=
+    .exitAt _ _ 0x15c6c callAtPc rfl
+  have machineTrace := seg3.confined.trans callPrefix 0 callMachine callEnd
+  have parentTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 4 before callState := by
+    simpa [callState] using liftWriteSuccessParentTrace before machineTrace
+  have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
+  have accessCall : WriteSuccessMachineAccess args callMachine := {
+    configured := configuredAfterWriteSuccessCall 0x1598c 0x15c6c 0x15990 retired3
+      access3.configured
+    frameLoad := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq callPmaEq (access3.frameLoad offset width bound)
+    frameStore := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq callPmaEq (access3.frameStore offset width bound)
+    frameNoMMIO := access3.frameNoMMIO
+    decodedLoad := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq callPmaEq (access3.decodedLoad offset width bound)
+    decodedNoMMIO := access3.decodedNoMMIO
+    outputBufferStore := dataPmaAllows_of_pma_regions_eq callPmaEq access3.outputBufferStore
+    outputLengthStore := dataPmaAllows_of_pma_regions_eq callPmaEq access3.outputLengthStore
+    writerRegionBeforeOutputContext := access3.writerRegionBeforeOutputContext
+    frameNotCode := access3.frameNotCode }
+  have setup : WriteSuccessSliceCallSetup fromStep 0x15980 0x15990 0x15c6c
+      address bytes.size args before callState := {
+    trace := parentTrace
+    atPc := by simpa [callState, EndpointPc] using callAtPc
+    link := by simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+    stack := by simpa [callState] using ((callWrites.get x2 (by decide)).trans
+      (seg3.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)))
+    address := by simpa [callState] using ((callWrites.get x10 (by decide)).trans
+      (seg3.reg x10 (BitVec.ofNat 64 address) (by simp)))
+    length := by simpa [callState] using ((callWrites.get x11 (by decide)).trans
+      (seg3.reg x11 (BitVec.ofNat 64 bytes.size) (by simp)))
+    memory := callMemEq
+    stdin := rfl
+    cursor := rfl
+    stdout := rfl
+    exitCode := rfl
+    loaded := by simpa [callState, callMemEq] using loaded
+    access := by simpa [callState] using accessCall }
+  exact writeSuccessLateBytesHandoff child fromStep 0x15980 0x15990 address args payloadBytes
+    bytes values before callState setup arrayRep.byteSliceBytesRep context saved lower upper
+    decodedAddress (by native_decide)
+
+set_option genInjectivity false in
+/-- Both fork-name routes reconverged at `0x159a0`. -/
+structure WriteSuccessForkNameHandoff
+    (fromStep booleanUsed routeUsed : Nat) (args : WriteSuccessArgs)
+    (payloadBytes : Array UInt8) (values : DecodeCalleeSavedValues)
+    (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+    fromStep (5 + booleanUsed + routeUsed) before after
+  atPc : EndpointPc after = some 0x159a0
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  stdout : after.stdout = before.stdout ++
+    match args.decoded.chainConfig.forkName with
+    | none => #[0]
+    | some bytes => #[1] ++ encodeBytes bytes
+  saved : SavedWordReps after.machine (writeSuccessSavedWords args values)
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+
+/-- Consume the optional fork-name bytes child and reconverge both routes. -/
+private theorem writeSuccessForkNameHandoff
+    (booleanChild : WriteSuccessBooleanInstanceContract)
+    (bytesChild : WriteSuccessBytesInstanceContract) (fromStep : Nat)
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
+    (values : DecodeCalleeSavedValues) (before : EndpointState)
+    (atPc : EndpointPc before = some 0x1596c)
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args values))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
+    ∃ booleanUsed routeUsed after,
+      WriteSuccessForkNameHandoff fromStep booleanUsed routeUsed args payloadBytes values
+        before after := by
+  obtain ⟨booleanUsed, booleanAfter, boolean⟩ := writeSuccessForkNameBooleanHandoff
+    booleanChild fromStep args payloadBytes values before atPc stack context saved access loaded
+    aligned lower upper decodedAddress
+  rcases boolean.route with absent | present
+  · obtain ⟨optionEq, afterPc, stdout⟩ := absent
+    exact ⟨booleanUsed, 0, booleanAfter, {
+      trace := by simpa [Nat.add_assoc] using boolean.trace
+      atPc := afterPc
+      stack := boolean.stack
+      stdin := boolean.stdin
+      cursor := boolean.cursor
+      exitCode := boolean.exitCode
+      stdout := by simpa [optionEq] using stdout
+      saved := boolean.saved
+      payloadContext := boolean.payloadContext
+      loaded := boolean.loaded
+      access := boolean.access }⟩
+  · obtain ⟨bytes, address, optionEq, _nonzero, afterPc, stdout, addressReg,
+      countRep, arrayRep⟩ := present
+    obtain ⟨bytesUsed, bytesAfter, bytesHandoff⟩ :=
+      writeSuccessForkNamePresentBytesHandoff bytesChild (fromStep + 5 + booleanUsed)
+        address args payloadBytes bytes values booleanAfter afterPc boolean.stack addressReg
+        countRep arrayRep boolean.payloadContext boolean.saved boolean.access boolean.loaded
+        aligned lower upper decodedAddress
+    have seg0 : Seg writeSuccessParentPc (fun pc => pc = 0x159a0)
+        (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
+        [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩]
+        (fromStep + 5 + booleanUsed + 4 + bytesUsed) 0 bytesAfter.machine
+        bytesAfter.machine 0x15990 := {
+      trace := .refl _ _
+      confined := .nil
+      writes := .refl _ _
+      mem := fun _ _ => rfl
+      retired := bytesHandoff.access.configured.retiredCounter
+      atPc := bytesHandoff.atPc
+      regs := by intro pair member; simp at member; subst pair; exact bytesHandoff.stack }
+    obtain ⟨retired, jumpRun⟩ := writeSuccessForkNameJoinStep
+      (fromStep + 5 + booleanUsed + 4 + bytesUsed) bytesAfter.machine
+      bytesHandoff.access.configured bytesHandoff.atPc bytesHandoff.loaded
+    obtain ⟨finalMachine, seg1⟩ := seg0.stepJump 0x159a0
+      (by unfold writeSuccessParentPc; exact
+        ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+      (by simp) ⟨retired, jumpRun⟩ (by intro r h; exact Or.inl h)
+      (by simp [RegsOutside, stepBookkeeping])
+    let after : EndpointState := { bytesAfter with machine := finalMachine }
+    have jumpMachineTrace := seg1.confined 0 finalMachine
+      (.exitAt _ _ 0x159a0 seg1.atPc rfl)
+    have jumpTrace : ConfinedTrace EndpointStep EndpointPc
+        (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+        (fromStep + 5 + booleanUsed + 4 + bytesUsed) 1 bytesAfter after := by
+      simpa [after] using liftWriteSuccessParentTrace bytesAfter jumpMachineTrace
+    have payloadAfter : WriteSuccessPayloadContext args payloadBytes after := by
+      apply writeSuccessPayloadContextAfterChild decodedAddress lower upper
+        bytesHandoff.access.writerRegionBeforeOutputContext bytesHandoff.payloadContext seg1.mem
+      · intro address inside
+        exact inside.elim
+      · intro index bound inside
+        exact inside.elim
+      · intro index bound inside
+        exact inside.elim
+      · intro index bound inside
+        exact inside.elim
+      · intro index bound inside
+        exact inside.elim
+      · intro index bound inside
+        exact inside.elim
+      · intro index bound inside
+        exact inside.elim
+      · intro tailValues word member index bound inside
+        exact inside.elim
+    have savedAfter : SavedWordReps after.machine (writeSuccessSavedWords args values) := by
+      intro word member
+      exact (bytesHandoff.saved word member).of_writesOnlyWithin seg1.mem (by
+        intro index bound inside
+        exact inside.elim)
+    exact ⟨booleanUsed, 5 + bytesUsed, after, {
+      trace := by
+        have prefixTrace := boolean.trace.append
+          (by simpa [Nat.add_assoc] using bytesHandoff.trace)
+        have all := prefixTrace.append (by simpa [Nat.add_assoc] using jumpTrace)
+        simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
+      atPc := by simpa [after, EndpointPc] using seg1.atPc
+      stack := by simpa [after] using seg1.reg x2 _ (by simp)
+      stdin := by simpa [after, bytesHandoff.stdin] using boolean.stdin
+      cursor := by simpa [after, bytesHandoff.cursor] using boolean.cursor
+      exitCode := by simpa [after, bytesHandoff.exitCode] using boolean.exitCode
+      stdout := by
+        simp only [optionEq]
+        calc
+          after.stdout = bytesAfter.stdout := rfl
+          _ = booleanAfter.stdout ++ encodeBytes bytes := bytesHandoff.stdout
+          _ = before.stdout ++ #[1] ++ encodeBytes bytes := by rw [stdout]
+          _ = before.stdout ++ (#[1] ++ encodeBytes bytes) := by simp
+      saved := savedAfter
+      payloadContext := payloadAfter
+      loaded := by
+        have memEq : finalMachine.mem = bytesAfter.machine.mem := seg1.memEq (by simp)
+        simpa [after, memEq] using bytesHandoff.loaded
+      access := by simpa [after] using writeSuccessAccessOfSeg bytesHandoff.access seg1 }⟩
+
 set_option genInjectivity false in
 /-- Exact parent setup plus the shared bytes child for payload extra data. -/
 structure WriteSuccessExtraDataHandoff
