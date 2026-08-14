@@ -9990,6 +9990,150 @@ private theorem writeSuccessLateOptionalHandoff
     loaded := handoff.loaded
     access := handoff.access }⟩
 
+private theorem writeSuccessPayloadContextAfterLateOptional
+    {fromStep childUsed returnPc descriptor : Nat} {value : Option Nat}
+    {args : WriteSuccessArgs} {bytes : Array UInt8} {before after : EndpointState}
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20)
+    (lower : 0x880 ≤ args.stackPointer) (upper : args.stackPointer < 2 ^ 64)
+    (context : WriteSuccessPayloadContext args bytes before)
+    (call : WriteSuccessLateOptionalHandoff fromStep childUsed returnPc descriptor value args
+      before after) : WriteSuccessPayloadContext args bytes after := by
+  apply writeSuccessPayloadContextAfterChild decodedAddress lower upper
+    call.access.writerRegionBeforeOutputContext context call.memory
+  · intro address inside
+    exact Or.inl (writeSuccessChildFrame_mem_frame lower inside)
+  all_goals
+    first
+    | intro values word member index inBounds inside
+      simp [writeSuccessLocalTailWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl <;> unfold byteRange at inside <;> omega
+    | intro index inBounds inside
+      unfold byteRange at inside
+      try rw [decodedAddress] at inside
+      omega
+
+set_option genInjectivity false in
+structure WriteSuccessChainOptionalsHandoff
+    (fromStep blockUsed timestampUsed : Nat) (args : WriteSuccessArgs)
+    (payloadBytes : Array UInt8) (values : DecodeCalleeSavedValues)
+    (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+    fromStep (3 + blockUsed + 3 + timestampUsed) before after
+  atPc : EndpointPc after = some 0x159c8
+  stack : after.machine.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  publicKeysAddress : ∃ address,
+    after.machine.regs.get? x8 = some (BitVec.ofNat 64 address) ∧
+    UIntRep 8 after.machine.mem (args.stackPointer - 0x7d0 + 0x60) address
+  stdout : after.stdout = before.stdout ++
+    encodeOptional (encodeNatLE 8) args.decoded.chainConfig.activationBlock ++
+    encodeOptional (encodeNatLE 8) args.decoded.chainConfig.activationTimestamp
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  saved : SavedWordReps after.machine (writeSuccessSavedWords args values)
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+
+private theorem writeSuccessChainOptionalsHandoff
+    (child : WriteSuccessOptionalU64InstanceContract) (fromStep : Nat)
+    (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (values : DecodeCalleeSavedValues)
+    (before : EndpointState) (atPc : EndpointPc before = some 0x159b0)
+    (stack : before.machine.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (publicKeysAddress : ∃ address,
+      before.machine.regs.get? x8 = some (BitVec.ofNat 64 address) ∧
+      UIntRep 8 before.machine.mem (args.stackPointer - 0x7d0 + 0x60) address)
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args values))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (lower : 0x880 ≤ args.stackPointer) (upper : args.stackPointer < 2 ^ 64)
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
+    ∃ blockUsed timestampUsed after,
+      WriteSuccessChainOptionalsHandoff fromStep blockUsed timestampUsed args payloadBytes values
+        before after := by
+  obtain ⟨address, x8Reg, addressRep⟩ := publicKeysAddress
+  obtain ⟨blockUsed, blockAfter, block⟩ := writeSuccessLateOptionalHandoff child
+    fromStep 0x159b0 0x159bc 0x128 0x159b4 args.decoded.chainConfig.activationBlock args before
+    atPc stack (BitVec.ofNat 64 address) x8Reg context.activationBlockRep access loaded lower upper
+    (fun step state => writeSuccessActivationBlockSourceStep step args state)
+    writeSuccessActivationBlockCallBaseStep writeSuccessActivationBlockCallStep
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessOptionalCallExitPc; native_decide)
+    (by unfold writeSuccessOptionalCallExitPc; native_decide)
+    (by unfold writeSuccessOptionalCallExitPc; native_decide)
+    (by native_decide) (by native_decide) (by native_decide)
+  have blockContext := writeSuccessPayloadContextAfterLateOptional decodedAddress lower upper
+    context block
+  have blockSaved : SavedWordReps blockAfter.machine (writeSuccessSavedWords args values) := by
+    intro word member
+    exact (saved word member).of_writesOnlyWithin block.memory (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      simp [writeSuccessSavedWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl <;> omega)
+  have addressRepAfter := addressRep.of_writesOnlyWithin block.memory (by
+    intro index inBounds inside
+    unfold byteRange at inside
+    omega)
+  obtain ⟨timestampUsed, after, timestamp⟩ := writeSuccessLateOptionalHandoff child
+    (fromStep + 3 + blockUsed) 0x159bc 0x159c8 0x118 0x159c0
+    args.decoded.chainConfig.activationTimestamp args blockAfter block.atPc block.stack
+    (BitVec.ofNat 64 address) (block.x8.trans x8Reg)
+    blockContext.activationTimestampRep block.access block.loaded lower upper
+    (fun step state => writeSuccessActivationTimestampSourceStep step args state)
+    writeSuccessActivationTimestampCallBaseStep writeSuccessActivationTimestampCallStep
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessOptionalCallExitPc; native_decide)
+    (by unfold writeSuccessOptionalCallExitPc; native_decide)
+    (by unfold writeSuccessOptionalCallExitPc; native_decide)
+    (by native_decide) (by native_decide) (by native_decide)
+  have finalContext := writeSuccessPayloadContextAfterLateOptional decodedAddress lower upper
+    blockContext timestamp
+  have finalSaved : SavedWordReps after.machine (writeSuccessSavedWords args values) := by
+    intro word member
+    exact (blockSaved word member).of_writesOnlyWithin timestamp.memory (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      simp [writeSuccessSavedWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl <;> omega)
+  have finalAddressRep := addressRepAfter.of_writesOnlyWithin timestamp.memory (by
+    intro index inBounds inside
+    unfold byteRange at inside
+    omega)
+  refine ⟨blockUsed, timestampUsed, after, {
+    trace := by
+      have timestampTrace : ConfinedTrace EndpointStep EndpointPc
+          (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+          (fromStep + (3 + blockUsed)) (3 + timestampUsed) blockAfter after := by
+        simpa only [Nat.add_assoc] using timestamp.trace
+      simpa only [Nat.add_assoc] using block.trace.append timestampTrace
+    atPc := timestamp.atPc
+    stack := timestamp.stack
+    publicKeysAddress := ⟨address, timestamp.x8.trans (block.x8.trans x8Reg), finalAddressRep⟩
+    stdout := by rw [timestamp.stdout, block.stdout]
+    stdin := timestamp.stdin.trans block.stdin
+    cursor := timestamp.cursor.trans block.cursor
+    exitCode := timestamp.exitCode.trans block.exitCode
+    saved := finalSaved
+    payloadContext := finalContext
+    loaded := timestamp.loaded
+    access := timestamp.access }⟩
+
 private theorem writeSuccessActiveForkHandoff
     (child : WriteSuccessIntInstanceContract) (fromStep : Nat) (args : WriteSuccessArgs)
     (payloadBytes : Array UInt8) (values : DecodeCalleeSavedValues) (before : EndpointState)
