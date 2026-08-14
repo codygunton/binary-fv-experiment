@@ -164,6 +164,20 @@ private theorem writeSuccessStackResult (stackPointer : Nat) (lower : 0x880 ≤ 
   rw [sum, Nat.add_mod_right, Nat.mod_eq_of_lt]
   omega
 
+private theorem writeSuccessFinalStackResult (stackPointer : Nat) (lower : 0x880 ≤ stackPointer)
+    (fits : stackPointer < 2 ^ 64) :
+    BitVec.ofNat 64 stackPointer =
+      iTypeResult .ADDI 0x7d0 (BitVec.ofNat 64 (stackPointer - 0x7d0)) := by
+  have sign : sign_extend (m := 64) (0x7d0#12) = BitVec.ofNat 64 0x7d0 := by native_decide
+  unfold iTypeResult
+  change BitVec.ofNat 64 stackPointer =
+    BitVec.ofNat 64 (stackPointer - 0x7d0) + sign_extend (m := 64) (0x7d0#12)
+  rw [sign, ← BitVec.ofNat_add]
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat]
+  have lower' : 0x7d0 ≤ stackPointer := Nat.le_trans (by decide) lower
+  rw [Nat.sub_add_cancel lower', Nat.mod_eq_of_lt fits]
+
 /-- Exact first writer instruction, `0x14d30: addi sp,sp,-2000`, as a one-step `Seg`. -/
 theorem writeSuccessAllocateFrame (fromStep : Nat) (args : WriteSuccessArgs)
     (state : EndpointState) (entry : WriteSuccessEntry args state)
@@ -9815,6 +9829,56 @@ writeSuccessRestoreStep(writeSuccessRestoreS10Step;
 writeSuccessRestoreStep(writeSuccessRestoreS11Step;
   0x15a08, 0x768, .Regidx 27#5, x27, wX_x27_run; 0x83, 0x3d, 0x81, 0x76)
 
+/-- Production `0x15a0c: addi sp,sp,2000`. -/
+private theorem writeSuccessRestoreStackStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15a0c)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (lower : 0x880 ≤ args.stackPointer) (fits : args.stackPointer < 2 ^ 64) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15a0c retired x2 (BitVec.ofNat 64 args.stackPointer)) false := by
+  have decode : Runs
+      (ext_decode (fetchWord (0x13 : BitVec 8) (0x01 : BitVec 8) (0x01 : BitVec 8)
+        (0x7d : BitVec 8)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (0x7d0, .Regidx 2#5, .Regidx 2#5, .ADDI)) := by
+    obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+    have privilegeAfter :
+        (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+          some Privilege.Machine := by
+      calc
+        _ = state.regs.get? cur_privilege := by
+          simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged
+            state minstret_increment cur_privilege true (by decide)
+        _ = some Privilege.Machine := configured.normal.2.1
+    have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
+        some seccfgBits := by
+      calc
+        _ = state.regs.get? mseccfg := by
+          simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged
+            state minstret_increment mseccfg true (by decide)
+        _ = some seccfgBits := seccfgRead
+    decode_run
+  exact decodeInputAddiX2Step stepNo 0x15a0c state 0x7d0
+    (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (BitVec.ofNat 64 args.stackPointer)
+    0x13 0x01 0x01 0x7d configured atPc stack loaded
+    (writeSuccessFinalStackResult args.stackPointer lower fits) decode (base := by rfl)
+
+/-- Production `0x15a10: ret`. -/
+private theorem writeSuccessReturnStep (stepNo : Nat) (state : State)
+    (returnAddress : BitVec 64) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15a10)
+    (link : state.regs.get? x1 = some returnAddress)
+    (targetAligned : Sail.BitVec.access returnAddress 1 = 0#1)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x15a10
+          (Sail.BitVec.update returnAddress 0 0#1))
+        (Sail.BitVec.update returnAddress 0 0#1) retired) false :=
+  configuredRetStep stepNo 0x15a10 state returnAddress configured atPc link targetAligned loaded
+
 private theorem writeSuccessRestoreOne
     {kv : List RegVal} {base current : State}
     (fromStep used pc nextPc offset value : Nat) (destination : Register)
@@ -10569,6 +10633,28 @@ private theorem writeSuccessPublicKeysHandoff
     args.decoded.publicKeys args payloadBytes before callState values setup arrayRep context saved
     lower upper decodedAddress (by native_decide)
 
+private def writeSuccessRestoredRegs (args : WriteSuccessArgs)
+    (values : DecodeCalleeSavedValues) : List RegVal :=
+  [⟨x27, BitVec.ofNat 64 values.s11.toNat⟩,
+   ⟨x26, BitVec.ofNat 64 values.s10.toNat⟩,
+   ⟨x25, BitVec.ofNat 64 values.s9.toNat⟩,
+   ⟨x24, BitVec.ofNat 64 values.s8.toNat⟩,
+   ⟨x23, BitVec.ofNat 64 values.s7.toNat⟩,
+   ⟨x22, BitVec.ofNat 64 values.s6.toNat⟩,
+   ⟨x21, BitVec.ofNat 64 values.s5.toNat⟩,
+   ⟨x20, BitVec.ofNat 64 values.s4.toNat⟩,
+   ⟨x19, BitVec.ofNat 64 values.s3.toNat⟩,
+   ⟨x18, BitVec.ofNat 64 values.s2.toNat⟩,
+   ⟨x9, BitVec.ofNat 64 values.s1.toNat⟩,
+   ⟨x8, BitVec.ofNat 64 values.s0.toNat⟩,
+   ⟨x1, BitVec.ofNat 64 (BitVec.ofNat 64 args.returnAddress).toNat⟩,
+   ⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩]
+
+private def writeSuccessFinalRegs (args : WriteSuccessArgs)
+    (values : DecodeCalleeSavedValues) : List RegVal :=
+  ⟨x2, BitVec.ofNat 64 args.stackPointer⟩ ::
+    (writeSuccessRestoredRegs args values).dropLast
+
 /-- Restore the thirteen ABI-saved registers in production order. -/
 private theorem writeSuccessRestoreRegisters
     (fromStep : Nat) (args : WriteSuccessArgs) (values : DecodeCalleeSavedValues)
@@ -10581,20 +10667,7 @@ private theorem writeSuccessRestoreRegisters
     ∃ after,
       Seg writeSuccessParentPc (fun _ => False) (fun _ _ _ _ _ => False)
         writeSuccessParentWrites (fun _ => False)
-        [⟨x27, BitVec.ofNat 64 values.s11.toNat⟩,
-         ⟨x26, BitVec.ofNat 64 values.s10.toNat⟩,
-         ⟨x25, BitVec.ofNat 64 values.s9.toNat⟩,
-         ⟨x24, BitVec.ofNat 64 values.s8.toNat⟩,
-         ⟨x23, BitVec.ofNat 64 values.s7.toNat⟩,
-         ⟨x22, BitVec.ofNat 64 values.s6.toNat⟩,
-         ⟨x21, BitVec.ofNat 64 values.s5.toNat⟩,
-         ⟨x20, BitVec.ofNat 64 values.s4.toNat⟩,
-         ⟨x19, BitVec.ofNat 64 values.s3.toNat⟩,
-         ⟨x18, BitVec.ofNat 64 values.s2.toNat⟩,
-         ⟨x9, BitVec.ofNat 64 values.s1.toNat⟩,
-         ⟨x8, BitVec.ofNat 64 values.s0.toNat⟩,
-         ⟨x1, BitVec.ofNat 64 (BitVec.ofNat 64 args.returnAddress).toNat⟩,
-         ⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩]
+        (writeSuccessRestoredRegs args values)
         fromStep 13 before.machine after 0x15a0c := by
   have seg0 : Seg writeSuccessParentPc (fun _ => False) (fun _ _ _ _ _ => False)
       writeSuccessParentWrites (fun _ => False)
@@ -10721,7 +10794,74 @@ private theorem writeSuccessRestoreRegisters
     (by simp [RegsOutside, stepBookkeeping])
     (by simp)
     (fun step state => writeSuccessRestoreS11Step step args state _)
-  exact ⟨after, by simpa using seg13⟩
+  exact ⟨after, by simpa only [writeSuccessRestoredRegs] using seg13⟩
+
+/-- Restore the stack pointer and return after the thirteen saved-register loads. -/
+private theorem writeSuccessEpilogueHandoff
+    (fromStep : Nat) (args : WriteSuccessArgs) (values : DecodeCalleeSavedValues)
+    (before : EndpointState) (atPc : EndpointPc before = some 0x159d8)
+    (stack : before.machine.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args values))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
+    (fits : args.stackPointer < 2 ^ 64)
+    (returnListed : args.returnAddress ∈ Elflings.writeSuccessExitPcs) :
+    ∃ after,
+      Seg writeSuccessParentPc (fun _ => False) (fun _ _ _ _ _ => False)
+        writeSuccessParentWrites (fun _ => False) (writeSuccessFinalRegs args values)
+        fromStep 15 before.machine after (BitVec.ofNat 64 args.returnAddress) := by
+  obtain ⟨restored, seg13⟩ := writeSuccessRestoreRegisters fromStep args values before atPc
+    stack saved access loaded aligned
+  have seg13' := seg13.forget
+    (kv' := (writeSuccessRestoredRegs args values).dropLast) (by
+      intro pair member
+      exact List.Sublist.mem member (List.dropLast_sublist _))
+  have access13 := writeSuccessAccessOfSeg access seg13'
+  have noMemory : ∀ address : Nat, ¬(fun _ => False) address := by simp
+  have loaded13 : Artifacts.programImage.fileBytesLoadedFaithfully restored.mem := by
+    simpa [seg13'.memEq noMemory] using loaded
+  obtain ⟨retired13, run13⟩ := writeSuccessRestoreStackStep (fromStep + 13) args restored
+    access13.configured seg13'.atPc
+    (seg13.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by
+      simp [writeSuccessRestoredRegs])) loaded13 lower fits
+  obtain ⟨returning, seg14⟩ := seg13'.step
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by simp) x2 (BitVec.ofNat 64 args.stackPointer) 0x15a10 ⟨retired13, run13⟩
+    (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
+    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [writeSuccessRestoredRegs, RegsOutside, stepBookkeeping])
+  have access14 := writeSuccessAccessOfSeg access seg14
+  have loaded14 : Artifacts.programImage.fileBytesLoadedFaithfully returning.mem := by
+    simpa [seg14.memEq noMemory] using loaded
+  have returnEq : args.returnAddress = 0x14d10 := by
+    simpa [Elflings.writeSuccessExitPcs] using returnListed
+  have targetAligned : Sail.BitVec.access (BitVec.ofNat 64 args.returnAddress) 1 = 0#1 := by
+    rw [returnEq]
+    native_decide
+  have link : returning.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) := by
+    have valueEq : BitVec.ofNat 64 (BitVec.ofNat 64 args.returnAddress).toNat =
+        BitVec.ofNat 64 args.returnAddress := by
+      rw [returnEq]
+      native_decide
+    rw [← valueEq]
+    exact seg14.reg x1 (BitVec.ofNat 64 (BitVec.ofNat 64 args.returnAddress).toNat) (by
+      simp [writeSuccessRestoredRegs])
+  obtain ⟨retired14, run14⟩ := writeSuccessReturnStep (fromStep + 14) returning
+    (BitVec.ofNat 64 args.returnAddress) access14.configured seg14.atPc
+    link targetAligned loaded14
+  have targetEq : Sail.BitVec.update (BitVec.ofNat 64 args.returnAddress) 0 0#1 =
+      BitVec.ofNat 64 args.returnAddress := by
+    rw [returnEq]
+    native_decide
+  obtain ⟨after, seg15⟩ := seg14.stepJump (BitVec.ofNat 64 args.returnAddress)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by simp) (targetEq ▸ ⟨retired14, run14⟩)
+    (fun _ bookkeeping => Or.inl bookkeeping)
+    (by simp [writeSuccessRestoredRegs, RegsOutside, stepBookkeeping])
+  exact ⟨after, by simpa [writeSuccessFinalRegs] using seg15⟩
 
 private theorem writeSuccessActiveForkHandoff
     (child : WriteSuccessIntInstanceContract) (fromStep : Nat) (args : WriteSuccessArgs)
