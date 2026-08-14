@@ -179,6 +179,23 @@ def RawEncoderInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRan
     (rawEncoderContract entry successPc (fun args => stepBound args.bytes.size)).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
 
+namespace RawEncoderInstanceContract
+
+noncomputable def stepBound {entry : Nat} {executionPcs : List Elflings.PcRange}
+    {exitPcs : List Nat} {successPc : Nat}
+    (contract : RawEncoderInstanceContract entry executionPcs exitPcs successPc) : Nat → Nat :=
+  Classical.choose contract
+
+theorem implements {entry : Nat} {executionPcs : List Elflings.PcRange}
+    {exitPcs : List Nat} {successPc : Nat}
+    (contract : RawEncoderInstanceContract entry executionPcs exitPcs successPc) :
+    (rawEncoderContract entry successPc
+      (fun args => contract.stepBound args.bytes.size)).Implements
+      EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs) :=
+  Classical.choose_spec contract
+
+end RawEncoderInstanceContract
+
 def ConstantEncoderEntry (entry : Nat) (_args : Unit) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
@@ -203,6 +220,22 @@ def ConstantEncoderInstanceContract (entry : Nat) (executionPcs : List Elflings.
   ∃ stepBound : Nat,
     (constantEncoderContract entry successPc bytes stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
+
+namespace ConstantEncoderInstanceContract
+
+noncomputable def stepBound {entry : Nat} {executionPcs : List Elflings.PcRange}
+    {exitPcs : List Nat} {successPc : Nat} {bytes : Array UInt8}
+    (contract : ConstantEncoderInstanceContract entry executionPcs exitPcs successPc bytes) : Nat :=
+  Classical.choose contract
+
+theorem implements {entry : Nat} {executionPcs : List Elflings.PcRange}
+    {exitPcs : List Nat} {successPc : Nat} {bytes : Array UInt8}
+    (contract : ConstantEncoderInstanceContract entry executionPcs exitPcs successPc bytes) :
+    (constantEncoderContract entry successPc bytes contract.stepBound).Implements
+      EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs) :=
+  Classical.choose_spec contract
+
+end ConstantEncoderInstanceContract
 
 def successPrefixBytes : Array UInt8 := #[0x5a, 0x53, 0x53, 0x5a, 0x01, 0x01]
 def failureRecordBytes : Array UInt8 := #[0x5a, 0x53, 0x53, 0x5a, 0x01, 0x00]
@@ -291,6 +324,25 @@ def EncoderCallInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRa
   ∃ stepBound : Nat → Nat,
     (encoderCallContract entry exitPcs frameSize encode bindValue stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
+
+namespace EncoderCallInstanceContract
+
+noncomputable def stepBound {Value : Type} {entry : Nat}
+    {executionPcs : List Elflings.PcRange} {exitPcs : List Nat} {frameSize : Nat}
+    {encode : Value → Array UInt8} {bindValue : EndpointState → Value → Prop}
+    (contract : EncoderCallInstanceContract entry executionPcs exitPcs frameSize encode bindValue) :
+    Nat → Nat :=
+  Classical.choose contract
+
+theorem implements {Value : Type} {entry : Nat}
+    {executionPcs : List Elflings.PcRange} {exitPcs : List Nat} {frameSize : Nat}
+    {encode : Value → Array UInt8} {bindValue : EndpointState → Value → Prop}
+    (contract : EncoderCallInstanceContract entry executionPcs exitPcs frameSize encode bindValue) :
+    (encoderCallContract entry exitPcs frameSize encode bindValue contract.stepBound).Implements
+      EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs) :=
+  Classical.choose_spec contract
+
+end EncoderCallInstanceContract
 
 def BooleanEncoderBinding (state : EndpointState) (value : Bool) : Prop :=
   state.machine.regs.get? x10 = some (if value then 1 else 0)
@@ -504,6 +556,25 @@ def InlineEncoderInstanceContract (entry : Nat) (executionPcs : List Elflings.Pc
   ∃ stepBound : Nat → Nat,
     (inlineEncoderContract entry successPc encode bindValue stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
+
+namespace InlineEncoderInstanceContract
+
+noncomputable def stepBound {Value : Type} {entry successPc : Nat}
+    {executionPcs : List Elflings.PcRange} {exitPcs : List Nat}
+    {encode : Value → Array UInt8} {bindValue : EndpointState → Value → Prop}
+    (contract : InlineEncoderInstanceContract entry executionPcs exitPcs successPc encode bindValue) :
+    Nat → Nat :=
+  Classical.choose contract
+
+theorem implements {Value : Type} {entry successPc : Nat}
+    {executionPcs : List Elflings.PcRange} {exitPcs : List Nat}
+    {encode : Value → Array UInt8} {bindValue : EndpointState → Value → Prop}
+    (contract : InlineEncoderInstanceContract entry executionPcs exitPcs successPc encode bindValue) :
+    (inlineEncoderContract entry successPc encode bindValue contract.stepBound).Implements
+      EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs) :=
+  Classical.choose_spec contract
+
+end InlineEncoderInstanceContract
 
 structure InlineArrayEncoderValue (Element : Type) where
   address : Nat
