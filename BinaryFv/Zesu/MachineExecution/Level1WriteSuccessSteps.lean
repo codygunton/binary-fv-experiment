@@ -11704,7 +11704,9 @@ private theorem writeSuccessBlockHashHandoff
     (access : WriteSuccessMachineAccess args before.machine)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem) :
     ∃ childUsed after,
-      WriteSuccessBlockHashHandoff fromStep childUsed args payloadBytes before after := by
+      WriteSuccessBlockHashHandoff fromStep childUsed args payloadBytes before after ∧
+      childUsed ≤ RawEncoderInstanceContract.stepBound child
+        args.decoded.payload.blockHash.size := by
   have seg0 : Seg writeSuccessParentPc (fun pc => pc = 0x14ed8)
       (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
       [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩]
@@ -11748,7 +11750,7 @@ private theorem writeSuccessBlockHashHandoff
     · simpa [pointerState] using
         seg1.reg x10 (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x634)) (by simp)
     · simpa [pointerState, seg1.memEq (by simp)] using loaded
-  obtain ⟨childUsed, after, _childBounded, childTrace, childExit⟩ :=
+  obtain ⟨childUsed, after, childBounded, childTrace, childExit⟩ :=
     writeSuccessRawEncoderHandoff child
     (fun inside => by
       simpa [Elflings.writeSuccessRawLine147ExecutionPcRanges] using
@@ -11814,7 +11816,8 @@ private theorem writeSuccessBlockHashHandoff
           exact localReps word member
         · intro index bound
           rw [memory]
-          exact sourceReps index bound } }⟩
+          exact sourceReps index bound } }, ?_⟩
+  simpa [rawArgs] using childBounded
 
 /-- Production `0x14ee4: ld a0,0x440(sp)`. -/
 private theorem writeSuccessTransactionsPointerLoadStep (stepNo : Nat)
@@ -12110,7 +12113,8 @@ private theorem writeSuccessTransactionsHandoff
     (upper : args.stackPointer < 2 ^ 64)
     (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
-      WriteSuccessTransactionsHandoff fromStep childUsed args payloadBytes before after values := by
+      WriteSuccessTransactionsHandoff fromStep childUsed args payloadBytes before after values ∧
+      childUsed ≤ InlineEncoderInstanceContract.stepBound child args.inputSize := by
   rcases context.payloadRep with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
     transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
     blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
@@ -12359,7 +12363,7 @@ private theorem writeSuccessTransactionsHandoff
         intro index inBounds inside
         unfold setupMemory writeSuccessTransactionSetupMemory byteRange at inside
         rcases inside with inside | inside <;> omega), codeOfSeg seg4⟩
-  obtain ⟨childUsed, after, _childBounded, childTrace, childExit⟩ :=
+  obtain ⟨childUsed, after, childBounded, childTrace, childExit⟩ :=
     writeSuccessInlineEncoderHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
@@ -12477,7 +12481,7 @@ private theorem writeSuccessTransactionsHandoff
       slotWord := ⟨slotValue, slotAfter⟩
       slotTagWord := ⟨tagValue, tagAfter⟩
       localTailReps := ⟨tailValues, tailAfter⟩
-      linkedTailReps := ⟨tailValues, tailAfter, tailSourceAfter⟩ } }⟩
+      linkedTailReps := ⟨tailValues, tailAfter, tailSourceAfter⟩ } }, childBounded⟩
 
 set_option genInjectivity false in
 /-- Exact raw-transactions descriptor setup followed by the shared byte-list encoder. -/
@@ -12515,7 +12519,8 @@ private theorem writeSuccessRawTransactionsHandoff
     (upper : args.stackPointer < 2 ^ 64)
     (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
-      WriteSuccessRawTransactionsHandoff fromStep childUsed args payloadBytes before after values := by
+      WriteSuccessRawTransactionsHandoff fromStep childUsed args payloadBytes before after values ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   rcases context.payloadRep with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
     transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
     blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
@@ -12716,7 +12721,7 @@ private theorem writeSuccessRawTransactionsHandoff
     payloadContext := payloadAfter
     loaded := handoff.loaded
     access := handoff.access
-    memory := handoff.memory.mono frameInWriter }⟩
+    memory := handoff.memory.mono frameInWriter }, handoff.childBounded⟩
 
 set_option genInjectivity false in
 /-- Exact withdrawals descriptor loads followed by the selected inline encoder. -/
@@ -12754,7 +12759,8 @@ private theorem writeSuccessWithdrawalsHandoff
     (upper : args.stackPointer < 2 ^ 64)
     (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
-      WriteSuccessWithdrawalsHandoff fromStep childUsed args payloadBytes before after values := by
+      WriteSuccessWithdrawalsHandoff fromStep childUsed args payloadBytes before after values ∧
+      childUsed ≤ InlineEncoderInstanceContract.stepBound child args.inputSize := by
   rcases context.payloadRep with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
     transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
     blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
@@ -12880,7 +12886,7 @@ private theorem writeSuccessWithdrawalsHandoff
           rw [show childState.machine.mem = before.machine.mem by
             simpa [childState] using seg2.memEq (by simp)]
           exact withdrawalArrayRep⟩
-  obtain ⟨childUsed, after, _childBounded, childTrace, childExit⟩ :=
+  obtain ⟨childUsed, after, childBounded, childTrace, childExit⟩ :=
     writeSuccessInlineEncoderHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
@@ -12995,7 +13001,7 @@ private theorem writeSuccessWithdrawalsHandoff
       linkedTailReps := ⟨tailValues, tailAfter, tailSourceAfter⟩ }
     loaded := loadedAfter
     access := accessAfter
-    memory := fullMemory }⟩
+    memory := fullMemory }, childBounded⟩
 
 set_option genInjectivity false in
 /-- The transaction, raw-transaction, and withdrawal encoders in production order. -/
@@ -13039,17 +13045,21 @@ private theorem writeSuccessArrayPrefixHandoff
     (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ transactionsUsed rawUsed withdrawalsUsed after,
       WriteSuccessArrayPrefixHandoff fromStep transactionsUsed rawUsed withdrawalsUsed
-        args payloadBytes before after values := by
-  obtain ⟨transactionsUsed, afterTransactions, transactions⟩ :=
+        args payloadBytes before after values ∧
+      4 + transactionsUsed + 4 + rawUsed + 2 + withdrawalsUsed ≤
+        10 + InlineEncoderInstanceContract.stepBound transactionsChild args.inputSize +
+          EncoderCallInstanceContract.stepBound rawChild args.inputSize +
+          InlineEncoderInstanceContract.stepBound withdrawalsChild args.inputSize := by
+  obtain ⟨transactionsUsed, afterTransactions, transactions, transactionsBounded⟩ :=
     writeSuccessTransactionsHandoff transactionsChild fromStep args payloadBytes values before
       atPc stack context saved access loaded aligned lower upper decodedEq
   let rawStart := fromStep + 4 + transactionsUsed
-  obtain ⟨rawUsed, afterRaw, raw⟩ :=
+  obtain ⟨rawUsed, afterRaw, raw, rawBounded⟩ :=
     writeSuccessRawTransactionsHandoff rawChild rawStart args payloadBytes values
       afterTransactions transactions.atPc transactions.stack transactions.payloadContext
       transactions.saved transactions.access transactions.loaded aligned lower upper decodedEq
   let withdrawalsStart := rawStart + 4 + rawUsed
-  obtain ⟨withdrawalsUsed, after, withdrawals⟩ :=
+  obtain ⟨withdrawalsUsed, after, withdrawals, withdrawalsBounded⟩ :=
     writeSuccessWithdrawalsHandoff withdrawalsChild withdrawalsStart args payloadBytes values
       afterRaw raw.atPc raw.stack raw.payloadContext raw.saved raw.access raw.loaded aligned lower
       upper decodedEq
@@ -13066,7 +13076,7 @@ private theorem writeSuccessArrayPrefixHandoff
     loaded := withdrawals.loaded
     access := withdrawals.access
     memory := WritesOnlyWithin.trans_same
-      (WritesOnlyWithin.trans_same transactions.memory raw.memory) withdrawals.memory }⟩
+      (WritesOnlyWithin.trans_same transactions.memory raw.memory) withdrawals.memory }, ?_⟩
   · have firstTwo := transactions.trace.append (by
       simpa [rawStart, Nat.add_assoc] using raw.trace)
     have firstTwo' : ConfinedTrace EndpointStep EndpointPc
@@ -13080,6 +13090,7 @@ private theorem writeSuccessArrayPrefixHandoff
       simpa only [rawStart, withdrawalsStart, Nat.add_assoc] using withdrawals.trace
     simpa [Nat.add_assoc] using firstTwo'.append last
   · rw [withdrawals.stdout, raw.stdout, transactions.stdout]
+  · omega
 
 /-- Production `0x156e8: ld a0,0x470(sp)`. -/
 private theorem writeSuccessBlobGasUsedLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -14727,13 +14738,15 @@ private theorem writeSuccessBlobScalarsHandoff
     (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ blobUsed excessUsed after,
       WriteSuccessBlobScalarsHandoff fromStep blobUsed excessUsed
-        args payloadBytes before after values := by
+        args payloadBytes before after values ∧
+      3 + blobUsed + 3 + excessUsed ≤
+        6 + 2 * EncoderCallInstanceContract.stepBound child args.inputSize := by
   rcases context.payloadRep with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
     transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
     blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
     stateRoot, receiptsRootSize, receiptsRoot, logsBloomSize, logsBloom, prevRandaoSize,
     prevRandao, blockHashSize, blockHash⟩
-  obtain ⟨blobUsed, afterBlob, blob, _blobBounded⟩ := writeSuccessIntCallHandoff child fromStep
+  obtain ⟨blobUsed, afterBlob, blob, blobBounded⟩ := writeSuccessIntCallHandoff child fromStep
     0x156e8 0x156f4 0x470 args.decoded.payload.blobGasUsed 0x156ec args before atPc stack
     blobGasUsed access loaded aligned lower upper
     (fun stepNo state => writeSuccessBlobGasUsedLoadStep stepNo args state)
@@ -14758,7 +14771,7 @@ private theorem writeSuccessBlobScalarsHandoff
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl <;> omega)
   let excessStart := fromStep + 3 + blobUsed
-  obtain ⟨excessUsed, after, excess, _excessBounded⟩ :=
+  obtain ⟨excessUsed, after, excess, excessBounded⟩ :=
     writeSuccessIntCallHandoff child excessStart
     0x156f4 0x15700 0x478 args.decoded.payload.excessBlobGas 0x156f8 args afterBlob blob.atPc
     blob.stack contextBlob.payloadRep.2.2.2.2.2.2.2.2.2.2.1 blob.access blob.loaded aligned
@@ -14802,11 +14815,12 @@ private theorem writeSuccessBlobScalarsHandoff
         exact writeSuccessChildFrame_mem_frame lower inside))
       (excess.memory.mono (fun address inside => by
         unfold writeSuccessFrameMemory
-        exact writeSuccessChildFrame_mem_frame lower inside)) }⟩
+        exact writeSuccessChildFrame_mem_frame lower inside)) }, ?_⟩
   · have second : ConfinedTrace EndpointStep EndpointPc
         (pcInRanges Elflings.writeSuccessExecutionPcRanges)
         (fromStep + (3 + blobUsed)) (3 + excessUsed) afterBlob after := by
       simpa [excessStart, Nat.add_assoc] using excess.trace
     simpa [Nat.add_assoc] using blob.trace.append second
   · rw [excess.stdout, blob.stdout]
+  · omega
 end BinaryFv.Zesu.MachineExecution
