@@ -265,6 +265,11 @@ private theorem take_fixed_encode (value : Array UInt8) (width : Nat)
     take (pre ++ (value ++ suffix)) width pre.size = some (value, pre.size + width) := by
   simpa [size] using take_middle pre value suffix
 
+private theorem take_fixed_parserEncodes (width : Nat) :
+    ParserEncodes (fun input => take input width) id (fun bytes => bytes.size = width) := by
+  intro value size pre suffix
+  simpa only [id_eq, size] using take_fixed_encode value width size pre suffix
+
 private theorem unsigned_encodeUIntRep {width address value : Nat}
     {mem : Std.ExtHashMap Nat (BitVec 8)} (rep : UIntRep width mem address value)
     (pre suffix : Array UInt8) :
@@ -413,5 +418,42 @@ private theorem parseAuthorization_encode {mem : Std.ExtHashMap Nat (BitVec 8)} 
       Array.append_assoc] using read
   simpa [input, encodeAuthorization, Array.size_append, encodeNatLE_size, addressSize,
     Nat.add_assoc] using parseAuthorization_of_reads chainRead addressRead nonceRead vRead rRead sRead
+
+private theorem parseAccessListEntry_of_reads {input : Array UInt8}
+    {start middle finish : Nat} {address : Array UInt8} {keys : Array (Array UInt8)}
+    (addressRead : take input 20 start = some (address, middle))
+    (keysRead : fixedMany input 32 middle = some (keys, finish)) :
+    parseAccessListEntry input start = some ({ address, storageKeys := keys }, finish) := by
+  change StateT.run ((do pure {
+    address := ← take input 20
+    storageKeys := ← fixedMany input 32 }) : Parser AccessListEntry) start = _
+  have addressRead' : StateT.run (take input 20) start = some (address, middle) := addressRead
+  have keysRead' : StateT.run (fixedMany input 32) middle = some (keys, finish) := keysRead
+  simp_all [StateT.run_bind]
+
+private theorem parseAccessListEntry_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} :
+    ParserEncodes parseAccessListEntry encodeAccessListEntry (AccessListEntryRep mem address) := by
+  intro value rep pre suffix
+  rcases rep with ⟨keysRep, addressSize, _addressRep⟩
+  rcases keysRep with ⟨_data, _pointerRep, countRep, elementsRep⟩
+  let input := pre ++ (encodeAccessListEntry value ++ suffix)
+  have inputEq : input = pre ++ (value.address ++
+      (encodeMany (fun key => key) value.storageKeys ++ suffix)) := by
+    simp [input, encodeAccessListEntry, Array.append_assoc]
+  have addressRead : take input 20 pre.size = some (value.address, pre.size + 20) := by
+    rw [inputEq]
+    exact take_fixed_encode value.address 20 addressSize pre
+      (encodeMany (fun key => key) value.storageKeys ++ suffix)
+  have keysRead : fixedMany input 32 (pre.size + 20) =
+      some (value.storageKeys,
+        pre.size + 20 + (encodeMany (fun key => key) value.storageKeys).size) := by
+    unfold fixedMany
+    rw [inputEq]
+    have read := many_encode (take_fixed_parserEncodes 32) value.storageKeys
+      (fun index bound => (elementsRep.2 index bound).1)
+      (pre ++ value.address) suffix countRep.1
+    simpa [Array.size_append, addressSize, Nat.add_assoc, Array.append_assoc] using read
+  simpa [input, encodeAccessListEntry, Array.size_append, addressSize, Nat.add_assoc] using
+    parseAccessListEntry_of_reads addressRead keysRead
 
 end BinaryFv.Zesu
