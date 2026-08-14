@@ -2140,7 +2140,8 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
       Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
       WriteSuccessMachineAccess args after.machine ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
-      WriteSuccessIoFrame state after := by
+      WriteSuccessIoFrame state after ∧
+      used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, setupState, setup, savedWords, configured⟩ :=
     writeSuccessMemcpyCallSetup fromStep args state entry
   rcases entry with ⟨_, lower, _, fits, decodedEq, _, _, _, _, decodedRep,
@@ -2326,7 +2327,7 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     ⟨tailValues, tailAfterReps⟩
   refine ⟨values, bytes, tailValues, used, after, ?_, ?_, destinationRep, sourceRepAfter,
     bytesSize, payloadFieldBytes, tailAfter, tailAfterReps, savedAfter, ?_, ?_, codeAfter, accessAfter,
-    wholeMemory, ?_⟩
+    wholeMemory, ?_, ?_⟩
   · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
   · simpa [EndpointPc, MachinePc, memcpyArgs] using childPc
   · exact (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
@@ -2337,6 +2338,8 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
         (setup.reg x8 (BitVec.ofNat 64 args.decodedAddress) (by simp)))
   · exact ⟨by simpa [callState] using stdin, by simpa [callState] using cursor,
       by simpa [callState] using stdout, by simpa [callState] using exitCode⟩
+  · change used ≤ memcpyInstanceContract.stepBound memcpyArgs.bytes.size at bounded
+    simpa [memcpyArgs, bytesSize] using bounded
 
 /-- Append the first parent-owned decoded-tail load after the unconditional `memcpy`. -/
 theorem writeSuccessFirstTailLoadHandoff (fromStep : Nat) (args : WriteSuccessArgs)
@@ -2371,10 +2374,11 @@ theorem writeSuccessFirstTailLoadHandoff (fromStep : Nat) (args : WriteSuccessAr
       BytesRep next.mem (args.stackPointer - 0x7d0 + 0x138) bytes ∧
       InitializedByteWindow next.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
-      WriteSuccessIoFrame state after := by
+      WriteSuccessIoFrame state after ∧
+      used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, trace, atPc, _destinationRep, sourceRep,
     bytesSize, fieldBytes, _tailWindow, tailReps, saved, stackRead, baseRead, loaded, access, memoryFrame,
-    ioFrame⟩ :=
+    ioFrame, memcpyBounded⟩ :=
     writeSuccessMemcpyHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, _, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   let kv : List RegVal :=
@@ -2434,7 +2438,7 @@ theorem writeSuccessFirstTailLoadHandoff (fromStep : Nat) (args : WriteSuccessAr
     bytesSize, fieldBytes, ⟨tailValues, tailReps⟩, tailReps, saved, loaded, access, tailNext,
     tailNextReps, savedNext, codeNext, writeSuccessAccessOfSeg access seg1, destinationNext,
     initializedNext,
-    memoryFrame, ioFrame⟩
+      memoryFrame, ioFrame, memcpyBounded⟩
 
 def writeSuccessLocalTailWords (args : WriteSuccessArgs) (values : Fin 16 → Nat) :
     List (Nat × Nat) :=
@@ -2624,11 +2628,12 @@ theorem writeSuccessFirstTailPairHandoff (fromStep : Nat) (args : WriteSuccessAr
       BytesRep next.mem (args.stackPointer - 0x7d0 + 0x138) bytes ∧
       InitializedByteWindow next.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
-      WriteSuccessIoFrame state after := by
+      WriteSuccessIoFrame state after ∧
+      used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, loadedState, trace, loadedSeg,
     destinationRep, sourceRep, bytesSize, fieldBytes, _tailWindowAtBase, tailAtBase, _savedAtBase, loadedAtBase,
     accessAtBase, _tailWindowAtLoad, _tailAtLoad, savedAtLoad, _loadedAtLoad, accessAtLoad,
-    destinationAtLoad, initializedAtLoad, memoryFrame, ioFrame⟩ :=
+    destinationAtLoad, initializedAtLoad, memoryFrame, ioFrame, memcpyBounded⟩ :=
     writeSuccessFirstTailLoadHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   refine ⟨values, bytes, tailValues, used, after, ?_⟩
@@ -2687,7 +2692,8 @@ theorem writeSuccessFirstTailPairHandoff (fromStep : Nat) (args : WriteSuccessAr
   exact ⟨next, trace, seg2, destinationRep, sourceRep, bytesSize, fieldBytes, tailAtBase, loadedAtBase, accessAtBase,
     tailNext, tailNextReps, savedNext, stored0,
     writeSuccessCodeOfSeg accessAtBase loadedAtBase lower seg2,
-    writeSuccessAccessOfSeg accessAtBase seg2, destinationNext, initializedNext, memoryFrame, ioFrame⟩
+    writeSuccessAccessOfSeg accessAtBase seg2, destinationNext, initializedNext, memoryFrame,
+    ioFrame, memcpyBounded⟩
 
 /-- Reusable exact `ld a0,offset(s0); sd a0,slot(sp)` pair for the decoded writer tail. -/
 private theorem writeSuccessTailPairStep {a n : Nat} {base cur : State} {bytes : Array UInt8}
@@ -2895,11 +2901,12 @@ theorem writeSuccessSecondTailPairHandoff (fromStep : Nat) (args : WriteSuccessA
       InitializedByteWindow next.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMachineAccess args next ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
-      WriteSuccessIoFrame state after := by
+      WriteSuccessIoFrame state after ∧
+      used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, first, trace, seg, destinationRep,
     sourceRep, bytesSize, fieldBytes, tailBase, loaded, access, _tailWindow, tailFirst, saved,
     stored0, _code, _accessFirst,
-    copiedFirst, initializedFirst, memoryFrame, ioFrame⟩ :=
+    copiedFirst, initializedFirst, memoryFrame, ioFrame, memcpyBounded⟩ :=
     writeSuccessFirstTailPairHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   obtain ⟨next, seg2, tailNext, savedNext, stored1, pairWrites, copiedNext, initializedNext,
@@ -2944,7 +2951,7 @@ theorem writeSuccessSecondTailPairHandoff (fromStep : Nat) (args : WriteSuccessA
     simpa [writeSuccessLocalTailOffset] using stored1
   exact ⟨values, bytes, tailValues, used, after, next, trace, seg2, destinationRep, sourceRep, bytesSize,
     fieldBytes, tailBase, loaded, access, tailNext, savedNext, local2, copiedNext, initializedNext, accessNext,
-    memoryFrame, ioFrame⟩
+    memoryFrame, ioFrame, memcpyBounded⟩
 
 /-- Compose the first ten decoded-tail load/store pairs, ending at `0x14dd0`. -/
 theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSuccessArgs)
@@ -2976,11 +2983,12 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
       InitializedByteWindow next.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMachineAccess args next ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
-      WriteSuccessIoFrame state after := by
+      WriteSuccessIoFrame state after ∧
+      used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, cur1, trace, seg1, destinationRep,
     sourceRep, bytesSize, fieldBytes, tailBase, loaded, access, tail1, saved1, local2,
     copied1, initialized1, access1, memoryFrame,
-    ioFrame⟩ :=
+    ioFrame, memcpyBounded⟩ :=
     writeSuccessSecondTailPairHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   obtain ⟨cur2, seg2, tail2, saved2, stored2, pairWrites2, copied2, initialized2, access2⟩ :=
@@ -3234,7 +3242,7 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
   exact ⟨values, bytes, tailValues, used, after, cur9, trace, seg9, destinationRep,
     sourceRep, bytesSize, fieldBytes, tailBase, loaded, access, tail9, saved9, local10,
     copied9, initialized9, access9,
-    memoryFrame, ioFrame⟩
+    memoryFrame, ioFrame, memcpyBounded⟩
 
 /-- Append one exact decoded-tail load while retaining the earlier live tail values. -/
 private theorem writeSuccessTailLoadStep {a n : Nat} {base cur : State} {kv : List RegVal}
@@ -3378,11 +3386,12 @@ theorem writeSuccessFirstFourFinalLoadsHandoff (fromStep : Nat) (args : WriteSuc
       InitializedByteWindow next.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMachineAccess args next ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
-      WriteSuccessIoFrame state after := by
+      WriteSuccessIoFrame state after ∧
+      used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, cur9, trace, seg9, destinationRep,
     sourceRep, bytesSize, fieldBytes, tailBase, loaded, access, _tail9, saved9, local10,
     copied9, initialized9, _access9, memoryFrame,
-    ioFrame⟩ :=
+    ioFrame, memcpyBounded⟩ :=
     writeSuccessFirstTenTailPairsHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, _, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   let kv0 : List RegVal :=
@@ -3486,7 +3495,8 @@ theorem writeSuccessFirstFourFinalLoadsHandoff (fromStep : Nat) (args : WriteSuc
     exact local10
   exact ⟨values, bytes, tailValues, used, after, cur13, trace,
     by simpa [Nat.add_assoc] using seg13, destinationRep, sourceRep, bytesSize, fieldBytes, tailBase, loaded, access,
-    tail13, saved13, local10At13, copied13, initialized13, access13, memoryFrame, ioFrame⟩
+    tail13, saved13, local10At13, copied13, initialized13, access13, memoryFrame, ioFrame,
+    memcpyBounded⟩
 
 /-- Append one exact child-frame store while retaining tail values and ABI saves. -/
 private theorem writeSuccessTailStoreStep {a n : Nat} {base cur : State} {kv : List RegVal}
@@ -3624,11 +3634,12 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
       BytesRep next.mem (args.stackPointer - 0x7d0 + 0x138) bytes ∧
       InitializedByteWindow next.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMemoryFrame args state.machine next ∧
-      WriteSuccessIoFrame state after := by
+      WriteSuccessIoFrame state after ∧
+      used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, cur13, trace, seg13, destinationRep,
     sourceRep, bytesSize, fieldBytes, tailBase, loaded, access, _tail13, saved13, local10,
     copied13, initialized13, _access13, memoryFrame,
-    ioFrame⟩ :=
+    ioFrame, memcpyBounded⟩ :=
     writeSuccessFirstFourFinalLoadsHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   let kvBase : List RegVal := [⟨x13, BitVec.ofNat 64 (tailValues ⟨13, by omega⟩)⟩,
@@ -3908,7 +3919,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
     ⟨tailValues, by simpa using allLocal, tailS13⟩,
     writeSuccessCodeOfSeg access loaded lower segS13, accessS13, copiedS13,
     initializedS13,
-    WritesOnlyWithin.trans_same memoryFrame segS13.mem, ioFrame⟩
+    WritesOnlyWithin.trans_same memoryFrame segS13.mem, ioFrame, memcpyBounded⟩
 
 private theorem writeSuccessPrefixPc_in_execution {pc : BitVec 64}
     (inside : pcInRanges Elflings.writeSuccessRawLine131ExecutionPcRanges pc) :
@@ -3947,11 +3958,14 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
       Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
       WriteSuccessMachineAccess args after.machine ∧
       InitializedByteWindow after.machine.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
-      WriteSuccessMemoryFrame args state.machine after.machine := by
+      WriteSuccessMemoryFrame args state.machine after.machine ∧
+      parentUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 ∧
+      childUsed ≤ ConstantEncoderInstanceContract.stepBound child := by
   obtain ⟨values, bytes, tailValues, parentUsed, parentAfter, tailMachine, parentTrace,
     tailSeg, destinationRep, sourceRep, bytesSize, fieldBytes, tailReps, saved, localTail,
     linkedTail, loaded, access, copied, initialized,
-    memoryFrame, ioFrame⟩ := writeSuccessTailSegmentHandoff fromStep args state entry
+    memoryFrame, ioFrame, _memcpyBounded⟩ :=
+    writeSuccessTailSegmentHandoff fromStep args state entry
   let tailState : EndpointState := { parentAfter with machine := tailMachine }
   have tailTrace : ConfinedTrace EndpointStep EndpointPc
       (pcInRanges Elflings.writeSuccessExecutionPcRanges)
@@ -3960,7 +3974,7 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
       (.exitAt (fromStep + 20 + parentUsed + 32) tailMachine 0x14e00 tailSeg.atPc
         (Or.inr rfl))
     simpa [tailState, Nat.add_assoc] using liftWriteSuccessParentTrace parentAfter machineTrace
-  obtain ⟨childBound, childImpl⟩ := child
+  have childImpl := ConstantEncoderInstanceContract.implements child
   have childEntry : ConstantEncoderEntry Elflings.writeSuccessRawLine131Entry () tailState := by
     exact ⟨by simpa [tailState] using tailSeg.atPc, by simpa [tailState] using loaded⟩
   obtain ⟨childUsed, final, unit, positive, bounded, childTrace, childExitPc, _allowed,
@@ -3998,7 +4012,8 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
       writerRegionBeforeOutputContext := access.writerRegionBeforeOutputContext
       frameNotCode := access.frameNotCode }
   refine ⟨values, bytes, tailValues, parentUsed, childUsed, final, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
-    ?_, ?_, bytesSize, fieldBytes, ?_, ?_, ?_, ?_, childFrame.2.2.1, accessFinal, ?_, finalMemory⟩
+    ?_, ?_, bytesSize, fieldBytes, ?_, ?_, ?_, ?_, childFrame.2.2.1, accessFinal, ?_, finalMemory,
+    _memcpyBounded, ?_⟩
   · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
   · simpa [EndpointPc, MachinePc] using finalPc
   · exact (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
@@ -4018,6 +4033,7 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
   · simpa [WriteSuccessLocalTailReps, tailState, childMem] using localTail
   · simpa [WriteSuccessLinkedTailReps, tailState, childMem] using linkedTail
   · simpa [tailState, childMem] using initialized
+  · simpa [constantEncoderContract] using bounded
 
 /-- Production `0x14e14: addi a0,sp,0x408`. -/
 theorem writeSuccessSecondMemcpyDestinationStep (stepNo : Nat) (state : State)
@@ -4339,11 +4355,14 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     (entry : WriteSuccessEntry args state) :
     ∃ values bytes, ∃ tailValues : Fin 16 → Nat, ∃ parentUsed prefixUsed memcpyUsed after,
       WriteSuccessSecondMemcpyHandoff fromStep parentUsed prefixUsed memcpyUsed args state after
-        values bytes tailValues := by
+        values bytes tailValues ∧
+      parentUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 ∧
+      prefixUsed ≤ ConstantEncoderInstanceContract.stepBound child ∧
+      memcpyUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 592 := by
   obtain ⟨values, fullBytes, tailValues, parentUsed, prefixUsed, prefixState, prefixTrace,
     prefixPc, prefixStack, prefixStdout, prefixStdin, prefixCursor, prefixExitCode, fullRep,
     decodedFullRep, fullSize, fullFieldBytes, tailReps, saved, localTail, linkedTail, loaded, access,
-    initialized, memoryFrame⟩ :=
+    initialized, memoryFrame, firstMemcpyBounded, prefixBounded⟩ :=
     writeSuccessPrefixHandoff child fromStep args state entry
   have stackLower : 0x880 ≤ args.stackPointer := entry.2.1
   have stackFits : args.stackPointer < 2 ^ 64 := entry.2.2.2.1
@@ -4789,7 +4808,8 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     payloadRep := by simpa [finalState] using payloadFinal
     decodedBytesRep := by simpa [finalState] using decodedBytesFinal
     stable := by simpa [finalState] using
-      stable.afterWrites (finalMemory.mono (fun _ inside => Or.inl inside)) }⟩
+      stable.afterWrites (finalMemory.mono (fun _ inside => Or.inl inside)) },
+    firstMemcpyBounded, prefixBounded, ?_⟩
   · simpa [startStep, finalState, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
   · simpa [finalState, EndpointPc, MachinePc] using finalSeg.atPc
   · simpa [finalState] using
@@ -4801,6 +4821,8 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
       _ = callState.stdout := stdout
       _ = prefixState.stdout := rfl
       _ = state.stdout ++ successPrefixBytes := prefixStdout
+  · change memcpyUsed ≤ memcpyInstanceContract.stepBound memcpyArgs.bytes.size at bounded
+    simpa [memcpyArgs, bytesSize] using bounded
 
 private theorem writeSuccessRawEncoderHandoff
     {entry success : Nat} {executionPcs : List Elflings.PcRange} {exitPcs : List Nat}
@@ -5518,8 +5540,12 @@ theorem writeSuccessSixRawFieldsHandoff
         prevRandaoUsed after,
         WriteSuccessSixRawFieldsHandoff fromStep parentUsed prefixUsed memcpyUsed parentHashUsed
           feeUsed stateUsed receiptsUsed logsUsed prevRandaoUsed args state after values bytes
-          tailValues := by
-  obtain ⟨values, bytes, tailValues, parentUsed, prefixUsed, memcpyUsed, initial, initialHandoff⟩ :=
+          tailValues ∧
+        parentUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 ∧
+        prefixUsed ≤ ConstantEncoderInstanceContract.stepBound prefixChild ∧
+        memcpyUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 592 := by
+  obtain ⟨values, bytes, tailValues, parentUsed, prefixUsed, memcpyUsed, initial, initialHandoff,
+    firstMemcpyBounded, prefixBounded, secondMemcpyBounded⟩ :=
     writeSuccessSecondMemcpyHandoff prefixChild fromStep args state entry
   obtain ⟨parentHashUsed, feeUsed, stateUsed, middle, firstHandoff⟩ :=
     writeSuccessFirstThreeRawHandoff parentHash feeRecipient stateRoot initialHandoff
@@ -5565,7 +5591,8 @@ theorem writeSuccessSixRawFieldsHandoff
       fieldReps := lastHandoff.fieldReps
       payloadRep := by simpa [rawMemory] using initialHandoff.payloadRep
       decodedBytesRep := by simpa [rawMemory] using initialHandoff.decodedBytesRep
-      stable := by simpa [rawMemory] using initialHandoff.stable }⟩
+      stable := by simpa [rawMemory] using initialHandoff.stable },
+    firstMemcpyBounded, prefixBounded, secondMemcpyBounded⟩
   · have firstTrace : ConfinedTrace EndpointStep EndpointPc
         (pcInRanges Elflings.writeSuccessExecutionPcRanges)
         (fromStep + (20 + parentUsed + 32 + prefixUsed + 5 + memcpyUsed + 1))
@@ -6325,9 +6352,14 @@ theorem writeSuccessFirstIntHandoff
         WriteSuccessFirstIntHandoff fromStep
           (20 + parentUsed + 32 + prefixUsed + 5 + memcpyUsed + 1)
           (parentHashUsed + 1) (feeUsed + 1) (stateUsed + 1) (receiptsUsed + 1)
-          (logsUsed + 1) prevUsed intUsed args state after values bytes tailValues := by
+          (logsUsed + 1) prevUsed intUsed args state after values bytes tailValues ∧
+        parentUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 ∧
+        prefixUsed ≤ ConstantEncoderInstanceContract.stepBound prefixChild ∧
+        memcpyUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 592 ∧
+        intUsed ≤ EncoderCallInstanceContract.stepBound intChild args.inputSize := by
   obtain ⟨values, bytes, tailValues, parentUsed, prefixUsed, memcpyUsed, parentHashUsed,
-    feeUsed, stateUsed, receiptsUsed, logsUsed, prevUsed, before, handoff⟩ :=
+    feeUsed, stateUsed, receiptsUsed, logsUsed, prevUsed, before, handoff,
+    firstMemcpyBounded, prefixBounded, secondMemcpyBounded⟩ :=
     writeSuccessSixRawFieldsHandoff prefixChild parentHash feeRecipient stateRoot receiptsRoot
       logsBloom prevRandao fromStep args state entry
   have aligned : args.stackPointer % 16 = 0 := entry.2.2.1
@@ -6416,7 +6448,7 @@ theorem writeSuccessFirstIntHandoff
     · exact ⟨handoff.payloadRep.1.1, (callWrites.get x10 (by decide)).trans
         (seg2.reg x10 (BitVec.ofNat 64 args.decoded.payload.blockNumber) (by simp))⟩
     · simpa [callState, callMemEq] using handoff.loaded
-  obtain ⟨intBound, intImpl⟩ := intChild
+  have intImpl := EncoderCallInstanceContract.implements intChild
   obtain ⟨intUsed, after, unit, positive, bounded, childTrace, childPc, allowed, childExit⟩ :=
     intImpl childArgs (startStep + 3) callState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, frameFits, childMem, childFrame⟩
@@ -6655,7 +6687,7 @@ theorem writeSuccessFirstIntHandoff
       memoryFrame := fullMemory
       payloadRep := payloadAfter
       decodedBytesRep := decodedBytesAfter
-      stable := stableAfter }⟩
+      stable := stableAfter }, firstMemcpyBounded, prefixBounded, secondMemcpyBounded, ?_⟩
   · have combined := handoff.trace.append (by simpa [startStep, Nat.add_assoc] using parentTrace)
     have all := combined.append (by simpa [startStep, Nat.add_assoc] using childTrace')
     simpa [startStep, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using all
@@ -6667,6 +6699,7 @@ theorem writeSuccessFirstIntHandoff
           args.decoded.payload.receiptsRoot ++ args.decoded.payload.logsBloom ++
           args.decoded.payload.prevRandao ++ encodeNatLE 8 args.decoded.payload.blockNumber := by
         rw [handoff.stdout]
+  · simpa [encoderCallContract, childArgs] using bounded
 
 set_option genInjectivity false in
 /-- Reusable result of one parent `ld; auipc; jalr` sequence and the shared integer child. -/
