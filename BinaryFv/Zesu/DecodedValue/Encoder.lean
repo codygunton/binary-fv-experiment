@@ -15,8 +15,12 @@ def encodeOptional (encode : α → Array UInt8) : Option α → Array UInt8
   | none => #[0]
   | some value => #[1] ++ encode value
 
+def encodeManyValues (encode : α → Array UInt8) : List α → Array UInt8
+  | [] => #[]
+  | value :: values => encode value ++ encodeManyValues encode values
+
 def encodeMany (encode : α → Array UInt8) (values : Array α) : Array UInt8 :=
-  values.foldl (fun result value => result ++ encode value) (encodeNatLE 8 values.size)
+  encodeNatLE 8 values.size ++ encodeManyValues encode values.toList
 
 def encodeAccessListEntry (entry : AccessListEntry) : Array UInt8 :=
   entry.address ++ encodeMany (fun key => key) entry.storageKeys

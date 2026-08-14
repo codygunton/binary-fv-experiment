@@ -100,49 +100,51 @@ inductive ZesuObservation where
   | success (decoded : ZesuDecodedResult)
   deriving BEq, Repr
 
-private abbrev Parser (α : Type) := StateT Nat Option α
+abbrev Parser (α : Type) := StateT Nat Option α
 
-private def take (input : Array UInt8) (count : Nat) : Parser (Array UInt8) := fun position =>
+def take (input : Array UInt8) (count : Nat) : Parser (Array UInt8) := fun position =>
   if position + count ≤ input.size then
     some (input.extract position (position + count), position + count)
   else
     none
 
-private def littleEndian : List UInt8 → Nat
+def littleEndian : List UInt8 → Nat
   | [] => 0
   | byte :: rest => byte.toNat + 256 * littleEndian rest
 
-private def unsigned (input : Array UInt8) (width : Nat) : Parser Nat := do
+def unsigned (input : Array UInt8) (width : Nat) : Parser Nat := do
   pure (littleEndian (← take input width).toList)
 
-private def byte (input : Array UInt8) : Parser Nat := unsigned input 1
-private def u64 (input : Array UInt8) : Parser Nat := unsigned input 8
-private def u128 (input : Array UInt8) : Parser Nat := unsigned input 16
-private def u256 (input : Array UInt8) : Parser Nat := unsigned input 32
+def byte (input : Array UInt8) : Parser Nat := unsigned input 1
+def u64 (input : Array UInt8) : Parser Nat := unsigned input 8
+def u128 (input : Array UInt8) : Parser Nat := unsigned input 16
+def u256 (input : Array UInt8) : Parser Nat := unsigned input 32
 
-private def bytes (input : Array UInt8) : Parser (Array UInt8) := do
+def bytes (input : Array UInt8) : Parser (Array UInt8) := do
   take input (← u64 input)
 
-private def optional (input : Array UInt8) (value : Parser α) : Parser (Option α) := do
+def optional (input : Array UInt8) (value : Parser α) : Parser (Option α) := do
   match ← byte input with
   | 0 => pure none
   | 1 => pure (some (← value))
   | _ => failure
 
-private def many (input : Array UInt8) (value : Parser α) : Parser (Array α) := do
-  let count ← u64 input
-  let mut result := #[]
-  for _ in [0:count] do
-    result := result.push (← value)
-  pure result
+def parseManyCount (value : Parser α) : Nat → Parser (Array α)
+  | 0 => pure #[]
+  | count + 1 => do
+      let head ← value
+      pure (#[head] ++ (← parseManyCount value count))
 
-private def fixedMany (input : Array UInt8) (width : Nat) : Parser (Array (Array UInt8)) :=
+def many (input : Array UInt8) (value : Parser α) : Parser (Array α) := do
+  parseManyCount value (← u64 input)
+
+def fixedMany (input : Array UInt8) (width : Nat) : Parser (Array (Array UInt8)) :=
   many input (take input width)
 
-private def parseAccessListEntry (input : Array UInt8) : Parser AccessListEntry := do
+def parseAccessListEntry (input : Array UInt8) : Parser AccessListEntry := do
   pure { address := ← take input 20, storageKeys := ← fixedMany input 32 }
 
-private def parseAuthorization (input : Array UInt8) : Parser Authorization := do
+def parseAuthorization (input : Array UInt8) : Parser Authorization := do
   pure {
     chainId := ← u256 input
     address := ← take input 20
@@ -152,7 +154,7 @@ private def parseAuthorization (input : Array UInt8) : Parser Authorization := d
     s := ← u256 input
   }
 
-private def parseTransaction (input : Array UInt8) : Parser Transaction := do
+def parseTransaction (input : Array UInt8) : Parser Transaction := do
   pure {
     txType := ← byte input
     chainId := ← optional input (u64 input)
@@ -172,7 +174,7 @@ private def parseTransaction (input : Array UInt8) : Parser Transaction := do
     s := ← u256 input
   }
 
-private def parseWithdrawal (input : Array UInt8) : Parser Withdrawal := do
+def parseWithdrawal (input : Array UInt8) : Parser Withdrawal := do
   pure {
     index := ← u64 input
     validatorIndex := ← u64 input
@@ -180,7 +182,7 @@ private def parseWithdrawal (input : Array UInt8) : Parser Withdrawal := do
     amount := ← u64 input
   }
 
-private def parsePayload (input : Array UInt8) : Parser ExecutionPayload := do
+def parsePayload (input : Array UInt8) : Parser ExecutionPayload := do
   pure {
     parentHash := ← take input 32
     feeRecipient := ← take input 20
@@ -204,7 +206,7 @@ private def parsePayload (input : Array UInt8) : Parser ExecutionPayload := do
     blockAccessList := ← bytes input
   }
 
-private def parseRequests (input : Array UInt8) : Parser ExecutionRequests := do
+def parseRequests (input : Array UInt8) : Parser ExecutionRequests := do
   pure {
     deposits := ← bytes input
     withdrawals := ← bytes input
@@ -213,7 +215,7 @@ private def parseRequests (input : Array UInt8) : Parser ExecutionRequests := do
     builderExits := ← bytes input
   }
 
-private def parseChainConfig (input : Array UInt8) : Parser ChainConfig := do
+def parseChainConfig (input : Array UInt8) : Parser ChainConfig := do
   pure {
     chainId := ← u64 input
     forkName := ← optional input (bytes input)
@@ -222,7 +224,7 @@ private def parseChainConfig (input : Array UInt8) : Parser ChainConfig := do
     activationTimestamp := ← optional input (u64 input)
   }
 
-private def parseSuccess (input : Array UInt8) : Parser ZesuDecodedResult := do
+def parseSuccess (input : Array UInt8) : Parser ZesuDecodedResult := do
   pure {
     payload := ← parsePayload input
     parentBeaconBlockRoot := ← take input 32
