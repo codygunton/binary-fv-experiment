@@ -120,6 +120,45 @@ def BytesRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
     ∀ index (inBounds : index < bytes.size),
       mem.get? (address + index) = some (BitVec.ofNat 8 bytes[index].toNat)
 
+/-- Any initialized eight-byte window represents one bounded little-endian natural value. -/
+theorem BytesRep.existsUIntRepEight {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat}
+    {bytes : Array UInt8} (rep : BytesRep mem address bytes) (size : bytes.size = 8) :
+    ∃ value, UIntRep 8 mem address value := by
+  let value := bytes[0].toNat + bytes[1].toNat * 256 + bytes[2].toNat * 65536 +
+    bytes[3].toNat * 16777216 + bytes[4].toNat * 4294967296 +
+    bytes[5].toNat * 1099511627776 + bytes[6].toNat * 281474976710656 +
+    bytes[7].toNat * 72057594037927936
+  refine ⟨value, ?_, ?_, ?_⟩
+  · dsimp [value]
+    have h0 := bytes[0].toNat_lt
+    have h1 := bytes[1].toNat_lt
+    have h2 := bytes[2].toNat_lt
+    have h3 := bytes[3].toNat_lt
+    have h4 := bytes[4].toNat_lt
+    have h5 := bytes[5].toNat_lt
+    have h6 := bytes[6].toNat_lt
+    have h7 := bytes[7].toNat_lt
+    omega
+  · simpa [size] using rep.1
+  · intro index bound
+    have cases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨
+        index = 5 ∨ index = 6 ∨ index = 7 := by omega
+    rcases cases with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    all_goals rw [rep.2 _ (by omega)]
+    all_goals congr 1
+    all_goals apply BitVec.eq_of_toNat_eq
+    all_goals simp [byteAt, value]
+    all_goals
+      have h0 := bytes[0].toNat_lt
+      have h1 := bytes[1].toNat_lt
+      have h2 := bytes[2].toNat_lt
+      have h3 := bytes[3].toNat_lt
+      have h4 := bytes[4].toNat_lt
+      have h5 := bytes[5].toNat_lt
+      have h6 := bytes[6].toNat_lt
+      have h7 := bytes[7].toNat_lt
+      omega
+
 theorem BytesRep.of_mem_eq {before after : Std.ExtHashMap Nat (BitVec 8)}
     {address : Nat} {bytes : Array UInt8} (rep : BytesRep before address bytes)
     (memEq : after = before) : BytesRep after address bytes := by

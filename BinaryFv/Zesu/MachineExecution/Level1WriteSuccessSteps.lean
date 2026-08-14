@@ -4291,6 +4291,10 @@ structure WriteSuccessSecondMemcpyHandoff (fromStep parentUsed prefixUsed memcpy
     UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
       (tailValues ⟨index, inBounds⟩)
   saved : SavedWordReps after.machine (writeSuccessSavedWords args values)
+  slotWord : ∃ value, UIntRep 8 after.machine.mem
+    (args.stackPointer - 0x7d0 + 0x480) value
+  slotTagWord : ∃ value, UIntRep 8 after.machine.mem
+    (args.stackPointer - 0x7d0 + 0x488) value
   localTailReps : WriteSuccessLocalTailReps args after
   linkedTailReps : WriteSuccessLinkedTailReps args after
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
@@ -4740,6 +4744,14 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     versionedHashesRelocation := by simpa [finalState] using versionedRelocation
     tailReps := tailAfter
     saved := savedAfter
+    slotWord := by
+      have rep := destinationFinal.extractRange 120 8 (by simp [bytesSize])
+      have size : (bytes.extract 120 128).size = 8 := by simp [bytesSize]
+      simpa [finalState, Nat.add_assoc] using BytesRep.existsUIntRepEight rep size
+    slotTagWord := by
+      have rep := destinationFinal.extractRange 128 8 (by simp [bytesSize])
+      have size : (bytes.extract 128 136).size = 8 := by simp [bytesSize]
+      simpa [finalState, Nat.add_assoc] using BytesRep.existsUIntRepEight rep size
     localTailReps := by simpa [finalState] using localTailAfter
     linkedTailReps := by simpa [finalState] using linkedTailAfter
     loaded := by simpa [finalState, finalSeg.memEq (by simp)] using codeAfter
@@ -5433,6 +5445,8 @@ structure WriteSuccessSixRawFieldsHandoff
     (args.stackPointer - 0x7d0 + 0x408) bytes
   parentRootRep : BytesRep after.machine.mem
     (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot
+  versionedHashesRelocation : ByteWindowRelocation after.machine.mem after.machine.mem
+    (args.decodedAddress + 592) (args.stackPointer - 0x7d0 + 0x388) 16
   bytesSize : bytes.size = 0x250
   sourceRep : BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes
   fullCopy : ∃ fullBytes : Array UInt8, fullBytes.size = 720 ∧
@@ -5442,6 +5456,12 @@ structure WriteSuccessSixRawFieldsHandoff
     UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
       (tailValues ⟨index, inBounds⟩)
   saved : SavedWordReps after.machine (writeSuccessSavedWords args values)
+  slotWord : ∃ value, UIntRep 8 after.machine.mem
+    (args.stackPointer - 0x7d0 + 0x480) value
+  slotTagWord : ∃ value, UIntRep 8 after.machine.mem
+    (args.stackPointer - 0x7d0 + 0x488) value
+  localTailReps : WriteSuccessLocalTailReps args after
+  linkedTailReps : WriteSuccessLinkedTailReps args after
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess args after.machine
   memoryFrame : WriteSuccessMemoryFrame args before.machine after.machine
@@ -5490,6 +5510,8 @@ theorem writeSuccessSixRawFieldsHandoff
         (firstHandoff.exitCode.trans initialHandoff.exitCode)
       destinationRep := by simpa [rawMemory] using initialHandoff.destinationRep
       parentRootRep := by simpa [rawMemory] using initialHandoff.parentRootRep
+      versionedHashesRelocation := by
+        simpa [rawMemory] using initialHandoff.versionedHashesRelocation
       bytesSize := initialHandoff.bytesSize
       sourceRep := by simpa [rawMemory] using initialHandoff.sourceRep
       fullCopy := by simpa [rawMemory] using initialHandoff.fullCopy
@@ -5499,6 +5521,12 @@ theorem writeSuccessSixRawFieldsHandoff
       saved := by
         intro word member
         simpa [rawMemory] using initialHandoff.saved word member
+      slotWord := by simpa [rawMemory] using initialHandoff.slotWord
+      slotTagWord := by simpa [rawMemory] using initialHandoff.slotTagWord
+      localTailReps := by
+        simpa only [WriteSuccessLocalTailReps, rawMemory] using initialHandoff.localTailReps
+      linkedTailReps := by
+        simpa only [WriteSuccessLinkedTailReps, rawMemory] using initialHandoff.linkedTailReps
       loaded := lastHandoff.loaded
       access := lastHandoff.access
       memoryFrame := by
@@ -6224,14 +6252,23 @@ structure WriteSuccessFirstIntHandoff
     (args.stackPointer - 0x7d0 + 0x408) bytes
   parentRootRep : BytesRep after.machine.mem
     (args.stackPointer - 0x7d0 + 0x3e8) args.decoded.parentBeaconBlockRoot
+  versionedHashesRelocation : ByteWindowRelocation after.machine.mem after.machine.mem
+    (args.decodedAddress + 592) (args.stackPointer - 0x7d0 + 0x388) 16
   bytesSize : bytes.size = 0x250
   sourceRep : BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) bytes
   fullCopy : ∃ fullBytes : Array UInt8, fullBytes.size = 720 ∧
+    BytesRep after.machine.mem args.decodedAddress fullBytes ∧
     BytesRep after.machine.mem (args.stackPointer - 0x7d0 + 0x138) fullBytes
   tailReps : ∀ index (inBounds : index < 16),
     UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
       (tailValues ⟨index, inBounds⟩)
   saved : SavedWordReps after.machine (writeSuccessSavedWords args values)
+  slotWord : ∃ value, UIntRep 8 after.machine.mem
+    (args.stackPointer - 0x7d0 + 0x480) value
+  slotTagWord : ∃ value, UIntRep 8 after.machine.mem
+    (args.stackPointer - 0x7d0 + 0x488) value
+  localTailReps : WriteSuccessLocalTailReps args after
+  linkedTailReps : WriteSuccessLinkedTailReps args after
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess args after.machine
   memoryFrame : WriteSuccessMemoryFrame args before.machine after.machine
@@ -6413,6 +6450,20 @@ theorem writeSuccessFirstIntHandoff
       have decodedEq := entry.2.2.2.2.1
       rw [decodedEq] at inside
       omega)
+  have versionedHashesAfter : ByteWindowRelocation after.machine.mem after.machine.mem
+      (args.decodedAddress + 592) (args.stackPointer - 0x7d0 + 0x388) 16 := by
+    intro index inBounds
+    rw [childMem _ (by
+      intro inside
+      dsimp [childArgs] at inside
+      unfold byteRange at inside
+      omega), childMem _ (by
+      intro inside
+      dsimp [childArgs] at inside
+      unfold byteRange at inside
+      have decodedEq := entry.2.2.2.2.1
+      rw [decodedEq] at inside
+      omega), callMemEq, handoff.versionedHashesRelocation index inBounds]
   have payloadAfter : ExecutionPayloadRep after.machine.mem
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
     apply decodedAfter.2.1.rebase (by omega)
@@ -6466,6 +6517,57 @@ theorem writeSuccessFirstIntHandoff
         rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
           rfl | rfl | rfl <;> omega
       omega)
+  obtain ⟨slotValue, slotRep⟩ := handoff.slotWord
+  have slotAfter : UIntRep 8 after.machine.mem
+      (args.stackPointer - 0x7d0 + 0x480) slotValue :=
+    (slotRep.of_mem_eq callMemEq).of_writesOnlyWithin childMem (by
+      intro index bound inside
+      dsimp [childArgs] at inside
+      unfold byteRange at inside
+      omega)
+  obtain ⟨slotTagValue, slotTagRep⟩ := handoff.slotTagWord
+  have slotTagAfter : UIntRep 8 after.machine.mem
+      (args.stackPointer - 0x7d0 + 0x488) slotTagValue :=
+    (slotTagRep.of_mem_eq callMemEq).of_writesOnlyWithin childMem (by
+      intro index bound inside
+      dsimp [childArgs] at inside
+      unfold byteRange at inside
+      omega)
+  obtain ⟨localValues, localReps⟩ := handoff.localTailReps
+  have localAfter : WriteSuccessLocalTailReps args after := ⟨localValues, by
+    intro word member
+    have atCall := (localReps word member).of_mem_eq callMemEq
+    exact atCall.of_writesOnlyWithin childMem (by
+      intro index bound inside
+      dsimp [childArgs] at inside
+      unfold byteRange at inside
+      simp [writeSuccessLocalTailWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl <;> omega)⟩
+  obtain ⟨linkedValues, linkedLocal, linkedSource⟩ := handoff.linkedTailReps
+  have linkedLocalAfter : InlineEncoderSavedWords after.machine.mem
+      (writeSuccessLocalTailWords args linkedValues) := by
+    intro word member
+    have atCall := (linkedLocal word member).of_mem_eq callMemEq
+    exact atCall.of_writesOnlyWithin childMem (by
+      intro index bound inside
+      dsimp [childArgs] at inside
+      unfold byteRange at inside
+      simp [writeSuccessLocalTailWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl <;> omega)
+  have linkedSourceAfter : ∀ index (bound : index < 16),
+      UIntRep 8 after.machine.mem (args.decodedAddress + 720 + index * 8)
+        (linkedValues ⟨index, bound⟩) := by
+    intro index bound
+    have atCall := (linkedSource index bound).of_mem_eq callMemEq
+    exact atCall.of_writesOnlyWithin childMem (by
+      intro byte byteBound inside
+      dsimp [childArgs] at inside
+      unfold byteRange at inside
+      have decodedEq := entry.2.2.2.2.1
+      rw [decodedEq] at inside
+      omega)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem := by
     intro address byte fileByte
     have outside : ¬byteRange (childArgs.callerStack - 16) 16 address := by
@@ -6491,11 +6593,21 @@ theorem writeSuccessFirstIntHandoff
       exitCode := exitCode.trans (by simpa [callState] using handoff.exitCode)
       destinationRep := destinationAfter
       parentRootRep := parentRootAfter
+      versionedHashesRelocation := versionedHashesAfter
       bytesSize := handoff.bytesSize
       sourceRep := sourceAfter
       fullCopy := by
-        obtain ⟨fullBytes, fullSize, _decodedRep, fullRep⟩ := handoff.fullCopy
-        exact ⟨fullBytes, fullSize,
+        obtain ⟨fullBytes, fullSize, decodedRep, fullRep⟩ := handoff.fullCopy
+        have decodedAtCall := decodedRep.of_mem_eq callMemEq
+        have decodedAfter := decodedAtCall.of_writesOnlyWithin childMem (by
+          intro index inBounds inside
+          dsimp [childArgs] at inside
+          unfold byteRange at inside
+          have decodedEq := entry.2.2.2.2.1
+          rw [decodedEq] at inside
+          rw [fullSize] at inBounds
+          omega)
+        exact ⟨fullBytes, fullSize, decodedAfter,
           fullRep.of_mem_eq callMemEq |>.of_writesOnlyWithin childMem (by
           intro index inBounds inside
           dsimp [childArgs] at inside
@@ -6504,6 +6616,10 @@ theorem writeSuccessFirstIntHandoff
           omega)⟩
       tailReps := tailAfter
       saved := savedAfter
+      slotWord := ⟨slotValue, slotAfter⟩
+      slotTagWord := ⟨slotTagValue, slotTagAfter⟩
+      localTailReps := localAfter
+      linkedTailReps := ⟨linkedValues, linkedLocalAfter, linkedSourceAfter⟩
       loaded := loadedAfter
       access := accessAfter
       memoryFrame := fullMemory
