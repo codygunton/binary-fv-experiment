@@ -7167,7 +7167,8 @@ private theorem writeSuccessIntCallHandoff
     (next1 : BitVec.ofNat 64 (pc + 4) + 4 = BitVec.ofNat 64 (pc + 8))
     (returnListed : returnPc ∈ Elflings.writeSuccessIntExitPcs) :
     ∃ childUsed after,
-      WriteSuccessIntCallHandoff fromStep childUsed returnPc value args before after := by
+      WriteSuccessIntCallHandoff fromStep childUsed returnPc value args before after ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound intChild args.inputSize := by
   have seg0 : Seg writeSuccessParentPc writeSuccessIntCallExitPc
       (fun _ _ _ _ _ => False) writeSuccessIntParentWrites (fun _ => False)
       [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩]
@@ -7259,9 +7260,9 @@ private theorem writeSuccessIntCallHandoff
     · exact ⟨rep.1, (callWrites.get x10 (by decide)).trans
         (seg2.reg x10 (BitVec.ofNat 64 value) (by simp))⟩
     · simpa [callState, callMemEq] using loaded
-  obtain ⟨intBound, intImpl⟩ := intChild
-  obtain ⟨childUsed, after, unit, _positive, _bounded, childTrace, _childPc, _allowed,
-      childExit⟩ := intImpl childArgs (fromStep + 3) callState childEntry
+  obtain ⟨childUsed, after, unit, _positive, bounded, childTrace, _childPc, _allowed,
+      childExit⟩ := EncoderCallInstanceContract.implements intChild childArgs
+        (fromStep + 3) callState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, _frameFits, childMem,
     childFrame⟩
   have callPrefix : ConfinedPrefix writeSuccessParentPc writeSuccessIntCallExitPc
@@ -7319,24 +7320,26 @@ private theorem writeSuccessIntCallHandoff
       exact Option.some_ne_none byte (fileByte.symm.trans notCode)
     rw [exactMemory address outside]
     exact loaded address byte fileByte
-  refine ⟨childUsed, after, {
-    trace := ?_
-    atPc := afterPc
-    stack := (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
-      ((callWrites.get x2 (by decide)).trans
-        (seg2.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)))
-    stdout := by simpa [callState, childArgs] using stdout
-    stdin := by simpa [callState] using stdin
-    cursor := by simpa [callState] using cursor
-    exitCode := by simpa [callState] using exitCode
-    memory := exactMemory
-    x8 := (childFrame.1 x8 (by simp [abiCalleePreserved])).trans
-      ((callWrites.get x8 (by simp [stepBookkeeping])).trans
-        (seg2.writes.get x8 (by simp [writeSuccessIntParentWrites])))
-    loaded := loadedAfter
-    access := accessAfter }⟩
-  have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
-  simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
+  refine ⟨childUsed, after, ?_, ?_⟩
+  · exact {
+      trace := by
+        have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
+        simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
+      atPc := afterPc
+      stack := (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
+        ((callWrites.get x2 (by decide)).trans
+          (seg2.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)))
+      stdout := by simpa [callState, childArgs] using stdout
+      stdin := by simpa [callState] using stdin
+      cursor := by simpa [callState] using cursor
+      exitCode := by simpa [callState] using exitCode
+      memory := exactMemory
+      x8 := (childFrame.1 x8 (by simp [abiCalleePreserved])).trans
+        ((callWrites.get x8 (by simp [stepBookkeeping])).trans
+          (seg2.writes.get x8 (by simp [writeSuccessIntParentWrites])))
+      loaded := loadedAfter
+      access := accessAfter }
+  · simpa [encoderCallContract, childArgs] using bounded
 
 set_option genInjectivity false in
 /-- The common exact parent-owned `ld; ld; auipc; jalr` setup used by the late bytes and
@@ -8604,7 +8607,7 @@ private theorem writeSuccessChainIdHandoff
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
       WriteSuccessChainIdHandoff fromStep childUsed args payloadBytes savedValues before after := by
-  obtain ⟨childUsed, after, handoff⟩ := writeSuccessIntCallHandoff child fromStep
+  obtain ⟨childUsed, after, handoff, _childBounded⟩ := writeSuccessIntCallHandoff child fromStep
     0x15960 0x1596c 0x40 args.decoded.chainConfig.chainId 0x15964 args before atPc stack
     context.chainIdRep access loaded aligned lower upper
     (fun step state => writeSuccessChainIdLoadStep step args state)
@@ -11116,7 +11119,7 @@ private theorem writeSuccessActiveForkHandoff
     simpa only [pointerState] using writeSuccessAccessOfSeg access seg1
   have pointerLoaded : Artifacts.programImage.fileBytesLoadedFaithfully pointerState.machine.mem := by
     simpa only [pointerState, afterRegisterWrite_mem] using loaded
-  obtain ⟨childUsed, after, call⟩ := writeSuccessIntCallHandoff child (fromStep + 1)
+  obtain ⟨childUsed, after, call, _childBounded⟩ := writeSuccessIntCallHandoff child (fromStep + 1)
     0x159a4 0x159b0 0x50 args.decoded.chainConfig.activeForkIndex 0x159a8 args pointerState
     seg1.atPc (by simpa [pointerState] using seg1.reg x2 _ (by simp))
     pointerContext.activeForkIndexRep pointerAccess pointerLoaded aligned lower upper
@@ -11457,7 +11460,7 @@ private theorem writeSuccessThreeIntHandoff
     ∃ gasLimitUsed gasUsedUsed timestampUsed after,
       WriteSuccessThreeIntHandoff fromStep gasLimitUsed gasUsedUsed timestampUsed
         args bytes before after := by
-  obtain ⟨gasLimitUsed, afterGasLimit, gasLimitCall⟩ :=
+  obtain ⟨gasLimitUsed, afterGasLimit, gasLimitCall, _gasLimitBounded⟩ :=
     writeSuccessIntCallHandoff intChild fromStep 0x14e94 0x14ea0 0x410
       args.decoded.payload.gasLimit 0x15e98 args before atPc stack context.payloadRep.2.1
       access loaded aligned lower upper (fun step state => writeSuccessGasLimitLoadStep step args state)
@@ -11474,7 +11477,7 @@ private theorem writeSuccessThreeIntHandoff
       (by native_decide) (by native_decide) (by native_decide)
   have contextGasLimit := writeSuccessPayloadContextAfterInt decodedAddress lower upper context
     gasLimitCall
-  obtain ⟨gasUsedUsed, afterGasUsed, gasUsedCall⟩ :=
+  obtain ⟨gasUsedUsed, afterGasUsed, gasUsedCall, _gasUsedBounded⟩ :=
     writeSuccessIntCallHandoff intChild (fromStep + 3 + gasLimitUsed) 0x14ea0 0x14eac 0x418
       args.decoded.payload.gasUsed 0x15ea4 args afterGasLimit gasLimitCall.atPc gasLimitCall.stack
       contextGasLimit.payloadRep.2.2.1 gasLimitCall.access gasLimitCall.loaded aligned lower upper
@@ -11492,7 +11495,7 @@ private theorem writeSuccessThreeIntHandoff
       (by native_decide) (by native_decide) (by native_decide)
   have contextGasUsed := writeSuccessPayloadContextAfterInt decodedAddress lower upper
     contextGasLimit gasUsedCall
-  obtain ⟨timestampUsed, after, timestampCall⟩ :=
+  obtain ⟨timestampUsed, after, timestampCall, _timestampBounded⟩ :=
     writeSuccessIntCallHandoff intChild
       (fromStep + 3 + gasLimitUsed + 3 + gasUsedUsed) 0x14eac 0x14eb8 0x420
       args.decoded.payload.timestamp 0x15eb0 args afterGasUsed gasUsedCall.atPc gasUsedCall.stack
@@ -11579,7 +11582,8 @@ private theorem writeSuccessPostBlockNumberHandoff
     afterThreeStep args payloadBytes afterThree three.atPc three.stack three.payload three.access
     three.loaded aligned lower upper decodedAddress
   let afterExtraStep := afterThreeStep + 4 + extraDataUsed
-  obtain ⟨baseFeeUsed, after, baseFee⟩ := writeSuccessIntCallHandoff intChild afterExtraStep
+  obtain ⟨baseFeeUsed, after, baseFee, _baseFeeBounded⟩ :=
+    writeSuccessIntCallHandoff intChild afterExtraStep
     0x14ec8 0x14ed4 0x438 args.decoded.payload.baseFeePerGas 0x15ecc args afterExtra
     extra.atPc extra.stack extra.payload.payloadRep.2.2.2.2.2.1 extra.access extra.loaded aligned
     lower upper (fun step state => writeSuccessBaseFeeLoadStep step args state)
@@ -14686,7 +14690,7 @@ private theorem writeSuccessBlobScalarsHandoff
     blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
     stateRoot, receiptsRootSize, receiptsRoot, logsBloomSize, logsBloom, prevRandaoSize,
     prevRandao, blockHashSize, blockHash⟩
-  obtain ⟨blobUsed, afterBlob, blob⟩ := writeSuccessIntCallHandoff child fromStep
+  obtain ⟨blobUsed, afterBlob, blob, _blobBounded⟩ := writeSuccessIntCallHandoff child fromStep
     0x156e8 0x156f4 0x470 args.decoded.payload.blobGasUsed 0x156ec args before atPc stack
     blobGasUsed access loaded aligned lower upper
     (fun stepNo state => writeSuccessBlobGasUsedLoadStep stepNo args state)
@@ -14711,7 +14715,8 @@ private theorem writeSuccessBlobScalarsHandoff
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl <;> omega)
   let excessStart := fromStep + 3 + blobUsed
-  obtain ⟨excessUsed, after, excess⟩ := writeSuccessIntCallHandoff child excessStart
+  obtain ⟨excessUsed, after, excess, _excessBounded⟩ :=
+    writeSuccessIntCallHandoff child excessStart
     0x156f4 0x15700 0x478 args.decoded.payload.excessBlobGas 0x156f8 args afterBlob blob.atPc
     blob.stack contextBlob.payloadRep.2.2.2.2.2.2.2.2.2.2.1 blob.access blob.loaded aligned
     lower upper (fun stepNo state => writeSuccessExcessBlobGasLoadStep stepNo args state)
