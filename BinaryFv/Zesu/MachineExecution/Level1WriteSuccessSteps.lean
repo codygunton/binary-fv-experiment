@@ -5011,8 +5011,9 @@ private theorem writeSuccessRawEncoderThenPointerHandoff
     (access : WriteSuccessMachineAccess writerArgs before.machine) :
     ∃ childUsed after,
       RawEncoderPointerHandoff fromStep childUsed nextEntry nextAddress writerArgs rawArgs
-        before after := by
-  obtain ⟨childUsed, childAfter, _childBounded, childTrace, childExit⟩ :=
+        before after ∧
+      childUsed ≤ RawEncoderInstanceContract.stepBound child rawArgs.bytes.size := by
+  obtain ⟨childUsed, childAfter, childBounded, childTrace, childExit⟩ :=
     writeSuccessRawEncoderHandoff child insideWriter fromStep rawArgs before childEntry
   rcases childExit with ⟨childPc, stdout, stdin, cursor, exitCode, childMem, childFrame⟩
   have childAtPc : childAfter.machine.regs.get? PC = some (BitVec.ofNat 64 success) := childPc
@@ -5078,7 +5079,7 @@ private theorem writeSuccessRawEncoderThenPointerHandoff
     exitCode := exitCode
     memory := by simpa [after, seg1.memEq (by simp)] using childMem
     loaded := by simpa [after, seg1.memEq (by simp)] using childLoaded
-    access := writeSuccessAccessOfSeg childAccess seg1 }⟩
+    access := writeSuccessAccessOfSeg childAccess seg1 }, childBounded⟩
 
 private theorem writeSuccessRawPc_in_writeSuccess {pc : BitVec 64} {start stop : Nat}
     (inside : pcInRanges [(0x10190, 0x101c4), (start, stop)] pc)
@@ -5111,7 +5112,8 @@ private theorem writeSuccessParentHashThenFee
         (args.stackPointer - 0x7d0 + 0x4c0) args
         { sourceAddress := args.stackPointer - 0x7d0 + 0x4a0
           bytes := args.decoded.payload.parentHash }
-        before after := by
+        before after ∧
+      used ≤ RawEncoderInstanceContract.stepBound child args.decoded.payload.parentHash.size := by
   let rawArgs : RawEncoderArgs :=
     { sourceAddress := args.stackPointer - 0x7d0 + 0x4a0
       bytes := args.decoded.payload.parentHash }
@@ -5147,7 +5149,8 @@ private theorem writeSuccessFeeThenStateRoot
         (args.stackPointer - 0x7d0 + 0x4d4) args
         { sourceAddress := args.stackPointer - 0x7d0 + 0x4c0
           bytes := args.decoded.payload.feeRecipient }
-        before after := by
+        before after ∧
+      used ≤ RawEncoderInstanceContract.stepBound child args.decoded.payload.feeRecipient.size := by
   let rawArgs : RawEncoderArgs :=
     { sourceAddress := args.stackPointer - 0x7d0 + 0x4c0
       bytes := args.decoded.payload.feeRecipient }
@@ -5183,7 +5186,8 @@ private theorem writeSuccessStateThenReceiptsRoot
         (args.stackPointer - 0x7d0 + 0x4f4) args
         { sourceAddress := args.stackPointer - 0x7d0 + 0x4d4
           bytes := args.decoded.payload.stateRoot }
-        before after := by
+        before after ∧
+      used ≤ RawEncoderInstanceContract.stepBound child args.decoded.payload.stateRoot.size := by
   let rawArgs : RawEncoderArgs :=
     { sourceAddress := args.stackPointer - 0x7d0 + 0x4d4
       bytes := args.decoded.payload.stateRoot }
@@ -5219,7 +5223,8 @@ private theorem writeSuccessReceiptsThenLogsBloom
         (args.stackPointer - 0x7d0 + 0x514) args
         { sourceAddress := args.stackPointer - 0x7d0 + 0x4f4
           bytes := args.decoded.payload.receiptsRoot }
-        before after := by
+        before after ∧
+      used ≤ RawEncoderInstanceContract.stepBound child args.decoded.payload.receiptsRoot.size := by
   let rawArgs : RawEncoderArgs :=
     { sourceAddress := args.stackPointer - 0x7d0 + 0x4f4
       bytes := args.decoded.payload.receiptsRoot }
@@ -5255,7 +5260,8 @@ private theorem writeSuccessLogsThenPrevRandao
         (args.stackPointer - 0x7d0 + 0x614) args
         { sourceAddress := args.stackPointer - 0x7d0 + 0x514
           bytes := args.decoded.payload.logsBloom }
-        before after := by
+        before after ∧
+      used ≤ RawEncoderInstanceContract.stepBound child args.decoded.payload.logsBloom.size := by
   let rawArgs : RawEncoderArgs :=
     { sourceAddress := args.stackPointer - 0x7d0 + 0x514
       bytes := args.decoded.payload.logsBloom }
@@ -5310,22 +5316,30 @@ private theorem writeSuccessFirstThreeRawHandoff
     ∃ parentHashUsed feeUsed stateUsed after,
       WriteSuccessFirstThreeRawHandoff
         (fromStep + (20 + parentUsed + 32 + prefixUsed + 5 + memcpyUsed + 1))
-        parentHashUsed feeUsed stateUsed args before after := by
+        parentHashUsed feeUsed stateUsed args before after ∧
+      parentHashUsed + feeUsed + stateUsed ≤
+        RawEncoderInstanceContract.stepBound parentHash args.decoded.payload.parentHash.size +
+        RawEncoderInstanceContract.stepBound feeRecipient
+          args.decoded.payload.feeRecipient.size +
+        RawEncoderInstanceContract.stepBound stateRoot args.decoded.payload.stateRoot.size := by
   let start0 := fromStep + (20 + parentUsed + 32 + prefixUsed + 5 + memcpyUsed + 1)
-  obtain ⟨parentHashUsed, after1, h1⟩ := writeSuccessParentHashThenFee parentHash start0
+  obtain ⟨parentHashUsed, after1, h1, parentHashBounded⟩ :=
+    writeSuccessParentHashThenFee parentHash start0
     args before beforeHandoff.atPc beforeHandoff.stack beforeHandoff.source
     beforeHandoff.fieldReps.parentHash beforeHandoff.loaded beforeHandoff.access
   have fields1 : RawPayloadFieldReps after1.machine.mem
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
     simpa [h1.memory] using beforeHandoff.fieldReps
   let start1 := start0 + parentHashUsed + 1
-  obtain ⟨feeUsed, after2, h2⟩ := writeSuccessFeeThenStateRoot feeRecipient start1 args
+  obtain ⟨feeUsed, after2, h2, feeBounded⟩ :=
+    writeSuccessFeeThenStateRoot feeRecipient start1 args
     after1 h1.atPc h1.stack h1.source fields1.feeRecipient h1.loaded h1.access
   have fields2 : RawPayloadFieldReps after2.machine.mem
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
     simpa [h2.memory] using fields1
   let start2 := start1 + feeUsed + 1
-  obtain ⟨stateUsed, after3, h3⟩ := writeSuccessStateThenReceiptsRoot stateRoot start2 args
+  obtain ⟨stateUsed, after3, h3, stateBounded⟩ :=
+    writeSuccessStateThenReceiptsRoot stateRoot start2 args
     after2 h2.atPc h2.stack h2.source fields2.stateRoot h2.loaded h2.access
   have fields3 : RawPayloadFieldReps after3.machine.mem
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
@@ -5343,7 +5357,7 @@ private theorem writeSuccessFirstThreeRawHandoff
     loaded := h3.loaded
     access := h3.access
     fieldReps := fields3
-    payloadRep := by simpa [h3.memory, h2.memory, h1.memory] using beforeHandoff.payloadRep }⟩
+    payloadRep := by simpa [h3.memory, h2.memory, h1.memory] using beforeHandoff.payloadRep }, ?_⟩
   · have t12 := h1.trace.append (by simpa [start1, Nat.add_assoc] using h2.trace)
     have h3Trace : ConfinedTrace EndpointStep EndpointPc
         (pcInRanges Elflings.writeSuccessExecutionPcRanges)
@@ -5352,6 +5366,7 @@ private theorem writeSuccessFirstThreeRawHandoff
     simpa [start0, start1, start2, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
       t12.append h3Trace
   · rw [h3.stdout, h2.stdout, h1.stdout]
+  · omega
 
 private theorem writeSuccessPrevRandaoHandoff
     (child : WriteSuccessPrevRandaoInstanceContract) (fromStep : Nat)
@@ -5368,18 +5383,19 @@ private theorem writeSuccessPrevRandaoHandoff
       RawEncoderExit 0x14e88
         { sourceAddress := args.stackPointer - 0x7d0 + 0x614
           bytes := args.decoded.payload.prevRandao }
-        () before after := by
+        () before after ∧
+      used ≤ RawEncoderInstanceContract.stepBound child args.decoded.payload.prevRandao.size := by
   let rawArgs : RawEncoderArgs :=
     { sourceAddress := args.stackPointer - 0x7d0 + 0x614
       bytes := args.decoded.payload.prevRandao }
-  obtain ⟨used, after, _bounded, trace, exit⟩ :=
+  obtain ⟨used, after, bounded, trace, exit⟩ :=
     writeSuccessRawEncoderHandoff child (fun inside => by
     simpa [Elflings.writeSuccessRawLine140ExecutionPcRanges] using
       writeSuccessRawPc_in_writeSuccess inside (by omega) (by omega))
     fromStep rawArgs before
     ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
       by simpa [rawArgs] using rep, loaded⟩
-  exact ⟨used, after, trace, exit⟩
+  exact ⟨used, after, trace, exit, by simpa [rawArgs] using bounded⟩
 
 set_option genInjectivity false in
 structure WriteSuccessLastThreeRawHandoff
@@ -5413,22 +5429,29 @@ private theorem writeSuccessLastThreeRawHandoff
     ∃ receiptsUsed logsUsed prevRandaoUsed after,
       WriteSuccessLastThreeRawHandoff
         (fromStep + (parentHashUsed + 1 + feeUsed + 1 + stateUsed + 1))
-        receiptsUsed logsUsed prevRandaoUsed args before after := by
+        receiptsUsed logsUsed prevRandaoUsed args before after ∧
+      receiptsUsed + logsUsed + prevRandaoUsed ≤
+        RawEncoderInstanceContract.stepBound receiptsRoot
+          args.decoded.payload.receiptsRoot.size +
+        RawEncoderInstanceContract.stepBound logsBloom args.decoded.payload.logsBloom.size +
+        RawEncoderInstanceContract.stepBound prevRandao args.decoded.payload.prevRandao.size := by
   let start0 := fromStep + (parentHashUsed + 1 + feeUsed + 1 + stateUsed + 1)
-  obtain ⟨receiptsUsed, after1, h1⟩ := writeSuccessReceiptsThenLogsBloom receiptsRoot start0
+  obtain ⟨receiptsUsed, after1, h1, receiptsBounded⟩ :=
+    writeSuccessReceiptsThenLogsBloom receiptsRoot start0
     args before beforeHandoff.atPc beforeHandoff.stack beforeHandoff.source
     beforeHandoff.fieldReps.receiptsRoot beforeHandoff.loaded beforeHandoff.access
   have fields1 : RawPayloadFieldReps after1.machine.mem
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
     simpa [h1.memory] using beforeHandoff.fieldReps
   let start1 := start0 + receiptsUsed + 1
-  obtain ⟨logsUsed, after2, h2⟩ := writeSuccessLogsThenPrevRandao logsBloom start1 args
+  obtain ⟨logsUsed, after2, h2, logsBounded⟩ :=
+    writeSuccessLogsThenPrevRandao logsBloom start1 args
     after1 h1.atPc h1.stack h1.source fields1.logsBloom h1.loaded h1.access
   have fields2 : RawPayloadFieldReps after2.machine.mem
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
     simpa [h2.memory] using fields1
   let start2 := start1 + logsUsed + 1
-  obtain ⟨prevRandaoUsed, after3, trace3, exit3⟩ :=
+  obtain ⟨prevRandaoUsed, after3, trace3, exit3, prevBounded⟩ :=
     writeSuccessPrevRandaoHandoff prevRandao start2 args after2 h2.atPc h2.source
       fields2.prevRandao h2.loaded
   rcases exit3 with ⟨pc3, stdout3, stdin3, cursor3, exitCode3, memory3, frame3⟩
@@ -5461,7 +5484,7 @@ private theorem writeSuccessLastThreeRawHandoff
     memory := memory3.trans (h2.memory.trans h1.memory)
     loaded := by simpa [memory3] using h2.loaded
     access := access3
-    fieldReps := fields3 }⟩
+    fieldReps := fields3 }, ?_⟩
   · have t12 := h1.trace.append (by simpa [start1, Nat.add_assoc] using h2.trace)
     have t3 : ConfinedTrace EndpointStep EndpointPc
         (pcInRanges Elflings.writeSuccessExecutionPcRanges)
@@ -5470,6 +5493,7 @@ private theorem writeSuccessLastThreeRawHandoff
     simpa [start0, start1, start2, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
       t12.append t3
   · rw [stdout3, h2.stdout, h1.stdout]
+  · omega
 
 set_option genInjectivity false in
 structure WriteSuccessSixRawFieldsHandoff
@@ -5543,13 +5567,23 @@ theorem writeSuccessSixRawFieldsHandoff
           tailValues ∧
         parentUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 ∧
         prefixUsed ≤ ConstantEncoderInstanceContract.stepBound prefixChild ∧
-        memcpyUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 592 := by
+        memcpyUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 592 ∧
+        parentHashUsed + feeUsed + stateUsed ≤
+          RawEncoderInstanceContract.stepBound parentHash args.decoded.payload.parentHash.size +
+          RawEncoderInstanceContract.stepBound feeRecipient
+            args.decoded.payload.feeRecipient.size +
+          RawEncoderInstanceContract.stepBound stateRoot args.decoded.payload.stateRoot.size ∧
+        receiptsUsed + logsUsed + prevRandaoUsed ≤
+          RawEncoderInstanceContract.stepBound receiptsRoot
+            args.decoded.payload.receiptsRoot.size +
+          RawEncoderInstanceContract.stepBound logsBloom args.decoded.payload.logsBloom.size +
+          RawEncoderInstanceContract.stepBound prevRandao args.decoded.payload.prevRandao.size := by
   obtain ⟨values, bytes, tailValues, parentUsed, prefixUsed, memcpyUsed, initial, initialHandoff,
     firstMemcpyBounded, prefixBounded, secondMemcpyBounded⟩ :=
     writeSuccessSecondMemcpyHandoff prefixChild fromStep args state entry
-  obtain ⟨parentHashUsed, feeUsed, stateUsed, middle, firstHandoff⟩ :=
+  obtain ⟨parentHashUsed, feeUsed, stateUsed, middle, firstHandoff, firstRawBounded⟩ :=
     writeSuccessFirstThreeRawHandoff parentHash feeRecipient stateRoot initialHandoff
-  obtain ⟨receiptsUsed, logsUsed, prevRandaoUsed, after, lastHandoff⟩ :=
+  obtain ⟨receiptsUsed, logsUsed, prevRandaoUsed, after, lastHandoff, lastRawBounded⟩ :=
     writeSuccessLastThreeRawHandoff receiptsRoot logsBloom prevRandao firstHandoff
   have rawMemory : after.machine.mem = initial.machine.mem :=
     lastHandoff.memory.trans firstHandoff.memory
@@ -5592,7 +5626,7 @@ theorem writeSuccessSixRawFieldsHandoff
       payloadRep := by simpa [rawMemory] using initialHandoff.payloadRep
       decodedBytesRep := by simpa [rawMemory] using initialHandoff.decodedBytesRep
       stable := by simpa [rawMemory] using initialHandoff.stable },
-    firstMemcpyBounded, prefixBounded, secondMemcpyBounded⟩
+    firstMemcpyBounded, prefixBounded, secondMemcpyBounded, firstRawBounded, lastRawBounded⟩
   · have firstTrace : ConfinedTrace EndpointStep EndpointPc
         (pcInRanges Elflings.writeSuccessExecutionPcRanges)
         (fromStep + (20 + parentUsed + 32 + prefixUsed + 5 + memcpyUsed + 1))
@@ -6356,10 +6390,20 @@ theorem writeSuccessFirstIntHandoff
         parentUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 ∧
         prefixUsed ≤ ConstantEncoderInstanceContract.stepBound prefixChild ∧
         memcpyUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 592 ∧
+        parentHashUsed + feeUsed + stateUsed ≤
+          RawEncoderInstanceContract.stepBound parentHash args.decoded.payload.parentHash.size +
+          RawEncoderInstanceContract.stepBound feeRecipient
+            args.decoded.payload.feeRecipient.size +
+          RawEncoderInstanceContract.stepBound stateRoot args.decoded.payload.stateRoot.size ∧
+        receiptsUsed + logsUsed + prevUsed ≤
+          RawEncoderInstanceContract.stepBound receiptsRoot
+            args.decoded.payload.receiptsRoot.size +
+          RawEncoderInstanceContract.stepBound logsBloom args.decoded.payload.logsBloom.size +
+          RawEncoderInstanceContract.stepBound prevRandao args.decoded.payload.prevRandao.size ∧
         intUsed ≤ EncoderCallInstanceContract.stepBound intChild args.inputSize := by
   obtain ⟨values, bytes, tailValues, parentUsed, prefixUsed, memcpyUsed, parentHashUsed,
     feeUsed, stateUsed, receiptsUsed, logsUsed, prevUsed, before, handoff,
-    firstMemcpyBounded, prefixBounded, secondMemcpyBounded⟩ :=
+    firstMemcpyBounded, prefixBounded, secondMemcpyBounded, firstRawBounded, lastRawBounded⟩ :=
     writeSuccessSixRawFieldsHandoff prefixChild parentHash feeRecipient stateRoot receiptsRoot
       logsBloom prevRandao fromStep args state entry
   have aligned : args.stackPointer % 16 = 0 := entry.2.2.1
@@ -6687,7 +6731,8 @@ theorem writeSuccessFirstIntHandoff
       memoryFrame := fullMemory
       payloadRep := payloadAfter
       decodedBytesRep := decodedBytesAfter
-      stable := stableAfter }, firstMemcpyBounded, prefixBounded, secondMemcpyBounded, ?_⟩
+      stable := stableAfter }, firstMemcpyBounded, prefixBounded, secondMemcpyBounded,
+      firstRawBounded, lastRawBounded, ?_⟩
   · have combined := handoff.trace.append (by simpa [startStep, Nat.add_assoc] using parentTrace)
     have all := combined.append (by simpa [startStep, Nat.add_assoc] using childTrace')
     simpa [startStep, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using all
@@ -7824,7 +7869,8 @@ private theorem writeSuccessLateBytesHandoff
     (returnListed : returnPc ∈ Elflings.writeSuccessBytesExitPcs) :
     ∃ childUsed after,
       WriteSuccessLateBytesHandoff fromStep childUsed returnPc value args payloadBytes
-        before after savedValues := by
+        before after savedValues ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   let childValue : BytesEncoderValue := { address := dataAddress, bytes := value }
   let childArgs : EncoderCallArgs BytesEncoderValue := {
     returnAddress := returnPc
@@ -7910,7 +7956,7 @@ private theorem writeSuccessLateBytesHandoff
     loaded := handoff.loaded
     access := handoff.access
     writerMemory := writeSuccessChildFrame48_writes_writerFrame lower handoff.memory
-    memory := handoff.memory }⟩
+    memory := handoff.memory }, handoff.childBounded⟩
 
 /-- The first execution-request bytes call, `0x158e0..0x158ec`, through its selected child. -/
 private theorem writeSuccessFirstRequestHandoff
@@ -7928,7 +7974,8 @@ private theorem writeSuccessFirstRequestHandoff
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
       WriteSuccessLateBytesHandoff fromStep childUsed 0x158f0
-        args.decoded.executionRequests.deposits args payloadBytes before after savedValues := by
+        args.decoded.executionRequests.deposits args payloadBytes before after savedValues ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   obtain ⟨deposits, _withdrawals, _consolidations, _builderDeposits, _builderExits⟩ :=
     context.executionRequestsRep decodedAddress upper
   obtain ⟨address, addressRep, lengthRep, bytesRep⟩ := deposits
@@ -8024,7 +8071,8 @@ private theorem writeSuccessLateBytesSite
     (returnListed : returnPc ∈ Elflings.writeSuccessBytesExitPcs) :
     ∃ childUsed after,
       WriteSuccessLateBytesHandoff fromStep childUsed returnPc value args payloadBytes
-        before after savedValues := by
+        before after savedValues ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   obtain ⟨address, addressRep, lengthRep, bytesRep⟩ := descriptor
   have lengthRep' : UIntRep 8 before.machine.mem
       (args.stackPointer - 0x7d0 + lengthOffset) value.size := by
@@ -8084,11 +8132,13 @@ private theorem writeSuccessRequestsHandoff
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ dUsed wUsed cUsed bdUsed beUsed after,
       WriteSuccessRequestsHandoff fromStep dUsed wUsed cUsed bdUsed beUsed args payloadBytes
-        savedValues before after := by
-  obtain ⟨dUsed, s1, h1⟩ := writeSuccessFirstRequestHandoff child fromStep args payloadBytes
+        savedValues before after ∧
+      dUsed + wUsed + cUsed + bdUsed + beUsed ≤
+        5 * EncoderCallInstanceContract.stepBound child args.inputSize := by
+  obtain ⟨dUsed, s1, h1, dBounded⟩ := writeSuccessFirstRequestHandoff child fromStep args payloadBytes
     savedValues before atPc stack context saved access loaded aligned lower upper decodedAddress
   obtain ⟨_, withdrawals, _, _, _⟩ := h1.payloadContext.executionRequestsRep decodedAddress upper
-  obtain ⟨wUsed, s2, h2⟩ := writeSuccessLateBytesSite child (fromStep + 4 + dUsed)
+  obtain ⟨wUsed, s2, h2, wBounded⟩ := writeSuccessLateBytesSite child (fromStep + 4 + dUsed)
     0x158f0 0x15900 0x3a8 0x3b0 0x374 args payloadBytes
     args.decoded.executionRequests.withdrawals
     savedValues s1 (by simpa [EndpointPc, MachinePc] using h1.atPc) h1.stack withdrawals
@@ -8110,7 +8160,7 @@ private theorem writeSuccessRequestsHandoff
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
   obtain ⟨_, _, consolidations, _, _⟩ :=
     h2.payloadContext.executionRequestsRep decodedAddress upper
-  obtain ⟨cUsed, s3, h3⟩ := writeSuccessLateBytesSite child
+  obtain ⟨cUsed, s3, h3, cBounded⟩ := writeSuccessLateBytesSite child
     (fromStep + 4 + dUsed + 4 + wUsed) 0x15900 0x15910 0x3b8 0x3c0 0x364
     args payloadBytes args.decoded.executionRequests.consolidations savedValues s2
     (by simpa [EndpointPc, MachinePc] using h2.atPc) h2.stack consolidations h2.payloadContext
@@ -8131,7 +8181,7 @@ private theorem writeSuccessRequestsHandoff
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
   obtain ⟨_, _, _, builderDeposits, _⟩ :=
     h3.payloadContext.executionRequestsRep decodedAddress upper
-  obtain ⟨bdUsed, s4, h4⟩ := writeSuccessLateBytesSite child
+  obtain ⟨bdUsed, s4, h4, bdBounded⟩ := writeSuccessLateBytesSite child
     (fromStep + 4 + dUsed + 4 + wUsed + 4 + cUsed) 0x15910 0x15920 0x3c8 0x3d0 0x354
     args payloadBytes args.decoded.executionRequests.builderDeposits savedValues s3
     (by simpa [EndpointPc, MachinePc] using h3.atPc) h3.stack builderDeposits h3.payloadContext
@@ -8151,7 +8201,7 @@ private theorem writeSuccessRequestsHandoff
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
   obtain ⟨_, _, _, _, builderExits⟩ := h4.payloadContext.executionRequestsRep decodedAddress upper
-  obtain ⟨beUsed, s5, h5⟩ := writeSuccessLateBytesSite child
+  obtain ⟨beUsed, s5, h5, beBounded⟩ := writeSuccessLateBytesSite child
     (fromStep + 4 + dUsed + 4 + wUsed + 4 + cUsed + 4 + bdUsed)
     0x15920 0x15930 0x3d8 0x3e0 0x344 args payloadBytes
     args.decoded.executionRequests.builderExits
@@ -8193,7 +8243,7 @@ private theorem writeSuccessRequestsHandoff
             (writeSuccessChildFrame48_writes_writerFrame lower h2.memory))
           (writeSuccessChildFrame48_writes_writerFrame lower h3.memory))
         (writeSuccessChildFrame48_writes_writerFrame lower h4.memory))
-      (writeSuccessChildFrame48_writes_writerFrame lower h5.memory) }⟩
+      (writeSuccessChildFrame48_writes_writerFrame lower h5.memory) }, ?_⟩
   · have t2 := h1.trace.append (by simpa [Nat.add_assoc] using h2.trace)
     have t3 := t2.append (by simpa [Nat.add_assoc] using h3.trace)
     have t4 := t3.append (by simpa [Nat.add_assoc] using h4.trace)
@@ -8201,6 +8251,7 @@ private theorem writeSuccessRequestsHandoff
       t4.append (by simpa only [Nat.add_assoc] using h5.trace)
   · simp only [h5.stdout, h4.stdout, h3.stdout, h2.stdout, h1.stdout,
       Array.append_assoc]
+  · omega
 
 set_option genInjectivity false in
 /-- One late shared byte-list call after its four parent setup instructions. -/
@@ -8239,7 +8290,8 @@ private theorem writeSuccessLateByteListsFromSetup
     (returnListed : returnPc ∈ Elflings.writeSuccessByteListsExitPcs) :
     ∃ childUsed after,
       WriteSuccessLateByteListsHandoff fromStep childUsed returnPc value args payloadBytes
-        before after savedValues := by
+        before after savedValues ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   let childValue : ByteListsEncoderValue := { address := address, values := value }
   let childArgs : EncoderCallArgs ByteListsEncoderValue := {
     returnAddress := returnPc
@@ -8310,7 +8362,8 @@ private theorem writeSuccessLateByteListsFromSetup
     payloadContext := payloadAfter
     loaded := handoff.loaded
     access := handoff.access
-    memory := writeSuccessChildFrame64_writes_writerFrame lower handoff.memory }⟩
+    memory := writeSuccessChildFrame64_writes_writerFrame lower handoff.memory },
+    handoff.childBounded⟩
 
 /-- One literal late byte-list site, sharing the four-step `Seg` and selected-child composition. -/
 private theorem writeSuccessLateByteListsSite
@@ -8348,7 +8401,8 @@ private theorem writeSuccessLateByteListsSite
     (returnListed : returnPc ∈ Elflings.writeSuccessByteListsExitPcs) :
     ∃ childUsed after,
       WriteSuccessLateByteListsHandoff fromStep childUsed returnPc value args payloadBytes
-        before after savedValues := by
+        before after savedValues ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   obtain ⟨address, addressRep, lengthRep, arrayRep⟩ := descriptor
   obtain ⟨callState, setup⟩ := writeSuccessSliceCallSetup fromStep pc returnPc 0x15c10
     addressOffset lengthOffset address value.size (pc + 8) args before atPc stack addressRep
@@ -8427,7 +8481,8 @@ private theorem writeSuccessLateByteListsSite
     payloadContext := payloadAfter
     loaded := handoff.loaded
     access := handoff.access
-    memory := writeSuccessChildFrame64_writes_writerFrame lower handoff.memory }⟩
+    memory := writeSuccessChildFrame64_writes_writerFrame lower handoff.memory },
+    handoff.childBounded⟩
 
 set_option genInjectivity false in
 /-- The three witness byte-list encoders in production order through `0x15960`. -/
@@ -8469,8 +8524,10 @@ private theorem writeSuccessWitnessListsHandoff
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ nodesUsed codesUsed headersUsed after,
       WriteSuccessWitnessListsHandoff fromStep nodesUsed codesUsed headersUsed args payloadBytes
-        savedValues before after := by
-  obtain ⟨nodesUsed, s1, h1⟩ := writeSuccessLateByteListsSite child fromStep
+        savedValues before after ∧
+      nodesUsed + codesUsed + headersUsed ≤
+        3 * EncoderCallInstanceContract.stepBound child args.inputSize := by
+  obtain ⟨nodesUsed, s1, h1, nodesBounded⟩ := writeSuccessLateByteListsSite child fromStep
     0x15930 0x15940 0x18 0x10 0x2d8 args payloadBytes args.decoded.witnessNodes
     savedValues before
     atPc stack context.witnessNodesRep context saved access loaded aligned lower upper decodedAddress
@@ -8488,7 +8545,7 @@ private theorem writeSuccessWitnessListsHandoff
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
-  obtain ⟨codesUsed, s2, h2⟩ := writeSuccessLateByteListsSite child
+  obtain ⟨codesUsed, s2, h2, codesBounded⟩ := writeSuccessLateByteListsSite child
     (fromStep + 4 + nodesUsed) 0x15940 0x15950 0x28 0x20 0x2c8
     args payloadBytes args.decoded.witnessCodes savedValues s1
     (by simpa [EndpointPc, MachinePc] using h1.atPc) h1.stack h1.payloadContext.witnessCodesRep
@@ -8507,7 +8564,7 @@ private theorem writeSuccessWitnessListsHandoff
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
-  obtain ⟨headersUsed, s3, h3⟩ := writeSuccessLateByteListsSite child
+  obtain ⟨headersUsed, s3, h3, headersBounded⟩ := writeSuccessLateByteListsSite child
     (fromStep + 4 + nodesUsed + 4 + codesUsed) 0x15950 0x15960 0x38 0x30 0x2b8
     args payloadBytes args.decoded.witnessHeaders savedValues s2
     (by simpa [EndpointPc, MachinePc] using h2.atPc) h2.stack h2.payloadContext.witnessHeadersRep
@@ -8546,11 +8603,12 @@ private theorem writeSuccessWitnessListsHandoff
     payloadContext := h3.payloadContext
     loaded := h3.loaded
     access := h3.access
-    memory := memory123 }⟩
+    memory := memory123 }, ?_⟩
   · have t2 := h1.trace.append (by simpa [Nat.add_assoc] using h2.trace)
     simpa only [Nat.add_assoc] using
       t2.append (by simpa only [Nat.add_assoc] using h3.trace)
   · rw [h3.stdout, h2.stdout, h1.stdout]
+  · omega
 
 /-- Production `0x15960: ld a0,0x40(sp)`, loading the linked chain ID. -/
 private theorem writeSuccessChainIdLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -8639,8 +8697,9 @@ private theorem writeSuccessChainIdHandoff
     (upper : args.stackPointer < 2 ^ 64)
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
-      WriteSuccessChainIdHandoff fromStep childUsed args payloadBytes savedValues before after := by
-  obtain ⟨childUsed, after, handoff, _childBounded⟩ := writeSuccessIntCallHandoff child fromStep
+      WriteSuccessChainIdHandoff fromStep childUsed args payloadBytes savedValues before after ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
+  obtain ⟨childUsed, after, handoff, childBounded⟩ := writeSuccessIntCallHandoff child fromStep
     0x15960 0x1596c 0x40 args.decoded.chainConfig.chainId 0x15964 args before atPc stack
     context.chainIdRep access loaded aligned lower upper
     (fun step state => writeSuccessChainIdLoadStep step args state)
@@ -8676,7 +8735,7 @@ private theorem writeSuccessChainIdHandoff
     payloadContext := payloadAfter
     loaded := handoff.loaded
     access := handoff.access
-    memory := writeSuccessChildFrame_writes_writerFrame lower handoff.memory }⟩
+    memory := writeSuccessChildFrame_writes_writerFrame lower handoff.memory }, childBounded⟩
 
 /-- Production `0x1596c: ld s0,0x48(sp)`, loading the optional fork-name pointer. -/
 private theorem writeSuccessForkNamePointerLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -9482,7 +9541,8 @@ private theorem writeSuccessForkNameBooleanHandoff
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
       WriteSuccessForkNameBooleanHandoff fromStep childUsed args payloadBytes values
-        before after := by
+        before after ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   obtain ⟨branched, branch⟩ := writeSuccessForkNameBranchHandoff fromStep args payloadBytes
     values before atPc stack context saved access loaded aligned lower upper decodedAddress
   rcases branch.route with absent | present
@@ -9537,7 +9597,7 @@ private theorem writeSuccessForkNameBooleanHandoff
       route := Or.inl ⟨optionEq, boolean.atPc, by
         calc
           after.stdout = branched.stdout ++ #[0] := by simpa using boolean.stdout
-          _ = before.stdout ++ #[0] := by rw [branch.stdout]⟩ }⟩
+          _ = before.stdout ++ #[0] := by rw [branch.stdout]⟩ }, boolean.childBounded⟩
   · obtain ⟨bytes, address, optionEq, nonzero, branchPc, addressReg, pointerRep,
       countRep, _arrayRep⟩ := present
     obtain ⟨childUsed, after, boolean, x8Preserved⟩ :=
@@ -9616,7 +9676,7 @@ private theorem writeSuccessForkNameBooleanHandoff
             after.stdout = branched.stdout ++ #[1] := by simpa using boolean.stdout
             _ = before.stdout ++ #[1] := by rw [branch.stdout],
         x8Preserved.trans addressReg,
-        countAfter, arrayAfter⟩ }⟩
+        countAfter, arrayAfter⟩ }, boolean.childBounded⟩
 
 /-- Compose the present fork-name route's four parent instructions and selected bytes child. -/
 private theorem writeSuccessForkNamePresentBytesHandoff
@@ -9640,7 +9700,8 @@ private theorem writeSuccessForkNamePresentBytesHandoff
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
       WriteSuccessLateBytesHandoff fromStep childUsed 0x15990 bytes args payloadBytes
-        before after values := by
+        before after values ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   let exitPc : BitVec 64 → Prop := fun pc => pc = 0x15c6c
   have seg0 : Seg writeSuccessParentPc exitPc
       (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
@@ -10207,8 +10268,12 @@ private theorem writeSuccessForkNameHandoff
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ booleanUsed routeUsed after,
       WriteSuccessForkNameHandoff fromStep booleanUsed routeUsed args payloadBytes values
-        before after := by
-  obtain ⟨booleanUsed, booleanAfter, boolean⟩ := writeSuccessForkNameBooleanHandoff
+        before after ∧
+      booleanUsed + routeUsed ≤
+        EncoderCallInstanceContract.stepBound booleanChild args.inputSize +
+        5 + EncoderCallInstanceContract.stepBound bytesChild args.inputSize := by
+  obtain ⟨booleanUsed, booleanAfter, boolean, booleanBounded⟩ :=
+    writeSuccessForkNameBooleanHandoff
     booleanChild fromStep args payloadBytes values before atPc stack context saved access loaded
     aligned lower upper decodedAddress
   rcases boolean.route with absent | present
@@ -10224,10 +10289,10 @@ private theorem writeSuccessForkNameHandoff
       saved := boolean.saved
       payloadContext := boolean.payloadContext
       loaded := boolean.loaded
-      access := boolean.access }⟩
+      access := boolean.access }, by omega⟩
   · obtain ⟨bytes, address, optionEq, _nonzero, afterPc, stdout, addressReg,
       countRep, arrayRep⟩ := present
-    obtain ⟨bytesUsed, bytesAfter, bytesHandoff⟩ :=
+    obtain ⟨bytesUsed, bytesAfter, bytesHandoff, bytesBounded⟩ :=
       writeSuccessForkNamePresentBytesHandoff bytesChild (fromStep + 5 + booleanUsed)
         address args payloadBytes bytes values booleanAfter afterPc boolean.stack addressReg
         countRep arrayRep boolean.payloadContext boolean.saved boolean.access boolean.loaded
@@ -10306,7 +10371,8 @@ private theorem writeSuccessForkNameHandoff
       loaded := by
         have memEq : finalMachine.mem = bytesAfter.machine.mem := seg1.memEq (by simp)
         simpa [after, memEq] using bytesHandoff.loaded
-      access := by simpa [after] using writeSuccessAccessOfSeg bytesHandoff.access seg1 }⟩
+      access := by simpa [after] using writeSuccessAccessOfSeg bytesHandoff.access seg1 }, by
+        omega⟩
 
 set_option genInjectivity false in
 structure WriteSuccessActiveForkHandoff
@@ -10395,7 +10461,8 @@ private theorem writeSuccessLateOptionalHandoff
     (returnListed : returnPc ∈ Elflings.writeSuccessOptionalU64ExitPcs) :
     ∃ childUsed after,
       WriteSuccessLateOptionalHandoff fromStep childUsed returnPc descriptor value args
-        before after := by
+        before after ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   have seg0 : Seg writeSuccessParentPc writeSuccessOptionalCallExitPc
       (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
       [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩, ⟨x8, x8Value⟩]
@@ -10551,7 +10618,7 @@ private theorem writeSuccessLateOptionalHandoff
     memory := handoff.memory
     descriptorRep := descriptorAfter
     loaded := handoff.loaded
-    access := handoff.access }⟩
+    access := handoff.access }, handoff.childBounded⟩
 
 private theorem writeSuccessPayloadContextAfterLateOptional
     {fromStep childUsed returnPc descriptor : Nat} {value : Option Nat}
@@ -10617,9 +10684,11 @@ private theorem writeSuccessChainOptionalsHandoff
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ blockUsed timestampUsed after,
       WriteSuccessChainOptionalsHandoff fromStep blockUsed timestampUsed args payloadBytes values
-        before after := by
+        before after ∧
+      blockUsed + timestampUsed ≤
+        2 * EncoderCallInstanceContract.stepBound child args.inputSize := by
   obtain ⟨address, x8Reg, addressRep⟩ := publicKeysAddress
-  obtain ⟨blockUsed, blockAfter, block⟩ := writeSuccessLateOptionalHandoff child
+  obtain ⟨blockUsed, blockAfter, block, blockBounded⟩ := writeSuccessLateOptionalHandoff child
     fromStep 0x159b0 0x159bc 0x128 0x159b4 args.decoded.chainConfig.activationBlock args before
     atPc stack (BitVec.ofNat 64 address) x8Reg context.activationBlockRep access loaded lower upper
     (fun step state => writeSuccessActivationBlockSourceStep step args state)
@@ -10648,7 +10717,7 @@ private theorem writeSuccessChainOptionalsHandoff
     intro index inBounds inside
     unfold byteRange at inside
     omega)
-  obtain ⟨timestampUsed, after, timestamp⟩ := writeSuccessLateOptionalHandoff child
+  obtain ⟨timestampUsed, after, timestamp, timestampBounded⟩ := writeSuccessLateOptionalHandoff child
     (fromStep + 3 + blockUsed) 0x159bc 0x159c8 0x118 0x159c0
     args.decoded.chainConfig.activationTimestamp args blockAfter block.atPc block.stack
     (BitVec.ofNat 64 address) (block.x8.trans x8Reg)
@@ -10699,7 +10768,8 @@ private theorem writeSuccessChainOptionalsHandoff
     access := timestamp.access
     memory := WritesOnlyWithin.trans_same
       (writeSuccessChildFrame_writes_writerFrame lower block.memory)
-      (writeSuccessChildFrame_writes_writerFrame lower timestamp.memory) }⟩
+      (writeSuccessChildFrame_writes_writerFrame lower timestamp.memory) }, ?_⟩
+  omega
 
 /-- The public-key site's exact `mv; ld; auipc; jalr` parent setup. -/
 private theorem writeSuccessPublicKeysSetup
@@ -10864,7 +10934,8 @@ private theorem writeSuccessPublicKeysHandoff
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
       WriteSuccessLateByteListsHandoff fromStep childUsed 0x159d8 args.decoded.publicKeys
-        args payloadBytes before after values := by
+        args payloadBytes before after values ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   obtain ⟨registerAddress, addressReg, registerRep⟩ := publicKeysAddress
   obtain ⟨semanticAddress, semanticRep, countRep, arrayRep⟩ := context.publicKeysRep
   have addressEq : registerAddress = semanticAddress :=
@@ -11119,7 +11190,8 @@ private theorem writeSuccessActiveForkHandoff
     (upper : args.stackPointer < 2 ^ 64)
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
-      WriteSuccessActiveForkHandoff fromStep childUsed args payloadBytes values before after := by
+      WriteSuccessActiveForkHandoff fromStep childUsed args payloadBytes values before after ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   obtain ⟨address, addressRep, _countRep, _arrayRep⟩ := context.publicKeysRep
   have seg0 : Seg writeSuccessParentPc (fun pc => pc = 0x159a4)
       (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
@@ -11152,7 +11224,7 @@ private theorem writeSuccessActiveForkHandoff
     simpa only [pointerState] using writeSuccessAccessOfSeg access seg1
   have pointerLoaded : Artifacts.programImage.fileBytesLoadedFaithfully pointerState.machine.mem := by
     simpa only [pointerState, afterRegisterWrite_mem] using loaded
-  obtain ⟨childUsed, after, call, _childBounded⟩ := writeSuccessIntCallHandoff child (fromStep + 1)
+  obtain ⟨childUsed, after, call, childBounded⟩ := writeSuccessIntCallHandoff child (fromStep + 1)
     0x159a4 0x159b0 0x50 args.decoded.chainConfig.activeForkIndex 0x159a8 args pointerState
     seg1.atPc (by simpa [pointerState] using seg1.reg x2 _ (by simp))
     pointerContext.activeForkIndexRep pointerAccess pointerLoaded aligned lower upper
@@ -11212,7 +11284,7 @@ private theorem writeSuccessActiveForkHandoff
         intro address outside
         rfl
       exact WritesOnlyWithin.trans_same pointerMemory
-        (writeSuccessChildFrame_writes_writerFrame lower call.memory) }⟩
+        (writeSuccessChildFrame_writes_writerFrame lower call.memory) }, childBounded⟩
 
 set_option genInjectivity false in
 /-- Exact parent setup plus the shared bytes child for payload extra data. -/
@@ -13757,7 +13829,8 @@ private theorem writeSuccessOptionalHandoff
     (upper : args.stackPointer < 2 ^ 64)
     (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
-      WriteSuccessOptionalHandoff fromStep childUsed args payloadBytes before after values := by
+      WriteSuccessOptionalHandoff fromStep childUsed args payloadBytes before after values ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   obtain ⟨setupState, setup⟩ := writeSuccessSlotSetupHandoff fromStep args payloadBytes values before
     atPc stack context saved access loaded aligned lower upper decodedEq
   let parentStart := fromStep + 4
@@ -13957,7 +14030,7 @@ private theorem writeSuccessOptionalHandoff
         unfold writeSuccessFrameMemory
         unfold byteRange at inside ⊢
         rcases inside with inside | inside <;> omega))
-      (handoff.memory.mono frameInWriter) }⟩
+      (handoff.memory.mono frameInWriter) }, handoff.childBounded⟩
   have all := setup.trace.append (by
     simpa [parentStart, Nat.add_assoc] using handoff.trace)
   simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
@@ -13998,7 +14071,8 @@ private theorem writeSuccessBlockAccessHandoff
     (upper : args.stackPointer < 2 ^ 64)
     (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
-      WriteSuccessBlockAccessHandoff fromStep childUsed args payloadBytes before after values := by
+      WriteSuccessBlockAccessHandoff fromStep childUsed args payloadBytes before after values ∧
+      childUsed ≤ EncoderCallInstanceContract.stepBound child args.inputSize := by
   rcases context.payloadRep with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
     transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
     blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
@@ -14195,7 +14269,7 @@ private theorem writeSuccessBlockAccessHandoff
     payloadContext := payloadAfter
     loaded := handoff.loaded
     access := handoff.access
-    memory := handoff.memory }⟩
+    memory := handoff.memory }, handoff.childBounded⟩
 
 set_option genInjectivity false in
 /-- The parent call setup and exact bare-metal `write_output` leaf, returning at `0x1573c`. -/
@@ -14480,7 +14554,8 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     (upper : args.stackPointer < 2 ^ 64)
     (decodedEq : args.decodedAddress = args.stackPointer + 0x20) :
     ∃ childUsed after,
-      WriteSuccessHashesHandoff fromStep childUsed args payloadBytes before after values := by
+      WriteSuccessHashesHandoff fromStep childUsed args payloadBytes before after values ∧
+      childUsed ≤ InlineEncoderInstanceContract.stepBound child args.inputSize := by
   have decoded := context.stable before.machine.mem (fun _ _ => rfl)
   have hashesRep : SliceRep 32
       (fun mem address hash => hash.size = 32 ∧ BytesRep mem address hash)
@@ -14593,7 +14668,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     · exact ⟨by simpa [childState, seg2.memEq (by simp)] using fullDecodedRep,
         by simpa [childState, seg2.memEq (by simp)] using fullCopyRep,
         by simpa [childState, seg2.memEq (by simp)] using loaded⟩
-  obtain ⟨childUsed, after, _childBounded, childTrace, childExit⟩ :=
+  obtain ⟨childUsed, after, childBounded, childTrace, childExit⟩ :=
     writeSuccessInlineEncoderHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
@@ -14698,7 +14773,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
       slotWord := ⟨slotValue, slotAfter⟩
       slotTagWord := ⟨tagValue, tagAfter⟩
       localTailReps := ⟨tailValues, tailAfter⟩
-      linkedTailReps := ⟨tailValues, tailAfter, tailSourceAfter⟩ } }⟩
+      linkedTailReps := ⟨tailValues, tailAfter, tailSourceAfter⟩ } }, childBounded⟩
 
 set_option genInjectivity false in
 /-- The two blob-gas scalar encoders following withdrawals. -/
