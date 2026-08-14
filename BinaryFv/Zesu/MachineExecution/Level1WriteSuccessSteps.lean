@@ -2444,6 +2444,48 @@ def writeSuccessLocalTailOffset : Nat → Nat
   | 12 => 0x118 | 13 => 0x120 | 14 => 0x60 | 15 => 0x58
   | _ => 0
 
+/-- Select one of the sixteen concrete local tail words without repeatedly simplifying the list. -/
+private theorem writeSuccessLocalTailRep {args : WriteSuccessArgs} {state : EndpointState}
+    {values : Fin 16 → Nat}
+    (reps : InlineEncoderSavedWords state.machine.mem (writeSuccessLocalTailWords args values))
+    (index : Nat) (bound : index < 16) :
+    UIntRep 8 state.machine.mem
+      (args.stackPointer - 0x7d0 + writeSuccessLocalTailOffset index)
+      (values ⟨index, bound⟩) := by
+  have cases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨
+      index = 5 ∨ index = 6 ∨ index = 7 ∨ index = 8 ∨ index = 9 ∨ index = 10 ∨
+      index = 11 ∨ index = 12 ∨ index = 13 ∨ index = 14 ∨ index = 15 := by omega
+  rcases cases with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl <;>
+    simp only [writeSuccessLocalTailOffset] <;>
+    apply reps (_, _) <;> simp [writeSuccessLocalTailWords]
+
+/-- A one-byte semantic tag is retained by an eight-byte linked-tail copy. -/
+private theorem writeSuccessLocalTailTagRep {args : WriteSuccessArgs} {state : EndpointState}
+    {values : Fin 16 → Nat}
+    (localReps : InlineEncoderSavedWords state.machine.mem
+      (writeSuccessLocalTailWords args values))
+    (source : ∀ index (bound : index < 16),
+      UIntRep 8 state.machine.mem (args.decodedAddress + 720 + index * 8)
+        (values ⟨index, bound⟩))
+    (index : Nat) (bound : index < 16) {value : Nat}
+    (semantic : UIntRep 1 state.machine.mem
+      (args.decodedAddress + 720 + index * 8) value) :
+    UIntRep 1 state.machine.mem
+      (args.stackPointer - 0x7d0 + writeSuccessLocalTailOffset index) value := by
+  have localWord := writeSuccessLocalTailRep localReps index bound
+  have sourceWord := source index bound
+  have localFits := localWord.2.1
+  refine ⟨semantic.1, by omega, ?_⟩
+  intro byte byteBound
+  calc
+    state.machine.mem.get?
+        (args.stackPointer - 0x7d0 + writeSuccessLocalTailOffset index + byte) =
+        some _ := localWord.2.2 byte (by omega)
+    _ = state.machine.mem.get? (args.decodedAddress + 720 + index * 8 + byte) :=
+      (sourceWord.2.2 byte (by omega)).symm
+    _ = some _ := semantic.2.2 byte byteBound
+
 def WriteSuccessLocalTailPrefix (args : WriteSuccessArgs) (values : Fin 16 → Nat)
     (count : Nat) (mem : Std.ExtHashMap Nat (BitVec 8)) : Prop :=
   ∀ index (bound : index < 16), index < count →
@@ -6436,14 +6478,8 @@ theorem writeSuccessFirstIntHandoff
       bytesSize := handoff.bytesSize
       sourceRep := sourceAfter
       fullCopy := by
-        obtain ⟨fullBytes, fullSize, decodedRep, fullRep⟩ := handoff.fullCopy
+        obtain ⟨fullBytes, fullSize, _decodedRep, fullRep⟩ := handoff.fullCopy
         exact ⟨fullBytes, fullSize,
-          decodedRep.of_mem_eq callMemEq |>.of_writesOnlyWithin childMem (by
-            intro index inBounds inside
-            dsimp [childArgs] at inside
-            unfold byteRange at inside
-            rw [fullSize, entry.2.2.2.2.1] at inBounds inside
-            omega),
           fullRep.of_mem_eq callMemEq |>.of_writesOnlyWithin childMem (by
           intro index inBounds inside
           dsimp [childArgs] at inside
@@ -6544,62 +6580,91 @@ private theorem WriteSuccessPayloadContext.executionRequestsRep
   · simpa [decodedAddress, Nat.add_assoc] using relocation.atOffset 672 16 (by
       rw [fullSize]; omega)
 
-/-- The linked tail stores materialize the witness-nodes slice descriptor at `sp+0x10`. -/
+/-- A slice whose optimized pointer and count words occupy independently selected stack slots. -/
+private def WriteSuccessSeparatedSliceRep (stride : Nat)
+    (elementRep : Std.ExtHashMap Nat (BitVec 8) → Nat → α → Prop)
+    (mem : Std.ExtHashMap Nat (BitVec 8)) (addressSlot lengthSlot : Nat)
+    (values : Array α) : Prop :=
+  ∃ data : Nat,
+    UIntRep 8 mem addressSlot data ∧
+    UIntRep 8 mem lengthSlot values.size ∧
+    ArrayRep stride elementRep mem data values
+
+/-- An optional byte slice whose optimized pointer and count use separate stack slots. -/
+private def WriteSuccessSeparatedOptionalByteSliceRep
+    (mem : Std.ExtHashMap Nat (BitVec 8)) (addressSlot lengthSlot : Nat) :
+    Option (Array UInt8) → Prop
+  | none => UIntRep 8 mem addressSlot 0
+  | some bytes => ∃ data : Nat,
+      data ≠ 0 ∧ UIntRep 8 mem addressSlot data ∧
+      UIntRep 8 mem lengthSlot bytes.size ∧
+      ArrayRep 1 (fun mem address byte => UIntRep 1 mem address byte.toNat) mem data bytes
+
+/-- The linked tail stores materialize the witness-nodes pointer/count in reversed local slots. -/
 private theorem WriteSuccessPayloadContext.witnessNodesRep
     {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
     (context : WriteSuccessPayloadContext args bytes state) :
-    SliceRep 16 ByteSliceRep state.machine.mem
-      (args.stackPointer - 0x7d0 + 0x10) args.decoded.witnessNodes := by
+    WriteSuccessSeparatedSliceRep 16 ByteSliceRep state.machine.mem
+      (args.stackPointer - 0x7d0 + 0x18) (args.stackPointer - 0x7d0 + 0x10)
+      args.decoded.witnessNodes := by
   have decoded := context.stable state.machine.mem (fun _ _ => rfl)
   obtain ⟨address, addressRep, countRep, arrayRep⟩ := decoded.2.2.2.2.2.2.1
-  obtain ⟨values, local, source⟩ := context.linkedTailReps
+  obtain ⟨values, localReps, source⟩ := context.linkedTailReps
   have addressEq : values ⟨0, by omega⟩ = address :=
-    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) addressRep
+    WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) addressRep
   have countEq : values ⟨1, by omega⟩ = args.decoded.witnessNodes.size :=
-    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) countRep
+    WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) countRep
+  have localAddress := writeSuccessLocalTailRep localReps 0 (by omega)
+  have localCount := writeSuccessLocalTailRep localReps 1 (by omega)
+  rw [addressEq] at localAddress
+  rw [countEq] at localCount
   refine ⟨address, ?_, ?_, arrayRep⟩
-  · simpa [writeSuccessLocalTailWords, addressEq] using
-      local (args.stackPointer - 0x7d0 + 0x18, values ⟨0, by omega⟩) (by simp)
-  · simpa [writeSuccessLocalTailWords, countEq] using
-      local (args.stackPointer - 0x7d0 + 0x10, values ⟨1, by omega⟩) (by simp)
+  · simpa [writeSuccessLocalTailOffset] using localAddress
+  · simpa [writeSuccessLocalTailOffset] using localCount
 
-/-- The linked tail stores materialize the witness-codes slice descriptor at `sp+0x20`. -/
+/-- The linked tail stores materialize the witness-codes pointer/count in reversed local slots. -/
 private theorem WriteSuccessPayloadContext.witnessCodesRep
     {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
     (context : WriteSuccessPayloadContext args bytes state) :
-    SliceRep 16 ByteSliceRep state.machine.mem
-      (args.stackPointer - 0x7d0 + 0x20) args.decoded.witnessCodes := by
+    WriteSuccessSeparatedSliceRep 16 ByteSliceRep state.machine.mem
+      (args.stackPointer - 0x7d0 + 0x28) (args.stackPointer - 0x7d0 + 0x20)
+      args.decoded.witnessCodes := by
   have decoded := context.stable state.machine.mem (fun _ _ => rfl)
   obtain ⟨address, addressRep, countRep, arrayRep⟩ := decoded.2.2.2.2.2.2.2.1
-  obtain ⟨values, local, source⟩ := context.linkedTailReps
+  obtain ⟨values, localReps, source⟩ := context.linkedTailReps
   have addressEq : values ⟨2, by omega⟩ = address :=
-    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) addressRep
+    WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) addressRep
   have countEq : values ⟨3, by omega⟩ = args.decoded.witnessCodes.size :=
-    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) countRep
+    WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) countRep
+  have localAddress := writeSuccessLocalTailRep localReps 2 (by omega)
+  have localCount := writeSuccessLocalTailRep localReps 3 (by omega)
+  rw [addressEq] at localAddress
+  rw [countEq] at localCount
   refine ⟨address, ?_, ?_, arrayRep⟩
-  · simpa [writeSuccessLocalTailWords, addressEq] using
-      local (args.stackPointer - 0x7d0 + 0x28, values ⟨2, by omega⟩) (by simp)
-  · simpa [writeSuccessLocalTailWords, countEq] using
-      local (args.stackPointer - 0x7d0 + 0x20, values ⟨3, by omega⟩) (by simp)
+  · simpa [writeSuccessLocalTailOffset] using localAddress
+  · simpa [writeSuccessLocalTailOffset] using localCount
 
-/-- The linked tail stores materialize the witness-headers slice descriptor at `sp+0x30`. -/
+/-- The linked tail stores materialize the witness-headers pointer/count in reversed local slots. -/
 private theorem WriteSuccessPayloadContext.witnessHeadersRep
     {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
     (context : WriteSuccessPayloadContext args bytes state) :
-    SliceRep 16 ByteSliceRep state.machine.mem
-      (args.stackPointer - 0x7d0 + 0x30) args.decoded.witnessHeaders := by
+    WriteSuccessSeparatedSliceRep 16 ByteSliceRep state.machine.mem
+      (args.stackPointer - 0x7d0 + 0x38) (args.stackPointer - 0x7d0 + 0x30)
+      args.decoded.witnessHeaders := by
   have decoded := context.stable state.machine.mem (fun _ _ => rfl)
   obtain ⟨address, addressRep, countRep, arrayRep⟩ := decoded.2.2.2.2.2.2.2.2.1
-  obtain ⟨values, local, source⟩ := context.linkedTailReps
+  obtain ⟨values, localReps, source⟩ := context.linkedTailReps
   have addressEq : values ⟨4, by omega⟩ = address :=
-    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) addressRep
+    WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) addressRep
   have countEq : values ⟨5, by omega⟩ = args.decoded.witnessHeaders.size :=
-    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) countRep
+    WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) countRep
+  have localAddress := writeSuccessLocalTailRep localReps 4 (by omega)
+  have localCount := writeSuccessLocalTailRep localReps 5 (by omega)
+  rw [addressEq] at localAddress
+  rw [countEq] at localCount
   refine ⟨address, ?_, ?_, arrayRep⟩
-  · simpa [writeSuccessLocalTailWords, addressEq] using
-      local (args.stackPointer - 0x7d0 + 0x38, values ⟨4, by omega⟩) (by simp)
-  · simpa [writeSuccessLocalTailWords, countEq] using
-      local (args.stackPointer - 0x7d0 + 0x30, values ⟨5, by omega⟩) (by simp)
+  · simpa [writeSuccessLocalTailOffset] using localAddress
+  · simpa [writeSuccessLocalTailOffset] using localCount
 
 /-- The linked tail store at `sp+0x40` is the semantic chain ID. -/
 private theorem WriteSuccessPayloadContext.chainIdRep
@@ -6609,11 +6674,140 @@ private theorem WriteSuccessPayloadContext.chainIdRep
       args.decoded.chainConfig.chainId := by
   have decoded := context.stable state.machine.mem (fun _ _ => rfl)
   have semantic := decoded.2.2.2.2.2.2.2.2.2.1.1
-  obtain ⟨values, local, source⟩ := context.linkedTailReps
+  obtain ⟨values, localReps, source⟩ := context.linkedTailReps
   have valueEq : values ⟨6, by omega⟩ = args.decoded.chainConfig.chainId :=
-    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) semantic
-  simpa [writeSuccessLocalTailWords, valueEq] using
-    local (args.stackPointer - 0x7d0 + 0x40, values ⟨6, by omega⟩) (by simp)
+    WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) semantic
+  have localValue := writeSuccessLocalTailRep localReps 6 (by omega)
+  rw [valueEq] at localValue
+  simpa [writeSuccessLocalTailOffset] using localValue
+
+/-- The linked tail words at `sp+0x48` and `sp+0x08` retain the optional fork name. -/
+private theorem WriteSuccessPayloadContext.forkNameRep
+    {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
+    (context : WriteSuccessPayloadContext args bytes state) :
+    WriteSuccessSeparatedOptionalByteSliceRep state.machine.mem
+      (args.stackPointer - 0x7d0 + 0x48) (args.stackPointer - 0x7d0 + 0x08)
+      args.decoded.chainConfig.forkName := by
+  have decoded := context.stable state.machine.mem (fun _ _ => rfl)
+  have semantic := decoded.2.2.2.2.2.2.2.2.2.1.2.1
+  obtain ⟨values, localReps, source⟩ := context.linkedTailReps
+  cases optionEq : args.decoded.chainConfig.forkName with
+  | none =>
+      rw [optionEq] at semantic
+      have addressEq : values ⟨7, by omega⟩ = 0 :=
+        WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) semantic
+      have localAddress := writeSuccessLocalTailRep localReps 7 (by omega)
+      rw [addressEq] at localAddress
+      simpa [WriteSuccessSeparatedOptionalByteSliceRep, writeSuccessLocalTailOffset] using
+        localAddress
+  | some forkName =>
+      rw [optionEq] at semantic
+      obtain ⟨address, nonzero, addressRep, countRep, arrayRep⟩ := semantic
+      have addressEq : values ⟨7, by omega⟩ = address :=
+        WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) addressRep
+      have countEq : values ⟨8, by omega⟩ = forkName.size :=
+        WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) countRep
+      have localAddress := writeSuccessLocalTailRep localReps 7 (by omega)
+      have localCount : UIntRep 8 state.machine.mem
+          (args.stackPointer - 0x7d0 + 0x08) (values ⟨8, by omega⟩) := by
+        apply localReps (_, _)
+        simp [writeSuccessLocalTailWords]
+      rw [addressEq] at localAddress
+      rw [countEq] at localCount
+      exact ⟨address, nonzero,
+        by simpa [writeSuccessLocalTailOffset] using localAddress,
+        localCount,
+        arrayRep⟩
+
+/-- The linked tail word at `sp+0x50` is the semantic active-fork index. -/
+private theorem WriteSuccessPayloadContext.activeForkIndexRep
+    {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
+    (context : WriteSuccessPayloadContext args bytes state) :
+    UIntRep 8 state.machine.mem (args.stackPointer - 0x7d0 + 0x50)
+      args.decoded.chainConfig.activeForkIndex := by
+  have decoded := context.stable state.machine.mem (fun _ _ => rfl)
+  have semantic := decoded.2.2.2.2.2.2.2.2.2.1.2.2.1
+  obtain ⟨values, localReps, source⟩ := context.linkedTailReps
+  have valueEq : values ⟨9, by omega⟩ = args.decoded.chainConfig.activeForkIndex :=
+    WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) semantic
+  have localValue := writeSuccessLocalTailRep localReps 9 (by omega)
+  rw [valueEq] at localValue
+  simpa [writeSuccessLocalTailOffset] using localValue
+
+/-- The linked tail words at `sp+0x128` retain the optional activation block. -/
+private theorem WriteSuccessPayloadContext.activationBlockRep
+    {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
+    (context : WriteSuccessPayloadContext args bytes state) :
+    OptionalUIntRep 8 state.machine.mem (args.stackPointer - 0x7d0 + 0x128)
+      args.decoded.chainConfig.activationBlock := by
+  have decoded := context.stable state.machine.mem (fun _ _ => rfl)
+  have semantic := decoded.2.2.2.2.2.2.2.2.2.1.2.2.2.1
+  obtain ⟨values, localReps, source⟩ := context.linkedTailReps
+  cases optionEq : args.decoded.chainConfig.activationBlock with
+  | none =>
+      rw [optionEq] at semantic
+      simpa [writeSuccessLocalTailOffset] using
+        writeSuccessLocalTailTagRep localReps source 11 (by omega) semantic
+  | some value =>
+      rw [optionEq] at semantic
+      refine ⟨?_, ?_⟩
+      · have valueEq : values ⟨10, by omega⟩ = value :=
+          WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) semantic.1
+        have localValue := writeSuccessLocalTailRep localReps 10 (by omega)
+        rw [valueEq] at localValue
+        simpa [writeSuccessLocalTailOffset] using localValue
+      · simpa [writeSuccessLocalTailOffset] using
+          writeSuccessLocalTailTagRep localReps source 11 (by omega) semantic.2
+
+/-- The linked tail words at `sp+0x118` retain the optional activation timestamp. -/
+private theorem WriteSuccessPayloadContext.activationTimestampRep
+    {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
+    (context : WriteSuccessPayloadContext args bytes state) :
+    OptionalUIntRep 8 state.machine.mem (args.stackPointer - 0x7d0 + 0x118)
+      args.decoded.chainConfig.activationTimestamp := by
+  have decoded := context.stable state.machine.mem (fun _ _ => rfl)
+  have semantic := decoded.2.2.2.2.2.2.2.2.2.1.2.2.2.2
+  obtain ⟨values, localReps, source⟩ := context.linkedTailReps
+  cases optionEq : args.decoded.chainConfig.activationTimestamp with
+  | none =>
+      rw [optionEq] at semantic
+      simpa [writeSuccessLocalTailOffset] using
+        writeSuccessLocalTailTagRep localReps source 13 (by omega) semantic
+  | some value =>
+      rw [optionEq] at semantic
+      refine ⟨?_, ?_⟩
+      · have valueEq : values ⟨12, by omega⟩ = value :=
+          WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) semantic.1
+        have localValue := writeSuccessLocalTailRep localReps 12 (by omega)
+        rw [valueEq] at localValue
+        simpa [writeSuccessLocalTailOffset] using localValue
+      · simpa [writeSuccessLocalTailOffset] using
+          writeSuccessLocalTailTagRep localReps source 13 (by omega) semantic.2
+
+/-- The linked tail words at `sp+0x60` and `sp+0x58` retain the public-key slice. -/
+private theorem WriteSuccessPayloadContext.publicKeysRep
+    {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
+    (context : WriteSuccessPayloadContext args bytes state) :
+    WriteSuccessSeparatedSliceRep 16 ByteSliceRep state.machine.mem
+      (args.stackPointer - 0x7d0 + 0x60) (args.stackPointer - 0x7d0 + 0x58)
+      args.decoded.publicKeys := by
+  have decoded := context.stable state.machine.mem (fun _ _ => rfl)
+  obtain ⟨address, addressRep, countRep, arrayRep⟩ := decoded.2.2.2.2.2.2.2.2.2.2
+  obtain ⟨values, localReps, source⟩ := context.linkedTailReps
+  have addressEq : values ⟨14, by omega⟩ = address :=
+    WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) addressRep
+  have countEq : values ⟨15, by omega⟩ = args.decoded.publicKeys.size :=
+    WriteSuccessLinkedTailReps.value_eq ⟨localReps, source⟩ (by omega) countRep
+  have localAddress := writeSuccessLocalTailRep localReps 14 (by omega)
+  have localCount : UIntRep 8 state.machine.mem
+      (args.stackPointer - 0x7d0 + 0x58) (values ⟨15, by omega⟩) := by
+    apply localReps (_, _)
+    simp [writeSuccessLocalTailWords]
+  rw [addressEq] at localAddress
+  rw [countEq] at localCount
+  refine ⟨address, ?_, ?_, arrayRep⟩
+  · simpa [writeSuccessLocalTailOffset] using localAddress
+  · exact localCount
 
 /-- Transport copied payload semantics through one exact child frame inside the writer frame. -/
 private theorem writeSuccessPayloadContextAfterChild
@@ -7159,60 +7353,76 @@ private theorem writeSuccessSliceCallSetup
 
 /-- Literal dword loads used by the eight late slice-call sites. -/
 private theorem writeSuccessLateSliceLoadStep (stepNo pc offset value : Nat)
-    (rd : regidx) (destination : Register) (byte0 byte1 byte2 byte3 : UInt8)
+    (rd : regidx) (destination : Register) (result : RegisterType destination)
+    (byte0 byte1 byte2 byte3 : UInt8)
     (args : WriteSuccessArgs) (state : State) (access : WriteSuccessMachineAccess args state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
     (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
     (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + offset) value)
-    (aligned : args.stackPointer % 16 = 0)
+    (offsetBound : offset + 8 ≤ 0x7d0)
+    (slotAligned : (args.stackPointer - 0x7d0 + offset) % 8 = 0)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (writeRun : ∀ premise, Runs (wX_bits rd (BitVec.ofNat 64 value)) premise
-      { premise with regs := premise.regs.insert destination (BitVec.ofNat 64 value) })
-    (destinationNotNextPc : destination ≠ nextPC := by decide)
-    (destinationNotHart : destination ≠ hart_state := by decide)
-    (destinationNotIncrement : destination ≠ minstret_increment := by decide)
-    (destinationNotRetired : destination ≠ minstret := by decide)
-    (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
-    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
-    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide) :
+      { premise with regs := premise.regs.insert destination result } ())
+    (signExtend : sign_extend (m := 64) (BitVec.ofNat 12 offset) = BitVec.ofNat 64 offset)
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (BitVec.ofNat 12 offset, .Regidx 2#5, rd, false, 8)))
+    (pcFits : pc < 2 ^ 64)
+    (destinationNotNextPc : destination ≠ nextPC)
+    (destinationNotHart : destination ≠ hart_state)
+    (destinationNotIncrement : destination ≠ minstret_increment)
+    (destinationNotRetired : destination ≠ minstret)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
     ∃ retired, Runs (try_step stepNo false) state
-      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination
-        (BitVec.ofNat 64 value)) false := by
-  apply writeSuccessFrameDwordLoadStep stepNo pc offset value args state rd destination
-    (BitVec.ofNat 64 value) (BitVec.ofNat 12 offset) byte0 byte1 byte2 byte3 access atPc
-    stack rep (by omega) (by omega) loaded
-  · rw [show sign_extend (m := 64) (BitVec.ofNat 12 offset) = BitVec.ofNat 64 offset by
-      native_decide, ← BitVec.ofNat_add]
-  · exact writeRun
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
-  · native_decide
-  · rfl
-  all_goals native_decide
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination result) false := by
+  exact writeSuccessFrameDwordLoadStep stepNo pc offset value args state rd destination
+    result (BitVec.ofNat 12 offset) byte0 byte1 byte2 byte3 access atPc
+    stack rep offsetBound slotAligned loaded
+    (by rw [signExtend, ← BitVec.ofNat_add]) writeRun decode
+    (pcFits := pcFits) (destinationNotNextPc := destinationNotNextPc)
+    (destinationNotHart := destinationNotHart)
+    (destinationNotIncrement := destinationNotIncrement)
+    (destinationNotRetired := destinationNotRetired) (base := base)
+    (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
 
 /-- Literal `auipc ra,0` used by the eight late slice-call sites. -/
 private theorem writeSuccessLateSliceCallBaseStep (stepNo pc : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
-    (read0 : Artifacts.programImage.readFileByte? pc = some 0x97 := by native_decide)
-    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some 0x00 := by native_decide)
-    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some 0x00 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some 0x00 := by native_decide) :
+    (pcFits : pc < 2 ^ 64)
+    (read0 : Artifacts.programImage.readFileByte? pc = some 0x97)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some 0x00)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some 0x00)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some 0x00)
+    (decode : Runs (ext_decode (fetchWord 0x97 0x00 0x00 0x00))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.UTYPE (0, .Regidx 1#5, .AUIPC))) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x1 (BitVec.ofNat 64 pc)) false := by
-  apply configuredAuipcStep stepNo state pc 0 0x97 0x00 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · exact read0
-  · exact read1
-  · exact read2
-  · exact read3
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
+  obtain ⟨retired, run⟩ := configuredAuipcStep stepNo state pc 0#20 0x97 0x00 0x00 0x00
+    configured atPc loaded pcFits read0 read1 read2 read3 (by rfl) decode
+  generalize concatEq : (0#20 +++ 0#12) = concatenated at run
+  have zeroExtend : sign_extend concatenated = 0#64 := by
+    rw [← concatEq]
+    native_decide
+  rw [zeroExtend, BitVec.add_zero] at run
+  refine ⟨retired, ?_⟩
+  change Runs (try_step stepNo false) state
+    (tryStepControlFlowAfterRetired
+      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+          (BitVec.ofNat 64 pc) with
+        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+          (BitVec.ofNat 64 pc)).regs.insert x1 (BitVec.ofNat 64 pc) }
+      (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false
+  simpa only [afterRegisterWrite] using run
 
 /-- Literal `jalr` used by the eight late slice-call sites. -/
 private theorem writeSuccessLateSliceCallStep (stepNo pc target returnPc immediate : Nat)
@@ -7223,31 +7433,33 @@ private theorem writeSuccessLateSliceCallStep (stepNo pc target returnPc immedia
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (targetEq : pc - 4 + immediate = target)
     (returnEq : pc + 4 = returnPc)
-    (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
-    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
-    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide) :
+    (pcFits : pc < 2 ^ 64)
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.JALR (BitVec.ofNat 12 immediate, .Regidx 1#5, .Regidx 1#5)))
+    (targetBits : Sail.BitVec.update
+      (BitVec.ofNat 64 (pc - 4) + sign_extend (BitVec.ofNat 12 immediate)) 0 0#1 =
+      BitVec.ofNat 64 (pc - 4 + immediate))
+    (returnBits : Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = BitVec.ofNat 64 (pc + 4))
+    (targetBit1 : Sail.BitVec.access
+      (BitVec.ofNat 64 (pc - 4) + sign_extend (BitVec.ofNat 12 immediate)) 1 = 0#1) :
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
           (BitVec.ofNat 64 target) x1 (BitVec.ofNat 64 returnPc))
         (BitVec.ofNat 64 target) retired) false := by
   subst target returnPc
-  apply configuredJalrCallStep stepNo state pc (pc - 4) immediate (pc - 4 + immediate)
-    (pc + 4) byte0 byte1 byte2 byte3 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · exact read0
-  · exact read1
-  · exact read2
-  · exact read3
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  apply configuredJalrCallStep stepNo state pc (BitVec.ofNat 64 (pc - 4))
+    (BitVec.ofNat 12 immediate) (BitVec.ofNat 64 (pc - 4 + immediate))
+    (BitVec.ofNat 64 (pc + 4)) byte0 byte1 byte2 byte3 configured atPc baseRead loaded
+    pcFits read0 read1 read2 read3 base decode targetBits returnBits targetBit1
 
 set_option genInjectivity false in
 /-- One late shared bytes call after the generic four-instruction parent setup. -/
@@ -7271,6 +7483,92 @@ structure WriteSuccessLateBytesHandoff
   access : WriteSuccessMachineAccess args after.machine
   memory : WritesOnlyWithin
     (byteRange (args.stackPointer - 0x7d0 - 48) 48) before.machine after.machine
+
+/-- Concrete Sail instruction proofs for one four-instruction late encoder call site. -/
+private structure WriteSuccessLateSliceSiteSteps
+    (pc returnPc target addressOffset lengthOffset callBase : Nat)
+    (args : WriteSuccessArgs) where
+  addressLoad : ∀ address stepNo state,
+    WriteSuccessMachineAccess args state →
+    state.regs.get? PC = some (BitVec.ofNat 64 pc) →
+    state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) →
+    UIntRep 8 state.mem (args.stackPointer - 0x7d0 + addressOffset) address →
+    args.stackPointer % 16 = 0 →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x10
+        (BitVec.ofNat 64 address)) false
+  lengthLoad : ∀ length stepNo state,
+    WriteSuccessMachineAccess args state →
+    state.regs.get? PC = some (BitVec.ofNat 64 (pc + 4)) →
+    state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) →
+    UIntRep 8 state.mem (args.stackPointer - 0x7d0 + lengthOffset) length →
+    args.stackPointer % 16 = 0 →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 (pc + 4)) retired x11
+        (BitVec.ofNat 64 length)) false
+  callBaseStep : ∀ stepNo state,
+    ConfiguredMachinePre EndpointMachinePc state →
+    state.regs.get? PC = some (BitVec.ofNat 64 (pc + 8)) →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 (pc + 8)) retired x1
+        (BitVec.ofNat 64 callBase)) false
+  callStep : ∀ stepNo state,
+    ConfiguredMachinePre EndpointMachinePc state →
+    state.regs.get? PC = some (BitVec.ofNat 64 (pc + 12)) →
+    state.regs.get? x1 = some (BitVec.ofNat 64 callBase) →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state)
+          (BitVec.ofNat 64 (pc + 12)) target x1 returnPc)
+        target retired) false
+
+/-- Build one concrete late-call instruction bundle from its pinned load and `jalr` bytes. -/
+macro "writeSuccessLateSliceSteps(" args:term ";" pc:term "," returnPc:term ","
+    target:term "," addressOffset:term "," lengthOffset:term "," callBase:term ";"
+    a0:term "," a1:term "," a2:term ","
+    a3:term ";" l0:term "," l1:term "," l2:term "," l3:term ";"
+    j0:term "," j1:term "," j2:term "," j3:term ";" immediate:term ")" : term =>
+  `({
+    addressLoad := by
+      intro address stepNo state access atPc stack rep _aligned loaded
+      exact writeSuccessLateSliceLoadStep stepNo $pc $addressOffset address (.Regidx 10#5) x10
+        (BitVec.ofNat 64 address) $a0 $a1 $a2 $a3 $args state access atPc stack rep
+        (by omega) (by omega) loaded (fun premise => wX_x10_run premise _)
+        (by native_decide)
+        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads access.configured; decode_run)
+        (by native_decide) (by decide) (by decide) (by decide) (by decide)
+        (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    lengthLoad := by
+      intro length stepNo state access atPc stack rep _aligned loaded
+      exact writeSuccessLateSliceLoadStep stepNo ($pc + 4) $lengthOffset length (.Regidx 11#5) x11
+        (BitVec.ofNat 64 length) $l0 $l1 $l2 $l3 $args state access atPc stack rep
+        (by omega) (by omega) loaded (fun premise => wX_x11_run premise _)
+        (by native_decide)
+        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads access.configured; decode_run)
+        (by native_decide) (by decide) (by decide) (by decide) (by decide)
+        (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    callBaseStep := by
+      intro stepNo state configured atPc loaded
+      exact writeSuccessLateSliceCallBaseStep stepNo $callBase state configured atPc loaded
+        (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+        (by native_decide)
+        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured; decode_run)
+    callStep := by
+      intro stepNo state configured atPc base loaded
+      exact writeSuccessLateSliceCallStep stepNo ($pc + 12) $target $returnPc $immediate
+        $j0 $j1 $j2 $j3 state configured atPc base loaded
+        (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+        (by native_decide) (by native_decide) (by native_decide) (by rfl)
+        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured; decode_run)
+        (by native_decide) (by native_decide) (by native_decide) })
 
 /-- Consume the selected shared bytes contract from a completed late slice-call setup. -/
 private theorem writeSuccessLateBytesHandoff
@@ -7400,19 +7698,41 @@ private theorem writeSuccessFirstRequestHandoff
     lengthRep access loaded aligned
     (fun step state access pc stack rep aligned loaded =>
       writeSuccessLateSliceLoadStep step 0x158e0 0x398 address (.Regidx 10#5) x10
-        0x03 0x35 0x81 0x39 args state access pc stack rep aligned loaded
-        (fun premise => wX_x10_run premise _))
+        (BitVec.ofNat 64 address) 0x03 0x35 0x81 0x39 args state access pc stack rep
+        (by omega) (by omega) loaded
+        (fun premise => wX_x10_run premise _)
+        (by native_decide)
+        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads access.configured; decode_run)
+        (by native_decide) (by decide) (by decide) (by decide) (by decide)
+        (by rfl) (by native_decide) (by native_decide) (by native_decide)
+        (by native_decide))
     (fun step state access pc stack rep aligned loaded =>
       writeSuccessLateSliceLoadStep step 0x158e4 0x3a0
         args.decoded.executionRequests.deposits.size (.Regidx 11#5) x11
-        0x83 0x35 0x01 0x3a args state access pc stack rep aligned loaded
-        (fun premise => wX_x11_run premise _))
+        (BitVec.ofNat 64 args.decoded.executionRequests.deposits.size)
+        0x83 0x35 0x01 0x3a args state access pc stack rep (by omega) (by omega) loaded
+        (fun premise => wX_x11_run premise _)
+        (by native_decide)
+        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads access.configured; decode_run)
+        (by native_decide) (by decide) (by decide) (by decide) (by decide)
+        (by rfl) (by native_decide) (by native_decide) (by native_decide)
+        (by native_decide))
     (fun step state configured pc loaded =>
-      writeSuccessLateSliceCallBaseStep step 0x158e8 state configured pc loaded)
+      writeSuccessLateSliceCallBaseStep step 0x158e8 state configured pc loaded
+        (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+        (by native_decide)
+        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured; decode_run))
     (fun step state configured pc base loaded =>
       writeSuccessLateSliceCallStep step 0x158ec 0x15c6c 0x158f0 0x384
         0xe7 0x80 0x40 0x38 state configured pc base loaded (by native_decide)
-        (by native_decide))
+        (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+        (by native_decide) (by native_decide) (by rfl)
+        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured; decode_run)
+        (by native_decide) (by native_decide) (by native_decide))
     (by unfold writeSuccessParentPc; exact
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
     (by unfold writeSuccessParentPc; exact
@@ -7423,8 +7743,7 @@ private theorem writeSuccessFirstRequestHandoff
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide) (by native_decide) (by native_decide)
-  exact writeSuccessLateBytesHandoff child fromStep 0x158e0 0x158f0
-    (args.stackPointer - 0x7d0 + 0x398) args payloadBytes
+  exact writeSuccessLateBytesHandoff child fromStep 0x158e0 0x158f0 address args payloadBytes
     args.decoded.executionRequests.deposits savedValues before callState setup
     bytesRep.byteSliceBytesRep context saved lower upper decodedAddress (by native_decide)
 
@@ -7432,7 +7751,6 @@ private theorem writeSuccessFirstRequestHandoff
 private theorem writeSuccessLateBytesSite
     (child : WriteSuccessBytesInstanceContract)
     (fromStep pc returnPc addressOffset lengthOffset immediate : Nat)
-    (a0 a1 a2 a3 l0 l1 l2 l3 j0 j1 j2 j3 : UInt8)
     (args : WriteSuccessArgs) (payloadBytes value : Array UInt8)
     (savedValues : DecodeCalleeSavedValues) (before : EndpointState)
     (atPc : before.machine.regs.get? PC = some (BitVec.ofNat 64 pc))
@@ -7447,6 +7765,9 @@ private theorem writeSuccessLateBytesSite
     (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
     (upper : args.stackPointer < 2 ^ 64)
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20)
+    (lengthOffsetEq : addressOffset + 8 = lengthOffset)
+    (steps : WriteSuccessLateSliceSiteSteps pc returnPc 0x15c6c addressOffset
+      lengthOffset (pc + 8) args)
     (returnEq : pc + 16 = returnPc)
     (targetEq : pc + 8 + immediate = 0x15c6c)
     (owned0 : writeSuccessParentPc (BitVec.ofNat 64 pc))
@@ -7465,25 +7786,19 @@ private theorem writeSuccessLateBytesSite
       WriteSuccessLateBytesHandoff fromStep childUsed returnPc value args payloadBytes
         before after savedValues := by
   obtain ⟨address, addressRep, lengthRep, bytesRep⟩ := descriptor
-  obtain ⟨callState, setup⟩ := writeSuccessSliceCallSetup fromStep pc returnPc 0x15c6c
+  have lengthRep' : UIntRep 8 before.machine.mem
+      (args.stackPointer - 0x7d0 + lengthOffset) value.size := by
+    simpa [← lengthOffsetEq, Nat.add_assoc] using lengthRep
+  have setupExists : ∃ callState,
+      WriteSuccessSliceCallSetup fromStep pc returnPc 0x15c6c address value.size
+        args before callState :=
+    writeSuccessSliceCallSetup fromStep pc returnPc 0x15c6c
     addressOffset lengthOffset address value.size (pc + 8) args before atPc stack addressRep
-    lengthRep access loaded aligned
-    (fun step state access pcRead stackRead rep aligned loaded =>
-      writeSuccessLateSliceLoadStep step pc addressOffset address (.Regidx 10#5) x10
-        a0 a1 a2 a3 args state access pcRead stackRead rep aligned loaded
-        (fun premise => wX_x10_run premise _))
-    (fun step state access pcRead stackRead rep aligned loaded =>
-      writeSuccessLateSliceLoadStep step (pc + 4) lengthOffset value.size (.Regidx 11#5) x11
-        l0 l1 l2 l3 args state access pcRead stackRead rep aligned loaded
-        (fun premise => wX_x11_run premise _))
-    (fun step state configured pcRead loaded =>
-      writeSuccessLateSliceCallBaseStep step (pc + 8) state configured pcRead loaded)
-    (fun step state configured pcRead base loaded =>
-      writeSuccessLateSliceCallStep step (pc + 12) 0x15c6c returnPc immediate
-        j0 j1 j2 j3 state configured pcRead base loaded (by omega) (by omega))
+    lengthRep' access loaded aligned
+    (steps.addressLoad address) (steps.lengthLoad value.size) steps.callBaseStep steps.callStep
     owned0 owned1 owned2 owned3 before0 before1 before2 before3 next0 next1 next2
-  exact writeSuccessLateBytesHandoff child fromStep pc returnPc
-    (args.stackPointer - 0x7d0 + addressOffset) args payloadBytes value savedValues before
+  obtain ⟨callState, setup⟩ := setupExists
+  exact writeSuccessLateBytesHandoff child fromStep pc returnPc address args payloadBytes value savedValues before
     callState setup bytesRep.byteSliceBytesRep context saved lower upper decodedAddress returnListed
 
 set_option genInjectivity false in
@@ -7533,10 +7848,14 @@ private theorem writeSuccessRequestsHandoff
     savedValues before atPc stack context saved access loaded aligned lower upper decodedAddress
   obtain ⟨_, withdrawals, _, _, _⟩ := h1.payloadContext.executionRequestsRep decodedAddress upper
   obtain ⟨wUsed, s2, h2⟩ := writeSuccessLateBytesSite child (fromStep + 4 + dUsed)
-    0x158f0 0x15900 0x3a8 0x3b0 0x374 0x03 0x35 0x81 0x3a 0x83 0x35 0x01 0x3b
-    0xe7 0x80 0x40 0x37 args payloadBytes args.decoded.executionRequests.withdrawals
+    0x158f0 0x15900 0x3a8 0x3b0 0x374 args payloadBytes
+    args.decoded.executionRequests.withdrawals
     savedValues s1 (by simpa [EndpointPc, MachinePc] using h1.atPc) h1.stack withdrawals
     h1.payloadContext h1.saved h1.access h1.loaded aligned lower upper decodedAddress
+    (by native_decide)
+    (writeSuccessLateSliceSteps(args; 0x158f0, 0x15900, 0x15c6c, 0x3a8, 0x3b0,
+      0x158f8; 0x03, 0x35, 0x81, 0x3a;
+      0x83, 0x35, 0x01, 0x3b; 0xe7, 0x80, 0x40, 0x37; 0x374))
     (by native_decide) (by native_decide)
     (by unfold writeSuccessParentPc; exact
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
@@ -7552,10 +7871,12 @@ private theorem writeSuccessRequestsHandoff
     h2.payloadContext.executionRequestsRep decodedAddress upper
   obtain ⟨cUsed, s3, h3⟩ := writeSuccessLateBytesSite child
     (fromStep + 4 + dUsed + 4 + wUsed) 0x15900 0x15910 0x3b8 0x3c0 0x364
-    0x03 0x35 0x81 0x3b 0x83 0x35 0x01 0x3c 0xe7 0x80 0x40 0x36
     args payloadBytes args.decoded.executionRequests.consolidations savedValues s2
     (by simpa [EndpointPc, MachinePc] using h2.atPc) h2.stack consolidations h2.payloadContext
-    h2.saved h2.access h2.loaded aligned lower upper decodedAddress
+    h2.saved h2.access h2.loaded aligned lower upper decodedAddress (by native_decide)
+    (writeSuccessLateSliceSteps(args; 0x15900, 0x15910, 0x15c6c, 0x3b8, 0x3c0,
+      0x15908; 0x03, 0x35, 0x81, 0x3b;
+      0x83, 0x35, 0x01, 0x3c; 0xe7, 0x80, 0x40, 0x36; 0x364))
     (by native_decide) (by native_decide)
     (by unfold writeSuccessParentPc; exact
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
@@ -7571,10 +7892,12 @@ private theorem writeSuccessRequestsHandoff
     h3.payloadContext.executionRequestsRep decodedAddress upper
   obtain ⟨bdUsed, s4, h4⟩ := writeSuccessLateBytesSite child
     (fromStep + 4 + dUsed + 4 + wUsed + 4 + cUsed) 0x15910 0x15920 0x3c8 0x3d0 0x354
-    0x03 0x35 0x81 0x3c 0x83 0x35 0x01 0x3d 0xe7 0x80 0x40 0x35
     args payloadBytes args.decoded.executionRequests.builderDeposits savedValues s3
     (by simpa [EndpointPc, MachinePc] using h3.atPc) h3.stack builderDeposits h3.payloadContext
-    h3.saved h3.access h3.loaded aligned lower upper decodedAddress
+    h3.saved h3.access h3.loaded aligned lower upper decodedAddress (by native_decide)
+    (writeSuccessLateSliceSteps(args; 0x15910, 0x15920, 0x15c6c, 0x3c8, 0x3d0,
+      0x15918; 0x03, 0x35, 0x81, 0x3c;
+      0x83, 0x35, 0x01, 0x3d; 0xe7, 0x80, 0x40, 0x35; 0x354))
     (by native_decide) (by native_decide)
     (by unfold writeSuccessParentPc; exact
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
@@ -7589,10 +7912,14 @@ private theorem writeSuccessRequestsHandoff
   obtain ⟨_, _, _, _, builderExits⟩ := h4.payloadContext.executionRequestsRep decodedAddress upper
   obtain ⟨beUsed, s5, h5⟩ := writeSuccessLateBytesSite child
     (fromStep + 4 + dUsed + 4 + wUsed + 4 + cUsed + 4 + bdUsed)
-    0x15920 0x15930 0x3d8 0x3e0 0x344 0x03 0x35 0x81 0x3d 0x83 0x35 0x01 0x3e
-    0xe7 0x80 0x40 0x34 args payloadBytes args.decoded.executionRequests.builderExits
+    0x15920 0x15930 0x3d8 0x3e0 0x344 args payloadBytes
+    args.decoded.executionRequests.builderExits
     savedValues s4 (by simpa [EndpointPc, MachinePc] using h4.atPc) h4.stack builderExits
     h4.payloadContext h4.saved h4.access h4.loaded aligned lower upper decodedAddress
+    (by native_decide)
+    (writeSuccessLateSliceSteps(args; 0x15920, 0x15930, 0x15c6c, 0x3d8, 0x3e0,
+      0x15928; 0x03, 0x35, 0x81, 0x3d;
+      0x83, 0x35, 0x01, 0x3e; 0xe7, 0x80, 0x40, 0x34; 0x344))
     (by native_decide) (by native_decide)
     (by unfold writeSuccessParentPc; exact
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
@@ -7620,9 +7947,10 @@ private theorem writeSuccessRequestsHandoff
   · have t2 := h1.trace.append (by simpa [Nat.add_assoc] using h2.trace)
     have t3 := t2.append (by simpa [Nat.add_assoc] using h3.trace)
     have t4 := t3.append (by simpa [Nat.add_assoc] using h4.trace)
-    simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-      t4.append (by simpa [Nat.add_assoc] using h5.trace)
-  · rw [h5.stdout, h4.stdout, h3.stdout, h2.stdout, h1.stdout]
+    simpa only [Nat.add_assoc] using
+      t4.append (by simpa only [Nat.add_assoc] using h5.trace)
+  · simp only [h5.stdout, h4.stdout, h3.stdout, h2.stdout, h1.stdout,
+      Array.append_assoc]
 
 set_option genInjectivity false in
 /-- One late shared byte-list call after its four parent setup instructions. -/
@@ -7648,13 +7976,13 @@ structure WriteSuccessLateByteListsHandoff
 private theorem writeSuccessLateByteListsSite
     (child : WriteSuccessByteListsInstanceContract)
     (fromStep pc returnPc addressOffset lengthOffset immediate : Nat)
-    (a0 a1 a2 a3 l0 l1 l2 l3 j0 j1 j2 j3 : UInt8)
     (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (value : Array (Array UInt8))
     (savedValues : DecodeCalleeSavedValues) (before : EndpointState)
     (atPc : before.machine.regs.get? PC = some (BitVec.ofNat 64 pc))
     (stack : before.machine.regs.get? x2 =
       some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
-    (descriptor : SliceRep 16 ByteSliceRep before.machine.mem
+    (descriptor : WriteSuccessSeparatedSliceRep 16 ByteSliceRep before.machine.mem
+      (args.stackPointer - 0x7d0 + addressOffset)
       (args.stackPointer - 0x7d0 + lengthOffset) value)
     (context : WriteSuccessPayloadContext args payloadBytes before)
     (saved : SavedWordReps before.machine (writeSuccessSavedWords args savedValues))
@@ -7663,6 +7991,8 @@ private theorem writeSuccessLateByteListsSite
     (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
     (upper : args.stackPointer < 2 ^ 64)
     (decodedAddress : args.decodedAddress = args.stackPointer + 0x20)
+    (steps : WriteSuccessLateSliceSiteSteps pc returnPc 0x15c10 addressOffset
+      lengthOffset (pc + 8) args)
     (returnEq : pc + 16 = returnPc) (targetEq : pc + 8 + immediate = 0x15c10)
     (owned0 : writeSuccessParentPc (BitVec.ofNat 64 pc))
     (owned1 : writeSuccessParentPc (BitVec.ofNat 64 (pc + 4)))
@@ -7683,19 +8013,7 @@ private theorem writeSuccessLateByteListsSite
   obtain ⟨callState, setup⟩ := writeSuccessSliceCallSetup fromStep pc returnPc 0x15c10
     addressOffset lengthOffset address value.size (pc + 8) args before atPc stack addressRep
     lengthRep access loaded aligned
-    (fun step state access pcRead stackRead rep aligned loaded =>
-      writeSuccessLateSliceLoadStep step pc addressOffset address (.Regidx 10#5) x10
-        a0 a1 a2 a3 args state access pcRead stackRead rep aligned loaded
-        (fun premise => wX_x10_run premise _))
-    (fun step state access pcRead stackRead rep aligned loaded =>
-      writeSuccessLateSliceLoadStep step (pc + 4) lengthOffset value.size (.Regidx 11#5) x11
-        l0 l1 l2 l3 args state access pcRead stackRead rep aligned loaded
-        (fun premise => wX_x11_run premise _))
-    (fun step state configured pcRead loaded =>
-      writeSuccessLateSliceCallBaseStep step (pc + 8) state configured pcRead loaded)
-    (fun step state configured pcRead base loaded =>
-      writeSuccessLateSliceCallStep step (pc + 12) 0x15c10 returnPc immediate
-        j0 j1 j2 j3 state configured pcRead base loaded (by omega) (by omega))
+    (steps.addressLoad address) (steps.lengthLoad value.size) steps.callBaseStep steps.callStep
     owned0 owned1 owned2 owned3 before0 before1 before2 before3 next0 next1 next2
   let childValue : ByteListsEncoderValue := { address := address, values := value }
   let childArgs : EncoderCallArgs ByteListsEncoderValue := {
@@ -7738,8 +8056,11 @@ private theorem writeSuccessLateByteListsSite
       intro index inBounds inside; unfold byteRange at inside; omega) (by
       intro index inBounds inside; unfold byteRange at inside; omega) (by
       intro index inBounds inside; unfold byteRange at inside; rw [decodedAddress] at inside; omega)
-    (by intro index inBounds inside; unfold byteRange at inside;
-      rw [decodedAddress] at inside; omega) (by
+    (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      rw [decodedAddress] at inside
+      omega) (by
       intro index inBounds inside; unfold byteRange at inside; omega) (by
       intro values word member index inBounds inside
       simp [writeSuccessLocalTailWords] at member
@@ -7807,9 +8128,12 @@ private theorem writeSuccessWitnessListsHandoff
       WriteSuccessWitnessListsHandoff fromStep nodesUsed codesUsed headersUsed args payloadBytes
         savedValues before after := by
   obtain ⟨nodesUsed, s1, h1⟩ := writeSuccessLateByteListsSite child fromStep
-    0x15930 0x15940 0x18 0x10 0x2d8 0x03 0x35 0x81 0x01 0x83 0x35 0x01 0x01
-    0xe7 0x80 0x80 0x2d args payloadBytes args.decoded.witnessNodes savedValues before
+    0x15930 0x15940 0x18 0x10 0x2d8 args payloadBytes args.decoded.witnessNodes
+    savedValues before
     atPc stack context.witnessNodesRep context saved access loaded aligned lower upper decodedAddress
+    (writeSuccessLateSliceSteps(args; 0x15930, 0x15940, 0x15c10, 0x18, 0x10,
+      0x15938; 0x03, 0x35, 0x81, 0x01;
+      0x83, 0x35, 0x01, 0x01; 0xe7, 0x80, 0x80, 0x2d; 0x2d8))
     (by native_decide) (by native_decide)
     (by unfold writeSuccessParentPc; exact
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
@@ -7823,10 +8147,12 @@ private theorem writeSuccessWitnessListsHandoff
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
   obtain ⟨codesUsed, s2, h2⟩ := writeSuccessLateByteListsSite child
     (fromStep + 4 + nodesUsed) 0x15940 0x15950 0x28 0x20 0x2c8
-    0x03 0x35 0x81 0x02 0x83 0x35 0x01 0x02 0xe7 0x80 0x80 0x2c
     args payloadBytes args.decoded.witnessCodes savedValues s1
     (by simpa [EndpointPc, MachinePc] using h1.atPc) h1.stack h1.payloadContext.witnessCodesRep
     h1.payloadContext h1.saved h1.access h1.loaded aligned lower upper decodedAddress
+    (writeSuccessLateSliceSteps(args; 0x15940, 0x15950, 0x15c10, 0x28, 0x20,
+      0x15948; 0x03, 0x35, 0x81, 0x02;
+      0x83, 0x35, 0x01, 0x02; 0xe7, 0x80, 0x80, 0x2c; 0x2c8))
     (by native_decide) (by native_decide)
     (by unfold writeSuccessParentPc; exact
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
@@ -7840,10 +8166,12 @@ private theorem writeSuccessWitnessListsHandoff
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
   obtain ⟨headersUsed, s3, h3⟩ := writeSuccessLateByteListsSite child
     (fromStep + 4 + nodesUsed + 4 + codesUsed) 0x15950 0x15960 0x38 0x30 0x2b8
-    0x03 0x35 0x81 0x03 0x83 0x35 0x01 0x03 0xe7 0x80 0x80 0x2b
     args payloadBytes args.decoded.witnessHeaders savedValues s2
     (by simpa [EndpointPc, MachinePc] using h2.atPc) h2.stack h2.payloadContext.witnessHeadersRep
     h2.payloadContext h2.saved h2.access h2.loaded aligned lower upper decodedAddress
+    (writeSuccessLateSliceSteps(args; 0x15950, 0x15960, 0x15c10, 0x38, 0x30,
+      0x15958; 0x03, 0x35, 0x81, 0x03;
+      0x83, 0x35, 0x01, 0x03; 0xe7, 0x80, 0x80, 0x2b; 0x2b8))
     (by native_decide) (by native_decide)
     (by unfold writeSuccessParentPc; exact
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
@@ -7868,8 +8196,8 @@ private theorem writeSuccessWitnessListsHandoff
     loaded := h3.loaded
     access := h3.access }⟩
   · have t2 := h1.trace.append (by simpa [Nat.add_assoc] using h2.trace)
-    simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-      t2.append (by simpa [Nat.add_assoc] using h3.trace)
+    simpa only [Nat.add_assoc] using
+      t2.append (by simpa only [Nat.add_assoc] using h3.trace)
   · rw [h3.stdout, h2.stdout, h1.stdout]
 
 /-- Production `0x15960: ld a0,0x40(sp)`, loading the linked chain ID. -/
@@ -7885,8 +8213,14 @@ private theorem writeSuccessChainIdLoadStep (stepNo : Nat) (args : WriteSuccessA
       (afterRegisterWrite state 0x15960 retired x10
         (BitVec.ofNat 64 args.decoded.chainConfig.chainId)) false := by
   exact writeSuccessLateSliceLoadStep stepNo 0x15960 0x40 args.decoded.chainConfig.chainId
-    (.Regidx 10#5) x10 0x03 0x35 0x01 0x04 args state access atPc stack rep aligned loaded
-    (fun premise => wX_x10_run premise _)
+    (.Regidx 10#5) x10 (BitVec.ofNat 64 args.decoded.chainConfig.chainId)
+    0x03 0x35 0x01 0x04 args state access atPc stack rep (by omega) (by omega) loaded
+    (fun premise => wX_x10_run premise _) (by native_decide)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by native_decide) (by decide) (by decide) (by decide) (by decide)
+    (by rfl) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide)
 
 /-- Production `0x15964: auipc ra,0`. -/
 private theorem writeSuccessChainIdCallBaseStep (stepNo : Nat) (state : State)
@@ -7896,6 +8230,10 @@ private theorem writeSuccessChainIdCallBaseStep (stepNo : Nat) (state : State)
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x15964 retired x1 0x15964) false :=
   writeSuccessLateSliceCallBaseStep stepNo 0x15964 state configured atPc loaded
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured; decode_run)
 
 /-- Production `0x15968: jalr ra,0x3ac(ra)`, entering the shared integer encoder. -/
 private theorem writeSuccessChainIdCallStep (stepNo : Nat) (state : State)
@@ -7908,7 +8246,12 @@ private theorem writeSuccessChainIdCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x15968 0x15d10 x1 0x1596c)
         0x15d10 retired) false :=
   writeSuccessLateSliceCallStep stepNo 0x15968 0x15d10 0x1596c 0x3ac
-    0xe7 0x80 0xc0 0x3a state configured atPc base loaded (by native_decide) (by native_decide)
+    0xe7 0x80 0xc0 0x3a state configured atPc base loaded (by native_decide)
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide) (by native_decide) (by rfl)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured; decode_run)
+    (by native_decide) (by native_decide) (by native_decide)
 
 set_option genInjectivity false in
 /-- Chain ID encoded through the exact `0x15960..0x15968` parent sequence. -/
@@ -7945,7 +8288,7 @@ private theorem writeSuccessChainIdHandoff
     ∃ childUsed after,
       WriteSuccessChainIdHandoff fromStep childUsed args payloadBytes savedValues before after := by
   obtain ⟨childUsed, after, handoff⟩ := writeSuccessIntCallHandoff child fromStep
-    0x15960 0x1596c 0x40 args.decoded.chainConfig.chainId 0x15d10 args before atPc stack
+    0x15960 0x1596c 0x40 args.decoded.chainConfig.chainId 0x15964 args before atPc stack
     context.chainIdRep access loaded aligned lower upper
     (fun step state => writeSuccessChainIdLoadStep step args state)
     writeSuccessChainIdCallBaseStep writeSuccessChainIdCallStep
@@ -7955,7 +8298,9 @@ private theorem writeSuccessChainIdHandoff
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
     (by unfold writeSuccessParentPc; exact
       ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
-    (by native_decide) (by native_decide) (by native_decide)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
+    (by unfold writeSuccessIntCallExitPc; native_decide)
     (by native_decide) (by native_decide) (by native_decide)
   have payloadAfter := writeSuccessPayloadContextAfterInt decodedAddress lower upper context handoff
   have savedAfter : SavedWordReps after.machine (writeSuccessSavedWords args savedValues) := by
@@ -9101,11 +9446,14 @@ private theorem writeSuccessTransactionsHandoff
         parentHashSize4, parentHash4, feeRecipientSize4, feeRecipient4, stateRootSize4,
         stateRoot4, receiptsRootSize4, receiptsRoot4, logsBloomSize4, logsBloom4,
         prevRandaoSize4, prevRandao4, blockHashSize4, blockHash4⟩
-    · refine ⟨?_, codeOfSeg seg4⟩
-      exact fullCopyRep.of_writesOnlyWithin seg4.mem (by
+    · exact ⟨fullDecodedRep.of_writesOnlyWithin seg4.mem (by
         intro index inBounds inside
         unfold setupMemory writeSuccessTransactionSetupMemory byteRange at inside
-        rcases inside with inside | inside <;> omega)
+        rcases inside with inside | inside <;> omega),
+      fullCopyRep.of_writesOnlyWithin seg4.mem (by
+        intro index inBounds inside
+        unfold setupMemory writeSuccessTransactionSetupMemory byteRange at inside
+        rcases inside with inside | inside <;> omega), codeOfSeg seg4⟩
   obtain ⟨childUsed, after, childTrace, childExit⟩ := writeSuccessInlineEncoderHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
@@ -9125,7 +9473,7 @@ private theorem writeSuccessTransactionsHandoff
     (fromStep + 4) childArgs childState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, stackAfter,
     bindingAfter, savedAfter, decodedAfter, parentRootAfter, versionedHashesAfter,
-    payloadAfter, destinationAfter, sourceAfter,
+    payloadAfter, destinationAfter, sourceAfter, copiedSourceAfter,
     childMemory, childAgree, childRetired, loadedAfter⟩
   have childInWriter : ∀ address, inlineEncoderMemoryRegion childArgs.stackPointer address →
       writeSuccessFrameMemory args address := by
@@ -9211,7 +9559,8 @@ private theorem writeSuccessTransactionsHandoff
     access := accessAfter
     memory := fullMemory
     payloadContext := {
-      fullCopy := ⟨fullCopyBytes, fullCopySize, by simpa [childArgs] using sourceAfter⟩
+      fullCopy := ⟨fullCopyBytes, fullCopySize,
+        by simpa [childArgs] using And.intro sourceAfter copiedSourceAfter⟩
       destinationRep := destinationAfter
       parentRootRep := parentRootAfter
       decodedBytesRep := decodedBytesAfter
@@ -9606,7 +9955,8 @@ private theorem writeSuccessWithdrawalsHandoff
         rw [show childState.machine.mem = before.machine.mem by
           simpa [childState] using seg2.memEq (by simp)]
         exact context.destinationRep),
-      (by exact ⟨by simpa [childState, seg2.memEq (by simp)] using fullCopyRep,
+      (by exact ⟨by simpa [childState, seg2.memEq (by simp)] using fullDecodedRep,
+        by simpa [childState, seg2.memEq (by simp)] using fullCopyRep,
         by simpa [childState, seg2.memEq (by simp)] using loaded⟩)⟩
     · simpa [childState, EndpointPc, MachinePc] using seg2.atPc
     · simpa [childState] using
@@ -9637,7 +9987,7 @@ private theorem writeSuccessWithdrawalsHandoff
     (fromStep + 2) childArgs childState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, stackAfter,
     bindingAfter, savedAfter, decodedAfter, parentRootAfter, versionedHashesAfter,
-    payloadAfter, destinationAfter, sourceAfter,
+    payloadAfter, destinationAfter, sourceAfter, copiedSourceAfter,
     childMemory, childAgree, childRetired, loadedAfter⟩
   have childInWriter : ∀ address, inlineEncoderMemoryRegion childArgs.stackPointer address →
       writeSuccessFrameMemory args address := by
@@ -9721,7 +10071,8 @@ private theorem writeSuccessWithdrawalsHandoff
     exitCode := by simpa [childState] using exitCode
     saved := savedAbiAfter
     payloadContext := {
-      fullCopy := ⟨fullCopyBytes, fullCopySize, by simpa [childArgs] using sourceAfter⟩
+      fullCopy := ⟨fullCopyBytes, fullCopySize,
+        by simpa [childArgs] using And.intro sourceAfter copiedSourceAfter⟩
       destinationRep := destinationAfter
       parentRootRep := parentRootAfter
       decodedBytesRep := decodedBytesAfter
@@ -11316,7 +11667,8 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
         context.versionedHashesRelocation
     · simpa [childState, seg2.memEq (by simp)] using context.payloadRep
     · simpa [childState, seg2.memEq (by simp)] using context.destinationRep
-    · exact ⟨by simpa [childState, seg2.memEq (by simp)] using fullCopyRep,
+    · exact ⟨by simpa [childState, seg2.memEq (by simp)] using fullDecodedRep,
+        by simpa [childState, seg2.memEq (by simp)] using fullCopyRep,
         by simpa [childState, seg2.memEq (by simp)] using loaded⟩
   obtain ⟨childUsed, after, childTrace, childExit⟩ := writeSuccessInlineEncoderHandoff child
     (fun inside => by
@@ -11332,8 +11684,8 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     (fromStep + 2) childArgs childState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, stackAfter,
     bindingAfter, savedAfter, decodedAfter, parentRootAfter, versionedHashesAfter,
-    payloadAfter, destinationAfter, sourceAfter, childMemory, childAgree, childRetired,
-    loadedAfter⟩
+    payloadAfter, destinationAfter, sourceAfter, copiedSourceAfter, childMemory, childAgree,
+    childRetired, loadedAfter⟩
   have childInWriter : ∀ address, inlineEncoderMemoryRegion childArgs.stackPointer address →
       writeSuccessFrameMemory args address := by
     intro address inside
@@ -11410,7 +11762,8 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     access := accessAfter
     memory := fullMemory
     payloadContext := {
-      fullCopy := ⟨fullCopyBytes, fullCopySize, by simpa [childArgs] using sourceAfter⟩
+      fullCopy := ⟨fullCopyBytes, fullCopySize,
+        by simpa [childArgs] using And.intro sourceAfter copiedSourceAfter⟩
       destinationRep := destinationAfter
       parentRootRep := parentRootAfter
       decodedBytesRep := decodedBytesAfter
