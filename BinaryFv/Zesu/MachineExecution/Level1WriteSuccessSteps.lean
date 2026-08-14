@@ -4785,14 +4785,15 @@ private theorem writeSuccessRawEncoderHandoff
       pcInRanges Elflings.writeSuccessExecutionPcRanges pc)
     (fromStep : Nat) (args : RawEncoderArgs) (before : EndpointState)
     (childEntry : RawEncoderEntry entry args before) :
-    ∃ used after,
+    ∃ stepBound : Nat → Nat, ∃ used after,
+      used ≤ stepBound args.bytes.size ∧
       ConfinedTrace EndpointStep EndpointPc
         (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep used before after ∧
       RawEncoderExit success args () before after := by
   obtain ⟨stepBound, implements⟩ := child
   obtain ⟨used, after, unit, positive, bounded, trace, exitPc, allowed, exit⟩ :=
     implements args fromStep before childEntry
-  exact ⟨used, after, trace.weaken (fun _ pc => insideWriter pc), exit⟩
+  exact ⟨stepBound, used, after, bounded, trace.weaken (fun _ pc => insideWriter pc), exit⟩
 
 private theorem writeSuccessInlineEncoderHandoff
     {Value : Type} {entry success : Nat} {executionPcs : List Elflings.PcRange}
@@ -4803,24 +4804,26 @@ private theorem writeSuccessInlineEncoderHandoff
       pcInRanges Elflings.writeSuccessExecutionPcRanges pc)
     (fromStep : Nat) (args : InlineEncoderArgs Value) (before : EndpointState)
     (childEntry : InlineEncoderEntry entry bindValue args before) :
-    ∃ used after,
+    ∃ stepBound : Nat → Nat, ∃ used after,
+      used ≤ stepBound args.inputSize ∧
       ConfinedTrace EndpointStep EndpointPc
         (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep used before after ∧
       InlineEncoderExit success encode bindValue args () before after := by
   obtain ⟨stepBound, implements⟩ := child
   obtain ⟨used, after, unit, positive, bounded, trace, exitPc, allowed, exit⟩ :=
     implements args fromStep before childEntry
-  exact ⟨used, after, trace.weaken (fun _ pc => insideWriter pc), exit⟩
+  exact ⟨stepBound, used, after, bounded, trace.weaken (fun _ pc => insideWriter pc), exit⟩
 
 set_option genInjectivity false in
 /-- Common result of entering one selected called encoder after parent-owned register setup. -/
 structure WriteSuccessEncoderChildHandoff (Value : Type)
-    (fromStep parentUsed childUsed frameSize returnPc : Nat)
+    (fromStep parentUsed childUsed frameSize returnPc : Nat) (childBound : Nat → Nat)
     (encode : Value → Array UInt8) (value : Value) (writerArgs : WriteSuccessArgs)
     (before callState after : EndpointState) : Prop where
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges)
     fromStep (parentUsed + childUsed) before after
+  childBounded : childUsed ≤ childBound writerArgs.inputSize
   atPc : EndpointPc after = some (BitVec.ofNat 64 returnPc)
   stack : after.machine.regs.get? x2 =
     some (BitVec.ofNat 64 (writerArgs.stackPointer - 0x7d0))
@@ -4864,8 +4867,8 @@ private theorem writeSuccessEncoderChildHandoff
     (frameInWriter : ∀ address,
       byteRange (writerArgs.stackPointer - 0x7d0 - frameSize) frameSize address →
       writeSuccessFrameMemory writerArgs address) :
-    ∃ childUsed after,
-      WriteSuccessEncoderChildHandoff Value fromStep parentUsed childUsed frameSize returnPc
+    ∃ childBound : Nat → Nat, ∃ childUsed after,
+      WriteSuccessEncoderChildHandoff Value fromStep parentUsed childUsed frameSize returnPc childBound
         encode value writerArgs before callState after := by
   obtain ⟨stepBound, implements⟩ := child
   obtain ⟨childUsed, after, unit, positive, bounded, childTrace, exitPc, allowed, childExit⟩ :=
@@ -4904,10 +4907,11 @@ private theorem writeSuccessEncoderChildHandoff
     rw [memory address outside]
     rw [← memoryEq]
     exact loaded address byte fileByte
-  refine ⟨childUsed, after, {
+  refine ⟨stepBound, childUsed, after, {
     trace := by
       have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
       simpa [Nat.add_assoc] using all
+    childBounded := by simpa [encoderCallContract, argsEq] using bounded
     atPc := by simpa [argsEq] using afterPc
     stack := by
       have := childFrame.1 x2 (by simp [abiCalleePreserved])
@@ -4964,7 +4968,7 @@ private theorem writeSuccessRawEncoderThenPointerHandoff
     ∃ childUsed after,
       RawEncoderPointerHandoff fromStep childUsed nextEntry nextAddress writerArgs rawArgs
         before after := by
-  obtain ⟨childUsed, childAfter, childTrace, childExit⟩ :=
+  obtain ⟨_childBound, childUsed, childAfter, _childBounded, childTrace, childExit⟩ :=
     writeSuccessRawEncoderHandoff child insideWriter fromStep rawArgs before childEntry
   rcases childExit with ⟨childPc, stdout, stdin, cursor, exitCode, childMem, childFrame⟩
   have childAtPc : childAfter.machine.regs.get? PC = some (BitVec.ofNat 64 success) := childPc
@@ -5324,12 +5328,14 @@ private theorem writeSuccessPrevRandaoHandoff
   let rawArgs : RawEncoderArgs :=
     { sourceAddress := args.stackPointer - 0x7d0 + 0x614
       bytes := args.decoded.payload.prevRandao }
-  apply writeSuccessRawEncoderHandoff child (fun inside => by
+  obtain ⟨_childBound, used, after, _bounded, trace, exit⟩ :=
+    writeSuccessRawEncoderHandoff child (fun inside => by
     simpa [Elflings.writeSuccessRawLine140ExecutionPcRanges] using
       writeSuccessRawPc_in_writeSuccess inside (by omega) (by omega))
     fromStep rawArgs before
-  exact ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-    by simpa [rawArgs] using rep, loaded⟩
+    ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
+      by simpa [rawArgs] using rep, loaded⟩
+  exact ⟨used, after, trace, exit⟩
 
 set_option genInjectivity false in
 structure WriteSuccessLastThreeRawHandoff
@@ -7782,7 +7788,7 @@ private theorem writeSuccessLateBytesHandoff
       writeSuccessFrameMemory args address := by
     intro address inside
     exact writeSuccessChildFrame48_mem_frame lower inside
-  obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
+  obtain ⟨_childBound, childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
       rcases inside with ⟨range, member, lo, hi⟩
@@ -8184,7 +8190,7 @@ private theorem writeSuccessLateByteListsFromSetup
       byteRange (args.stackPointer - 0x7d0 - 64) 64 address →
       writeSuccessFrameMemory args address := fun _ inside =>
     writeSuccessChildFrame64_mem_frame lower inside
-  obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
+  obtain ⟨_childBound, childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
       rcases inside with ⟨range, member, lo, hi⟩
@@ -8298,7 +8304,7 @@ private theorem writeSuccessLateByteListsSite
       byteRange (args.stackPointer - 0x7d0 - 64) 64 address →
       writeSuccessFrameMemory args address := fun _ inside =>
     writeSuccessChildFrame64_mem_frame lower inside
-  obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
+  obtain ⟨_childBound, childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
       rcases inside with ⟨range, member, lo, hi⟩
@@ -8987,8 +8993,8 @@ private theorem writeSuccessForkNameBooleanCallHandoff
     (next0 : Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = BitVec.ofNat 64 (pc + 4))
     (next1 : Sail.BitVec.addInt (BitVec.ofNat 64 (pc + 4)) 4 = BitVec.ofNat 64 (pc + 8))
     (returnListed : returnPc ∈ Elflings.writeSuccessBooleanExitPcs) :
-    ∃ childUsed after,
-      WriteSuccessEncoderChildHandoff Bool fromStep 3 childUsed 16 returnPc
+    ∃ childBound : Nat → Nat, ∃ childUsed after,
+      WriteSuccessEncoderChildHandoff Bool fromStep 3 childUsed 16 returnPc childBound
         (fun flag => #[if flag then 1 else 0]) value args before before after ∧
       after.machine.regs.get? x8 = before.machine.regs.get? x8 := by
   let valueBits : BitVec 64 := if value then 1 else 0
@@ -9103,7 +9109,7 @@ private theorem writeSuccessForkNameBooleanCallHandoff
     · exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges], lo, hi⟩
     · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
         by omega, by omega⟩
-  obtain ⟨_stepBound, implements⟩ := child
+  obtain ⟨stepBound, implements⟩ := child
   obtain ⟨childUsed, after, unit, positive, bounded, childTrace, exitPc, allowed,
       childExit⟩ := implements childArgs (fromStep + 3) callState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, _frameFits, childMemory,
@@ -9143,10 +9149,11 @@ private theorem writeSuccessForkNameBooleanCallHandoff
     (childFrame.1 x8 (by simp [abiCalleePreserved])).trans
       ((callWrites.get x8 (by simp [stepBookkeeping])).trans
         ((seg2.reg x8 x8Value (by simp)).trans x8Reg.symm))
-  exact ⟨childUsed, after, {
+  exact ⟨stepBound, childUsed, after, {
     trace := by
       have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
       simpa [Nat.add_assoc] using all
+    childBounded := by simpa [encoderCallContract, childArgs] using bounded
     atPc := by simpa [childArgs] using afterPc
     stack := by
       have preserved := childFrame.1 x2 (by simp [abiCalleePreserved])
@@ -9394,7 +9401,7 @@ private theorem writeSuccessForkNameBooleanHandoff
     values before atPc stack context saved access loaded aligned lower upper decodedAddress
   rcases branch.route with absent | present
   · obtain ⟨optionEq, branchPc, x8Reg⟩ := absent
-    obtain ⟨childUsed, after, boolean, _x8Preserved⟩ :=
+    obtain ⟨_childBound, childUsed, after, boolean, _x8Preserved⟩ :=
       writeSuccessForkNameBooleanCallHandoff child
       (fromStep + 2) 0x15994 0x159a0 0x15998 false 0 args branched branchPc branch.stack
       x8Reg branch.access branch.loaded lower upper writeSuccessForkNameAbsentBooleanStep
@@ -9447,7 +9454,7 @@ private theorem writeSuccessForkNameBooleanHandoff
           _ = before.stdout ++ #[0] := by rw [branch.stdout]⟩ }⟩
   · obtain ⟨bytes, address, optionEq, nonzero, branchPc, addressReg, pointerRep,
       countRep, _arrayRep⟩ := present
-    obtain ⟨childUsed, after, boolean, x8Preserved⟩ :=
+    obtain ⟨_childBound, childUsed, after, boolean, x8Preserved⟩ :=
       writeSuccessForkNameBooleanCallHandoff child
       (fromStep + 2) 0x15974 0x15980 0x15978 true (BitVec.ofNat 64 address) args branched
       branchPc branch.stack addressReg branch.access branch.loaded lower upper
@@ -10409,7 +10416,7 @@ private theorem writeSuccessLateOptionalHandoff
   have frameInWriter : ∀ address, byteRange (args.stackPointer - 0x7d0 - 16) 16 address →
       writeSuccessFrameMemory args address := fun _ inside =>
     writeSuccessChildFrame_mem_frame lower inside
-  obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
+  obtain ⟨_childBound, childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
       rcases inside with ⟨range, member, lo, hi⟩
@@ -11633,7 +11640,8 @@ private theorem writeSuccessBlockHashHandoff
     · simpa [pointerState] using
         seg1.reg x10 (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x634)) (by simp)
     · simpa [pointerState, seg1.memEq (by simp)] using loaded
-  obtain ⟨childUsed, after, childTrace, childExit⟩ := writeSuccessRawEncoderHandoff child
+  obtain ⟨_childBound, childUsed, after, _childBounded, childTrace, childExit⟩ :=
+    writeSuccessRawEncoderHandoff child
     (fun inside => by
       simpa [Elflings.writeSuccessRawLine147ExecutionPcRanges] using
         writeSuccessRawPc_in_writeSuccess inside (by omega) (by omega))
@@ -12243,7 +12251,8 @@ private theorem writeSuccessTransactionsHandoff
         intro index inBounds inside
         unfold setupMemory writeSuccessTransactionSetupMemory byteRange at inside
         rcases inside with inside | inside <;> omega), codeOfSeg seg4⟩
-  obtain ⟨childUsed, after, childTrace, childExit⟩ := writeSuccessInlineEncoderHandoff child
+  obtain ⟨_childBound, childUsed, after, _childBounded, childTrace, childExit⟩ :=
+    writeSuccessInlineEncoderHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
       rcases inside with ⟨range, member, rangeLower, rangeUpper⟩
@@ -12538,7 +12547,7 @@ private theorem writeSuccessRawTransactionsHandoff
       writeSuccessFrameMemory args address := by
     intro address inside
     exact writeSuccessChildFrame64_mem_frame lower inside
-  obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
+  obtain ⟨_childBound, childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
       rcases inside with ⟨range, member, lo, hi⟩
@@ -12763,7 +12772,8 @@ private theorem writeSuccessWithdrawalsHandoff
           rw [show childState.machine.mem = before.machine.mem by
             simpa [childState] using seg2.memEq (by simp)]
           exact withdrawalArrayRep⟩
-  obtain ⟨childUsed, after, childTrace, childExit⟩ := writeSuccessInlineEncoderHandoff child
+  obtain ⟨_childBound, childUsed, after, _childBounded, childTrace, childExit⟩ :=
+    writeSuccessInlineEncoderHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
       rcases inside with ⟨range, member, lo, hi⟩
@@ -13761,7 +13771,7 @@ private theorem writeSuccessOptionalHandoff
       writeSuccessFrameMemory args address := by
     intro address inside
     exact writeSuccessChildFrame_mem_frame lower inside
-  obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
+  obtain ⟨_childBound, childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
       rcases inside with ⟨range, member, lo, hi⟩
@@ -14005,7 +14015,7 @@ private theorem writeSuccessBlockAccessHandoff
       writeSuccessFrameMemory args address := by
     intro point inside
     exact writeSuccessChildFrame48_mem_frame lower inside
-  obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
+  obtain ⟨_childBound, childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
       rcases inside with ⟨range, member, lo, hi⟩
@@ -14464,7 +14474,8 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     · exact ⟨by simpa [childState, seg2.memEq (by simp)] using fullDecodedRep,
         by simpa [childState, seg2.memEq (by simp)] using fullCopyRep,
         by simpa [childState, seg2.memEq (by simp)] using loaded⟩
-  obtain ⟨childUsed, after, childTrace, childExit⟩ := writeSuccessInlineEncoderHandoff child
+  obtain ⟨_childBound, childUsed, after, _childBounded, childTrace, childExit⟩ :=
+    writeSuccessInlineEncoderHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
       rcases inside with ⟨range, member, lo, hi⟩
