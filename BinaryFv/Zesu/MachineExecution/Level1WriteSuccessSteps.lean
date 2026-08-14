@@ -4791,7 +4791,7 @@ set_option genInjectivity false in
 structure WriteSuccessEncoderChildHandoff (Value : Type)
     (fromStep parentUsed childUsed frameSize returnPc : Nat)
     (encode : Value → Array UInt8) (value : Value) (writerArgs : WriteSuccessArgs)
-    (before after : EndpointState) : Prop where
+    (before callState after : EndpointState) : Prop where
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges)
     fromStep (parentUsed + childUsed) before after
@@ -4805,6 +4805,7 @@ structure WriteSuccessEncoderChildHandoff (Value : Type)
   memory : WritesOnlyWithin
     (byteRange (writerArgs.stackPointer - 0x7d0 - frameSize) frameSize)
     before.machine after.machine
+  calleeX8 : after.machine.regs.get? x8 = callState.machine.regs.get? x8
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess writerArgs after.machine
 
@@ -4838,7 +4839,7 @@ private theorem writeSuccessEncoderChildHandoff
       writeSuccessFrameMemory writerArgs address) :
     ∃ childUsed after,
       WriteSuccessEncoderChildHandoff Value fromStep parentUsed childUsed frameSize returnPc
-        encode value writerArgs before after := by
+        encode value writerArgs before callState after := by
   obtain ⟨stepBound, implements⟩ := child
   obtain ⟨childUsed, after, unit, positive, bounded, childTrace, exitPc, allowed, childExit⟩ :=
     implements childArgs (fromStep + parentUsed) callState childEntry
@@ -4889,6 +4890,7 @@ private theorem writeSuccessEncoderChildHandoff
     cursor := by simpa [io.2.1] using cursor
     exitCode := by simpa [io.2.2.2] using exitCode
     memory := memory
+    calleeX8 := childFrame.1 x8 (by simp [abiCalleePreserved])
     loaded := loadedAfter
     access := accessAfter }⟩
 
@@ -8743,7 +8745,7 @@ private theorem writeSuccessForkNameBooleanCallHandoff
     (returnListed : returnPc ∈ Elflings.writeSuccessBooleanExitPcs) :
     ∃ childUsed after,
       WriteSuccessEncoderChildHandoff Bool fromStep 3 childUsed 16 returnPc
-        (fun flag => #[if flag then 1 else 0]) value args before after ∧
+        (fun flag => #[if flag then 1 else 0]) value args before before after ∧
       after.machine.regs.get? x8 = before.machine.regs.get? x8 := by
   let valueBits : BitVec 64 := if value then 1 else 0
   have seg0 : Seg writeSuccessParentPc (fun target => target = 0x15b9c)
@@ -8909,6 +8911,7 @@ private theorem writeSuccessForkNameBooleanCallHandoff
     cursor := by simpa [callState] using cursor
     exitCode := by simpa [callState] using exitCode
     memory := memory
+    calleeX8 := x8Preserved
     loaded := loadedAfter
     access := accessAfter }, x8Preserved⟩
 
