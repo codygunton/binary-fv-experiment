@@ -8324,6 +8324,294 @@ private theorem writeSuccessChainIdHandoff
     loaded := handoff.loaded
     access := handoff.access }⟩
 
+/-- Production `0x1596c: ld s0,0x48(sp)`, loading the optional fork-name pointer. -/
+private theorem writeSuccessForkNamePointerLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x1596c)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x48) address)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x1596c retired x8 (BitVec.ofNat 64 address)) false := by
+  exact writeSuccessLateSliceLoadStep stepNo 0x1596c 0x48 address (.Regidx 8#5) x8
+    (BitVec.ofNat 64 address) 0x03 0x34 0x81 0x04 args state access atPc stack rep
+    (by omega) (by omega) loaded (fun premise => wX_x8_run premise _) (by native_decide)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by native_decide) (by decide) (by decide) (by decide) (by decide)
+    (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+
+/-- Decode the pinned fork-name null test at `0x15970`. -/
+private theorem writeSuccessForkNameBranchDecode (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state) :
+    Runs (ext_decode (fetchWord 0x63#8 0x02#8 0x04#8 0x02#8))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.BTYPE (0x024, .Regidx 0#5, .Regidx 8#5, .BEQ)) := by
+  obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+    writeSuccessLoadDecodeReads configured
+  decode_run
+
+/-- Production `0x15970: beqz s0,0x15994`, on a present fork name. -/
+private theorem writeSuccessForkNamePresentBranchStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15970)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (condition : Runs (bTypeTaken (.Regidx 0#5) (.Regidx 8#5) .BEQ)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15970)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15970) false) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15970)
+        0x15974 retired) false := by
+  obtain ⟨retired, counters⟩ := configured.counters
+  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
+    configured.stepContext 0x15970 atPc trivial
+  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Artifacts.programImage
+    (tryStepControlFlowAfterIncrement state) 0x15970 (by native_decide) loadedAfter
+    0x63 0x02 0x04 0x02 (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide)
+  refine ⟨retired, tryStepBranchNotTakenRetires stepNo state 0x15970 retired 0x024
+    (.Regidx 0#5) (.Regidx 8#5) .BEQ 0 0 0x63 0x02 0x04 0x02 platform noMMIO bytes
+    interrupts (by rfl) (writeSuccessForkNameBranchDecode state configured) notExpected condition
+    counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1
+    counters.2.2.2.2.2⟩
+
+/-- Production `0x15970: beqz s0,0x15994`, on an absent fork name. -/
+private theorem writeSuccessForkNameAbsentBranchStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15970)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (condition : Runs (bTypeTaken (.Regidx 0#5) (.Regidx 8#5) .BEQ)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15970)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15970) true) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x15970 0x15994)
+        0x15994 retired) false := by
+  obtain ⟨retired, counters⟩ := configured.counters
+  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
+    configured.stepContext 0x15970 atPc trivial
+  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Artifacts.programImage
+    (tryStepControlFlowAfterIncrement state) 0x15970 (by native_decide) loadedAfter
+    0x63 0x02 0x04 0x02 (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide)
+  have pcRead : Runs (readReg PC)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15970)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15970) 0x15970 := by
+    apply readReg_run
+    simp [coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, atPc]
+  cases misaRead : state.regs.get? misa with
+  | none =>
+      have impossible := configured.normal.2.2.2.2.2.2.2.2.2.2.2
+      simp [misaRead] at impossible
+  | some misaBits =>
+      have zca := currentlyEnabledZca_run_atStepPremise state 0x15970 misaBits misaRead
+      refine ⟨retired, ?_⟩
+      simpa only [show (0x15970 : BitVec 64) + sign_extend (m := 64) (0x024 : BitVec 13) =
+          0x15994 by native_decide] using
+        (tryStepBranchTakenRetires stepNo state 0x15970 0x15970 retired 0x024
+          (.Regidx 0#5) (.Regidx 8#5) .BEQ 0 0 0x63 0x02 0x04 0x02
+          (_get_Misa_C misaBits == 1#1) platform noMMIO bytes interrupts (by rfl)
+          (writeSuccessForkNameBranchDecode state configured) notExpected condition pcRead
+          (by native_decide) (by native_decide) zca counters.1 counters.2.1 counters.2.2.1
+          counters.2.2.2.1 counters.2.2.2.2.1 counters.2.2.2.2.2)
+
+private theorem writeSuccessForkNameCondition (state : State) (value : BitVec 64)
+    (valueAt : state.regs.get? x8 = some value) :
+    Runs (bTypeTaken (.Regidx 0#5) (.Regidx 8#5) .BEQ) state state (value == 0) := by
+  unfold bTypeTaken
+  refine Runs.bind (rX_x8_run state value valueAt) ?_
+  refine Runs.bind (rX_x0_run state) ?_
+  rfl
+
+set_option genInjectivity false in
+/-- The exact fork-name pointer load and null branch, retaining the writer context. -/
+structure WriteSuccessForkNameBranchHandoff (fromStep : Nat) (args : WriteSuccessArgs)
+    (payloadBytes : Array UInt8) (values : DecodeCalleeSavedValues)
+    (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 2 before after
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  stdout : after.stdout = before.stdout
+  exitCode : after.exitCode = before.exitCode
+  saved : SavedWordReps after.machine (writeSuccessSavedWords args values)
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+  route :
+    (args.decoded.chainConfig.forkName = none ∧ EndpointPc after = some 0x15994) ∨
+    (∃ bytes address,
+      args.decoded.chainConfig.forkName = some bytes ∧ address ≠ 0 ∧
+      EndpointPc after = some 0x15974 ∧
+      after.machine.regs.get? x8 = some (BitVec.ofNat 64 address) ∧
+      UIntRep 8 after.machine.mem (args.stackPointer - 0x7d0 + 0x08) bytes.size ∧
+      ArrayRep 1 (fun mem address byte => UIntRep 1 mem address byte.toNat)
+        after.machine.mem address bytes)
+
+private theorem writeSuccessForkNameBranchHandoff
+    (fromStep : Nat) (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
+    (values : DecodeCalleeSavedValues) (before : EndpointState)
+    (atPc : EndpointPc before = some 0x1596c)
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args values))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
+    ∃ after, WriteSuccessForkNameBranchHandoff fromStep args payloadBytes values before after := by
+  have seg0 : Seg writeSuccessParentPc (fun pc => pc = 0x15994 ∨ pc = 0x15974)
+      (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
+      [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩]
+      fromStep 0 before.machine before.machine 0x1596c := {
+    trace := .refl _ _
+    confined := .nil
+    writes := .refl _ _
+    mem := fun _ _ => rfl
+    retired := access.configured.retiredCounter
+    atPc := atPc
+    regs := by intro pair member; simp at member; subst pair; exact stack }
+  cases optionEq : args.decoded.chainConfig.forkName with
+  | none =>
+      have pointerRep : UIntRep 8 before.machine.mem
+          (args.stackPointer - 0x7d0 + 0x48) 0 := by
+        simpa [WriteSuccessSeparatedOptionalByteSliceRep, optionEq] using context.forkNameRep
+      obtain ⟨retired0, run0⟩ := writeSuccessForkNamePointerLoadStep (address := 0)
+        fromStep args before.machine access atPc stack pointerRep aligned loaded
+      have seg1 := seg0.stepKnown
+        (by unfold writeSuccessParentPc; exact
+          ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+        (by simp) x8 0 0x15970 retired0 run0 (by native_decide)
+        (by intro r h; exact Or.inl h) (by simp [writeSuccessParentWrites])
+        (by native_decide) (by native_decide) (by simp [RegsOutside, stepBookkeeping])
+      have premiseX8 :
+          (coreControlFlowNextState
+            (tryStepControlFlowAfterIncrement
+              (afterRegisterWrite before.machine 0x1596c retired0 x8 0)) 0x15970).regs.get? x8 =
+            some 0 := by
+        simpa [coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+          Std.ExtDHashMap.get?_insert] using seg1.reg x8 0 (by simp)
+      have condition := writeSuccessForkNameCondition _ 0 premiseX8
+      obtain ⟨final, seg2⟩ := seg1.stepJump 0x15994
+        (by unfold writeSuccessParentPc; exact
+          ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+        (by simp)
+        (writeSuccessForkNameAbsentBranchStep (fromStep + 1) _
+          (writeSuccessAccessOfSeg access seg1).configured seg1.atPc
+          (by simpa [seg1.memEq (by simp)] using loaded) (by simpa using condition))
+        (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
+      let after : EndpointState := { before with machine := final }
+      have machineTrace := seg2.confined 0 final
+        (.exitAt (fromStep + 2) final 0x15994 seg2.atPc (Or.inl rfl))
+      have memEq : final.mem = before.machine.mem := seg2.memEq (by simp)
+      exact ⟨after, {
+        trace := by simpa [after] using liftWriteSuccessParentTrace before machineTrace
+        stack := by simpa [after] using seg2.reg x2 _ (by simp)
+        stdin := rfl
+        cursor := rfl
+        stdout := rfl
+        exitCode := rfl
+        saved := by
+          intro word member
+          exact (saved word member).of_writesOnlyWithin seg2.mem (by
+            intro _ _ inside
+            exact inside.elim)
+        payloadContext := by
+          apply writeSuccessPayloadContextAfterChild decodedAddress lower upper
+            access.writerRegionBeforeOutputContext context seg2.mem
+          all_goals simp
+        loaded := by simpa [after, memEq] using loaded
+        access := by simpa [after] using writeSuccessAccessOfSeg access seg2
+        route := Or.inl ⟨optionEq, by
+          change final.regs.get? PC = some 0x15994
+          exact seg2.atPc⟩ }⟩
+  | some bytes =>
+      have forkNameRep := context.forkNameRep
+      rw [optionEq] at forkNameRep
+      change ∃ data : Nat, data ≠ 0 ∧
+        UIntRep 8 before.machine.mem (args.stackPointer - 0x7d0 + 0x48) data ∧
+        UIntRep 8 before.machine.mem (args.stackPointer - 0x7d0 + 0x08) bytes.size ∧
+        ArrayRep 1 (fun mem address byte => UIntRep 1 mem address byte.toNat)
+          before.machine.mem data bytes at forkNameRep
+      obtain ⟨address, nonzero, pointerRep, countRep, arrayRep⟩ := forkNameRep
+      obtain ⟨retired0, run0⟩ := writeSuccessForkNamePointerLoadStep (address := address)
+        fromStep args before.machine access atPc stack pointerRep aligned loaded
+      have seg1 := seg0.stepKnown
+        (by unfold writeSuccessParentPc; exact
+          ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+        (by simp) x8 (BitVec.ofNat 64 address) 0x15970 retired0 run0 (by native_decide)
+        (by intro r h; exact Or.inl h) (by simp [writeSuccessParentWrites])
+        (by native_decide) (by native_decide) (by simp [RegsOutside, stepBookkeeping])
+      have addressBits : BitVec.ofNat 64 address ≠ 0 := by
+        intro zero
+        have addressBound : address < 2 ^ 64 := by
+          simpa using pointerRep.1
+        apply nonzero
+        have equalNat := congrArg BitVec.toNat zero
+        simpa [Nat.mod_eq_of_lt addressBound] using equalNat
+      have premiseX8 :
+          (coreControlFlowNextState
+            (tryStepControlFlowAfterIncrement
+              (afterRegisterWrite before.machine 0x1596c retired0 x8
+                (BitVec.ofNat 64 address))) 0x15970).regs.get? x8 =
+            some (BitVec.ofNat 64 address) := by
+        simpa [coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+          Std.ExtDHashMap.get?_insert] using
+            seg1.reg x8 (BitVec.ofNat 64 address) (by simp)
+      have condition := writeSuccessForkNameCondition _ (BitVec.ofNat 64 address) premiseX8
+      have conditionFalse : (BitVec.ofNat 64 address == 0) = false := by
+        exact beq_eq_false_iff_ne.mpr addressBits
+      rw [conditionFalse] at condition
+      obtain ⟨final, seg2⟩ := seg1.stepFallThrough 0x15974
+        (by unfold writeSuccessParentPc; exact
+          ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+        (by simp)
+        (writeSuccessForkNamePresentBranchStep (fromStep + 1) _
+          (writeSuccessAccessOfSeg access seg1).configured seg1.atPc
+          (by simpa [seg1.memEq (by simp)] using loaded) condition)
+        (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
+      let after : EndpointState := { before with machine := final }
+      have machineTrace := seg2.confined 0 final
+        (.exitAt (fromStep + 2) final 0x15974 seg2.atPc (Or.inr rfl))
+      have memEq : final.mem = before.machine.mem := seg2.memEq (by simp)
+      exact ⟨after, {
+        trace := by simpa [after] using liftWriteSuccessParentTrace before machineTrace
+        stack := by simpa [after] using seg2.reg x2 _ (by simp)
+        stdin := rfl
+        cursor := rfl
+        stdout := rfl
+        exitCode := rfl
+        saved := by
+          intro word member
+          exact (saved word member).of_writesOnlyWithin seg2.mem (by
+            intro _ _ inside
+            exact inside.elim)
+        payloadContext := by
+          apply writeSuccessPayloadContextAfterChild decodedAddress lower upper
+            access.writerRegionBeforeOutputContext context seg2.mem
+          all_goals simp
+        loaded := by simpa [after, memEq] using loaded
+        access := by simpa [after] using writeSuccessAccessOfSeg access seg2
+        route := Or.inr ⟨bytes, address, optionEq, nonzero,
+          by change final.regs.get? PC = some 0x15974; exact seg2.atPc,
+          by change final.regs.get? x8 = some (BitVec.ofNat 64 address)
+             exact seg2.reg x8 _ (by simp),
+          by simpa [after, memEq] using countRep,
+          by simpa [after, memEq] using arrayRep⟩ }⟩
+
 set_option genInjectivity false in
 /-- Exact parent setup plus the shared bytes child for payload extra data. -/
 structure WriteSuccessExtraDataHandoff
