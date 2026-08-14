@@ -2240,9 +2240,9 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
         change Artifacts.programImage.readFileByte?
           (args.stackPointer - 0x7d0 + 0x138 + index) = none
         exact access.frameNotCode _ (by omega) (by omega)
-  obtain ⟨memcpyBound, memcpyImpl⟩ := memcpyInstanceContract
   obtain ⟨used, after, unit, positive, bounded, childTrace, childExitPc, _allowed,
-    childExit⟩ := memcpyImpl memcpyArgs (fromStep + 20) callState memcpyEntry
+    childExit⟩ := MemcpyInstanceContract.implements memcpyInstanceContract memcpyArgs
+      (fromStep + 20) callState memcpyEntry
   have endTrace : ScopedTrace writeSuccessParentPc writeSuccessInitialExitPc
       (fun _ _ _ _ _ => False) (fromStep + 20) 0 callMachine callMachine :=
     .exitAt (fromStep + 20) callMachine 0x101d4 callAtPc (Or.inl rfl)
@@ -4522,9 +4522,9 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
         rw [bytesSize] at indexBound
         dsimp [memcpyArgs]
         exact access.frameNotCode _ (by omega) (by omega)
-  obtain ⟨memcpyBound, memcpyImpl⟩ := memcpyInstanceContract
   obtain ⟨memcpyUsed, childAfter, unit, positive, bounded, childTrace, childExitPc, _allowed,
-    childExit⟩ := memcpyImpl memcpyArgs (startStep + 5) callState memcpyEntry
+    childExit⟩ := MemcpyInstanceContract.implements memcpyInstanceContract memcpyArgs
+      (startStep + 5) callState memcpyEntry
   have callPrefix : ConfinedPrefix writeSuccessParentPc writeSuccessSecondMemcpyExitPc
       (fun _ _ _ _ _ => False) (startStep + 4) 1 setupMachine callMachine :=
     ConfinedPrefix.ownStep seg4.atPc

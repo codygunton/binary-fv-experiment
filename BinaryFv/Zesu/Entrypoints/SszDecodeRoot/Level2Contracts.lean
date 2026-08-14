@@ -466,6 +466,18 @@ def MemcpyInstanceContract : Prop :=
     (memcpyContract stepBound).Implements EndpointStep EndpointPc
       (pcInRanges Elflings.memcpyExecutionPcRanges) (pcInList Elflings.memcpyExitPcs)
 
+namespace MemcpyInstanceContract
+
+noncomputable def stepBound (contract : MemcpyInstanceContract) : Nat → Nat :=
+  Classical.choose contract
+
+theorem implements (contract : MemcpyInstanceContract) :
+    (memcpyContract contract.stepBound).Implements EndpointStep EndpointPc
+      (pcInRanges Elflings.memcpyExecutionPcRanges) (pcInList Elflings.memcpyExitPcs) :=
+  Classical.choose_spec contract
+
+end MemcpyInstanceContract
+
 /-- Registers that remain stable across an optimized encoder region inside `writeSuccess`. This is
 not an ABI set: the optimizer may use every integer register except the live stack pointer, while
 the Sail platform registers remain unchanged. -/
