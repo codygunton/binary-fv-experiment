@@ -260,4 +260,69 @@ private theorem optional_encode
       simpa [input, encodeOptional, encodeNatLE, Array.size_append, Nat.add_assoc] using
         optional_some_of_byte tag parsed
 
+private theorem take_fixed_encode (value : Array UInt8) (width : Nat)
+    (size : value.size = width) (pre suffix : Array UInt8) :
+    take (pre ++ (value ++ suffix)) width pre.size = some (value, pre.size + width) := by
+  simpa [size] using take_middle pre value suffix
+
+private theorem parseWithdrawal_of_reads {input : Array UInt8} {start p1 p2 p3 finish : Nat}
+    {index validator amount : Nat} {address : Array UInt8}
+    (indexRead : u64 input start = some (index, p1))
+    (validatorRead : u64 input p1 = some (validator, p2))
+    (addressRead : take input 20 p2 = some (address, p3))
+    (amountRead : u64 input p3 = some (amount, finish)) :
+    parseWithdrawal input start = some ({
+      index := index
+      validatorIndex := validator
+      address
+      amount }, finish) := by
+  change StateT.run ((do pure {
+    index := ← u64 input
+    validatorIndex := ← u64 input
+    address := ← take input 20
+    amount := ← u64 input }) : Parser Withdrawal) start = _
+  have indexRead' : StateT.run (u64 input) start = some (index, p1) := indexRead
+  have validatorRead' : StateT.run (u64 input) p1 = some (validator, p2) := validatorRead
+  have addressRead' : StateT.run (take input 20) p2 = some (address, p3) := addressRead
+  have amountRead' : StateT.run (u64 input) p3 = some (amount, finish) := amountRead
+  simp_all [StateT.run_bind]
+
+private theorem parseWithdrawal_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} :
+    ParserEncodes parseWithdrawal encodeWithdrawal (WithdrawalRep mem address) := by
+  intro value rep pre suffix
+  rcases rep with ⟨indexRep, validatorRep, amountRep, addressSize, _addressRep⟩
+  let input := pre ++ (encodeWithdrawal value ++ suffix)
+  have inputEq : input = pre ++ (encodeNatLE 8 value.index ++
+      (encodeNatLE 8 value.validatorIndex ++
+      (value.address ++ (encodeNatLE 8 value.amount ++ suffix)))) := by
+    simp [input, encodeWithdrawal, Array.append_assoc]
+  have indexRead : u64 input pre.size = some (value.index, pre.size + 8) := by
+    rw [inputEq]
+    exact u64_encodeNatLE value.index indexRep.1 pre
+      (encodeNatLE 8 value.validatorIndex ++
+        (value.address ++ (encodeNatLE 8 value.amount ++ suffix)))
+  have validatorRead : u64 input (pre.size + 8) =
+      some (value.validatorIndex, pre.size + 8 + 8) := by
+    rw [inputEq]
+    have read := u64_encodeNatLE value.validatorIndex validatorRep.1
+      (pre ++ encodeNatLE 8 value.index) (value.address ++ (encodeNatLE 8 value.amount ++ suffix))
+    simpa [Array.size_append, encodeNatLE_size, Nat.add_assoc] using read
+  have addressRead : take input 20 (pre.size + 8 + 8) =
+      some (value.address, pre.size + 8 + 8 + 20) := by
+    rw [inputEq]
+    have read := take_fixed_encode value.address 20 addressSize
+      (pre ++ encodeNatLE 8 value.index ++ encodeNatLE 8 value.validatorIndex)
+      (encodeNatLE 8 value.amount ++ suffix)
+    simpa [Array.size_append, encodeNatLE_size, Nat.add_assoc, Array.append_assoc] using read
+  have amountRead : u64 input (pre.size + 8 + 8 + 20) =
+      some (value.amount, pre.size + 8 + 8 + 20 + 8) := by
+    rw [inputEq]
+    have read := u64_encodeNatLE value.amount amountRep.1
+      (pre ++ encodeNatLE 8 value.index ++ encodeNatLE 8 value.validatorIndex ++ value.address)
+      suffix
+    simpa [Array.size_append, encodeNatLE_size, addressSize, Nat.add_assoc,
+      Array.append_assoc] using read
+  simpa [input, encodeWithdrawal, Array.size_append, encodeNatLE_size, addressSize,
+    Nat.add_assoc] using parseWithdrawal_of_reads indexRead validatorRead addressRead amountRead
+
 end BinaryFv.Zesu
