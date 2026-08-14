@@ -252,6 +252,7 @@ abbrev WriteSuccessParentBeaconRootInstanceContract : Prop :=
 structure EncoderCallArgs (Value : Type) where
   returnAddress : Nat
   callerStack : Nat
+  inputSize : Nat
   value : Value
 
 def EncoderCallEntry (entry : Nat) (exitPcs : List Nat) (bindValue : EndpointState → Value → Prop)
@@ -278,16 +279,16 @@ def EncoderCallExit (frameSize : Nat)
 
 def encoderCallContract (entry : Nat) (exitPcs : List Nat) (frameSize : Nat)
     (encode : Value → Array UInt8) (bindValue : EndpointState → Value → Prop)
-    (stepBound : Value → Nat) : RelationalMachineContract EndpointState (EncoderCallArgs Value) Unit :=
+    (stepBound : Nat → Nat) : RelationalMachineContract EndpointState (EncoderCallArgs Value) Unit :=
   { allows := fun _ _ => True
     entry := EncoderCallEntry entry exitPcs bindValue
     exit := EncoderCallExit frameSize encode
-    stepBound := fun args => stepBound args.value }
+    stepBound := fun args => stepBound args.inputSize }
 
 def EncoderCallInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRange)
     (exitPcs : List Nat) (frameSize : Nat) (encode : Value → Array UInt8)
     (bindValue : EndpointState → Value → Prop) : Prop :=
-  ∃ stepBound : Value → Nat,
+  ∃ stepBound : Nat → Nat,
     (encoderCallContract entry exitPcs frameSize encode bindValue stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
 
@@ -425,6 +426,7 @@ def inlineEncoderPreserved : Register → Prop := fun register =>
 
 structure InlineEncoderArgs (Value : Type) where
   stackPointer : Nat
+  inputSize : Nat
   value : Value
   savedWords : List (Nat × Nat)
   decodedAddress : Nat
@@ -490,16 +492,16 @@ def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
 
 def inlineEncoderContract (entry successPc : Nat)
     (encode : Value → Array UInt8) (bindValue : EndpointState → Value → Prop)
-    (stepBound : Value → Nat) : RelationalMachineContract EndpointState (InlineEncoderArgs Value) Unit :=
+    (stepBound : Nat → Nat) : RelationalMachineContract EndpointState (InlineEncoderArgs Value) Unit :=
   { allows := fun _ _ => True
     entry := InlineEncoderEntry entry bindValue
     exit := InlineEncoderExit successPc encode bindValue
-    stepBound := fun args => stepBound args.value }
+    stepBound := fun args => stepBound args.inputSize }
 
 def InlineEncoderInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRange)
     (exitPcs : List Nat) (successPc : Nat) (encode : Value → Array UInt8)
     (bindValue : EndpointState → Value → Prop) : Prop :=
-  ∃ stepBound : Value → Nat,
+  ∃ stepBound : Nat → Nat,
     (inlineEncoderContract entry successPc encode bindValue stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
 

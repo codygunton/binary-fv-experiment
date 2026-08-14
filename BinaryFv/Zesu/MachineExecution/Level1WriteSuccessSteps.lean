@@ -4849,6 +4849,7 @@ private theorem writeSuccessEncoderChildHandoff
     (argsEq : childArgs = {
       returnAddress := returnPc
       callerStack := writerArgs.stackPointer - 0x7d0
+      inputSize := writerArgs.inputSize
       value })
     (childEntry : EncoderCallEntry entry exitPcs bindValue childArgs callState)
     (parentTrace : ConfinedTrace EndpointStep EndpointPc
@@ -6373,6 +6374,7 @@ theorem writeSuccessFirstIntHandoff
   let childArgs : EncoderCallArgs Nat :=
     { returnAddress := 0x14e94
       callerStack := args.stackPointer - 0x7d0
+      inputSize := args.inputSize
       value := args.decoded.payload.blockNumber }
   have childEntry : EncoderCallEntry Elflings.writeSuccessIntEntry
       Elflings.writeSuccessIntExitPcs UInt64EncoderBinding childArgs callState := by
@@ -6686,6 +6688,27 @@ structure WriteSuccessPayloadContext (args : WriteSuccessArgs) (bytes : Array UI
     (args.stackPointer - 0x7d0 + 0x488) value
   localTailReps : WriteSuccessLocalTailReps args state
   linkedTailReps : WriteSuccessLinkedTailReps args state
+
+/-- Repackage the first integer handoff as the payload context consumed by every later encoder. -/
+private theorem WriteSuccessFirstIntHandoff.payloadContext
+    {fromStep prefixUsed parentHashUsed feeUsed stateUsed receiptsUsed logsUsed prevUsed intUsed : Nat}
+    {args : WriteSuccessArgs} {before after : EndpointState}
+    {values : DecodeCalleeSavedValues} {bytes : Array UInt8} {tailValues : Fin 16 → Nat}
+    (handoff : WriteSuccessFirstIntHandoff fromStep prefixUsed parentHashUsed feeUsed stateUsed
+      receiptsUsed logsUsed prevUsed intUsed args before after values bytes tailValues) :
+    WriteSuccessPayloadContext args bytes after := {
+  fullCopy := handoff.fullCopy
+  destinationRep := handoff.destinationRep
+  parentRootRep := handoff.parentRootRep
+  decodedBytesRep := handoff.decodedBytesRep
+  versionedHashesRelocation := handoff.versionedHashesRelocation
+  bytesSize := handoff.bytesSize
+  stable := handoff.stable
+  payloadRep := handoff.payloadRep
+  slotWord := handoff.slotWord
+  slotTagWord := handoff.slotTagWord
+  localTailReps := handoff.localTailReps
+  linkedTailReps := handoff.linkedTailReps }
 
 /-- The first 720-byte copy carries the five execution-request descriptors verbatim. -/
 private theorem WriteSuccessPayloadContext.executionRequestsRep
@@ -7186,6 +7209,7 @@ private theorem writeSuccessIntCallHandoff
   let childArgs : EncoderCallArgs Nat :=
     { returnAddress := returnPc
       callerStack := args.stackPointer - 0x7d0
+      inputSize := args.inputSize
       value }
   have childEntry : EncoderCallEntry Elflings.writeSuccessIntEntry
       Elflings.writeSuccessIntExitPcs UInt64EncoderBinding childArgs callState := by
@@ -7740,6 +7764,7 @@ private theorem writeSuccessLateBytesHandoff
   let childArgs : EncoderCallArgs BytesEncoderValue := {
     returnAddress := returnPc
     callerStack := args.stackPointer - 0x7d0
+    inputSize := args.inputSize
     value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessBytesEntry
       Elflings.writeSuccessBytesExitPcs BytesEncoderBinding childArgs callState := by
@@ -8142,6 +8167,7 @@ private theorem writeSuccessLateByteListsFromSetup
   let childArgs : EncoderCallArgs ByteListsEncoderValue := {
     returnAddress := returnPc
     callerStack := args.stackPointer - 0x7d0
+    inputSize := args.inputSize
     value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessByteListsEntry
       Elflings.writeSuccessByteListsExitPcs ByteListsEncoderBinding childArgs callState := by
@@ -8255,6 +8281,7 @@ private theorem writeSuccessLateByteListsSite
   let childArgs : EncoderCallArgs ByteListsEncoderValue := {
     returnAddress := returnPc
     callerStack := args.stackPointer - 0x7d0
+    inputSize := args.inputSize
     value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessByteListsEntry
       Elflings.writeSuccessByteListsExitPcs ByteListsEncoderBinding childArgs callState := by
@@ -9026,6 +9053,7 @@ private theorem writeSuccessForkNameBooleanCallHandoff
   let childArgs : EncoderCallArgs Bool := {
     returnAddress := returnPc
     callerStack := args.stackPointer - 0x7d0
+    inputSize := args.inputSize
     value }
   have childEntry : EncoderCallEntry Elflings.writeSuccessBooleanEntry
       Elflings.writeSuccessBooleanExitPcs BooleanEncoderBinding childArgs callState := by
@@ -10340,7 +10368,8 @@ private theorem writeSuccessLateOptionalHandoff
   let childValue : OptionalUInt64EncoderValue :=
     { address := args.stackPointer - 0x7d0 + descriptor, value }
   let childArgs : EncoderCallArgs OptionalUInt64EncoderValue :=
-    { returnAddress := returnPc, callerStack := args.stackPointer - 0x7d0, value := childValue }
+    { returnAddress := returnPc, callerStack := args.stackPointer - 0x7d0,
+      inputSize := args.inputSize, value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessOptionalU64Entry
       Elflings.writeSuccessOptionalU64ExitPcs OptionalUInt64EncoderBinding childArgs callState := by
     unfold EncoderCallEntry
@@ -11219,6 +11248,7 @@ private theorem writeSuccessExtraDataHandoff
   let childArgs : EncoderCallArgs BytesEncoderValue :=
     { returnAddress := 0x14ec8
       callerStack := args.stackPointer - 0x7d0
+      inputSize := args.inputSize
       value }
   have extraBytes : BytesRep before.machine.mem extraAddress
       args.decoded.payload.extraData := extraRep.byteSliceBytesRep
@@ -12151,6 +12181,7 @@ private theorem writeSuccessTransactionsHandoff
   obtain ⟨fullCopyBytes, fullCopySize, fullDecodedRep, fullCopyRep⟩ := context.fullCopy
   let childArgs : InlineEncoderArgs (InlineArrayEncoderValue Transaction) :=
     { stackPointer := args.stackPointer - 0x7d0
+      inputSize := args.inputSize
       value := ⟨transactionAddress, args.decoded.payload.transactions⟩
       savedWords := writeSuccessSavedWords args values ++ writeSuccessLocalTailWords args tailValues
       decodedAddress := args.decodedAddress
@@ -12467,6 +12498,7 @@ private theorem writeSuccessRawTransactionsHandoff
   let childArgs : EncoderCallArgs ByteListsEncoderValue :=
     { returnAddress := 0x15678
       callerStack := args.stackPointer - 0x7d0
+      inputSize := args.inputSize
       value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessByteListsEntry
       Elflings.writeSuccessByteListsExitPcs ByteListsEncoderBinding childArgs callState := by
@@ -12674,6 +12706,7 @@ private theorem writeSuccessWithdrawalsHandoff
   obtain ⟨fullCopyBytes, fullCopySize, fullDecodedRep, fullCopyRep⟩ := context.fullCopy
   let childArgs : InlineEncoderArgs (InlineArrayEncoderValue Withdrawal) :=
     { stackPointer := args.stackPointer - 0x7d0
+      inputSize := args.inputSize
       value := ⟨withdrawalAddress, args.decoded.payload.withdrawals⟩
       savedWords := writeSuccessSavedWords args values ++ writeSuccessLocalTailWords args tailValues
       decodedAddress := args.decodedAddress
@@ -13676,6 +13709,7 @@ private theorem writeSuccessOptionalHandoff
   let childArgs : EncoderCallArgs OptionalUInt64EncoderValue :=
     { returnAddress := 0x1571c
       callerStack := args.stackPointer - 0x7d0
+      inputSize := args.inputSize
       value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessOptionalU64Entry
       Elflings.writeSuccessOptionalU64ExitPcs OptionalUInt64EncoderBinding childArgs callState := by
@@ -13931,6 +13965,7 @@ private theorem writeSuccessBlockAccessHandoff
   let childArgs : EncoderCallArgs BytesEncoderValue :=
     { returnAddress := 0x1572c
       callerStack := args.stackPointer - 0x7d0
+      inputSize := args.inputSize
       value }
   have childEntry : EncoderCallEntry Elflings.writeSuccessBytesEntry
       Elflings.writeSuccessBytesExitPcs BytesEncoderBinding childArgs callState := by
@@ -14391,6 +14426,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
   obtain ⟨fullCopyBytes, fullCopySize, fullDecodedRep, fullCopyRep⟩ := context.fullCopy
   let childArgs : InlineEncoderArgs (InlineArrayEncoderValue (Array UInt8)) := {
     stackPointer := args.stackPointer - 0x7d0
+    inputSize := args.inputSize
     value := ⟨hashAddress, args.decoded.versionedHashes⟩
     savedWords := writeSuccessSavedWords args values ++ writeSuccessLocalTailWords args tailValues
     decodedAddress := args.decodedAddress
