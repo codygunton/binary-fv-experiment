@@ -6601,6 +6601,20 @@ private theorem WriteSuccessPayloadContext.witnessHeadersRep
   · simpa [writeSuccessLocalTailWords, countEq] using
       local (args.stackPointer - 0x7d0 + 0x30, values ⟨5, by omega⟩) (by simp)
 
+/-- The linked tail store at `sp+0x40` is the semantic chain ID. -/
+private theorem WriteSuccessPayloadContext.chainIdRep
+    {args : WriteSuccessArgs} {bytes : Array UInt8} {state : EndpointState}
+    (context : WriteSuccessPayloadContext args bytes state) :
+    UIntRep 8 state.machine.mem (args.stackPointer - 0x7d0 + 0x40)
+      args.decoded.chainConfig.chainId := by
+  have decoded := context.stable state.machine.mem (fun _ _ => rfl)
+  have semantic := decoded.2.2.2.2.2.2.2.2.2.1.1
+  obtain ⟨values, local, source⟩ := context.linkedTailReps
+  have valueEq : values ⟨6, by omega⟩ = args.decoded.chainConfig.chainId :=
+    WriteSuccessLinkedTailReps.value_eq ⟨local, source⟩ (by omega) semantic
+  simpa [writeSuccessLocalTailWords, valueEq] using
+    local (args.stackPointer - 0x7d0 + 0x40, values ⟨6, by omega⟩) (by simp)
+
 /-- Transport copied payload semantics through one exact child frame inside the writer frame. -/
 private theorem writeSuccessPayloadContextAfterChild
     {args : WriteSuccessArgs} {bytes : Array UInt8} {before after : EndpointState}
@@ -7857,6 +7871,113 @@ private theorem writeSuccessWitnessListsHandoff
     simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
       t2.append (by simpa [Nat.add_assoc] using h3.trace)
   · rw [h3.stdout, h2.stdout, h1.stdout]
+
+/-- Production `0x15960: ld a0,0x40(sp)`, loading the linked chain ID. -/
+private theorem writeSuccessChainIdLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x15960)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x40)
+      args.decoded.chainConfig.chainId)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15960 retired x10
+        (BitVec.ofNat 64 args.decoded.chainConfig.chainId)) false := by
+  exact writeSuccessLateSliceLoadStep stepNo 0x15960 0x40 args.decoded.chainConfig.chainId
+    (.Regidx 10#5) x10 0x03 0x35 0x01 0x04 args state access atPc stack rep aligned loaded
+    (fun premise => wX_x10_run premise _)
+
+/-- Production `0x15964: auipc ra,0`. -/
+private theorem writeSuccessChainIdCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15964)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15964 retired x1 0x15964) false :=
+  writeSuccessLateSliceCallBaseStep stepNo 0x15964 state configured atPc loaded
+
+/-- Production `0x15968: jalr ra,0x3ac(ra)`, entering the shared integer encoder. -/
+private theorem writeSuccessChainIdCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15968)
+    (base : state.regs.get? x1 = some 0x15964)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x15968 0x15d10 x1 0x1596c)
+        0x15d10 retired) false :=
+  writeSuccessLateSliceCallStep stepNo 0x15968 0x15d10 0x1596c 0x3ac
+    0xe7 0x80 0xc0 0x3a state configured atPc base loaded (by native_decide) (by native_decide)
+
+set_option genInjectivity false in
+/-- Chain ID encoded through the exact `0x15960..0x15968` parent sequence. -/
+structure WriteSuccessChainIdHandoff
+    (fromStep childUsed : Nat) (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
+    (savedValues : DecodeCalleeSavedValues) (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc
+    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (3 + childUsed) before after
+  atPc : EndpointPc after = some 0x1596c
+  stack : after.machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.stackPointer - 0x7d0))
+  stdout : after.stdout = before.stdout ++ encodeNatLE 8 args.decoded.chainConfig.chainId
+  stdin : after.stdin = before.stdin
+  cursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  saved : SavedWordReps after.machine (writeSuccessSavedWords args savedValues)
+  payloadContext : WriteSuccessPayloadContext args payloadBytes after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
+  access : WriteSuccessMachineAccess args after.machine
+
+private theorem writeSuccessChainIdHandoff
+    (child : WriteSuccessIntInstanceContract) (fromStep : Nat) (args : WriteSuccessArgs)
+    (payloadBytes : Array UInt8) (savedValues : DecodeCalleeSavedValues)
+    (before : EndpointState) (atPc : before.machine.regs.get? PC = some 0x15960)
+    (stack : before.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (context : WriteSuccessPayloadContext args payloadBytes before)
+    (saved : SavedWordReps before.machine (writeSuccessSavedWords args savedValues))
+    (access : WriteSuccessMachineAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (aligned : args.stackPointer % 16 = 0) (lower : 0x880 ≤ args.stackPointer)
+    (upper : args.stackPointer < 2 ^ 64)
+    (decodedAddress : args.decodedAddress = args.stackPointer + 0x20) :
+    ∃ childUsed after,
+      WriteSuccessChainIdHandoff fromStep childUsed args payloadBytes savedValues before after := by
+  obtain ⟨childUsed, after, handoff⟩ := writeSuccessIntCallHandoff child fromStep
+    0x15960 0x1596c 0x40 args.decoded.chainConfig.chainId 0x15d10 args before atPc stack
+    context.chainIdRep access loaded aligned lower upper
+    (fun step state => writeSuccessChainIdLoadStep step args state)
+    writeSuccessChainIdCallBaseStep writeSuccessChainIdCallStep
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by unfold writeSuccessParentPc; exact
+      ⟨(0x158e0, 0x15a14), by native_decide, by native_decide, by native_decide⟩)
+    (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide) (by native_decide) (by native_decide)
+  have payloadAfter := writeSuccessPayloadContextAfterInt decodedAddress lower upper context handoff
+  have savedAfter : SavedWordReps after.machine (writeSuccessSavedWords args savedValues) := by
+    intro word member
+    exact (saved word member).of_writesOnlyWithin handoff.memory (by
+      intro index inBounds inside
+      unfold byteRange at inside
+      simp [writeSuccessSavedWords] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl <;> omega)
+  exact ⟨childUsed, after, {
+    trace := handoff.trace
+    atPc := handoff.atPc
+    stack := handoff.stack
+    stdout := handoff.stdout
+    stdin := handoff.stdin
+    cursor := handoff.cursor
+    exitCode := handoff.exitCode
+    saved := savedAfter
+    payloadContext := payloadAfter
+    loaded := handoff.loaded
+    access := handoff.access }⟩
 
 set_option genInjectivity false in
 /-- Exact parent setup plus the shared bytes child for payload extra data. -/
