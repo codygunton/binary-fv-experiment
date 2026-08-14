@@ -9437,6 +9437,74 @@ private theorem writeSuccessForkNamePresentBytesHandoff
     bytes values before callState setup arrayRep.byteSliceBytesRep context saved lower upper
     decodedAddress (by native_decide)
 
+/-- Production loads at `0x159a0/0x159a4`, retaining the public-key pointer and active-fork index. -/
+private theorem writeSuccessPublicKeysPointerLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x159a0)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x60) address)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x159a0 retired x8 (BitVec.ofNat 64 address)) false := by
+  exact writeSuccessLateSliceLoadStep stepNo 0x159a0 0x60 address (.Regidx 8#5) x8
+    (BitVec.ofNat 64 address) 0x03 0x34 0x01 0x06 args state access atPc stack rep
+    (by omega) (by omega) loaded (fun premise => wX_x8_run premise _) (by native_decide)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by native_decide) (by decide) (by decide) (by decide) (by decide)
+    (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+
+private theorem writeSuccessActiveForkLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
+    (state : State) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x159a4)
+    (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x50)
+      args.decoded.chainConfig.activeForkIndex)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x159a4 retired x10
+        (BitVec.ofNat 64 args.decoded.chainConfig.activeForkIndex)) false := by
+  exact writeSuccessLateSliceLoadStep stepNo 0x159a4 0x50
+    args.decoded.chainConfig.activeForkIndex (.Regidx 10#5) x10
+    (BitVec.ofNat 64 args.decoded.chainConfig.activeForkIndex)
+    0x03 0x35 0x01 0x05 args state access atPc stack rep (by omega) (by omega) loaded
+    (fun premise => wX_x10_run premise _) (by native_decide)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by native_decide) (by decide) (by decide) (by decide) (by decide)
+    (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+
+private theorem writeSuccessActiveForkCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x159a8)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x159a8 retired x1 0x159a8) false :=
+  writeSuccessLateSliceCallBaseStep stepNo 0x159a8 state configured atPc loaded
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured; decode_run)
+
+private theorem writeSuccessActiveForkCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x159ac)
+    (base : state.regs.get? x1 = some 0x159a8)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x159ac 0x15d10 x1 0x159b0)
+        0x15d10 retired) false :=
+  writeSuccessLateSliceCallStep stepNo 0x159ac 0x15d10 0x159b0 0x368
+    0xe7 0x80 0x80 0x36 state configured atPc base loaded (by native_decide)
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide) (by native_decide) (by rfl)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured; decode_run)
+    (by native_decide) (by native_decide) (by native_decide)
+
 set_option genInjectivity false in
 /-- Both fork-name routes reconverged at `0x159a0`. -/
 structure WriteSuccessForkNameHandoff
@@ -9995,6 +10063,7 @@ private theorem writeSuccessPostBlockNumberHandoff
     (by unfold writeSuccessIntCallExitPc; native_decide)
     (by unfold writeSuccessIntCallExitPc; native_decide)
     (by native_decide) (by native_decide) (by native_decide)
+
   have payloadAfter := writeSuccessPayloadContextAfterInt decodedAddress lower upper extra.payload
     baseFee
   have threeMemory : WritesOnlyWithin
