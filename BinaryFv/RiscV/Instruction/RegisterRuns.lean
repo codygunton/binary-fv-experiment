@@ -101,9 +101,14 @@ gen_wx_run 16 ↦ x16, wX_x16_run
 gen_wx_run 17 ↦ x17, wX_x17_run
 gen_wx_run 18 ↦ x18, wX_x18_run
 gen_wx_run 19 ↦ x19, wX_x19_run
+gen_wx_run 20 ↦ x20, wX_x20_run
 gen_wx_run 21 ↦ x21, wX_x21_run
 gen_wx_run 22 ↦ x22, wX_x22_run
 gen_wx_run 23 ↦ x23, wX_x23_run
+gen_wx_run 24 ↦ x24, wX_x24_run
+gen_wx_run 25 ↦ x25, wX_x25_run
+gen_wx_run 26 ↦ x26, wX_x26_run
+gen_wx_run 27 ↦ x27, wX_x27_run
 gen_wx_run 28 ↦ x28, wX_x28_run
 gen_wx_run 29 ↦ x29, wX_x29_run
 gen_wx_run 30 ↦ x30, wX_x30_run

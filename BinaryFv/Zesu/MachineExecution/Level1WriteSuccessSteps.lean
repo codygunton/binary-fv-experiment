@@ -9766,6 +9766,55 @@ private theorem writeSuccessPublicKeysCallStep (stepNo : Nat) (state : State)
       writeSuccessLoadDecodeReads configured; decode_run)
     (by native_decide) (by native_decide) (by native_decide)
 
+macro "writeSuccessRestoreStep(" name:ident ";" pc:term "," offset:term ","
+    rd:term "," destination:term "," wrun:term ";"
+    b0:term "," b1:term "," b2:term "," b3:term ")" : command =>
+  `(private theorem $name (stepNo : Nat) (args : WriteSuccessArgs) (state : State)
+      (value : Nat) (access : WriteSuccessMachineAccess args state)
+      (atPc : state.regs.get? PC = some (BitVec.ofNat 64 $pc))
+      (stack : state.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+      (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + $offset) value)
+      (aligned : args.stackPointer % 16 = 0)
+      (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+      ∃ retired, Runs (try_step stepNo false) state
+        (afterRegisterWrite state $pc retired $destination (BitVec.ofNat 64 value)) false := by
+      exact writeSuccessLateSliceLoadStep stepNo $pc $offset value $rd $destination
+        (BitVec.ofNat 64 value) $b0 $b1 $b2 $b3 args state access atPc stack rep
+        (by omega) (by omega) loaded
+        (fun premise => $wrun premise (BitVec.ofNat 64 value))
+        (by native_decide)
+        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads access.configured; decode_run)
+        (by native_decide) (by decide) (by decide) (by decide) (by decide)
+        (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide))
+
+writeSuccessRestoreStep(writeSuccessRestoreRaStep;
+  0x159d8, 0x7c8, .Regidx 1#5, x1, wX_x1_run; 0x83, 0x30, 0x81, 0x7c)
+writeSuccessRestoreStep(writeSuccessRestoreS0Step;
+  0x159dc, 0x7c0, .Regidx 8#5, x8, wX_x8_run; 0x03, 0x34, 0x01, 0x7c)
+writeSuccessRestoreStep(writeSuccessRestoreS1Step;
+  0x159e0, 0x7b8, .Regidx 9#5, x9, wX_x9_run; 0x83, 0x34, 0x81, 0x7b)
+writeSuccessRestoreStep(writeSuccessRestoreS2Step;
+  0x159e4, 0x7b0, .Regidx 18#5, x18, wX_x18_run; 0x03, 0x39, 0x01, 0x7b)
+writeSuccessRestoreStep(writeSuccessRestoreS3Step;
+  0x159e8, 0x7a8, .Regidx 19#5, x19, wX_x19_run; 0x83, 0x39, 0x81, 0x7a)
+writeSuccessRestoreStep(writeSuccessRestoreS4Step;
+  0x159ec, 0x7a0, .Regidx 20#5, x20, wX_x20_run; 0x03, 0x3a, 0x01, 0x7a)
+writeSuccessRestoreStep(writeSuccessRestoreS5Step;
+  0x159f0, 0x798, .Regidx 21#5, x21, wX_x21_run; 0x83, 0x3a, 0x81, 0x79)
+writeSuccessRestoreStep(writeSuccessRestoreS6Step;
+  0x159f4, 0x790, .Regidx 22#5, x22, wX_x22_run; 0x03, 0x3b, 0x01, 0x79)
+writeSuccessRestoreStep(writeSuccessRestoreS7Step;
+  0x159f8, 0x788, .Regidx 23#5, x23, wX_x23_run; 0x83, 0x3b, 0x81, 0x78)
+writeSuccessRestoreStep(writeSuccessRestoreS8Step;
+  0x159fc, 0x780, .Regidx 24#5, x24, wX_x24_run; 0x03, 0x3c, 0x01, 0x78)
+writeSuccessRestoreStep(writeSuccessRestoreS9Step;
+  0x15a00, 0x778, .Regidx 25#5, x25, wX_x25_run; 0x83, 0x3c, 0x81, 0x77)
+writeSuccessRestoreStep(writeSuccessRestoreS10Step;
+  0x15a04, 0x770, .Regidx 26#5, x26, wX_x26_run; 0x03, 0x3d, 0x01, 0x77)
+writeSuccessRestoreStep(writeSuccessRestoreS11Step;
+  0x15a08, 0x768, .Regidx 27#5, x27, wX_x27_run; 0x83, 0x3d, 0x81, 0x76)
+
 set_option genInjectivity false in
 /-- Both fork-name routes reconverged at `0x159a0`. -/
 structure WriteSuccessForkNameHandoff
