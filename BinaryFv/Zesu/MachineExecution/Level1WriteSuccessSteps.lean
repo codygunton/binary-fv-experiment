@@ -8573,6 +8573,113 @@ private theorem writeSuccessForkNameAbsentBooleanCallStep (stepNo : Nat) (state 
   · native_decide
   · native_decide
 
+/-- Production `0x15980: mv a0,s0` on the present fork-name route. -/
+private theorem writeSuccessForkNameBytesAddressStep (stepNo : Nat) (state : State)
+    (address : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15980)
+    (source : state.regs.get? x8 = some (BitVec.ofNat 64 address))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15980 retired x10 (BitVec.ofNat 64 address)) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15980
+  have source' := (stepPremiseState_writes state 0x15980).get x8 (by decide) |>.trans source
+  have resultEq : iTypeResult .ADDI 0 (BitVec.ofNat 64 address) =
+      BitVec.ofNat 64 address := by
+    simp [iTypeResult, show sign_extend (m := 64) (0#12) = 0#64 by native_decide]
+  have execute : Runs (execute (.ITYPE (0, .Regidx 8#5, .Regidx 10#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x10 (BitVec.ofNat 64 address) }
+      (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0 (.Regidx 8#5) (.Regidx 10#5) .ADDI) _ _ _
+    simpa only [resultEq] using execute_ITYPE_run premise _ 0 (.Regidx 8#5)
+      (.Regidx 10#5) .ADDI (BitVec.ofNat 64 address)
+      (rX_x8_run premise (BitVec.ofNat 64 address) source')
+      (wX_x10_run premise (iTypeResult .ADDI 0 (BitVec.ofNat 64 address)))
+  exact configuredRegisterWriteStep stepNo 0x15980 state x10 (BitVec.ofNat 64 address)
+    (.ITYPE (0, .Regidx 8#5, .Regidx 10#5, .ADDI)) 0x13 0x05 0x04 0x00
+    configured atPc loaded (by
+      obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+        writeSuccessLoadDecodeReads configured
+      decode_run) execute (base := by rfl)
+
+/-- Production `0x15984: ld a1,8(sp)` on the present fork-name route. -/
+private theorem writeSuccessForkNameBytesLengthStep (stepNo : Nat) (state : State)
+    (args : WriteSuccessArgs) (length : Nat) (access : WriteSuccessMachineAccess args state)
+    (atPc : state.regs.get? PC = some 0x15984)
+    (stack : state.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (rep : UIntRep 8 state.mem (args.stackPointer - 0x7d0 + 0x08) length)
+    (aligned : args.stackPointer % 16 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15984 retired x11 (BitVec.ofNat 64 length)) false := by
+  exact writeSuccessLateSliceLoadStep stepNo 0x15984 0x08 length (.Regidx 11#5) x11
+    (BitVec.ofNat 64 length) 0x83 0x35 0x81 0x00 args state access atPc stack rep
+    (by omega) (by omega) loaded (fun premise => wX_x11_run premise _)
+    (by native_decide)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by native_decide) (by decide) (by decide) (by decide) (by decide)
+    (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+
+/-- Production `0x15988: auipc ra,0` before the fork-name bytes child. -/
+private theorem writeSuccessForkNameBytesCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15988)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15988 retired x1 0x15988) false := by
+  apply writeSuccessLateSliceCallBaseStep stepNo 0x15988 state configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+
+/-- Production `0x1598c: jalr 0x2e4(ra)` into the fork-name bytes child. -/
+private theorem writeSuccessForkNameBytesCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x1598c)
+    (base : state.regs.get? x1 = some 0x15988)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x1598c 0x15c6c x1 0x15990)
+        0x15c6c retired) false := by
+  apply writeSuccessLateSliceCallStep stepNo 0x1598c 0x15c6c 0x15990 0x2e4
+    0xe7 0x80 0x40 0x2e state configured atPc base loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
+/-- Production `0x15990: j 0x159a0`, reconverging after the fork-name bytes child. -/
+private theorem writeSuccessForkNameJoinStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15990)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x15990 0x159a0)
+        0x159a0 retired) false := by
+  apply configuredJStep stepNo 0x15990 0x159a0 state 0x10
+    0x6f 0x00 0x00 0x01 configured atPc loaded (base := by rfl)
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
 /-- Compose either three-instruction fork-name boolean call with the selected shared child. -/
 private theorem writeSuccessForkNameBooleanCallHandoff
     (child : WriteSuccessBooleanInstanceContract) (fromStep pc returnPc callBase : Nat)
