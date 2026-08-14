@@ -6522,8 +6522,12 @@ structure WriteSuccessIntCallHandoff
   exitCode : after.exitCode = before.exitCode
   memory : WritesOnlyWithin
     (byteRange (args.stackPointer - 0x7d0 - 16) 16) before.machine after.machine
+  x8 : after.machine.regs.get? x8 = before.machine.regs.get? x8
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
   access : WriteSuccessMachineAccess args after.machine
+
+private def writeSuccessIntParentWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x1 ∨ register = x10
 
 set_option genInjectivity false in
 /-- Payload bytes and semantics retained while shared encoder calls use their child stack frames. -/
@@ -6982,7 +6986,7 @@ private theorem writeSuccessIntCallHandoff
     ∃ childUsed after,
       WriteSuccessIntCallHandoff fromStep childUsed returnPc value args before after := by
   have seg0 : Seg writeSuccessParentPc writeSuccessIntCallExitPc
-      (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
+      (fun _ _ _ _ _ => False) writeSuccessIntParentWrites (fun _ => False)
       [⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩]
       fromStep 0 before.machine before.machine (BitVec.ofNat 64 pc) := {
     trace := .refl _ _
@@ -6995,9 +6999,14 @@ private theorem writeSuccessIntCallHandoff
   obtain ⟨retired0, run0⟩ := loadStep _ before.machine access atPc stack rep aligned loaded
   have seg1 := seg0.stepKnown owned0 notExit0 x10 (BitVec.ofNat 64 value)
     (BitVec.ofNat 64 (pc + 4)) retired0 run0 next0 (by intro r h; exact Or.inl h)
-    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [writeSuccessIntParentWrites]) (by native_decide) (by native_decide)
     (by simp [RegsOutside, stepBookkeeping])
-  have access1 := writeSuccessAccessOfSeg access seg1
+  have access1 := writeSuccessAccessOfSeg access (seg1.widenWrites (by
+    intro register written
+    rcases written with bookkeeping | rfl | rfl
+    · exact Or.inl bookkeeping
+    · exact Or.inr (Or.inl rfl)
+    · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))
   have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully
       (afterRegisterWrite before.machine pc retired0 x10 (BitVec.ofNat 64 value)).mem := by
     simpa [seg1.memEq (by simp)] using loaded
@@ -7005,9 +7014,14 @@ private theorem writeSuccessIntCallHandoff
     (BitVec.ofNat 64 callBase) (BitVec.ofNat 64 (pc + 8))
     (baseStep _ _ access1.configured seg1.atPc loaded1)
     next1 (by intro r h; exact Or.inl h)
-    (by simp [writeSuccessParentWrites]) (by native_decide) (by native_decide)
+    (by simp [writeSuccessIntParentWrites]) (by native_decide) (by native_decide)
     (by simp [RegsOutside, stepBookkeeping])
-  have access2 := writeSuccessAccessOfSeg access seg2
+  have access2 := writeSuccessAccessOfSeg access (seg2.widenWrites (by
+    intro register written
+    rcases written with bookkeeping | rfl | rfl
+    · exact Or.inl bookkeeping
+    · exact Or.inr (Or.inl rfl)
+    · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))
   have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully baseMachine.mem := by
     simpa [seg2.memEq (by simp)] using loaded
   obtain ⟨retired2, callRun⟩ := callStep _ baseMachine access2.configured seg2.atPc
@@ -7132,6 +7146,9 @@ private theorem writeSuccessIntCallHandoff
     cursor := by simpa [callState] using cursor
     exitCode := by simpa [callState] using exitCode
     memory := exactMemory
+    x8 := (childFrame.1 x8 (by simp [abiCalleePreserved])).trans
+      ((callWrites.get x8 (by simp [stepBookkeeping])).trans
+        (seg2.writes.get x8 (by simp [writeSuccessIntParentWrites])))
     loaded := loadedAfter
     access := accessAfter }⟩
   have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
