@@ -1,6 +1,7 @@
 import BinaryFv.Zesu.MachineExecution.Level1DecodeInputSteps
 import BinaryFv.Zesu.MachineExecution.Level2RuntimeLeaves
 import BinaryFv.Zesu.MachineExecution.MemcpyProof
+import BinaryFv.Zesu.DecodedValue.CodecRoundtrip
 
 /-!
 # Parent-owned `writeSuccess` steps
@@ -15499,4 +15500,11 @@ private theorem writeSuccessEncodedHandoff
     memory := by simpa [after] using fullMemory }⟩
   rw [show after.stdout = lateAfter.stdout by rfl, late.stdout, early.stdout,
     writeSuccessLateRawOutput_eq, Array.append_assoc, writeSuccessEncoding_eq]
+
+/-- Resolve the selected Level-2 encoder contracts into the complete Level-1 success-writer
+contract. The remaining proof packages the completed machine handoff with the codec inverse,
+aggregate endpoint call frame, and input-indexed step bound. -/
+theorem writeSuccessInstanceContract_of_level2
+    (hLevel2 : Level2ContractAssumptions) : WriteSuccessInstanceContract := by
+  sorry
 end BinaryFv.Zesu.MachineExecution

@@ -469,4 +469,32 @@ private theorem parseAccessListEntry_encode {mem : Std.ExtHashMap Nat (BitVec 8)
   simpa [input, encodeAccessListEntry, Array.size_append, addressSize, Nat.add_assoc] using
     parseAccessListEntry_of_reads addressRead keysRead
 
+private theorem parseTransaction_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} :
+    ParserEncodes parseTransaction encodeTransaction (TransactionRep mem address) := by
+  sorry
+
+private theorem parsePayload_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} :
+    ParserEncodes parsePayload encodePayload (ExecutionPayloadRep mem address) := by
+  sorry
+
+private theorem parseRequests_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} :
+    ParserEncodes parseRequests encodeRequests (ExecutionRequestsRep mem address) := by
+  sorry
+
+private theorem parseChainConfig_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} :
+    ParserEncodes parseChainConfig encodeChainConfig (ChainConfigRep mem address) := by
+  sorry
+
+private theorem parseSuccess_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} :
+    ParserEncodes parseSuccess encodeZesuDecodedResult (StatelessInputRep mem address) := by
+  sorry
+
+/-- The endpoint observation parser accepts the exact successful stream emitted from any represented
+decoded value. -/
+theorem decodeZesuObservation_encode_success_of_rep
+    {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} {decoded : ZesuDecodedResult}
+    (rep : StatelessInputRep mem address decoded) :
+    decodeZesuObservation (encodeZesuObservation (.success decoded)) = some (.success decoded) := by
+  sorry
+
 end BinaryFv.Zesu
