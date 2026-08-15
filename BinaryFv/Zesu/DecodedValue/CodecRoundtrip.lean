@@ -309,6 +309,29 @@ private theorem OptionalByteSliceRep.value_fits {address : Nat}
       subst item'
       exact rep.choose_spec.2.2.1.1
 
+private theorem UIntRep.fits256 {width address value : Nat}
+    {mem : Std.ExtHashMap Nat (BitVec 8)} (rep : UIntRep width mem address value) :
+    value < 256 ^ width := by
+  simpa [show 256 = 2 ^ 8 by decide, Nat.pow_mul] using rep.1
+
+private theorem OptionalUIntRep.value_fits256 {width address : Nat}
+    {mem : Std.ExtHashMap Nat (BitVec 8)} {value : Option Nat}
+    (rep : OptionalUIntRep width mem address value) :
+    ∀ item ∈ value, item < 256 ^ width := by
+  intro item member
+  simpa [show 256 = 2 ^ 8 by decide, Nat.pow_mul] using rep.value_fits item member
+
+private theorem run_unsigned_encodeNatLE (width value : Nat) (fits : value < 256 ^ width)
+    (pre suffix : Array UInt8) :
+    StateT.run (unsigned (pre ++ (encodeNatLE width value ++ suffix)) width) pre.size =
+      some (value, pre.size + (encodeNatLE width value).size) := by
+  simpa [encodeNatLE_size] using unsigned_encodeNatLE width value fits pre suffix
+
+private theorem run_bytes_encode (value pre suffix : Array UInt8) (fits : value.size < 2 ^ 64) :
+    StateT.run (bytes (pre ++ (encodeBytes value ++ suffix))) pre.size =
+      some (value, pre.size + (encodeBytes value).size) :=
+  bytes_encode value pre suffix fits
+
 private theorem unsigned_encodeUIntRep {width address value : Nat}
     {mem : Std.ExtHashMap Nat (BitVec 8)} (rep : UIntRep width mem address value)
     (pre suffix : Array UInt8) :
