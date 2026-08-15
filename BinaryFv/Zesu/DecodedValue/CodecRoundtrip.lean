@@ -270,6 +270,45 @@ private theorem take_fixed_parserEncodes (width : Nat) :
   intro value size pre suffix
   simpa only [id_eq, size] using take_fixed_encode value width size pre suffix
 
+private theorem unsigned_parserEncodes (width : Nat) :
+    ParserEncodes (fun input => unsigned input width) (encodeNatLE width)
+      (fun value => value < 256 ^ width) := by
+  intro value fits pre suffix
+  simpa [encodeNatLE_size] using unsigned_encodeNatLE width value fits pre suffix
+
+private theorem bytes_parserEncodes :
+    ParserEncodes bytes encodeBytes (fun value => value.size < 2 ^ 64) := by
+  intro value fits pre suffix
+  exact bytes_encode value pre suffix fits
+
+private theorem OptionalUIntRep.value_fits {width address : Nat}
+    {mem : Std.ExtHashMap Nat (BitVec 8)} {value : Option Nat}
+    (rep : OptionalUIntRep width mem address value) :
+    ∀ item ∈ value, item < 2 ^ (8 * width) := by
+  cases value with
+  | none => simp
+  | some item =>
+      simp only [OptionalUIntRep] at rep
+      intro item' member
+      simp only [Option.mem_def] at member
+      injection member with itemEq
+      subst item'
+      exact rep.1.1
+
+private theorem OptionalByteSliceRep.value_fits {address : Nat}
+    {mem : Std.ExtHashMap Nat (BitVec 8)} {value : Option (Array UInt8)}
+    (rep : OptionalByteSliceRep mem address value) :
+    ∀ item ∈ value, item.size < 2 ^ 64 := by
+  cases value with
+  | none => simp
+  | some item =>
+      simp only [OptionalByteSliceRep] at rep
+      intro item' member
+      simp only [Option.mem_def] at member
+      injection member with itemEq
+      subst item'
+      exact rep.choose_spec.2.2.1.1
+
 private theorem unsigned_encodeUIntRep {width address value : Nat}
     {mem : Std.ExtHashMap Nat (BitVec 8)} (rep : UIntRep width mem address value)
     (pre suffix : Array UInt8) :
@@ -479,11 +518,91 @@ private theorem parsePayload_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {addre
 
 private theorem parseRequests_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} :
     ParserEncodes parseRequests encodeRequests (ExecutionRequestsRep mem address) := by
-  sorry
+  intro value rep pre suffix
+  rcases rep with ⟨depositsRep, withdrawalsRep, consolidationsRep, builderDepositsRep,
+    builderExitsRep⟩
+  let input := pre ++ (encodeRequests value ++ suffix)
+  have inputEq : input = pre ++ (encodeBytes value.deposits ++
+      (encodeBytes value.withdrawals ++ (encodeBytes value.consolidations ++
+      (encodeBytes value.builderDeposits ++ (encodeBytes value.builderExits ++ suffix))))) := by
+    simp [input, encodeRequests, Array.append_assoc]
+  have r1 := bytes_encode value.deposits pre
+    (encodeBytes value.withdrawals ++ (encodeBytes value.consolidations ++
+      (encodeBytes value.builderDeposits ++ (encodeBytes value.builderExits ++ suffix))))
+    depositsRep.size_fits
+  have r2 := bytes_encode value.withdrawals (pre ++ encodeBytes value.deposits)
+    (encodeBytes value.consolidations ++
+      (encodeBytes value.builderDeposits ++ (encodeBytes value.builderExits ++ suffix)))
+    withdrawalsRep.size_fits
+  have r3 := bytes_encode value.consolidations
+    (pre ++ encodeBytes value.deposits ++ encodeBytes value.withdrawals)
+    (encodeBytes value.builderDeposits ++ (encodeBytes value.builderExits ++ suffix))
+    consolidationsRep.size_fits
+  have r4 := bytes_encode value.builderDeposits
+    (pre ++ encodeBytes value.deposits ++ encodeBytes value.withdrawals ++
+      encodeBytes value.consolidations) (encodeBytes value.builderExits ++ suffix)
+    builderDepositsRep.size_fits
+  have r5 := bytes_encode value.builderExits
+    (pre ++ encodeBytes value.deposits ++ encodeBytes value.withdrawals ++
+      encodeBytes value.consolidations ++ encodeBytes value.builderDeposits) suffix
+    builderExitsRep.size_fits
+  change parseRequests input pre.size = _
+  rw [inputEq]
+  simp only [Array.size_append] at r2 r3 r4 r5
+  simp only [Array.append_assoc] at r2 r3 r4 r5
+  change StateT.run (bytes _) _ = _ at r1
+  change StateT.run (bytes _) _ = _ at r2
+  change StateT.run (bytes _) _ = _ at r3
+  change StateT.run (bytes _) _ = _ at r4
+  change StateT.run (bytes _) _ = _ at r5
+  change StateT.run ((do pure {
+    deposits := ← bytes _
+    withdrawals := ← bytes _
+    consolidations := ← bytes _
+    builderDeposits := ← bytes _
+    builderExits := ← bytes _ }) : Parser ExecutionRequests) pre.size = _
+  simp_all [StateT.run_bind, encodeRequests, Array.size_append, Nat.add_assoc]
 
 private theorem parseChainConfig_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} :
     ParserEncodes parseChainConfig encodeChainConfig (ChainConfigRep mem address) := by
-  sorry
+  intro value rep pre suffix
+  rcases rep with ⟨chainRep, forkRep, activeRep, blockRep, timestampRep⟩
+  let e1 := encodeNatLE 8 value.chainId
+  let e2 := encodeOptional encodeBytes value.forkName
+  let e3 := encodeNatLE 8 value.activeForkIndex
+  let e4 := encodeOptional (encodeNatLE 8) value.activationBlock
+  let e5 := encodeOptional (encodeNatLE 8) value.activationTimestamp
+  let input := pre ++ (e1 ++ (e2 ++ (e3 ++ (e4 ++ (e5 ++ suffix)))))
+  have inputEq : input = pre ++ (encodeChainConfig value ++ suffix) := by
+    simp [input, e1, e2, e3, e4, e5, encodeChainConfig, Array.append_assoc]
+  have r1 := u64_encodeNatLE value.chainId chainRep.1 pre (e2 ++ (e3 ++ (e4 ++ (e5 ++ suffix))))
+  have r2 := optional_encode bytes_parserEncodes value.forkName forkRep.value_fits
+    (pre ++ e1) (e3 ++ (e4 ++ (e5 ++ suffix)))
+  have r3 := u64_encodeNatLE value.activeForkIndex activeRep.1
+    (pre ++ e1 ++ e2) (e4 ++ (e5 ++ suffix))
+  have r4 := optional_encode (unsigned_parserEncodes 8) value.activationBlock
+    (fun item member => by
+      simpa [show 256 ^ 8 = 2 ^ 64 by native_decide] using blockRep.value_fits item member)
+    (pre ++ e1 ++ e2 ++ e3) (e5 ++ suffix)
+  have r5 := optional_encode (unsigned_parserEncodes 8) value.activationTimestamp
+    (fun item member => by
+      simpa [show 256 ^ 8 = 2 ^ 64 by native_decide] using timestampRep.value_fits item member)
+    (pre ++ e1 ++ e2 ++ e3 ++ e4) suffix
+  rw [← inputEq]
+  simp only [Array.size_append, Array.append_assoc] at r2 r3 r4 r5
+  change StateT.run (u64 _) _ = _ at r1
+  change StateT.run (optional _ _) _ = _ at r2
+  change StateT.run (u64 _) _ = _ at r3
+  change StateT.run (optional _ (u64 _)) _ = _ at r4
+  change StateT.run (optional _ (u64 _)) _ = _ at r5
+  change StateT.run ((do pure {
+    chainId := ← u64 input
+    forkName := ← optional input (bytes input)
+    activeForkIndex := ← u64 input
+    activationBlock := ← optional input (u64 input)
+    activationTimestamp := ← optional input (u64 input) }) : Parser ChainConfig) pre.size = _
+  simp_all [StateT.run_bind, e1, e2, e3, e4, e5, encodeChainConfig,
+    encodeNatLE_size, Array.size_append, Nat.add_assoc]
 
 private theorem parseSuccess_encode {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat} :
     ParserEncodes parseSuccess encodeZesuDecodedResult (StatelessInputRep mem address) := by
