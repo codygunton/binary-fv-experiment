@@ -19,10 +19,12 @@
  button:hover{background:#252c38}
  a.button{background:#1e242e;color:var(--fg);border:1px solid var(--line);border-radius:5px;
           padding:4px 9px;text-decoration:none}
- #chart{flex:1;overflow-x:auto;overflow-y:auto;padding:6px 14px 6px 82px;min-height:0;
-        cursor:grab;position:relative}
+ #graph-area{flex:1;display:grid;grid-template-columns:76px minmax(0,1fr);min-height:0;overflow:hidden}
+ #level-rail{position:relative;z-index:5;overflow:hidden;background:#12161c;
+             border-right:1px solid #364052}
+ #chart{overflow:auto;padding:6px 14px;min-width:0;min-height:0;cursor:grab;position:relative}
  #proof-map{flex:1;height:0;overflow:auto;padding:14px;min-height:0;display:none}
- #proof-map.active{display:block} #chart.proof-hidden{display:none}
+ #proof-map.active{display:block} #graph-area.proof-hidden{display:none}
  .proof-summary{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:10px;margin-bottom:14px}
  .proof-stat,.author-card,.proof-block{background:#171c24;border:1px solid var(--line);border-radius:6px}
  .proof-stat{padding:10px}.proof-stat b{font-size:20px;display:block}.proof-stat small{color:var(--dim)}
@@ -62,8 +64,8 @@
  .trust-legend{display:flex;gap:12px;color:var(--dim);font-size:11px;flex-wrap:wrap}
  .trust-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
  #chart svg{display:block}
- #levels{position:sticky;left:8px;height:0;width:64px;z-index:4;pointer-events:none}
- .level-label{position:absolute;right:0;transform:translateY(-50%);color:#cbd4e2;
+ #levels{position:absolute;inset:0 0 auto 0;height:0;pointer-events:none;will-change:transform}
+ .level-label{position:absolute;left:8px;transform:translateY(-50%);color:#cbd4e2;
               background:#1b2028;border:1px solid #364052;border-radius:4px;padding:1px 5px;
               font-size:11px;font-weight:600;white-space:nowrap;cursor:pointer;pointer-events:auto;
               box-shadow:0 1px 3px rgba(0,0,0,.45)}
@@ -108,7 +110,7 @@
       </span>
     <span class="muted"><b>scroll</b> = zoom · <b>drag</b> = pan · <b>double-click</b> = reset · click = details</span>
   </header>
-  <div id="chart"><div id="levels"></div></div>
+  <div id="graph-area"><div id="level-rail"><div id="levels"></div></div><div id="chart"></div></div>
   <div id="proof-map"></div>
  </div>
  <div id="right">
@@ -121,20 +123,20 @@
 <script src="vendor/d3.min.js"></script>
 <script src="vendor/d3-flamegraph.min.js"></script>
 <script>
-let D=null, META=null, OWNER_META=new Map(), MACHINE_META=new Map(), TOTAL=0, PROGRAM_TOTAL=0, fg=null, PROGRESS=new Map();
-let PROOF_MAP=null, PROOF_FILTER='all', PROOF_VIEW=false;
+let D=null, META=null, DETAILS=null, OWNER_META=new Map(), MACHINE_META=new Map(), TOTAL=0, PROGRAM_TOTAL=0, fg=null, PROGRESS=new Map();
+let PROOF_MAP=null, PROOF_MAP_LOADING=null, PROOF_FILTER='all', PROOF_VIEW=false;
 let copyText='';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
 const FULL_VIEW=new URLSearchParams(location.search).get('scope')==='full';
-const FLAME_FILE=FULL_VIEW?'flame-full.json':'flame.json';
+const FLAME_FILE=FULL_VIEW?'flame-core-full.json':'flame-core.json';
+const DETAIL_FILE=FULL_VIEW?'flame-details-full.json':'flame-details.json';
 document.querySelector('h1').textContent=FULL_VIEW?'authentic Zesu full-program call hierarchy':'Zesu SSZ-decode call hierarchy';
 $('#scope-toggle').textContent=FULL_VIEW?'SSZ decode':'full program';
-Promise.all([fetch(FLAME_FILE).then(r=>r.json()),fetch('proof-progress.json').then(r=>r.json()),
-  fetch('proof-map.json').then(r=>r.ok?r.json():null)]).then(([d,p,proofMap])=>{
+Promise.all([fetch(FLAME_FILE).then(r=>r.json()),fetch('proof-progress.json').then(r=>r.json())])
+    .then(([d,p])=>{
   D=d.tree; META=d.meta; TOTAL=d.total; PROGRAM_TOTAL=d.programTotal;
-  PROOF_MAP=proofMap;
   Object.values(META).forEach(m=>{
     if(m.owner) OWNER_META.set(m.owner,m);
     if(m.machineOwner&&!MACHINE_META.has(m.machineOwner)) MACHINE_META.set(m.machineOwner,m);
@@ -143,23 +145,15 @@ Promise.all([fetch(FLAME_FILE).then(r=>r.json()),fetch('proof-progress.json').th
     if(state.owner) PROGRESS.set(state.owner,state);
     if(state.qualified) PROGRESS.set(state.qualified,state);
   });
-  (PROOF_MAP?.flameProgress?.states||[]).forEach(state=>{
-    if(state.owner) PROGRESS.set(state.owner,state);
-    if(state.qualified) PROGRESS.set(state.qualified,state);
-  });
   build();
-  if(PROOF_MAP) $('#proof-toggle').hidden=false;
+  $('#proof-toggle').hidden=false;
 });
 
-// stable key: the path of frame names, matching what the generator emitted
-function keyOf(node){
-  const parts=[]; let n=node;
-  while(n){ parts.unshift(n.data.name); n=n.parent; }
-  return parts.join('|');
-}
+const metaOf=node=>META[node.data.uiId]||{};
 
 let Z=1, baseW=0;
-const proofState=d=>{const meta=META[keyOf(d)]||{};
+const pathOf=node=>{const parts=[];for(let n=node;n;n=n.parent)parts.unshift(n.data.name);return parts.join('|');};
+const proofState=d=>{const meta=metaOf(d);
   return PROGRESS.get(meta.owner)||PROGRESS.get(meta.machineOwner)||
     PROGRESS.get(meta.qualified)||{status:'not_selected'};};
 const proofColor=s=>({unconditionally_proven:'#a8e6b8',proved:'#a8e6b8',
@@ -170,12 +164,12 @@ const proofColor=s=>({unconditionally_proven:'#a8e6b8',proved:'#a8e6b8',
   invalid_target_model:'#f3aaaa'})[s]||'#f3aaaa';
 
 function build(){
-  baseW = $('#chart').clientWidth - 100;
+  baseW = $('#chart').clientWidth - 28;
   fg = flamegraph()
     .width(baseW)
     .cellHeight(19)
     .transitionDuration(0)             // no animation: zoom must track the wheel
-    .minFrameSize(0)
+    .minFrameSize(1)                   // omit sub-pixel SVG nodes until zoom makes them useful
     .sort(false)                       // keep address order from the generator
     .inverted(false)
     .selfValue(false)
@@ -193,7 +187,7 @@ function build(){
   contracted.append('rect').attr('width',8).attr('height',8).attr('fill','#f3aaaa');
   contracted.append('rect').attr('width',4).attr('height',8).attr('fill','#ffe39a');
   wireMouse();
-  renderLevelLabels();
+  requestAnimationFrame(syncGraphOverlays);
 }
 
 function renderLevelLabels(){
@@ -201,13 +195,13 @@ function renderLevelLabels(){
   const rows=new Map(), names=new Map();
   d3.selectAll('#chart g.frame').each(function(d){
     if(!d) return;
-    const level=META[keyOf(d)]?.displayTreeLevel ?? d.depth;
+    const level=metaOf(d).displayTreeLevel ?? d.depth;
     if(!rows.has(level)){
       const rect=this.querySelector('rect'); if(!rect) return;
       const box=rect.getBoundingClientRect();
       rows.set(level, box.top-chartBox.top+chart.scrollTop+box.height/2);
     }
-    const qualified=META[keyOf(d)]?.qualified;
+    const qualified=metaOf(d).qualified;
     if(qualified){
       if(!names.has(level)) names.set(level, []);
       if(!names.get(level).includes(qualified)) names.get(level).push(qualified);
@@ -220,6 +214,26 @@ function renderLevelLabels(){
     label.onclick=ev=>{ ev.stopPropagation(); showLevel(level, names.get(level)||[]); };
     rail.appendChild(label);
   });
+  rail.style.transform=`translateY(${-chart.scrollTop}px)`;
+}
+
+function pinVisibleFrameLabels(){
+  const chart=$('#chart'), viewport=chart.getBoundingClientRect();
+  d3.selectAll('#chart g.frame').each(function(){
+    const rect=this.querySelector('rect'), foreign=this.querySelector('foreignObject');
+    if(!rect||!foreign)return;
+    const box=rect.getBoundingClientRect();
+    const left=Math.max(box.left,viewport.left), right=Math.min(box.right,viewport.right);
+    const width=Math.max(0,right-left-4), x=Math.max(0,left-box.left+2);
+    foreign.setAttribute('x',x); foreign.setAttribute('width',width);
+    const label=foreign.querySelector('.d3-flame-graph-label');
+    if(label)label.style.display=width<35?'none':'block';
+  });
+}
+
+function syncGraphOverlays(){
+  renderLevelLabels();
+  pinVisibleFrameLabels();
 }
 
 function setCopy(value){
@@ -255,7 +269,7 @@ function setZoom(z, anchorClientX){
   const frac = (el.scrollLeft + ax) / prevW;        // point under cursor, in [0,1]
   Z = Math.min(400, Math.max(1, z));
   const w = baseW*Z;
-  fg.width(w); fg.update(); renderLevelLabels();
+  fg.width(w); fg.update(); syncGraphOverlays();
   el.scrollLeft = frac*w - ax;                      // keep that point under the cursor
   $('#zoominfo').textContent = Z<=1.001 ? 'full'
       : `${Z.toFixed(1)}× · ${Math.round(TOTAL/Z)} instrs visible`;
@@ -265,11 +279,25 @@ function wireMouse(){
   const el=$('#chart');
 
   // wheel = zoom about the cursor
+  let zoomFrame=0, pendingZoom=Z, pendingAnchor=undefined;
   el.addEventListener('wheel', ev=>{
     ev.preventDefault();
     const f = Math.exp(-ev.deltaY * 0.0022);
-    setZoom(Z*f, ev.clientX);
+    pendingZoom=Math.min(400,Math.max(1,(zoomFrame?pendingZoom:Z)*f));
+    pendingAnchor=ev.clientX;
+    if(!zoomFrame)zoomFrame=requestAnimationFrame(()=>{
+      zoomFrame=0; setZoom(pendingZoom,pendingAnchor);
+    });
   }, {passive:false});
+
+  let overlayFrame=0;
+  el.addEventListener('scroll',()=>{
+    if(!overlayFrame)overlayFrame=requestAnimationFrame(()=>{
+      overlayFrame=0;
+      $('#levels').style.transform=`translateY(${-el.scrollTop}px)`;
+      pinVisibleFrameLabels();
+    });
+  },{passive:true});
 
   // drag = pan; a drag must not be mistaken for a click
   let down=null, moved=0;
@@ -294,8 +322,9 @@ function wireMouse(){
   }, true);
 }
 
-function details(d){
-  const k=keyOf(d), m=META[k]||{}, progress=proofState(d);
+async function details(d){
+  if(!DETAILS)DETAILS=await fetch(DETAIL_FILE).then(response=>response.json());
+  const k=pathOf(d), m=DETAILS[d.data.uiId]||metaOf(d), progress=proofState(d);
   const qualified=m.qualified||d.data.name;
   $('#dname').textContent=qualified;
   setCopy(qualified);
@@ -503,9 +532,22 @@ function showProofBoundary(id){
     <span>authoring blocker</span><span>${esc(annotation?.blocker||'no focused authoring annotation')}</span></div>`;
 }
 
-function toggleProofMap(){
-  if(!PROOF_MAP)return; PROOF_VIEW=!PROOF_VIEW;
-  $('#chart').classList.toggle('proof-hidden',PROOF_VIEW); $('#proof-map').classList.toggle('active',PROOF_VIEW);
+async function loadProofMap(){
+  if(PROOF_MAP)return PROOF_MAP;
+  if(!PROOF_MAP_LOADING)PROOF_MAP_LOADING=fetch('proof-map.json').then(response=>response.json());
+  PROOF_MAP=await PROOF_MAP_LOADING;
+  (PROOF_MAP.flameProgress?.states||[]).forEach(state=>{
+    if(state.owner)PROGRESS.set(state.owner,state);
+    if(state.qualified)PROGRESS.set(state.qualified,state);
+  });
+  if(fg)fg.update();
+  return PROOF_MAP;
+}
+
+async function toggleProofMap(){
+  if(!PROOF_VIEW)await loadProofMap();
+  PROOF_VIEW=!PROOF_VIEW;
+  $('#graph-area').classList.toggle('proof-hidden',PROOF_VIEW); $('#proof-map').classList.toggle('active',PROOF_VIEW);
   $('#proof-toggle').textContent=PROOF_VIEW?'call hierarchy':'proof map';
   $('#reset').hidden=PROOF_VIEW; if(PROOF_VIEW)renderProofMap();
 }
@@ -514,5 +556,5 @@ $('#reset').onclick=()=>setZoom(1);
 $('#scope-toggle').onclick=()=>{location.search=FULL_VIEW?'':'?scope=full'};
 $('#proof-toggle').onclick=toggleProofMap;
 $('#copy-name').onclick=copyCurrent;
-window.addEventListener('resize',()=>{ if(fg){ baseW=$('#chart').clientWidth-100; setZoom(Z); } });
+window.addEventListener('resize',()=>{ if(fg){ baseW=$('#chart').clientWidth-28; setZoom(Z); } });
 </script>

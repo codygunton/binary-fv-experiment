@@ -206,6 +206,8 @@ let
     chmod -R u+w "$out"
     cp ${zesuSszDecodeCfg}/zesu-cfg.json "$out/zesu-cfg.json"
     cp ${zesuSszDecodeCfg}/flame.json "$out/"
+    python ${../tools/build_flame_ui_data.py} --input ${zesuSszDecodeCfg}/flame.json \
+      --core "$out/flame-core.json" --details "$out/flame-details.json"
     cp ${zesuSszDecodeLevel1Manifest}/level1-manifest.json "$out/"
     cp ${zesuSszDecodeLevel2Manifest}/level2-manifest.json "$out/"
     cp ${zesuSszDecodeLevel1Evidence}/level1-evidence.json "$out/"
@@ -218,11 +220,16 @@ let
     cp ${../tools/test_ssz_proof_map.py} test_ssz_proof_map.py
     python build_ssz_proof_map.py --cfg ${zesuSszDecodeCfg}/zesu-cfg.json --flame ${zesuSszDecodeCfg}/flame.json --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --evidence ${zesuSszDecodeLevel1Evidence}/level1-evidence.json --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json --level2-manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json --level2-evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json --level2-bindings ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json --output "$out/proof-map.json"
     python test_ssz_proof_map.py ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json ${zesuSszDecodeLevel1Manifest}/level1-manifest.json ${zesuSszDecodeLevel1Evidence}/level1-evidence.json ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json ${zesuSszDecodeLevel2Manifest}/level2-manifest.json ${zesuSszDecodeLevel2Evidence}/level2-evidence.json ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json
-    grep -Fq 'PROOF_MAP?.flameProgress?.states' "$out/index.html"
+    grep -Fq "fetch('proof-map.json')" "$out/index.html"
+    grep -Fq "flame-core-full.json" "$out/index.html"
+    grep -Fq '.minFrameSize(1)' "$out/index.html"
     grep -Fq 'PROGRESS.get(meta.owner)' "$out/index.html"
     grep -Fq 'contract_consumed:' "$out/index.html"
     grep -Fq 'proof_in_progress:' "$out/index.html"
     cp ${zesuCfg}/flame.json "$out/flame-full.json"
+    python ${../tools/build_flame_ui_data.py} --input ${zesuCfg}/flame.json \
+      --core "$out/flame-core-full.json" --details "$out/flame-details-full.json"
+    PYTHONPATH=${../tools} python ${../tools/test_flame_ui_data.py}
   '';
 in
 {
