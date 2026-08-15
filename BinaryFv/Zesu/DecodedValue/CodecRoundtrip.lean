@@ -278,6 +278,19 @@ private theorem unsigned_encodeUIntRep {width address value : Nat}
   apply unsigned_encodeNatLE
   simpa [show 256 = 2 ^ 8 by decide, Nat.pow_mul] using rep.1
 
+private theorem ByteSliceRep.size_fits {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {address : Nat} {value : Array UInt8} (rep : ByteSliceRep mem address value) :
+    value.size < 2 ^ 64 := by
+  rcases rep with ⟨_data, _pointer, size, _elements⟩
+  exact size.1
+
+private theorem SliceRep.size_fits {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {stride address : Nat} {elementRep : Std.ExtHashMap Nat (BitVec 8) → Nat → α → Prop}
+    {values : Array α} (rep : SliceRep stride elementRep mem address values) :
+    values.size < 2 ^ 64 := by
+  rcases rep with ⟨_data, _pointer, size, _elements⟩
+  exact size.1
+
 private theorem parseWithdrawal_of_reads {input : Array UInt8} {start p1 p2 p3 finish : Nat}
     {index validator amount : Nat} {address : Array UInt8}
     (indexRead : u64 input start = some (index, p1))
