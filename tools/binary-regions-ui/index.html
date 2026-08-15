@@ -134,7 +134,7 @@ const FLAME_FILE=FULL_VIEW?'flame-core-full.json':'flame-core.json';
 const DETAIL_FILE=FULL_VIEW?'flame-details-full.json':'flame-details.json';
 document.querySelector('h1').textContent=FULL_VIEW?'authentic Zesu full-program call hierarchy':'Zesu SSZ-decode call hierarchy';
 $('#scope-toggle').textContent=FULL_VIEW?'SSZ decode':'full program';
-Promise.all([fetch(FLAME_FILE).then(r=>r.json()),fetch('proof-progress.json').then(r=>r.json())])
+Promise.all([fetch(FLAME_FILE).then(r=>r.json()),fetch('flame-progress.json').then(r=>r.json())])
     .then(([d,p])=>{
   D=d.tree; META=d.meta; TOTAL=d.total; PROGRAM_TOTAL=d.programTotal;
   Object.values(META).forEach(m=>{

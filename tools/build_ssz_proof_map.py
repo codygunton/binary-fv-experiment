@@ -270,6 +270,7 @@ def main() -> int:
         parser.add_argument("--" + name, required=True, type=Path)
     for name in ("level2-manifest", "level2-evidence", "level2-bindings"):
         parser.add_argument("--" + name, type=Path)
+    parser.add_argument("--flame-progress-output", type=Path)
     args = parser.parse_args()
     documents = [json.loads(getattr(args, name).read_text())
                  for name in ("cfg", "flame", "manifest", "evidence", "bindings")]
@@ -278,6 +279,9 @@ def main() -> int:
                      for name in ("level2-manifest", "level2-evidence", "level2-bindings"))
     result = build(*documents)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    if args.flame_progress_output:
+        args.flame_progress_output.write_text(
+            json.dumps(result["flameProgress"], sort_keys=True, separators=(",", ":")) + "\n")
     return 0
 
 
