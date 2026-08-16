@@ -9,9 +9,10 @@ import BinaryFv.RiscV.Platform.FetchMmio
 # Level 2 contracts for the SSZ endpoint
 
 The fixed raw encoders all implement the same reviewed operation: append a source byte window to
-stdout without changing machine memory. Exact entry, execution, and exit sets come from the pinned
-ELF. The source pointer is `x10` at the eight decoded-field callsites; the two format-prefix
-callsites append source constants and therefore need no caller-provided pointer.
+stdout while changing only the two bare-metal output-context words. Exact entry, execution, and
+exit sets come from the pinned ELF. The source pointer is `x10` at the eight decoded-field callsites;
+the two format-prefix callsites append source constants and therefore need no caller-provided
+pointer.
 -/
 
 namespace BinaryFv.Zesu
@@ -182,10 +183,16 @@ theorem rejects_denied_output_store
 
 end EncoderOutputMachineAccess
 
+/-- The exact two-word memory region written by the bare-metal `write_output` implementation. -/
+def writeOutputMemory : Region :=
+  Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
+    (byteRange (Elflings.ioContextAddress + 16) 8)
+
 def RawEncoderEntry (entry : Nat) (args : RawEncoderArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.sourceAddress) ∧
   BytesRep state.machine.mem args.sourceAddress args.bytes ∧
+  (∀ index, index < args.bytes.size → ¬writeOutputMemory (args.sourceAddress + index)) ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   EncoderOutputMachineAccess state.machine
 
@@ -194,7 +201,8 @@ def RawEncoderExit (successPc : Nat) (args : RawEncoderArgs) (_outcome : Unit)
   after.machine.regs.get? PC = some (BitVec.ofNat 64 successPc) ∧
   after.stdout = before.stdout ++ args.bytes ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
-  after.exitCode = before.exitCode ∧ after.machine.mem = before.machine.mem ∧
+  after.exitCode = before.exitCode ∧
+  WritesOnlyWithin writeOutputMemory before.machine after.machine ∧
   EndpointCallFrame before after
 
 def rawEncoderContract (entry successPc : Nat)
@@ -238,7 +246,8 @@ def ConstantEncoderExit (successPc : Nat) (bytes : Array UInt8) (_args _outcome 
   after.machine.regs.get? PC = some (BitVec.ofNat 64 successPc) ∧
   after.stdout = before.stdout ++ bytes ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
-  after.exitCode = before.exitCode ∧ after.machine.mem = before.machine.mem ∧
+  after.exitCode = before.exitCode ∧
+  WritesOnlyWithin writeOutputMemory before.machine after.machine ∧
   EndpointCallFrame before after
 
 def constantEncoderContract (entry successPc : Nat) (bytes : Array UInt8)

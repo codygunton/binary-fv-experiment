@@ -336,10 +336,6 @@ private def writeOutputExit (pc : BitVec 64) : Prop := pc = 0x101a0
 private def writeOutputWrites : RegSet :=
   RegSet.union stepBookkeeping (RegSet.only x5)
 
-def writeOutputMemory : Region :=
-  Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
-    (byteRange (Elflings.ioContextAddress + 16) 8)
-
 private theorem writeOutputMemory_not_file {address : Nat} (inside : writeOutputMemory address) :
     Artifacts.programImage.readFileByte? address = none := by
   cases read : Artifacts.programImage.readFileByte? address with
