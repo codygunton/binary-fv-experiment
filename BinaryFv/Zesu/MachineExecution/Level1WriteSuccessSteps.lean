@@ -4500,7 +4500,9 @@ theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract 
     (dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputBufferStore)
     (dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputLengthStore)
     (by native_decide) callConfigured (by simpa [callState, callMemEq] using loaded)
-  have outputTrace := output.trace.weaken (fun pc inside => by
+  have outputTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessRawLine131ExecutionPcRanges)
+      (fromStep + 5) 5 callState after := output.trace.weaken (fun pc inside => by
     unfold writeOutputTracePc writeOutputPc at inside
     rcases inside with (rfl | rfl | rfl | rfl) | rfl <;>
       exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessRawLine131ExecutionPcRanges],
@@ -4538,6 +4540,209 @@ theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract 
       exact (output.memory address outsideMemory).trans
         (congrArg (fun mem => mem.get? address) callMemEq)
     · exact (seg4.aux.trans (AuxStateAgree.callRetirement s4 0x14e10 0x10190 r4 x1 0x14e14)).trans
+        output.aux
+
+private def prevRandaoRawParentPc (pc : BitVec 64) : Prop :=
+  pcInRanges [(0x14e7c, 0x14e88)] pc
+
+private def prevRandaoRawParentWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x1 ∨ register = x11
+
+private theorem encoderInlinePreserved_disjoint_prevRandaoRawParentWrites :
+    RegSet.Disjoint encoderInlinePreserved prevRandaoRawParentWrites := by
+  intro register preserved written
+  simp [encoderInlinePreserved, prevRandaoRawParentWrites, instructionPreserved,
+    platformPreserved, stepBookkeeping] at preserved written
+  grind
+
+private theorem instructionPreserved_disjoint_prevRandaoRawParentWrites :
+    RegSet.Disjoint instructionPreserved prevRandaoRawParentWrites := by
+  intro register preserved written
+  exact encoderInlinePreserved_disjoint_prevRandaoRawParentWrites register (Or.inl preserved)
+    written
+
+private theorem liftPrevRandaoRawTrace {exit : BitVec 64 → Prop} (template : EndpointState)
+    {fromStep count : Nat} {before after : State}
+    (trace : ScopedTrace prevRandaoRawParentPc exit
+      (fun _ _ _ _ _ => False) fromStep count before after) :
+    ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessRawLine140ExecutionPcRanges)
+      fromStep count { template with machine := before } { template with machine := after } := by
+  induction trace with
+  | exitAt fromStep state pc atPc exitPc => exact .refl fromStep { template with machine := state }
+  | ownStep fromStep count pc before middle after atPc inside notExit machineStep rest ih =>
+      refine ConfinedTrace.step fromStep count pc
+        { template with machine := before } { template with machine := middle }
+        { template with machine := after } atPc ?_ ?_ (by simpa using ih)
+      · unfold prevRandaoRawParentPc at inside
+        unfold pcInRanges at inside ⊢
+        rcases inside with ⟨range, member, lo, hi⟩
+        simp at member
+        subst range
+        exact ⟨(0x14e7c, 0x14e88),
+          by simp [Elflings.writeSuccessRawLine140ExecutionPcRanges], lo, hi⟩
+      · exact endpointStep_sail fromStep { template with machine := before } middle
+          (fun observed observedPc => by
+            change before.regs.get? PC = some observed at observedPc
+            rw [atPc] at observedPc
+            cases Option.some.inj observedPc
+            unfold prevRandaoRawParentPc pcInRanges at inside
+            rcases inside with ⟨range, member, lo, hi⟩
+            simp at member
+            subst range
+            simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+              exitContextStorePc]
+            omega) machineStep
+  | childBody fromStep used count child before middle after body rest ih => exact body.elim
+  | inlineStep fromStep used count boundary program parent child before resume after transfer rest ih =>
+      exact transfer.body.elim
+  | inlineCallStep fromStep childUsed calleeUsed count boundary program parent child callee before
+      resume after transfer rest ih => exact transfer.body.elim
+  | callStep fromStep used count call program parent callee before resume after transfer rest ih =>
+      exact transfer.body.elim
+
+/-- The 32-byte raw `prev_randao` encoder reaches its declared exit without assumptions. -/
+theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceContract := by
+  refine ⟨fun _ => 8, ?_⟩
+  intro args fromStep before entry
+  rcases entry with ⟨atPc, source, size, bytes, outside, loaded, access⟩
+  have seg0 := (Seg.nil prevRandaoRawParentPc (fun pc => pc = 0x10190)
+    prevRandaoRawParentWrites (fun _ => False) fromStep
+    (childSummary := fun _ _ _ _ _ => False) access.configured.retiredCounter atPc).know
+      x10 (BitVec.ofNat 64 args.sourceAddress) source
+  obtain ⟨r0, run0⟩ := writeSuccessAddiX11FromZeroStep fromStep 0x14e7c 32 32
+    0x93 0x05 0x00 0x02 before.machine access.configured atPc loaded
+    (by native_decide)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by native_decide) (by rfl) (by native_decide) (by native_decide)
+    (by native_decide) (by native_decide)
+  have seg1 := seg0.stepKnown
+    (by unfold prevRandaoRawParentPc; exact
+      ⟨(0x14e7c, 0x14e88), by simp, by native_decide, by native_decide⟩)
+    (by native_decide) x11 32 0x14e80 r0 run0
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  have cfg1 := access.configured.mono
+    (seg1.agree instructionPreserved_disjoint_prevRandaoRawParentWrites) seg1.retired
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully
+      (afterRegisterWrite before.machine 0x14e7c r0 x11 32).mem := by
+    simpa [seg1.memEq (by simp)] using loaded
+  obtain ⟨r1, run1⟩ := configuredAuipcStep (fromStep + 1)
+    (afterRegisterWrite before.machine 0x14e7c r0 x11 32) 0x14e80 0xffffb
+    0x97 0xb0 0xff 0xff cfg1 seg1.atPc loaded1
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide) (by rfl)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads cfg1; decode_run)
+  have seg2 := seg1.stepKnown
+    (by unfold prevRandaoRawParentPc; exact
+      ⟨(0x14e7c, 0x14e88), by simp, by native_decide, by native_decide⟩)
+    (by native_decide) x1 0xfe80 0x14e84 r1 run1
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  have cfg2 := access.configured.mono
+    (seg2.agree instructionPreserved_disjoint_prevRandaoRawParentWrites) seg2.retired
+  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully
+      (afterRegisterWrite (afterRegisterWrite before.machine 0x14e7c r0 x11 32)
+        0x14e80 r1 x1 0xfe80).mem := by
+    simpa [seg2.memEq (by simp)] using loaded
+  obtain ⟨r2, callRun⟩ := configuredJalrCallStep (fromStep + 2)
+    (afterRegisterWrite (afterRegisterWrite before.machine 0x14e7c r0 x11 32)
+      0x14e80 r1 x1 0xfe80) 0x14e84 0xfe80 0x310 0x10190 0x14e88
+    0xe7 0x80 0x00 0x31 cfg2 seg2.atPc (seg2.reg x1 0xfe80 (by simp)) loaded2
+    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
+    (by native_decide) (by rfl)
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads cfg2; decode_run)
+    (by native_decide) (by native_decide) (by native_decide)
+  let parentMachine := afterRegisterWrite
+    (afterRegisterWrite before.machine 0x14e7c r0 x11 32) 0x14e80 r1 x1 0xfe80
+  let callMachine := tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement parentMachine) 0x14e84 0x10190 x1 0x14e88)
+    0x10190 r2
+  let callState : EndpointState := { before with machine := callMachine }
+  have callWrites := callRetirement_writes parentMachine 0x14e84 0x10190 r2 x1 0x14e88
+  have callAtPc : callMachine.regs.get? PC = some 0x10190 := by
+    simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      callLinkState, Std.ExtDHashMap.get?_insert]
+  have callMemEq : callMachine.mem = before.machine.mem := by
+    have base : callMachine.mem = parentMachine.mem := by
+      simp [callMachine, parentMachine, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, callLinkState, controlFlowJumpState]
+    exact base.trans (seg2.memEq (by simp))
+  have callPrefix : ConfinedPrefix prevRandaoRawParentPc (fun pc => pc = 0x10190)
+      (fun _ _ _ _ _ => False) (fromStep + 2) 1 parentMachine callMachine :=
+    ConfinedPrefix.ownStep seg2.atPc
+      (by unfold prevRandaoRawParentPc; exact
+        ⟨(0x14e7c, 0x14e88), by simp, by native_decide, by native_decide⟩)
+      (by native_decide) callRun
+  have parentMachineTrace := seg2.confined.trans callPrefix 0 callMachine
+    (.exitAt _ _ 0x10190 callAtPc rfl)
+  have parentTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessRawLine140ExecutionPcRanges) fromStep 3 before callState := by
+    simpa [callState] using liftPrevRandaoRawTrace before parentMachineTrace
+  have callConfigured : ConfiguredMachinePre EndpointMachinePc callMachine :=
+    configuredAfterWriteSuccessCall 0x14e84 0x10190 0x14e88 r2 cfg2
+  have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
+  have fullPmaEq : callMachine.regs.get? pma_regions =
+      before.machine.regs.get? pma_regions :=
+    callPmaEq.trans (seg2.writes.get pma_regions (by
+      simp [prevRandaoRawParentWrites, stepBookkeeping]))
+  obtain ⟨after, output⟩ := writeOutputHandoff (fromStep + 3) args.sourceAddress args.bytes
+    0x14e88 callState (by simpa [callState] using callAtPc)
+    (by simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert])
+    (by change callMachine.regs.get? x10 = some (BitVec.ofNat 64 args.sourceAddress)
+        exact (callWrites.get x10 (by decide)).trans
+          (seg2.reg x10 (BitVec.ofNat 64 args.sourceAddress) (by simp)))
+    (by change callMachine.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size)
+        rw [size]
+        exact (callWrites.get x11 (by decide)).trans (seg2.reg x11 32 (by simp)))
+    (by simpa [callState, callMemEq] using bytes) outside
+    (dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputBufferStore)
+    (dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputLengthStore)
+    (by native_decide) callConfigured (by simpa [callState, callMemEq] using loaded)
+  have outputTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessRawLine140ExecutionPcRanges)
+      (fromStep + 3) 5 callState after := output.trace.weaken (fun pc inside => by
+    unfold writeOutputTracePc writeOutputPc at inside
+    rcases inside with (rfl | rfl | rfl | rfl) | rfl <;>
+      exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessRawLine140ExecutionPcRanges],
+        by native_decide, by native_decide⟩)
+  have wholeTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessRawLine140ExecutionPcRanges) fromStep 8 before after := by
+    simpa [Nat.add_assoc] using parentTrace.append outputTrace
+  have parentAgree : Agree encoderInlinePreserved before.machine callMachine :=
+    (seg2.writes.agree encoderInlinePreserved_disjoint_prevRandaoRawParentWrites).trans
+      (callWrites.agree (by
+        intro register preserved written
+        apply encoderInlinePreserved_disjoint_prevRandaoRawParentWrites register preserved
+        rcases written with bookkeeping | rfl
+        · exact Or.inl bookkeeping
+        · exact Or.inr (Or.inl rfl)))
+  have outputAgree : Agree encoderInlinePreserved callMachine after.machine := by
+    intro register preserved
+    rcases preserved with instruction | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl
+    · exact output.preserved register instruction
+    all_goals
+      apply output.writes.get
+      decide
+  refine ⟨8, after, (), by omega, by omega, wholeTrace,
+    ⟨0x14e88, output.atPc, by simp [pcInList, Elflings.writeSuccessRawLine140ExitPcs]⟩,
+    trivial, ?_⟩
+  refine ⟨output.atPc, ?_, ?_, ?_, ?_, ?_, parentAgree.trans outputAgree,
+    output.configured.retiredCounter, output.loaded, ?_⟩
+  · simpa [callState] using output.stdout
+  · simpa [callState] using output.stdin
+  · simpa [callState] using output.cursor
+  · simpa [callState] using output.exitCode
+  · intro address outsideMemory
+    exact (output.memory address outsideMemory).trans
+      (congrArg (fun mem => mem.get? address) callMemEq)
+  · exact (seg2.aux.trans
+      (AuxStateAgree.callRetirement parentMachine 0x14e84 0x10190 r2 x1 0x14e88)).trans
         output.aux
 
 /-- Consume the selected constant-prefix encoder after the exact initial writer transfer. -/
@@ -5516,12 +5721,13 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     simpa [memcpyArgs, bytesSize] using bounded
 
 private theorem writeSuccessRawEncoderHandoff
-    {entry success : Nat} {executionPcs : List Elflings.PcRange} {exitPcs : List Nat}
-    (child : RawEncoderInstanceContract entry executionPcs exitPcs success)
+    {entry expectedSize success : Nat} {executionPcs : List Elflings.PcRange}
+    {exitPcs : List Nat}
+    (child : RawEncoderInstanceContract entry expectedSize executionPcs exitPcs success)
     (insideWriter : ∀ {pc}, pcInRanges executionPcs pc →
       pcInRanges Elflings.writeSuccessExecutionPcRanges pc)
     (fromStep : Nat) (args : RawEncoderArgs) (before : EndpointState)
-    (childEntry : RawEncoderEntry entry args before) :
+    (childEntry : RawEncoderEntry entry expectedSize args before) :
     ∃ used after,
       used ≤ RawEncoderInstanceContract.stepBound child args.bytes.size ∧
       ConfinedTrace EndpointStep EndpointPc
@@ -5618,7 +5824,8 @@ private theorem writeSuccessEncoderChildHandoff
       before.machine after.machine := by
     intro address outside
     rw [childMemory address (by simpa [argsEq] using outside), memoryEq]
-  have pmaEq := childFrame.1 pma_regions (by simp [abiCalleePreserved])
+  have pmaEq := childFrame.1 pma_regions
+    (Or.inl (by simp [instructionPreserved, platformPreserved]))
   have accessAfter : WriteSuccessMachineAccess writerArgs after.machine := {
     configured := configuredAfterEndpointCall access.configured childFrame
     childFrame := access.childFrame.of_pma_regions_eq pmaEq
@@ -5684,8 +5891,9 @@ structure RawEncoderPointerHandoff (fromStep childUsed nextEntry nextSourceAddre
   access : WriteSuccessMachineAccess writerArgs after.machine
 
 private theorem writeSuccessRawEncoderThenPointerHandoff
-    {entry success nextEntry : Nat} {executionPcs : List Elflings.PcRange}
-    {exitPcs : List Nat} (child : RawEncoderInstanceContract entry executionPcs exitPcs success)
+    {entry expectedSize success nextEntry : Nat} {executionPcs : List Elflings.PcRange}
+    {exitPcs : List Nat}
+    (child : RawEncoderInstanceContract entry expectedSize executionPcs exitPcs success)
     (insideWriter : ∀ {pc}, pcInRanges executionPcs pc →
       pcInRanges Elflings.writeSuccessExecutionPcRanges pc)
     (successOwned : writeSuccessParentPc (BitVec.ofNat 64 success))
@@ -5700,7 +5908,7 @@ private theorem writeSuccessRawEncoderThenPointerHandoff
         (afterRegisterWrite state success retired x10 (BitVec.ofNat 64 nextAddress)) false)
     (advance : Sail.BitVec.addInt (BitVec.ofNat 64 success) 4 = BitVec.ofNat 64 nextEntry)
     (fromStep : Nat) (writerArgs : WriteSuccessArgs) (rawArgs : RawEncoderArgs)
-    (before : EndpointState) (childEntry : RawEncoderEntry entry rawArgs before)
+    (before : EndpointState) (childEntry : RawEncoderEntry entry expectedSize rawArgs before)
     (stack : before.machine.regs.get? x2 =
       some (BitVec.ofNat 64 (writerArgs.stackPointer - 0x7d0)))
     (stackBaseEq : stackBase = writerArgs.stackPointer - 0x7d0)
@@ -5848,7 +6056,7 @@ private theorem writeSuccessParentHashThenFee
     (writeSuccessFeeRecipientSourceStep (stackPointer := args.stackPointer - 0x7d0))
     (by native_decide) fromStep args rawArgs before
   · exact ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, (by
+      by simpa [rawArgs] using size, by simpa [rawArgs] using rep, (by
         intro index inBounds
         dsimp [rawArgs]
         apply beforeOutputContext_not_writeOutputMemory access
@@ -5892,7 +6100,7 @@ private theorem writeSuccessFeeThenStateRoot
     (writeSuccessStateRootSourceStep (stackPointer := args.stackPointer - 0x7d0))
     (by native_decide) fromStep args rawArgs before
   · exact ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, (by
+      by simpa [rawArgs] using size, by simpa [rawArgs] using rep, (by
         intro index inBounds
         dsimp [rawArgs]
         apply beforeOutputContext_not_writeOutputMemory access
@@ -5936,7 +6144,7 @@ private theorem writeSuccessStateThenReceiptsRoot
     (writeSuccessReceiptsRootSourceStep (stackPointer := args.stackPointer - 0x7d0))
     (by native_decide) fromStep args rawArgs before
   · exact ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, (by
+      by simpa [rawArgs] using size, by simpa [rawArgs] using rep, (by
         intro index inBounds
         dsimp [rawArgs]
         apply beforeOutputContext_not_writeOutputMemory access
@@ -5980,7 +6188,7 @@ private theorem writeSuccessReceiptsThenLogsBloom
     (writeSuccessLogsBloomSourceStep (stackPointer := args.stackPointer - 0x7d0))
     (by native_decide) fromStep args rawArgs before
   · exact ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, (by
+      by simpa [rawArgs] using size, by simpa [rawArgs] using rep, (by
         intro index inBounds
         dsimp [rawArgs]
         apply beforeOutputContext_not_writeOutputMemory access
@@ -6024,7 +6232,7 @@ private theorem writeSuccessLogsThenPrevRandao
     (writeSuccessPrevRandaoSourceStep (stackPointer := args.stackPointer - 0x7d0))
     (by native_decide) fromStep args rawArgs before
   · exact ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, (by
+      by simpa [rawArgs] using size, by simpa [rawArgs] using rep, (by
         intro index inBounds
         dsimp [rawArgs]
         apply beforeOutputContext_not_writeOutputMemory access
@@ -6157,7 +6365,7 @@ private theorem writeSuccessPrevRandaoHandoff
       writeSuccessRawPc_in_writeSuccess inside (by omega) (by omega))
     fromStep rawArgs before
     ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, (by
+      by simpa [rawArgs] using size, by simpa [rawArgs] using rep, (by
         intro index inBounds
         dsimp [rawArgs]
         apply beforeOutputContext_not_writeOutputMemory access
@@ -12856,8 +13064,8 @@ private theorem writeSuccessBlockHashHandoff
     prevRandao, blockHashSize, blockHash⟩
   have blockHashRep : BytesRep pointerMachine.mem rawArgs.sourceAddress rawArgs.bytes := by
     simpa [rawArgs, seg1.memEq (by simp)] using blockHash
-  have childEntry : RawEncoderEntry Elflings.writeSuccessRawLine147Entry rawArgs pointerState := by
-    refine ⟨?_, ?_, blockHashRep, ?_, ?_, ?_⟩
+  have childEntry : RawEncoderEntry Elflings.writeSuccessRawLine147Entry 32 rawArgs pointerState := by
+    refine ⟨?_, ?_, blockHashSize, blockHashRep, ?_, ?_, ?_⟩
     · simpa [pointerState, EndpointPc, MachinePc] using seg1.atPc
     · simpa [pointerState] using
         seg1.reg x10 (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x634)) (by simp)
@@ -12883,7 +13091,7 @@ private theorem writeSuccessBlockHashHandoff
   have parentPmaEq := seg1.writes.get pma_regions (by simp [writeSuccessParentWrites])
   have fullPmaEq := pmaEq.trans parentPmaEq
   have childAccess : WriteSuccessMachineAccess args after.machine :=
-    { configured := configuredAfterEndpointCall (writeSuccessAccessOfSeg access seg1).configured
+    { configured := configuredAfterEncoderInline (writeSuccessAccessOfSeg access seg1).configured
         childFrame
       childFrame := access.childFrame.of_pma_regions_eq fullPmaEq
       frameLoad := fun offset width inBounds =>
@@ -12905,12 +13113,12 @@ private theorem writeSuccessBlockHashHandoff
       have parentAmbient : WriteSuccessAmbientFrame before pointerState := by
         simpa [pointerState] using WriteSuccessAmbientFrame.ofSeg seg1
           instructionPreserved_disjoint_writeSuccessParentWrites
-      exact parentAmbient.trans (WriteSuccessAmbientFrame.ofCall childFrame))
+      exact parentAmbient.trans (WriteSuccessAmbientFrame.ofInline childFrame))
     trace := by
       have all := pointerTrace.append (by simpa [Nat.add_assoc] using childTrace)
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
     atPc := afterPc
-    stack := (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
+    stack := (childFrame.1 x2 (by simp [encoderInlinePreserved])).trans
       (seg1.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
     stdout := by simpa [rawArgs, pointerState] using stdout
     stdin := by simpa [pointerState] using stdin

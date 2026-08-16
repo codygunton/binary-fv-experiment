@@ -202,9 +202,11 @@ def EncoderInlineFrame (before after : EndpointState) : Prop :=
   Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
   EndpointMachineAuxAgree before.machine after.machine
 
-def RawEncoderEntry (entry : Nat) (args : RawEncoderArgs) (state : EndpointState) : Prop :=
+def RawEncoderEntry (entry expectedSize : Nat) (args : RawEncoderArgs)
+    (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.sourceAddress) ∧
+  args.bytes.size = expectedSize ∧
   BytesRep state.machine.mem args.sourceAddress args.bytes ∧
   (∀ index, index < args.bytes.size → ¬writeOutputMemory (args.sourceAddress + index)) ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
@@ -219,31 +221,31 @@ def RawEncoderExit (successPc : Nat) (args : RawEncoderArgs) (_outcome : Unit)
   WritesOnlyWithin writeOutputMemory before.machine after.machine ∧
   EncoderInlineFrame before after
 
-def rawEncoderContract (entry successPc : Nat)
+def rawEncoderContract (entry expectedSize successPc : Nat)
     (stepBound : RawEncoderArgs → Nat) :
     RelationalMachineContract EndpointState RawEncoderArgs Unit :=
   { allows := fun _ _ => True
-    entry := RawEncoderEntry entry
+    entry := RawEncoderEntry entry expectedSize
     exit := RawEncoderExit successPc
     stepBound }
 
-def RawEncoderInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRange)
+def RawEncoderInstanceContract (entry expectedSize : Nat) (executionPcs : List Elflings.PcRange)
     (exitPcs : List Nat) (successPc : Nat) : Prop :=
   ∃ stepBound : Nat → Nat,
-    (rawEncoderContract entry successPc (fun args => stepBound args.bytes.size)).Implements
+    (rawEncoderContract entry expectedSize successPc (fun args => stepBound args.bytes.size)).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
 
 namespace RawEncoderInstanceContract
 
-noncomputable def stepBound {entry : Nat} {executionPcs : List Elflings.PcRange}
+noncomputable def stepBound {entry expectedSize : Nat} {executionPcs : List Elflings.PcRange}
     {exitPcs : List Nat} {successPc : Nat}
-    (contract : RawEncoderInstanceContract entry executionPcs exitPcs successPc) : Nat → Nat :=
+    (contract : RawEncoderInstanceContract entry expectedSize executionPcs exitPcs successPc) : Nat → Nat :=
   Classical.choose contract
 
-theorem implements {entry : Nat} {executionPcs : List Elflings.PcRange}
+theorem implements {entry expectedSize : Nat} {executionPcs : List Elflings.PcRange}
     {exitPcs : List Nat} {successPc : Nat}
-    (contract : RawEncoderInstanceContract entry executionPcs exitPcs successPc) :
-    (rawEncoderContract entry successPc
+    (contract : RawEncoderInstanceContract entry expectedSize executionPcs exitPcs successPc) :
+    (rawEncoderContract entry expectedSize successPc
       (fun args => contract.stepBound args.bytes.size)).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs) :=
   Classical.choose_spec contract
@@ -307,35 +309,35 @@ abbrev WriteFailureRecordInstanceContract : Prop :=
     Elflings.writeFailureRawLine127ExitPcs 0x14d24 failureRecordBytes
 
 abbrev WriteSuccessParentHashInstanceContract : Prop :=
-  RawEncoderInstanceContract Elflings.writeSuccessRawLine135Entry
+  RawEncoderInstanceContract Elflings.writeSuccessRawLine135Entry 32
     Elflings.writeSuccessRawLine135ExecutionPcRanges Elflings.writeSuccessRawLine135ExitPcs 0x14e38
 
 abbrev WriteSuccessFeeRecipientInstanceContract : Prop :=
-  RawEncoderInstanceContract Elflings.writeSuccessRawLine136Entry
+  RawEncoderInstanceContract Elflings.writeSuccessRawLine136Entry 20
     Elflings.writeSuccessRawLine136ExecutionPcRanges Elflings.writeSuccessRawLine136ExitPcs 0x14e48
 
 abbrev WriteSuccessStateRootInstanceContract : Prop :=
-  RawEncoderInstanceContract Elflings.writeSuccessRawLine137Entry
+  RawEncoderInstanceContract Elflings.writeSuccessRawLine137Entry 32
     Elflings.writeSuccessRawLine137ExecutionPcRanges Elflings.writeSuccessRawLine137ExitPcs 0x14e58
 
 abbrev WriteSuccessReceiptsRootInstanceContract : Prop :=
-  RawEncoderInstanceContract Elflings.writeSuccessRawLine138Entry
+  RawEncoderInstanceContract Elflings.writeSuccessRawLine138Entry 32
     Elflings.writeSuccessRawLine138ExecutionPcRanges Elflings.writeSuccessRawLine138ExitPcs 0x14e68
 
 abbrev WriteSuccessLogsBloomInstanceContract : Prop :=
-  RawEncoderInstanceContract Elflings.writeSuccessRawLine139Entry
+  RawEncoderInstanceContract Elflings.writeSuccessRawLine139Entry 256
     Elflings.writeSuccessRawLine139ExecutionPcRanges Elflings.writeSuccessRawLine139ExitPcs 0x14e78
 
 abbrev WriteSuccessPrevRandaoInstanceContract : Prop :=
-  RawEncoderInstanceContract Elflings.writeSuccessRawLine140Entry
+  RawEncoderInstanceContract Elflings.writeSuccessRawLine140Entry 32
     Elflings.writeSuccessRawLine140ExecutionPcRanges Elflings.writeSuccessRawLine140ExitPcs 0x14e88
 
 abbrev WriteSuccessBlockHashInstanceContract : Prop :=
-  RawEncoderInstanceContract Elflings.writeSuccessRawLine147Entry
+  RawEncoderInstanceContract Elflings.writeSuccessRawLine147Entry 32
     Elflings.writeSuccessRawLine147ExecutionPcRanges Elflings.writeSuccessRawLine147ExitPcs 0x14ee4
 
 abbrev WriteSuccessParentBeaconRootInstanceContract : Prop :=
-  RawEncoderInstanceContract Elflings.writeSuccessRawLine156Entry
+  RawEncoderInstanceContract Elflings.writeSuccessRawLine156Entry 32
     Elflings.writeSuccessRawLine156ExecutionPcRanges Elflings.writeSuccessRawLine156ExitPcs 0x1573c
 
 structure EncoderCallArgs (Value : Type) where
