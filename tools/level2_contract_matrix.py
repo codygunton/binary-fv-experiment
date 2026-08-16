@@ -14,6 +14,8 @@ SUPPORT_FIELDS = {
     "contradiction": {"remaining"},
 }
 
+EXECUTABILITY_CLAUSE_IDS = {"entry-execution-access"}
+
 
 def expand(registry: dict, instance_names: set[str]) -> dict:
     if registry.get("schemaVersion") != 1 or not isinstance(registry.get("schemas"), dict):
@@ -34,6 +36,7 @@ def expand(registry: dict, instance_names: set[str]) -> dict:
             raise ValueError(f"schema {schema_name} has missing or duplicate clause ids")
 
         kinds = []
+        executability_kinds = []
         for clause in clauses:
             support = clause.get("support", {})
             kind = support.get("kind")
@@ -41,6 +44,12 @@ def expand(registry: dict, instance_names: set[str]) -> dict:
             if required is None or not required <= support.keys():
                 raise ValueError(f"schema {schema_name} clause {clause['id']} has malformed support")
             kinds.append(kind)
+            if clause["id"] in EXECUTABILITY_CLAUSE_IDS:
+                executability_kinds.append(kind)
+                if kind in {"partial", "missing", "contradiction"}:
+                    raise ValueError(
+                        f"schema {schema_name} has unsupported entry or execution requirement "
+                        f"{clause['id']}")
             for instance in names:
                 matrix.append({
                     "schema": schema_name,
@@ -62,13 +71,12 @@ def expand(registry: dict, instance_names: set[str]) -> dict:
                 raise ValueError(f"schema {schema_name} lacks representative proof work")
             work.append({"schema": schema_name, "clause": "representative-proof",
                          "status": "missing", "task": task})
-        blocked = any(kind in {"missing", "contradiction"} for kind in kinds)
         schemas.append({
             "name": schema_name,
             "contractDeclaration": schema.get("contractDeclaration"),
             "instanceNames": names,
             "representativeProof": representative,
-            "entryAndExecutionReady": not blocked,
+            "entryAndExecutionReady": bool(executability_kinds),
             "evidenceComplete": all(kind not in {"partial", "missing", "contradiction"}
                                     for kind in kinds),
             "contractStatus": "not-admitted",

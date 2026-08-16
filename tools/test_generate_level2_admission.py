@@ -90,7 +90,7 @@ class Level2AdmissionTests(unittest.TestCase):
         self.assertEqual(result["summary"]["schemaCount"], 6)
         encoder = next(row for row in result["contractSchemas"]
                        if row["name"] == "encoder-call")
-        self.assertFalse(encoder["entryAndExecutionReady"])
+        self.assertTrue(encoder["entryAndExecutionReady"])
         self.assertFalse(any(item["schema"] == "encoder-call" and
                              item["status"] == "contradiction"
                              for item in result["workItems"]))
@@ -123,6 +123,14 @@ class Level2AdmissionTests(unittest.TestCase):
         documents = copy.deepcopy(self.documents)
         del documents[4]["schemas"]["raw-encoder"]["clauses"][1]["support"]["mutationTest"]
         with self.assertRaisesRegex(ValueError, "malformed support"):
+            self.module.build(*documents)
+
+    def test_rejects_unsupported_entry_or_execution_requirement(self):
+        documents = copy.deepcopy(self.documents)
+        support = documents[4]["schemas"]["raw-encoder"]["clauses"][0]["support"]
+        support.clear()
+        support.update({"kind": "missing", "remaining": "no configured machine evidence"})
+        with self.assertRaisesRegex(ValueError, "unsupported entry or execution requirement"):
             self.module.build(*documents)
 
     def test_rejects_forged_fixed_write(self):
