@@ -79,6 +79,7 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
         observed = observations[instance["id"]]
         dwarf = binding_rows[instance["id"]]
         entry_binding = None
+        collection_counts = None
         if name in FIXED_WRITE_BYTES:
             writes = observed["hostWrites"]
             if not writes or any(
@@ -130,11 +131,17 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
                 "writeSuccessHashes": 8,
                 "writeSuccessByteLists": 11,
             }[name]
+            counts = []
             for occurrence in observed["occurrences"]:
                 writes = occurrence["hostWrites"]
                 count = occurrence["entryRegisters"]["values"][count_register]
+                counts.append(count)
                 if not writes or bytes.fromhex(writes[0]["bytes"]) != count.to_bytes(8, "little"):
                     raise ValueError(f"{name} count binding mismatch")
+            if name in {"writeSuccessTransactions", "writeSuccessWithdrawals",
+                        "writeSuccessHashes"} and (0 not in counts or not any(count > 0 for count in counts)):
+                raise ValueError(f"{name} lacks empty/nonempty evidence")
+            collection_counts = counts
             entry_binding = {"countRegister": count_register, "encoding": "little-u64-prefix"}
             if name == "writeSuccessTransactions":
                 entry_binding["addressBinding"] = "stack-u64-at-sp+104"
@@ -158,6 +165,7 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
                 "hostWrites": observed["hostWrites"],
                 "occurrences": observed["occurrences"],
                 "validatedEntryBinding": entry_binding,
+                "observedCollectionCounts": collection_counts,
                 "dwarfBindings": dwarf,
             },
             "unmeasured": [

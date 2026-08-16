@@ -46,7 +46,8 @@ class Level2AdmissionTests(unittest.TestCase):
         self.assertEqual(set(parent_hash["measured"]["vectors"]), {
             "minimal", "block-number", "chain-id-zero", "legacy-requests",
             "legacy-payload", "future-activation", "extra-data-33",
-            "public-key-overflow", "versioned-hash-overflow",
+            "public-key-overflow", "versioned-hash-overflow", "one-transaction",
+            "one-withdrawal",
         })
         failure = next(row for row in result["instances"]
                        if row["leanName"] == "writeFailureRawLine127")
@@ -67,18 +68,27 @@ class Level2AdmissionTests(unittest.TestCase):
             "countRegister": 10, "addressBinding": "stack-u64-at-sp+104",
             "encoding": "little-u64-prefix",
         })
+        self.assertIn(0, transactions["measured"]["observedCollectionCounts"])
+        self.assertTrue(any(count > 0
+                            for count in transactions["measured"]["observedCollectionCounts"]))
         withdrawals = next(row for row in result["instances"]
                            if row["leanName"] == "writeSuccessWithdrawals")
         self.assertEqual(withdrawals["measured"]["validatedEntryBinding"], {
             "countRegister": 9, "addressRegister": 8,
             "encoding": "little-u64-prefix",
         })
+        self.assertIn(0, withdrawals["measured"]["observedCollectionCounts"])
+        self.assertTrue(any(count > 0
+                            for count in withdrawals["measured"]["observedCollectionCounts"]))
         hashes = next(row for row in result["instances"]
                       if row["leanName"] == "writeSuccessHashes")
         self.assertEqual(hashes["measured"]["validatedEntryBinding"], {
             "countRegister": 8, "addressRegister": 9,
             "encoding": "little-u64-prefix",
         })
+        self.assertIn(0, hashes["measured"]["observedCollectionCounts"])
+        self.assertTrue(any(count > 0
+                            for count in hashes["measured"]["observedCollectionCounts"]))
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
@@ -148,6 +158,23 @@ class Level2AdmissionTests(unittest.TestCase):
                         self.module.build(*self.documents)
                 finally:
                     occurrence["hostWrites"][0]["bytes"] = original
+
+    def test_requires_nonempty_collection_evidence(self):
+        vector = next(row for row in self.documents[1]["vectors"]
+                      if row["label"] == "one-transaction")
+        instance = next(row for row in vector["instances"] if row["id"] == "fi:1:3e96")
+        occurrence = instance["occurrences"][0]
+        original_count = occurrence["entryRegisters"]["values"][10]
+        original_bytes = occurrence["hostWrites"][0]["bytes"]
+        occurrence["entryRegisters"]["values"][10] = 0
+        occurrence["hostWrites"][0]["bytes"] = "0000000000000000"
+        try:
+            with self.assertRaisesRegex(
+                    ValueError, "writeSuccessTransactions lacks empty/nonempty evidence"):
+                self.module.build(*self.documents)
+        finally:
+            occurrence["entryRegisters"]["values"][10] = original_count
+            occurrence["hostWrites"][0]["bytes"] = original_bytes
 
 if __name__ == "__main__":
     unittest.main()

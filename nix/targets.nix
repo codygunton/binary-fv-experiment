@@ -182,6 +182,8 @@ let
     python ${repo}/tools/make_minimal_ssz.py extra-data-33.ssz --mutation extra-data-33
     python ${repo}/tools/make_minimal_ssz.py public-key-overflow.ssz --mutation public-key-overflow
     python ${repo}/tools/make_minimal_ssz.py versioned-hash-overflow.ssz --mutation versioned-hash-overflow
+    python ${repo}/tools/make_minimal_ssz.py one-transaction.ssz --mutation one-transaction
+    python ${repo}/tools/make_minimal_ssz.py one-withdrawal.ssz --mutation one-withdrawal
 
     ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < minimal.ssz > success.out
@@ -205,6 +207,10 @@ let
       < public-key-overflow.ssz > public-key-overflow.out
     ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < versioned-hash-overflow.ssz > versioned-hash-overflow.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
+      < one-transaction.ssz > one-transaction.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
+      < one-withdrawal.ssz > one-withdrawal.out
 
     test "$(od -An -tx1 -N6 success.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 changed.out | tr -d ' \n')" = 5a53535a0101
@@ -219,11 +225,14 @@ let
     test "$(od -An -tx1 -N6 extra-data-33.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 public-key-overflow.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 versioned-hash-overflow.out | tr -d ' \n')" = 5a53535a0101
+    test "$(od -An -tx1 -N6 one-transaction.out | tr -d ' \n')" = 5a53535a0101
+    test "$(od -An -tx1 -N6 one-withdrawal.out | tr -d ' \n')" = 5a53535a0101
     cp minimal.ssz invalid.ssz block-number.ssz chain-id-zero.ssz legacy-requests.ssz \
       legacy-payload.ssz future-activation.ssz extra-data-33.ssz public-key-overflow.ssz \
       versioned-hash-overflow.ssz success.out rejected.out changed.out \
       chain-id-zero.out legacy-requests.out legacy-payload.out future-activation.out \
-      extra-data-33.out public-key-overflow.out versioned-hash-overflow.out "$out/"
+      extra-data-33.out public-key-overflow.out versioned-hash-overflow.out \
+      one-transaction.ssz one-withdrawal.ssz one-transaction.out one-withdrawal.out "$out/"
   '';
 
   zesuSszDecodeSourceProbe = pkgs.stdenv.mkDerivation {
@@ -263,6 +272,10 @@ let
       cmp native-keys.out ${zesuSszDecodeSmoke}/public-key-overflow.out
       "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/versioned-hash-overflow.ssz > native-hashes.out
       cmp native-hashes.out ${zesuSszDecodeSmoke}/versioned-hash-overflow.out
+      "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/one-transaction.ssz > native-tx.out
+      cmp native-tx.out ${zesuSszDecodeSmoke}/one-transaction.out
+      "$out/bin/zesu-ssz-decode-probe" < ${zesuSszDecodeSmoke}/one-withdrawal.ssz > native-withdrawal.out
+      cmp native-withdrawal.out ${zesuSszDecodeSmoke}/one-withdrawal.out
     '';
   };
 in
