@@ -326,8 +326,10 @@ theorem writeOutputReturnStep (stepNo : Nat) (state : State) (returnAddress : Bi
         (Sail.BitVec.update returnAddress 0 0#1) retired) false :=
   configuredRetStep stepNo 0x101a0 state returnAddress configured atPc link targetAligned loaded
 
-private def writeOutputPc (pc : BitVec 64) : Prop :=
+def writeOutputPc (pc : BitVec 64) : Prop :=
   pc = 0x10190 ∨ pc = 0x10194 ∨ pc = 0x10198 ∨ pc = 0x1019c
+
+def writeOutputTracePc (pc : BitVec 64) : Prop := writeOutputPc pc ∨ pc = 0x101a0
 
 private def writeOutputExit (pc : BitVec 64) : Prop := pc = 0x101a0
 
@@ -378,14 +380,15 @@ private theorem liftWriteOutputPrefix (template : EndpointState) {fromStep count
     {before after : State}
     (trace : ScopedTrace writeOutputPc writeOutputExit (fun _ _ _ _ _ => False)
       fromStep count before after) :
-    ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.writeSuccessExecutionPcRanges)
+    ConfinedTrace EndpointStep EndpointPc writeOutputTracePc
       fromStep count { template with machine := before } { template with machine := after } := by
   induction trace with
   | exitAt fromStep state pc atPc exitPc => exact .refl fromStep { template with machine := state }
   | ownStep fromStep count pc before middle after atPc inside notExit machineStep rest ih =>
       refine ConfinedTrace.step fromStep count pc
         { template with machine := before } { template with machine := middle }
-        { template with machine := after } ?_ (writeOutputPc_in_writer inside) ?_ ?_
+        { template with machine := after } ?_
+          (show writeOutputTracePc pc from Or.inl inside) ?_ ?_
       · exact atPc
       · exact endpointStep_sail fromStep { template with machine := before } middle
           (fun observed observedPc => by
@@ -407,7 +410,7 @@ set_option genInjectivity false in
 structure WriteOutputHandoff (fromStep : Nat) (buffer : Nat) (bytes : Array UInt8)
     (returnAddress : BitVec 64) (before after : EndpointState) : Prop where
   trace : ConfinedTrace EndpointStep EndpointPc
-    (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 5 before after
+    writeOutputTracePc fromStep 5 before after
   atPc : after.machine.regs.get? PC = some (Sail.BitVec.update returnAddress 0 0#1)
   stdout : after.stdout = before.stdout ++ bytes
   stdin : after.stdin = before.stdin
@@ -530,10 +533,9 @@ theorem writeOutputHandoff (fromStep buffer : Nat) (bytes : Array UInt8)
     ⟨buffer, bytes.size, bytes, seg4.atPc, seg4.reg x10 _ (by simp), seg4.reg x11 _ (by simp),
       rfl, bytes4, run5, rfl, rfl, rfl, rfl⟩
   have finalTrace : ConfinedTrace EndpointStep EndpointPc
-      (pcInRanges Elflings.writeSuccessExecutionPcRanges) (fromStep + 4) 1 beforeReturn after := by
+      writeOutputTracePc (fromStep + 4) 1 beforeReturn after := by
     refine ConfinedTrace.step _ 0 0x101a0 beforeReturn after after seg4.atPc ?_ finalStep (.refl _ _)
-    exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges],
-      by native_decide, by native_decide⟩
+    exact Or.inr rfl
   refine ⟨after, prefixTrace.append (by simpa [beforeReturn] using finalTrace), ?_, rfl, rfl, rfl,
     rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · simp [after, s5, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,

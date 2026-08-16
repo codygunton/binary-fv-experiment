@@ -15046,9 +15046,16 @@ private theorem writeSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessA
     frameNotCode := accessCall.frameNotCode }
   have parentAmbient := WriteSuccessAmbientFrame.ofSegCall seg3
     0x15738 0x10190 retired3 0x1573c (by rfl : callState.machine = _)
+  have outputTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessExecutionPcRanges) (fromStep + 4) 5 callState after :=
+    output.trace.weaken (fun pc inside => by
+    unfold writeOutputTracePc writeOutputPc at inside
+    rcases inside with (rfl | rfl | rfl | rfl) | rfl <;>
+      exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges],
+        by native_decide, by native_decide⟩)
   refine ⟨after, {
     ambient := parentAmbient.trans ⟨output.preserved, output.aux⟩
-    trace := by simpa [Nat.add_assoc] using parentTrace.append output.trace
+    trace := by simpa [Nat.add_assoc] using parentTrace.append outputTrace
     atPc := output.atPc
     stack := output.stackPreserved.trans
       ((callWrites.get x2 (by decide)).trans (seg3.reg x2 _ (by simp)))
