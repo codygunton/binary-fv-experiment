@@ -361,6 +361,7 @@ theorem decodeInputAllocateSaveArea (fromStep : Nat) (args : DecodeInlineArgs)
     confined := .nil
     writes := WritesOnlyRegs.refl decodeInputParentWrites args.origin.machine
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := decodeInputIncomingRegs_hold args values

@@ -548,6 +548,7 @@ def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
   BytesRep after.machine.mem args.copiedPayloadAddress args.copiedPayloadBytes ∧
   BytesRep after.machine.mem args.decodedAddress args.copiedSourceBytes ∧
   BytesRep after.machine.mem args.copiedSourceAddress args.copiedSourceBytes ∧
+  EndpointMachineAuxAgree before.machine after.machine ∧
   BinaryFv.RiscV.WritesOnlyWithin
     (inlineEncoderMemoryRegion args.stackPointer) before.machine after.machine ∧
   BinaryFv.RiscV.Agree inlineEncoderPreserved before.machine after.machine ∧

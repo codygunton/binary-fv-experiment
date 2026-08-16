@@ -229,6 +229,7 @@ theorem writeSuccessAllocateFrame (fromStep : Nat) (args : WriteSuccessArgs)
     confined := .nil
     writes := WritesOnlyRegs.refl writeSuccessPrologueWrites state.machine
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := writeSuccessIncomingRegs_hold args state
@@ -326,6 +327,85 @@ private theorem configuredAfterEndpointCall {before after : EndpointState}
   configured.mono
     (frame.1.weaken instructionPreserved_abiCalleePreserved_local)
     frame.2.1
+
+/-- The part of the endpoint call frame that composes across parent instructions and child calls. -/
+private def WriteSuccessAmbientFrame (before after : EndpointState) : Prop :=
+  Agree instructionPreserved before.machine after.machine ∧
+  AuxStateAgree before.machine after.machine
+
+private theorem WriteSuccessAmbientFrame.refl (state : EndpointState) :
+    WriteSuccessAmbientFrame state state :=
+  ⟨Agree.refl _, AuxStateAgree.refl _⟩
+
+private theorem WriteSuccessAmbientFrame.trans {before middle after : EndpointState}
+    (first : WriteSuccessAmbientFrame before middle)
+    (second : WriteSuccessAmbientFrame middle after) :
+    WriteSuccessAmbientFrame before after :=
+  ⟨first.1.trans second.1, first.2.trans second.2⟩
+
+private theorem WriteSuccessAmbientFrame.ofCall {before after : EndpointState}
+    (frame : EndpointCallFrame before after) : WriteSuccessAmbientFrame before after :=
+  ⟨frame.1.weaken instructionPreserved_abiCalleePreserved_local,
+    frame.2.2.2.1, frame.2.2.2.2.1, frame.2.2.2.2.2⟩
+
+private theorem WriteSuccessAmbientFrame.ofSeg
+    {own exit : BitVec 64 → Prop}
+    {summary : Elfling.FunctionInstanceId → Nat → Nat → State → State → Prop}
+    {W : RegSet} {M : Region} {kv : List RegVal} {fromStep len : Nat}
+    {before after : EndpointState} {pc : BitVec 64}
+    (seg : Seg own exit summary W M kv fromStep len before.machine after.machine pc)
+    (disjoint : RegSet.Disjoint instructionPreserved W) :
+    WriteSuccessAmbientFrame before after :=
+  ⟨seg.agree disjoint, seg.aux⟩
+
+private theorem AuxStateAgree.callRetirement (state : State) (pc target retired : BitVec 64)
+    (linkReg : Register) (linkValue : RegisterType linkReg) :
+    AuxStateAgree state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) pc target linkReg linkValue)
+        target retired) := by
+  simp [AuxStateAgree, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+    callLinkState, controlFlowJumpState, coreControlFlowNextState,
+    tryStepControlFlowAfterIncrement]
+
+private theorem instructionPreserved_disjoint_writeSuccessParentWrites :
+    RegSet.Disjoint instructionPreserved writeSuccessParentWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  all_goals simp [instructionPreserved, platformPreserved] at preserved
+
+/-- Compose a parent-owned `Seg` ending immediately before a link-writing call with the call's
+register/auxiliary frame. This is the common parent prefix of the selected writer children. -/
+private theorem WriteSuccessAmbientFrame.ofSegCall
+    {own exit : BitVec 64 → Prop}
+    {summary : Elfling.FunctionInstanceId → Nat → Nat → State → State → Prop}
+    {M : Region} {kv : List RegVal} {fromStep len : Nat}
+    {before after : EndpointState} {setup : State} {atPc : BitVec 64}
+    (seg : Seg own exit summary writeSuccessParentWrites M kv fromStep len
+      before.machine setup atPc)
+    (pc target retired linkValue : BitVec 64)
+    (afterMachine : after.machine =
+      tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement setup) pc target x1 linkValue)
+        target retired) :
+    WriteSuccessAmbientFrame before after := by
+  have callWrites := callRetirement_writes setup pc target retired x1 linkValue
+  have callAgree : Agree instructionPreserved setup after.machine := by
+    intro register preserved
+    rw [afterMachine]
+    exact callWrites register (fun written =>
+      instructionPreserved_disjoint_writeSuccessParentWrites register preserved (by
+        rcases written with bookkeeping | rfl
+        · exact Or.inl bookkeeping
+        · exact Or.inr (Or.inl rfl)))
+  have callAux : AuxStateAgree setup after.machine := by
+    rw [afterMachine]
+    exact AuxStateAgree.callRetirement _ _ _ _ _ _
+  exact ⟨(seg.agree instructionPreserved_disjoint_writeSuccessParentWrites).trans callAgree,
+    seg.aux.trans callAux⟩
 
 private theorem writeSuccessStoreDecodeReads {state : State}
     (configured : ConfiguredMachinePre EndpointMachinePc state) :
@@ -1674,7 +1754,8 @@ theorem writeSuccessSavePrologue (fromStep : Nat) (args : WriteSuccessArgs)
           writeSuccessIncomingRegs args values)
         fromStep 14 state.machine next 0x14d68 ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
-      ConfiguredMachinePre EndpointMachinePc next := by
+      ConfiguredMachinePre EndpointMachinePc next ∧
+      DecodeCalleeSavedAtRegisters values state := by
   rcases entry with ⟨ret, lower, aligned, fits, decodedEq, atPc, link, stack, decoded, rep,
     initialized, initializedFull, loaded, ⟨values, saved⟩, access, stable⟩
   have entry' : WriteSuccessEntry args state :=
@@ -1694,7 +1775,7 @@ theorem writeSuccessSavePrologue (fromStep : Nat) (args : WriteSuccessArgs)
   obtain ⟨s12, seg12, words12, cfg12⟩ := writeSuccessSaveS9 entry' seg11 words11 cfg11
   obtain ⟨s13, seg13, words13, cfg13⟩ := writeSuccessSaveS10 entry' seg12 words12 cfg12
   obtain ⟨s14, seg14, words14, cfg14⟩ := writeSuccessSaveS11 entry' seg13 words13 cfg13
-  exact ⟨values, s14, seg14, by simpa [writeSuccessSavedWords] using words14, cfg14⟩
+  exact ⟨values, s14, seg14, by simpa [writeSuccessSavedWords] using words14, cfg14, saved⟩
 
 /-- Production `0x14d68: mv s0,a0`. -/
 theorem writeSuccessBindDecodedStep (stepNo : Nat) (state : State) (value : BitVec 64)
@@ -2011,8 +2092,9 @@ theorem writeSuccessPrologueHandoff (fromStep : Nat) (args : WriteSuccessArgs)
          ⟨x8, BitVec.ofNat 64 args.decodedAddress⟩]
         fromStep 15 state.machine next 0x14d6c ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
-      ConfiguredMachinePre EndpointMachinePc next := by
-  obtain ⟨values, savedState, seg, words, configured⟩ :=
+      ConfiguredMachinePre EndpointMachinePc next ∧
+      DecodeCalleeSavedAtRegisters values state := by
+  obtain ⟨values, savedState, seg, words, configured, initialSaved⟩ :=
     writeSuccessSavePrologue fromStep args state entry
   rcases entry with ⟨_, lower, _, _, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
   have stack := seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -2046,7 +2128,8 @@ theorem writeSuccessPrologueHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     exact (afterRegisterWrite_writes savedState 0x14d68 retired' x8
       (BitVec.ofNat 64 args.decodedAddress)).get x2 (by decide) |>.trans stack
   exact ⟨values, next, seg1.know x2
-    (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) stackNext, wordsNext, configuredNext⟩
+    (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) stackNext, wordsNext, configuredNext,
+    initialSaved⟩
 
 /-- Set the three `memcpy` arguments and its call base, ending at the exact call instruction. -/
 theorem writeSuccessMemcpyCallSetup (fromStep : Nat) (args : WriteSuccessArgs)
@@ -2060,8 +2143,9 @@ theorem writeSuccessMemcpyCallSetup (fromStep : Nat) (args : WriteSuccessArgs)
          ⟨x8, BitVec.ofNat 64 args.decodedAddress⟩]
         fromStep 19 state.machine next 0x14d7c ∧
       SavedWordReps next (writeSuccessSavedWords args values) ∧
-      ConfiguredMachinePre EndpointMachinePc next := by
-  obtain ⟨values, prologueState, prologue, words, configured⟩ :=
+      ConfiguredMachinePre EndpointMachinePc next ∧
+      DecodeCalleeSavedAtRegisters values state := by
+  obtain ⟨values, prologueState, prologue, words, configured, initialSaved⟩ :=
     writeSuccessPrologueHandoff fromStep args state entry
   rcases entry with ⟨_, lower, _, fits, decodedEq, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
   have disjoint : RegSet.Disjoint instructionPreserved writeSuccessParentWrites := by
@@ -2122,7 +2206,7 @@ theorem writeSuccessMemcpyCallSetup (fromStep : Nat) (args : WriteSuccessArgs)
     rw [state3Eq, state2Eq, state1Eq, state0Eq]
     simpa only [afterRegisterWrite_mem] using words
   exact ⟨values, state3, seg4, words3,
-    access.configured.mono (seg4.agree disjoint) seg4.retired⟩
+    access.configured.mono (seg4.agree disjoint) seg4.retired, initialSaved⟩
 
 /-- Execute the exact call and discharge the selected `memcpy` instance unconditionally. -/
 theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
@@ -2147,8 +2231,10 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
       WriteSuccessMachineAccess args after.machine ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after ∧
+      WriteSuccessAmbientFrame state after ∧
+      DecodeCalleeSavedAtRegisters values state ∧
       used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
-  obtain ⟨values, setupState, setup, savedWords, configured⟩ :=
+  obtain ⟨values, setupState, setup, savedWords, configured, initialSaved⟩ :=
     writeSuccessMemcpyCallSetup fromStep args state entry
   rcases entry with ⟨_, lower, _, fits, decodedEq, _, _, _, _, decodedRep,
     ⟨bytes, bytesSize, sourceRep⟩, ⟨tailValues, tailReps⟩, loaded, _, access, stable⟩
@@ -2307,6 +2393,12 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
       omega)
   have wholeMemory : WriteSuccessMemoryFrame args state.machine after.machine :=
     WritesOnlyWithin.trans_same parentMemory childMemory
+  have parentAmbient : WriteSuccessAmbientFrame state callState := by
+    refine ⟨?_, setup.aux.trans (AuxStateAgree.callRetirement _ _ _ _ _ _)⟩
+    intro register preserved
+    exact wholeWrites register
+      (instructionPreserved_disjoint_writeSuccessParentWrites register preserved)
+  have wholeAmbient := parentAmbient.trans (WriteSuccessAmbientFrame.ofCall childFrame)
   have payloadFields := decodedRep.rawPayloadFields.of_writesOnlyWithin wholeMemory (by
     intro offset width bound index indexBound inside
     unfold writeSuccessFrameMemory byteRange at inside
@@ -2333,7 +2425,7 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     ⟨tailValues, tailAfterReps⟩
   refine ⟨values, bytes, tailValues, used, after, ?_, ?_, destinationRep, sourceRepAfter,
     bytesSize, payloadFieldBytes, tailAfter, tailAfterReps, savedAfter, ?_, ?_, codeAfter, accessAfter,
-    wholeMemory, ?_, ?_⟩
+    wholeMemory, ?_, wholeAmbient, initialSaved, ?_⟩
   · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
   · simpa [EndpointPc, MachinePc, memcpyArgs] using childPc
   · exact (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
@@ -2381,10 +2473,12 @@ theorem writeSuccessFirstTailLoadHandoff (fromStep : Nat) (args : WriteSuccessAr
       InitializedByteWindow next.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after ∧
+      WriteSuccessAmbientFrame state after ∧
+      DecodeCalleeSavedAtRegisters values state ∧
       used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, trace, atPc, _destinationRep, sourceRep,
     bytesSize, fieldBytes, _tailWindow, tailReps, saved, stackRead, baseRead, loaded, access, memoryFrame,
-    ioFrame, memcpyBounded⟩ :=
+    ioFrame, ambient, initialSaved, memcpyBounded⟩ :=
     writeSuccessMemcpyHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, _, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   let kv : List RegVal :=
@@ -2397,6 +2491,7 @@ theorem writeSuccessFirstTailLoadHandoff (fromStep : Nat) (args : WriteSuccessAr
       confined := .nil
       writes := .refl _ _
       mem := fun _ _ => rfl
+      aux := AuxStateAgree.refl _
       retired := access.configured.retiredCounter
       atPc := atPc
       regs := by
@@ -2444,7 +2539,7 @@ theorem writeSuccessFirstTailLoadHandoff (fromStep : Nat) (args : WriteSuccessAr
     bytesSize, fieldBytes, ⟨tailValues, tailReps⟩, tailReps, saved, loaded, access, tailNext,
     tailNextReps, savedNext, codeNext, writeSuccessAccessOfSeg access seg1, destinationNext,
     initializedNext,
-      memoryFrame, ioFrame, memcpyBounded⟩
+      memoryFrame, ioFrame, ambient, initialSaved, memcpyBounded⟩
 
 def writeSuccessLocalTailWords (args : WriteSuccessArgs) (values : Fin 16 → Nat) :
     List (Nat × Nat) :=
@@ -2635,11 +2730,13 @@ theorem writeSuccessFirstTailPairHandoff (fromStep : Nat) (args : WriteSuccessAr
       InitializedByteWindow next.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after ∧
+      WriteSuccessAmbientFrame state after ∧
+      DecodeCalleeSavedAtRegisters values state ∧
       used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, loadedState, trace, loadedSeg,
     destinationRep, sourceRep, bytesSize, fieldBytes, _tailWindowAtBase, tailAtBase, _savedAtBase, loadedAtBase,
     accessAtBase, _tailWindowAtLoad, _tailAtLoad, savedAtLoad, _loadedAtLoad, accessAtLoad,
-    destinationAtLoad, initializedAtLoad, memoryFrame, ioFrame, memcpyBounded⟩ :=
+    destinationAtLoad, initializedAtLoad, memoryFrame, ioFrame, ambient, initialSaved, memcpyBounded⟩ :=
     writeSuccessFirstTailLoadHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   refine ⟨values, bytes, tailValues, used, after, ?_⟩
@@ -2699,7 +2796,7 @@ theorem writeSuccessFirstTailPairHandoff (fromStep : Nat) (args : WriteSuccessAr
     tailNext, tailNextReps, savedNext, stored0,
     writeSuccessCodeOfSeg accessAtBase loadedAtBase lower seg2,
     writeSuccessAccessOfSeg accessAtBase seg2, destinationNext, initializedNext, memoryFrame,
-    ioFrame, memcpyBounded⟩
+    ioFrame, ambient, initialSaved, memcpyBounded⟩
 
 /-- Reusable exact `ld a0,offset(s0); sd a0,slot(sp)` pair for the decoded writer tail. -/
 private theorem writeSuccessTailPairStep {a n : Nat} {base cur : State} {bytes : Array UInt8}
@@ -2908,11 +3005,13 @@ theorem writeSuccessSecondTailPairHandoff (fromStep : Nat) (args : WriteSuccessA
       WriteSuccessMachineAccess args next ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after ∧
+      WriteSuccessAmbientFrame state after ∧
+      DecodeCalleeSavedAtRegisters values state ∧
       used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, first, trace, seg, destinationRep,
     sourceRep, bytesSize, fieldBytes, tailBase, loaded, access, _tailWindow, tailFirst, saved,
     stored0, _code, _accessFirst,
-    copiedFirst, initializedFirst, memoryFrame, ioFrame, memcpyBounded⟩ :=
+    copiedFirst, initializedFirst, memoryFrame, ioFrame, ambient, initialSaved, memcpyBounded⟩ :=
     writeSuccessFirstTailPairHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   obtain ⟨next, seg2, tailNext, savedNext, stored1, pairWrites, copiedNext, initializedNext,
@@ -2957,7 +3056,7 @@ theorem writeSuccessSecondTailPairHandoff (fromStep : Nat) (args : WriteSuccessA
     simpa [writeSuccessLocalTailOffset] using stored1
   exact ⟨values, bytes, tailValues, used, after, next, trace, seg2, destinationRep, sourceRep, bytesSize,
     fieldBytes, tailBase, loaded, access, tailNext, savedNext, local2, copiedNext, initializedNext, accessNext,
-    memoryFrame, ioFrame, memcpyBounded⟩
+    memoryFrame, ioFrame, ambient, initialSaved, memcpyBounded⟩
 
 /-- Compose the first ten decoded-tail load/store pairs, ending at `0x14dd0`. -/
 theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSuccessArgs)
@@ -2990,11 +3089,13 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
       WriteSuccessMachineAccess args next ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after ∧
+      WriteSuccessAmbientFrame state after ∧
+      DecodeCalleeSavedAtRegisters values state ∧
       used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, cur1, trace, seg1, destinationRep,
     sourceRep, bytesSize, fieldBytes, tailBase, loaded, access, tail1, saved1, local2,
     copied1, initialized1, access1, memoryFrame,
-    ioFrame, memcpyBounded⟩ :=
+    ioFrame, ambient, initialSaved, memcpyBounded⟩ :=
     writeSuccessSecondTailPairHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   obtain ⟨cur2, seg2, tail2, saved2, stored2, pairWrites2, copied2, initialized2, access2⟩ :=
@@ -3248,7 +3349,7 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
   exact ⟨values, bytes, tailValues, used, after, cur9, trace, seg9, destinationRep,
     sourceRep, bytesSize, fieldBytes, tailBase, loaded, access, tail9, saved9, local10,
     copied9, initialized9, access9,
-    memoryFrame, ioFrame, memcpyBounded⟩
+    memoryFrame, ioFrame, ambient, initialSaved, memcpyBounded⟩
 
 /-- Append one exact decoded-tail load while retaining the earlier live tail values. -/
 private theorem writeSuccessTailLoadStep {a n : Nat} {base cur : State} {kv : List RegVal}
@@ -3393,11 +3494,13 @@ theorem writeSuccessFirstFourFinalLoadsHandoff (fromStep : Nat) (args : WriteSuc
       WriteSuccessMachineAccess args next ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
       WriteSuccessIoFrame state after ∧
+      WriteSuccessAmbientFrame state after ∧
+      DecodeCalleeSavedAtRegisters values state ∧
       used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, cur9, trace, seg9, destinationRep,
     sourceRep, bytesSize, fieldBytes, tailBase, loaded, access, _tail9, saved9, local10,
     copied9, initialized9, _access9, memoryFrame,
-    ioFrame, memcpyBounded⟩ :=
+    ioFrame, ambient, initialSaved, memcpyBounded⟩ :=
     writeSuccessFirstTenTailPairsHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, _, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   let kv0 : List RegVal :=
@@ -3502,7 +3605,7 @@ theorem writeSuccessFirstFourFinalLoadsHandoff (fromStep : Nat) (args : WriteSuc
   exact ⟨values, bytes, tailValues, used, after, cur13, trace,
     by simpa [Nat.add_assoc] using seg13, destinationRep, sourceRep, bytesSize, fieldBytes, tailBase, loaded, access,
     tail13, saved13, local10At13, copied13, initialized13, access13, memoryFrame, ioFrame,
-    memcpyBounded⟩
+    ambient, initialSaved, memcpyBounded⟩
 
 /-- Append one exact child-frame store while retaining tail values and ABI saves. -/
 private theorem writeSuccessTailStoreStep {a n : Nat} {base cur : State} {kv : List RegVal}
@@ -3641,11 +3744,13 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
       InitializedByteWindow next.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMemoryFrame args state.machine next ∧
       WriteSuccessIoFrame state after ∧
+      WriteSuccessAmbientFrame state after ∧
+      DecodeCalleeSavedAtRegisters values state ∧
       used ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 := by
   obtain ⟨values, bytes, tailValues, used, after, cur13, trace, seg13, destinationRep,
     sourceRep, bytesSize, fieldBytes, tailBase, loaded, access, _tail13, saved13, local10,
     copied13, initialized13, _access13, memoryFrame,
-    ioFrame, memcpyBounded⟩ :=
+    ioFrame, ambient, initialSaved, memcpyBounded⟩ :=
     writeSuccessFirstFourFinalLoadsHandoff fromStep args state entry
   rcases entry with ⟨_, lower, aligned, fits, decodedEq, _, _, _, _, _, _, _, _, _, _, _⟩
   let kvBase : List RegVal := [⟨x13, BitVec.ofNat 64 (tailValues ⟨13, by omega⟩)⟩,
@@ -3925,7 +4030,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
     ⟨tailValues, by simpa using allLocal, tailS13⟩,
     writeSuccessCodeOfSeg access loaded lower segS13, accessS13, copiedS13,
     initializedS13,
-    WritesOnlyWithin.trans_same memoryFrame segS13.mem, ioFrame, memcpyBounded⟩
+    WritesOnlyWithin.trans_same memoryFrame segS13.mem, ioFrame, ambient, initialSaved, memcpyBounded⟩
 
 private theorem writeSuccessPrefixPc_in_execution {pc : BitVec 64}
     (inside : pcInRanges Elflings.writeSuccessRawLine131ExecutionPcRanges pc) :
@@ -3965,12 +4070,14 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
       WriteSuccessMachineAccess args after.machine ∧
       InitializedByteWindow after.machine.mem (args.stackPointer - 0x7d0 + 0x138) 720 ∧
       WriteSuccessMemoryFrame args state.machine after.machine ∧
+      WriteSuccessAmbientFrame state after ∧
+      DecodeCalleeSavedAtRegisters values state ∧
       parentUsed ≤ MemcpyInstanceContract.stepBound memcpyInstanceContract 720 ∧
       childUsed ≤ ConstantEncoderInstanceContract.stepBound child := by
   obtain ⟨values, bytes, tailValues, parentUsed, parentAfter, tailMachine, parentTrace,
     tailSeg, destinationRep, sourceRep, bytesSize, fieldBytes, tailReps, saved, localTail,
     linkedTail, loaded, access, copied, initialized,
-    memoryFrame, ioFrame, _memcpyBounded⟩ :=
+    memoryFrame, ioFrame, ambient, initialSaved, _memcpyBounded⟩ :=
     writeSuccessTailSegmentHandoff fromStep args state entry
   let tailState : EndpointState := { parentAfter with machine := tailMachine }
   have tailTrace : ConfinedTrace EndpointStep EndpointPc
@@ -4001,6 +4108,11 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
   have finalMemory : WriteSuccessMemoryFrame args state.machine final.machine := by
     apply WritesOnlyWithin.trans_same tailMemory
     simpa [tailState] using writesOnlyWithin_of_mem_eq childMem
+  have tailAmbient : WriteSuccessAmbientFrame state tailState :=
+    ambient.trans (by
+      simpa [tailState] using WriteSuccessAmbientFrame.ofSeg tailSeg
+        instructionPreserved_disjoint_writeSuccessParentWrites)
+  have finalAmbient := tailAmbient.trans (WriteSuccessAmbientFrame.ofCall childFrame)
   have pmaEq : final.machine.regs.get? pma_regions = tailMachine.regs.get? pma_regions := by
     simpa [tailState] using childFrame.1 pma_regions (by simp [abiCalleePreserved])
   have accessFinal : WriteSuccessMachineAccess args final.machine :=
@@ -4019,6 +4131,7 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
       frameNotCode := access.frameNotCode }
   refine ⟨values, bytes, tailValues, parentUsed, childUsed, final, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
     ?_, ?_, bytesSize, fieldBytes, ?_, ?_, ?_, ?_, childFrame.2.2.1, accessFinal, ?_, finalMemory,
+    finalAmbient, initialSaved,
     _memcpyBounded, ?_⟩
   · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
   · simpa [EndpointPc, MachinePc] using finalPc
@@ -4310,6 +4423,8 @@ set_option genInjectivity false in
 structure WriteSuccessSecondMemcpyHandoff (fromStep parentUsed prefixUsed memcpyUsed : Nat)
     (args : WriteSuccessArgs) (state after : EndpointState) (values : DecodeCalleeSavedValues)
     (bytes : Array UInt8) (tailValues : Fin 16 → Nat) : Prop where
+  ambient : WriteSuccessAmbientFrame state after
+  initialSaved : DecodeCalleeSavedAtRegisters values state
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
     (20 + parentUsed + 32 + prefixUsed + 5 + memcpyUsed + 1) state after
@@ -4368,7 +4483,7 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
   obtain ⟨values, fullBytes, tailValues, parentUsed, prefixUsed, prefixState, prefixTrace,
     prefixPc, prefixStack, prefixStdout, prefixStdin, prefixCursor, prefixExitCode, fullRep,
     decodedFullRep, fullSize, fullFieldBytes, tailReps, saved, localTail, linkedTail, loaded, access,
-    initialized, memoryFrame, firstMemcpyBounded, prefixBounded⟩ :=
+    initialized, memoryFrame, prefixAmbient, initialSaved, firstMemcpyBounded, prefixBounded⟩ :=
     writeSuccessPrefixHandoff child fromStep args state entry
   have stackLower : 0x880 ≤ args.stackPointer := entry.2.1
   have stackFits : args.stackPointer < 2 ^ 64 := entry.2.2.2.1
@@ -4395,6 +4510,7 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := prefixMachinePc
     regs := RegsHold.nil _ }
@@ -4579,6 +4695,7 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := childConfigured.retiredCounter
     atPc := by simpa [EndpointPc, MachinePc, memcpyArgs] using childPc
     regs := RegsHold.nil _ }
@@ -4625,6 +4742,24 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
       writerRegionBeforeOutputContext := access.writerRegionBeforeOutputContext
       frameNotCode := access.frameNotCode }
   have accessFinal := writeSuccessAccessOfSeg accessAfter finalSeg
+  let setupState : EndpointState := { prefixState with machine := setupMachine }
+  have setupAmbient : WriteSuccessAmbientFrame prefixState setupState := by
+    simpa [setupState] using WriteSuccessAmbientFrame.ofSeg seg4
+      instructionPreserved_disjoint_writeSuccessParentWrites
+  have callAmbient : WriteSuccessAmbientFrame setupState callState := by
+    refine ⟨?_, AuxStateAgree.callRetirement _ _ _ _ _ _⟩
+    intro register preserved
+    exact callWrites register (fun written =>
+      instructionPreserved_disjoint_writeSuccessParentWrites register preserved (by
+        rcases written with bookkeeping | rfl
+        · exact Or.inl bookkeeping
+        · exact Or.inr (Or.inl rfl)))
+  have childAmbient := WriteSuccessAmbientFrame.ofCall childFrame
+  have finalAmbient : WriteSuccessAmbientFrame childAfter finalState := by
+    simpa [finalState] using WriteSuccessAmbientFrame.ofSeg finalSeg
+      instructionPreserved_disjoint_writeSuccessParentWrites
+  have wholeAmbient := prefixAmbient.trans
+    (setupAmbient.trans (callAmbient.trans (childAmbient.trans finalAmbient)))
   have tailAfter : ∀ index (inBounds : index < 16),
       UIntRep 8 finalMachine.mem (args.decodedAddress + 720 + index * 8)
         (tailValues ⟨index, inBounds⟩) := by
@@ -4775,6 +4910,8 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     have sameBytes := ByteWindowRelocation.of_same_bytes decodedBytesFinal destinationFinal
     simpa [bytesSize] using sameBytes
   refine ⟨values, bytes, tailValues, parentUsed, prefixUsed, memcpyUsed, finalState, {
+    ambient := wholeAmbient
+    initialSaved := initialSaved
     trace := ?_
     atPc := ?_
     stack := ?_
@@ -4870,6 +5007,7 @@ structure WriteSuccessEncoderChildHandoff (Value : Type)
     (fromStep parentUsed childUsed frameSize returnPc : Nat) (childBound : Nat → Nat)
     (encode : Value → Array UInt8) (value : Value) (writerArgs : WriteSuccessArgs)
     (before callState after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges)
     fromStep (parentUsed + childUsed) before after
@@ -4908,6 +5046,7 @@ private theorem writeSuccessEncoderChildHandoff
     (parentTrace : ConfinedTrace EndpointStep EndpointPc
       (pcInRanges Elflings.writeSuccessExecutionPcRanges)
       fromStep parentUsed before callState)
+    (parentAmbient : WriteSuccessAmbientFrame before callState)
     (io : callState.stdin = before.stdin ∧ callState.stdinCursor = before.stdinCursor ∧
       callState.stdout = before.stdout ∧ callState.exitCode = before.exitCode)
     (memoryEq : callState.machine.mem = before.machine.mem)
@@ -4958,6 +5097,7 @@ private theorem writeSuccessEncoderChildHandoff
     rw [← memoryEq]
     exact loaded address byte fileByte
   refine ⟨childUsed, after, {
+    ambient := parentAmbient.trans (WriteSuccessAmbientFrame.ofCall childFrame)
     trace := by
       have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
       simpa [Nat.add_assoc] using all
@@ -4979,6 +5119,7 @@ set_option genInjectivity false in
 structure RawEncoderPointerHandoff (fromStep childUsed nextEntry nextSourceAddress : Nat)
     (writerArgs : WriteSuccessArgs) (rawArgs : RawEncoderArgs)
     (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (childUsed + 1) before after
   atPc : EndpointPc after = some (BitVec.ofNat 64 nextEntry)
@@ -5050,6 +5191,7 @@ private theorem writeSuccessRawEncoderThenPointerHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := childAccess.configured.retiredCounter
     atPc := childAtPc
     regs := by
@@ -5072,6 +5214,9 @@ private theorem writeSuccessRawEncoderThenPointerHandoff
       childAfter after := by
     simpa [after] using liftWriteSuccessParentTrace childAfter parentMachineTrace
   refine ⟨childUsed, after, {
+    ambient := (WriteSuccessAmbientFrame.ofCall childFrame).trans (by
+      simpa [after] using WriteSuccessAmbientFrame.ofSeg seg1
+        instructionPreserved_disjoint_writeSuccessParentWrites)
     trace := by simpa [Nat.add_assoc] using childTrace.append parentTrace
     atPc := by simpa [after, EndpointPc, MachinePc] using seg1.atPc
     stack := by
@@ -5289,6 +5434,7 @@ private theorem writeSuccessLogsThenPrevRandao
 set_option genInjectivity false in
 structure WriteSuccessFirstThreeRawHandoff (fromStep parentHashUsed feeUsed stateUsed : Nat)
     (args : WriteSuccessArgs) (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
     (parentHashUsed + 1 + feeUsed + 1 + stateUsed + 1) before after
@@ -5351,6 +5497,7 @@ private theorem writeSuccessFirstThreeRawHandoff
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
     simpa [h3.memory] using fields2
   refine ⟨parentHashUsed, feeUsed, stateUsed, after3, {
+    ambient := h1.ambient.trans (h2.ambient.trans h3.ambient)
     trace := ?_
     atPc := h3.atPc
     stack := h3.stack
@@ -5407,6 +5554,7 @@ set_option genInjectivity false in
 structure WriteSuccessLastThreeRawHandoff
     (fromStep receiptsUsed logsUsed prevRandaoUsed : Nat)
     (args : WriteSuccessArgs) (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
     (receiptsUsed + 1 + logsUsed + 1 + prevRandaoUsed) before after
@@ -5480,6 +5628,7 @@ private theorem writeSuccessLastThreeRawHandoff
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
     simpa [memory3] using fields2
   refine ⟨receiptsUsed, logsUsed, prevRandaoUsed, after3, {
+    ambient := h1.ambient.trans (h2.ambient.trans (WriteSuccessAmbientFrame.ofCall frame3))
     trace := ?_
     atPc := by simpa [EndpointPc, MachinePc] using pc3
     stack := (frame3.1 x2 (by simp [abiCalleePreserved])).trans h2.stack
@@ -5507,6 +5656,8 @@ structure WriteSuccessSixRawFieldsHandoff
       receiptsUsed logsUsed prevRandaoUsed : Nat)
     (args : WriteSuccessArgs) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) (bytes : Array UInt8) (tailValues : Fin 16 → Nat) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
+  initialSaved : DecodeCalleeSavedAtRegisters values before
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
     (20 + parentUsed + 32 + prefixUsed + 5 + memcpyUsed + 1 +
@@ -5595,6 +5746,9 @@ theorem writeSuccessSixRawFieldsHandoff
     lastHandoff.memory.trans firstHandoff.memory
   refine ⟨values, bytes, tailValues, parentUsed, prefixUsed, memcpyUsed, parentHashUsed,
     feeUsed, stateUsed, receiptsUsed, logsUsed, prevRandaoUsed, after, {
+      ambient := initialHandoff.ambient.trans
+        (firstHandoff.ambient.trans lastHandoff.ambient)
+      initialSaved := initialHandoff.initialSaved
       trace := ?_
       atPc := lastHandoff.atPc
       stack := lastHandoff.stack
@@ -6329,6 +6483,8 @@ structure WriteSuccessFirstIntHandoff
     (fromStep prefixUsed parentHashUsed feeUsed stateUsed receiptsUsed logsUsed prevUsed intUsed : Nat)
     (args : WriteSuccessArgs) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) (bytes : Array UInt8) (tailValues : Fin 16 → Nat) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
+  initialSaved : DecodeCalleeSavedAtRegisters values before
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
     (prefixUsed + parentHashUsed + feeUsed + stateUsed + receiptsUsed + logsUsed + prevUsed +
@@ -6429,6 +6585,7 @@ theorem writeSuccessFirstIntHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := handoff.access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact handoff.stack }
@@ -6694,6 +6851,10 @@ theorem writeSuccessFirstIntHandoff
     exact loaded2 address byte fileByte
   refine ⟨values, bytes, tailValues, parentUsed, prefixUsed, memcpyUsed, parentHashUsed,
     feeUsed, stateUsed, receiptsUsed, logsUsed, prevUsed, intUsed, after, {
+      ambient := handoff.ambient.trans
+        ((WriteSuccessAmbientFrame.ofSegCall seg2 0x14e90 0x15d10 retired2 0x14e94 rfl).trans
+          (WriteSuccessAmbientFrame.ofCall childFrame))
+      initialSaved := handoff.initialSaved
       trace := ?_
       atPc := afterPc
       stack := (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
@@ -6757,6 +6918,7 @@ set_option genInjectivity false in
 structure WriteSuccessIntCallHandoff
     (fromStep childUsed returnPc value : Nat) (args : WriteSuccessArgs)
     (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (3 + childUsed) before after
   atPc : EndpointPc after = some (BitVec.ofNat 64 returnPc)
@@ -7261,6 +7423,7 @@ private theorem writeSuccessIntCallHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -7404,8 +7567,19 @@ private theorem writeSuccessIntCallHandoff
       exact Option.some_ne_none byte (fileByte.symm.trans notCode)
     rw [exactMemory address outside]
     exact loaded address byte fileByte
+  have seg2Wide := seg2.widenWrites (W' := writeSuccessParentWrites) (by
+    intro register written
+    simp [writeSuccessIntParentWrites, writeSuccessParentWrites] at written ⊢
+    rcases written with bookkeeping | rfl | rfl
+    · exact Or.inl bookkeeping
+    · exact Or.inr (Or.inl rfl)
+    · exact Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
   refine ⟨childUsed, after, ?_, ?_⟩
   · exact {
+      ambient := (WriteSuccessAmbientFrame.ofSegCall
+        seg2Wide
+        (BitVec.ofNat 64 (pc + 8)) 0x15d10 retired2 returnPc
+        (by rfl : callState.machine = _)).trans (WriteSuccessAmbientFrame.ofCall childFrame)
       trace := by
         have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
         simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
@@ -7432,6 +7606,7 @@ states at every one of the eight call sites. -/
 structure WriteSuccessSliceCallSetup
     (fromStep pc returnPc target address length : Nat)
     (args : WriteSuccessArgs) (before callState : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before callState
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 4 before callState
   atPc : EndpointPc callState = some (BitVec.ofNat 64 target)
@@ -7525,6 +7700,7 @@ private theorem writeSuccessSliceCallSetup
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -7624,6 +7800,9 @@ private theorem writeSuccessSliceCallSetup
     simpa [callState] using (callWrites.get x11 (by decide)).trans
       (seg3.reg x11 (BitVec.ofNat 64 length) (by simp))
   exact ⟨callState, {
+    ambient := WriteSuccessAmbientFrame.ofSegCall seg3
+      (BitVec.ofNat 64 (pc + 12)) target retired3 returnPc
+      (by rfl : callState.machine = _)
     trace := parentTrace
     atPc := by simpa [callState, EndpointPc] using callAtPc
     link := by simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -7755,6 +7934,7 @@ structure WriteSuccessLateBytesHandoff
     (fromStep childUsed returnPc : Nat) (value : Array UInt8)
     (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
     (before after : EndpointState) (savedValues : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges)
     fromStep (4 + childUsed) before after
@@ -7912,6 +8092,7 @@ private theorem writeSuccessLateBytesHandoff
       · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
           by omega, hi⟩)
     fromStep 4 args childValue before callState childArgs rfl childEntry setup.trace
+    setup.ambient
     ⟨setup.stdin, setup.cursor, setup.stdout, setup.exitCode⟩ setup.memory setup.access setup.loaded
     lower frameInWriter
   have payloadAfter := writeSuccessPayloadContextAfterChild decodedAddress lower upper
@@ -7950,6 +8131,7 @@ private theorem writeSuccessLateBytesHandoff
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl <;> omega)
   exact ⟨childUsed, after, {
+    ambient := handoff.ambient
     trace := handoff.trace
     atPc := handoff.atPc
     stack := handoff.stack
@@ -8101,6 +8283,7 @@ structure WriteSuccessRequestsHandoff
     (fromStep dUsed wUsed cUsed bdUsed beUsed : Nat) (args : WriteSuccessArgs)
     (payloadBytes : Array UInt8) (savedValues : DecodeCalleeSavedValues)
     (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
     (4 + dUsed + 4 + wUsed + 4 + cUsed + 4 + bdUsed + 4 + beUsed) before after
@@ -8229,6 +8412,8 @@ private theorem writeSuccessRequestsHandoff
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
   refine ⟨dUsed, wUsed, cUsed, bdUsed, beUsed, s5, {
+    ambient := h1.ambient.trans
+      (h2.ambient.trans (h3.ambient.trans (h4.ambient.trans h5.ambient)))
     trace := ?_
     atPc := h5.atPc
     stack := h5.stack
@@ -8265,6 +8450,7 @@ structure WriteSuccessLateByteListsHandoff
     (fromStep childUsed returnPc : Nat) (value : Array (Array UInt8))
     (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
     (before after : EndpointState) (savedValues : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (4 + childUsed) before after
   atPc : EndpointPc after = some (BitVec.ofNat 64 returnPc)
@@ -8331,6 +8517,7 @@ private theorem writeSuccessLateByteListsFromSetup
       · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
           by omega, by omega⟩)
     fromStep 4 args childValue before callState childArgs rfl childEntry setup.trace
+    setup.ambient
     ⟨setup.stdin, setup.cursor, setup.stdout, setup.exitCode⟩ setup.memory setup.access setup.loaded
     lower frameInWriter
   have payloadAfter := writeSuccessPayloadContextAfterChild decodedAddress lower upper
@@ -8357,6 +8544,7 @@ private theorem writeSuccessLateByteListsFromSetup
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl <;> omega)
   exact ⟨childUsed, after, {
+    ambient := handoff.ambient
     trace := handoff.trace
     atPc := handoff.atPc
     stack := handoff.stack
@@ -8448,6 +8636,7 @@ private theorem writeSuccessLateByteListsSite
       · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
           by omega, by omega⟩)
     fromStep 4 args childValue before callState childArgs rfl childEntry setup.trace
+    setup.ambient
     ⟨setup.stdin, setup.cursor, setup.stdout, setup.exitCode⟩ setup.memory setup.access setup.loaded
     lower frameInWriter
   have payloadAfter := writeSuccessPayloadContextAfterChild decodedAddress lower upper
@@ -8476,6 +8665,7 @@ private theorem writeSuccessLateByteListsSite
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl <;> omega)
   exact ⟨childUsed, after, {
+    ambient := handoff.ambient
     trace := handoff.trace
     atPc := handoff.atPc
     stack := handoff.stack
@@ -8496,6 +8686,7 @@ structure WriteSuccessWitnessListsHandoff
     (fromStep nodesUsed codesUsed headersUsed : Nat) (args : WriteSuccessArgs)
     (payloadBytes : Array UInt8) (savedValues : DecodeCalleeSavedValues)
     (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
     (4 + nodesUsed + 4 + codesUsed + 4 + headersUsed) before after
@@ -8598,6 +8789,7 @@ private theorem writeSuccessWitnessListsHandoff
   have memory12 := WritesOnlyWithin.trans_same memory1 memory2
   have memory123 := WritesOnlyWithin.trans_same memory12 memory3
   refine ⟨nodesUsed, codesUsed, headersUsed, s3, {
+    ambient := h1.ambient.trans (h2.ambient.trans h3.ambient)
     trace := ?_
     atPc := h3.atPc
     stack := h3.stack
@@ -8674,6 +8866,7 @@ set_option genInjectivity false in
 structure WriteSuccessChainIdHandoff
     (fromStep childUsed : Nat) (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
     (savedValues : DecodeCalleeSavedValues) (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (3 + childUsed) before after
   atPc : EndpointPc after = some 0x1596c
@@ -8730,6 +8923,7 @@ private theorem writeSuccessChainIdHandoff
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl <;> omega)
   exact ⟨childUsed, after, {
+    ambient := handoff.ambient
     trace := handoff.trace
     atPc := handoff.atPc
     stack := handoff.stack
@@ -9157,6 +9351,7 @@ private theorem writeSuccessForkNameBooleanCallHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by
@@ -9301,6 +9496,9 @@ private theorem writeSuccessForkNameBooleanCallHandoff
       ((callWrites.get x8 (by simp [stepBookkeeping])).trans
         ((seg2.reg x8 x8Value (by simp)).trans x8Reg.symm))
   exact ⟨childUsed, after, {
+    ambient := (WriteSuccessAmbientFrame.ofSegCall seg2
+      (BitVec.ofNat 64 (pc + 8)) 0x15b9c retired2 (BitVec.ofNat 64 returnPc)
+      (by rfl : callState.machine = _)).trans (WriteSuccessAmbientFrame.ofCall childFrame)
     trace := by
       have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
       simpa [Nat.add_assoc] using all
@@ -9323,6 +9521,7 @@ set_option genInjectivity false in
 structure WriteSuccessForkNameBranchHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     (payloadBytes : Array UInt8) (values : DecodeCalleeSavedValues)
     (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 2 before after
   stack : after.machine.regs.get? x2 =
@@ -9370,6 +9569,7 @@ private theorem writeSuccessForkNameBranchHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -9407,6 +9607,9 @@ private theorem writeSuccessForkNameBranchHandoff
         (.exitAt (fromStep + 2) final 0x15994 seg2.atPc (Or.inl rfl))
       have memEq : final.mem = before.machine.mem := seg2.memEq (by simp)
       exact ⟨after, {
+        ambient := by
+          simpa [after] using WriteSuccessAmbientFrame.ofSeg seg2
+            instructionPreserved_disjoint_writeSuccessParentWrites
         trace := by simpa [after] using liftWriteSuccessParentTrace before machineTrace
         stack := by simpa [after] using seg2.reg x2 _ (by simp)
         stdin := rfl
@@ -9480,6 +9683,9 @@ private theorem writeSuccessForkNameBranchHandoff
         (.exitAt (fromStep + 2) final 0x15974 seg2.atPc (Or.inr rfl))
       have memEq : final.mem = before.machine.mem := seg2.memEq (by simp)
       exact ⟨after, {
+        ambient := by
+          simpa [after] using WriteSuccessAmbientFrame.ofSeg seg2
+            instructionPreserved_disjoint_writeSuccessParentWrites
         trace := by simpa [after] using liftWriteSuccessParentTrace before machineTrace
         stack := by simpa [after] using seg2.reg x2 _ (by simp)
         stdin := rfl
@@ -9511,6 +9717,7 @@ set_option genInjectivity false in
 structure WriteSuccessForkNameBooleanHandoff
     (fromStep childUsed : Nat) (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
     (values : DecodeCalleeSavedValues) (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (5 + childUsed) before after
   stack : after.machine.regs.get? x2 =
@@ -9593,6 +9800,7 @@ private theorem writeSuccessForkNameBooleanHandoff
         rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
           rfl | rfl | rfl <;> omega)
     exact ⟨childUsed, after, {
+      ambient := branch.ambient.trans boolean.ambient
       trace := by
         have all := branch.trace.append (by simpa [Nat.add_assoc] using boolean.trace)
         simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
@@ -9673,6 +9881,7 @@ private theorem writeSuccessForkNameBooleanHandoff
         after.machine.mem address bytes := by
       simpa [addressEq] using semanticArray
     exact ⟨childUsed, after, {
+      ambient := branch.ambient.trans boolean.ambient
       trace := by
         have all := branch.trace.append (by simpa [Nat.add_assoc] using boolean.trace)
         simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
@@ -9730,6 +9939,7 @@ private theorem writeSuccessForkNamePresentBytesHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by
@@ -9836,6 +10046,8 @@ private theorem writeSuccessForkNamePresentBytesHandoff
     frameNotCode := access3.frameNotCode }
   have setup : WriteSuccessSliceCallSetup fromStep 0x15980 0x15990 0x15c6c
       address bytes.size args before callState := {
+    ambient := WriteSuccessAmbientFrame.ofSegCall seg3
+      0x1598c 0x15c6c retired3 0x15990 (by rfl : callState.machine = _)
     trace := parentTrace
     atPc := by simpa [callState, EndpointPc] using callAtPc
     link := by simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -10260,6 +10472,7 @@ structure WriteSuccessForkNameHandoff
     (fromStep booleanUsed routeUsed : Nat) (args : WriteSuccessArgs)
     (payloadBytes : Array UInt8) (values : DecodeCalleeSavedValues)
     (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges)
     fromStep (5 + booleanUsed + routeUsed) before after
@@ -10308,6 +10521,7 @@ private theorem writeSuccessForkNameHandoff
   rcases boolean.route with absent | present
   · obtain ⟨optionEq, afterPc, stdout⟩ := absent
     exact ⟨booleanUsed, 0, booleanAfter, {
+      ambient := boolean.ambient
       trace := by simpa [Nat.add_assoc] using boolean.trace
       atPc := afterPc
       stack := boolean.stack
@@ -10336,6 +10550,7 @@ private theorem writeSuccessForkNameHandoff
       confined := .nil
       writes := .refl _ _
       mem := fun _ _ => rfl
+      aux := AuxStateAgree.refl _
       retired := bytesHandoff.access.configured.retiredCounter
       atPc := bytesHandoff.atPc
       regs := by intro pair member; simp at member; subst pair; exact bytesHandoff.stack }
@@ -10379,6 +10594,9 @@ private theorem writeSuccessForkNameHandoff
         intro index bound inside
         exact inside.elim)
     exact ⟨booleanUsed, 5 + bytesUsed, after, {
+      ambient := boolean.ambient.trans (bytesHandoff.ambient.trans (by
+        simpa [after] using WriteSuccessAmbientFrame.ofSeg seg1
+          instructionPreserved_disjoint_writeSuccessParentWrites))
       trace := by
         have prefixTrace := boolean.trace.append
           (by simpa [Nat.add_assoc] using bytesHandoff.trace)
@@ -10411,6 +10629,7 @@ set_option genInjectivity false in
 structure WriteSuccessActiveForkHandoff
     (fromStep childUsed : Nat) (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
     (values : DecodeCalleeSavedValues) (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (4 + childUsed) before after
   atPc : EndpointPc after = some 0x159b0
@@ -10431,6 +10650,7 @@ set_option genInjectivity false in
 structure WriteSuccessLateOptionalHandoff
     (fromStep childUsed returnPc descriptor : Nat) (value : Option Nat)
     (args : WriteSuccessArgs) (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (3 + childUsed) before after
   atPc : EndpointPc after = some (BitVec.ofNat 64 returnPc)
@@ -10504,6 +10724,7 @@ private theorem writeSuccessLateOptionalHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by
@@ -10603,6 +10824,8 @@ private theorem writeSuccessLateOptionalHandoff
   have frameInWriter : ∀ address, byteRange (args.stackPointer - 0x7d0 - 16) 16 address →
       writeSuccessFrameMemory args address := fun _ inside =>
     writeSuccessChildFrame_mem_frame lower inside
+  have parentAmbient := WriteSuccessAmbientFrame.ofSegCall seg2
+    (BitVec.ofNat 64 (pc + 8)) 0x15bc8 retired2 returnPc (by rfl : callState.machine = _)
   obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
@@ -10612,7 +10835,7 @@ private theorem writeSuccessLateOptionalHandoff
       · exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessExecutionPcRanges], lo, hi⟩
       · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges], by omega, by omega⟩
       · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges], by omega, by omega⟩)
-    fromStep 3 args childValue before callState childArgs rfl childEntry parentTrace
+    fromStep 3 args childValue before callState childArgs rfl childEntry parentTrace parentAmbient
     ⟨rfl, rfl, rfl, rfl⟩ callMemEq (by simpa [callState] using callAccess)
     (by simpa [callState, callMemEq] using loaded) lower frameInWriter
   have descriptorAfter : OptionalUIntRep 8 after.machine.mem
@@ -10638,6 +10861,7 @@ private theorem writeSuccessLateOptionalHandoff
           unfold byteRange at inside
           omega)⟩
   refine ⟨childUsed, after, {
+    ambient := handoff.ambient
     trace := handoff.trace
     atPc := handoff.atPc
     stack := handoff.stack
@@ -10681,6 +10905,7 @@ structure WriteSuccessChainOptionalsHandoff
     (fromStep blockUsed timestampUsed : Nat) (args : WriteSuccessArgs)
     (payloadBytes : Array UInt8) (values : DecodeCalleeSavedValues)
     (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges)
     fromStep (3 + blockUsed + 3 + timestampUsed) before after
@@ -10782,6 +11007,7 @@ private theorem writeSuccessChainOptionalsHandoff
     unfold byteRange at inside
     omega)
   refine ⟨blockUsed, timestampUsed, after, {
+    ambient := block.ambient.trans timestamp.ambient
     trace := by
       have timestampTrace : ConfinedTrace EndpointStep EndpointPc
           (pcInRanges Elflings.writeSuccessExecutionPcRanges)
@@ -10827,6 +11053,7 @@ private theorem writeSuccessPublicKeysSetup
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by
@@ -10930,6 +11157,8 @@ private theorem writeSuccessPublicKeysSetup
     writerRegionBeforeOutputContext := access3.writerRegionBeforeOutputContext
     frameNotCode := access3.frameNotCode }
   exact ⟨callState, {
+    ambient := WriteSuccessAmbientFrame.ofSegCall seg3
+      0x159d4 0x15c10 retired3 0x159d8 (by rfl : callState.machine = _)
     trace := parentTrace
     atPc := by simpa [callState, EndpointPc] using callAtPc
     link := by simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -11025,6 +11254,7 @@ private theorem writeSuccessRestoreRegisters
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -11236,6 +11466,7 @@ private theorem writeSuccessActiveForkHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -11298,6 +11529,11 @@ private theorem writeSuccessActiveForkHandoff
     unfold byteRange at inside
     omega
   refine ⟨childUsed, after, {
+    ambient := (by
+      have parentAmbient : WriteSuccessAmbientFrame before pointerState := by
+        simpa [pointerState] using WriteSuccessAmbientFrame.ofSeg seg1
+          instructionPreserved_disjoint_writeSuccessParentWrites
+      exact parentAmbient.trans call.ambient)
     trace := by
       simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
         firstTrace.append call.trace
@@ -11326,6 +11562,7 @@ set_option genInjectivity false in
 structure WriteSuccessExtraDataHandoff
     (fromStep childUsed : Nat) (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
     (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (4 + childUsed) before after
   atPc : EndpointPc after = some 0x14ec8
@@ -11391,6 +11628,7 @@ private theorem writeSuccessExtraDataHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -11547,6 +11785,9 @@ private theorem writeSuccessExtraDataHandoff
   have payloadAfter := writeSuccessPayloadContextAfterBytes decodedAddress lower upper
     access.writerRegionBeforeOutputContext context exactMemory
   refine ⟨childUsed, after, {
+    ambient := (WriteSuccessAmbientFrame.ofSegCall seg3
+      0x14ec4 0x15c6c retired3 0x14ec8
+      (by rfl : callState.machine = _)).trans (WriteSuccessAmbientFrame.ofCall childFrame)
     trace := by
       have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace')
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
@@ -11569,6 +11810,7 @@ set_option genInjectivity false in
 structure WriteSuccessThreeIntHandoff
     (fromStep gasLimitUsed gasUsedUsed timestampUsed : Nat) (args : WriteSuccessArgs)
     (bytes : Array UInt8) (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
     (3 + gasLimitUsed + 3 + gasUsedUsed + 3 + timestampUsed) before after
@@ -11659,6 +11901,7 @@ private theorem writeSuccessThreeIntHandoff
   have contextTimestamp := writeSuccessPayloadContextAfterInt decodedAddress lower upper
     contextGasUsed timestampCall
   refine ⟨gasLimitUsed, gasUsedUsed, timestampUsed, after, {
+    ambient := gasLimitCall.ambient.trans (gasUsedCall.ambient.trans timestampCall.ambient)
     trace := ?_
     atPc := timestampCall.atPc
     stack := timestampCall.stack
@@ -11684,6 +11927,7 @@ structure WriteSuccessPostBlockNumberHandoff
     (fromStep gasLimitUsed gasUsedUsed timestampUsed extraDataUsed baseFeeUsed : Nat)
     (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
     (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
     (3 + gasLimitUsed + 3 + gasUsedUsed + 3 + timestampUsed + 4 + extraDataUsed +
@@ -11761,6 +12005,7 @@ private theorem writeSuccessPostBlockNumberHandoff
       intro address inside
       exact writeSuccessChild16_in_child48 lower inside)
   refine ⟨gasLimitUsed, gasUsedUsed, timestampUsed, extraDataUsed, baseFeeUsed, after, {
+    ambient := three.ambient.trans (extra.ambient.trans baseFee.ambient)
     trace := ?_
     atPc := baseFee.atPc
     stack := baseFee.stack
@@ -11786,6 +12031,7 @@ set_option genInjectivity false in
 structure WriteSuccessBlockHashHandoff
     (fromStep childUsed : Nat) (args : WriteSuccessArgs) (payloadBytes : Array UInt8)
     (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (1 + childUsed) before after
   atPc : EndpointPc after = some 0x14ee4
@@ -11822,6 +12068,7 @@ private theorem writeSuccessBlockHashHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -11885,6 +12132,11 @@ private theorem writeSuccessBlockHashHandoff
       writerRegionBeforeOutputContext := access.writerRegionBeforeOutputContext
       frameNotCode := access.frameNotCode }
   refine ⟨childUsed, after, {
+    ambient := (by
+      have parentAmbient : WriteSuccessAmbientFrame before pointerState := by
+        simpa [pointerState] using WriteSuccessAmbientFrame.ofSeg seg1
+          instructionPreserved_disjoint_writeSuccessParentWrites
+      exact parentAmbient.trans (WriteSuccessAmbientFrame.ofCall childFrame))
     trace := by
       have all := pointerTrace.append (by simpa [Nat.add_assoc] using childTrace)
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
@@ -12186,6 +12438,7 @@ set_option genInjectivity false in
 structure WriteSuccessTransactionsHandoff (fromStep childUsed : Nat)
     (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (4 + childUsed) before after
   atPc : EndpointPc after = some 0x15668
@@ -12259,6 +12512,7 @@ private theorem writeSuccessTransactionsHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -12560,6 +12814,7 @@ private theorem writeSuccessTransactionsHandoff
     writerRegionBeforeOutputContext := accessAtChild.writerRegionBeforeOutputContext
     frameNotCode := accessAtChild.frameNotCode }
   refine ⟨childUsed, after, {
+    ambient := by grind
     trace := by
       have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace)
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
@@ -12595,6 +12850,7 @@ set_option genInjectivity false in
 structure WriteSuccessRawTransactionsHandoff (fromStep childUsed : Nat)
     (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (4 + childUsed) before after
   atPc : EndpointPc after = some 0x15678
@@ -12642,6 +12898,7 @@ private theorem writeSuccessRawTransactionsHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -12767,6 +13024,8 @@ private theorem writeSuccessRawTransactionsHandoff
       writeSuccessFrameMemory args address := by
     intro address inside
     exact writeSuccessChildFrame64_mem_frame lower inside
+  have parentAmbient := WriteSuccessAmbientFrame.ofSegCall seg3
+    0x15674 0x15c10 retired3 0x15678 (by rfl : callState.machine = _)
   obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
@@ -12778,7 +13037,7 @@ private theorem writeSuccessRawTransactionsHandoff
           by omega, by omega⟩
       · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
           by omega, by omega⟩)
-    fromStep 4 args childValue before callState childArgs rfl childEntry parentTrace
+    fromStep 4 args childValue before callState childArgs rfl childEntry parentTrace parentAmbient
     ⟨rfl, rfl, rfl, rfl⟩ callMemEq accessCall (by simpa [callState, callMemEq] using loaded)
     lower frameInWriter
   have payloadAfter := writeSuccessPayloadContextAfterChild decodedEq lower upper
@@ -12817,6 +13076,7 @@ private theorem writeSuccessRawTransactionsHandoff
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl <;> omega)
   exact ⟨childUsed, after, {
+    ambient := handoff.ambient
     trace := handoff.trace
     atPc := handoff.atPc
     stack := handoff.stack
@@ -12835,6 +13095,7 @@ set_option genInjectivity false in
 structure WriteSuccessWithdrawalsHandoff (fromStep childUsed : Nat)
     (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (2 + childUsed) before after
   atPc : EndpointPc after = some 0x156e8
@@ -12883,6 +13144,7 @@ private theorem writeSuccessWithdrawalsHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -13082,6 +13344,7 @@ private theorem writeSuccessWithdrawalsHandoff
     writerRegionBeforeOutputContext := accessAtChild.writerRegionBeforeOutputContext
     frameNotCode := accessAtChild.frameNotCode }
   exact ⟨childUsed, after, {
+    ambient := by grind
     trace := by
       have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace)
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
@@ -13115,6 +13378,7 @@ set_option genInjectivity false in
 structure WriteSuccessArrayPrefixHandoff (fromStep transactionsUsed rawUsed withdrawalsUsed : Nat)
     (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
     (4 + transactionsUsed + 4 + rawUsed + 2 + withdrawalsUsed) before after
@@ -13171,6 +13435,7 @@ private theorem writeSuccessArrayPrefixHandoff
       afterRaw raw.atPc raw.stack raw.payloadContext raw.saved raw.access raw.loaded aligned lower
       upper decodedEq
   refine ⟨transactionsUsed, rawUsed, withdrawalsUsed, after, {
+    ambient := transactions.ambient.trans (raw.ambient.trans withdrawals.ambient)
     trace := ?_
     atPc := withdrawals.atPc
     stack := withdrawals.stack
@@ -13589,6 +13854,7 @@ set_option genInjectivity false in
 structure WriteSuccessSlotSetupHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     (payloadBytes : Array UInt8) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 4 before after
   atPc : EndpointPc after = some 0x15710
@@ -13669,6 +13935,7 @@ private theorem writeSuccessSlotSetupHandoff (fromStep : Nat) (args : WriteSucce
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -13803,6 +14070,9 @@ private theorem writeSuccessSlotSetupHandoff (fromStep : Nat) (args : WriteSucce
         unfold setupMemory writeSuccessSlotSetupMemory byteRange at inside <;>
         rcases inside with inside | inside <;> omega)
   refine ⟨after, {
+    ambient := by
+      simpa [after] using WriteSuccessAmbientFrame.ofSeg seg4
+        instructionPreserved_disjoint_writeSuccessParentWrites
     trace := by
       have machineTrace := seg4.confined 0 machine4 (.exitAt _ _ 0x15710 seg4.atPc rfl)
       simpa [after] using liftWriteSuccessParentTrace before machineTrace
@@ -13833,6 +14103,7 @@ set_option genInjectivity false in
 structure WriteSuccessOptionalHandoff (fromStep childUsed : Nat) (args : WriteSuccessArgs)
     (payloadBytes : Array UInt8) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (7 + childUsed) before after
   atPc : EndpointPc after = some 0x1571c
@@ -13877,6 +14148,7 @@ private theorem writeSuccessOptionalHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := setup.access.configured.retiredCounter
     atPc := setup.atPc
     regs := by intro pair member; simp at member; subst pair; exact setup.stack }
@@ -13998,6 +14270,8 @@ private theorem writeSuccessOptionalHandoff
       writeSuccessFrameMemory args address := by
     intro address inside
     exact writeSuccessChildFrame_mem_frame lower inside
+  have parentAmbient := WriteSuccessAmbientFrame.ofSegCall seg2
+    0x15718 0x15bc8 retired2 0x1571c (by rfl : callState.machine = _)
   obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
@@ -14010,6 +14284,7 @@ private theorem writeSuccessOptionalHandoff
       · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
           by omega, by omega⟩)
     parentStart 3 args childValue setupState callState childArgs rfl childEntry parentTrace
+    parentAmbient
     ⟨rfl, rfl, rfl, rfl⟩ callMemEq accessCall (by simpa [callState, callMemEq] using setup.loaded)
     lower frameInWriter
   have payloadAfter := writeSuccessPayloadContextAfterChild decodedEq lower upper
@@ -14048,6 +14323,7 @@ private theorem writeSuccessOptionalHandoff
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl <;> omega)
   refine ⟨childUsed, after, {
+    ambient := setup.ambient.trans handoff.ambient
     trace := ?_
     atPc := handoff.atPc
     stack := handoff.stack
@@ -14075,6 +14351,7 @@ set_option genInjectivity false in
 structure WriteSuccessBlockAccessHandoff (fromStep childUsed : Nat) (args : WriteSuccessArgs)
     (payloadBytes : Array UInt8) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (4 + childUsed) before after
   atPc : EndpointPc after = some 0x1572c
@@ -14122,6 +14399,7 @@ private theorem writeSuccessBlockAccessHandoff
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -14243,6 +14521,8 @@ private theorem writeSuccessBlockAccessHandoff
       writeSuccessFrameMemory args address := by
     intro point inside
     exact writeSuccessChildFrame48_mem_frame lower inside
+  have parentAmbient := WriteSuccessAmbientFrame.ofSegCall seg3
+    0x15728 0x15c6c retired3 0x1572c (by rfl : callState.machine = _)
   obtain ⟨childUsed, after, handoff⟩ := writeSuccessEncoderChildHandoff child
     (fun inside => by
       unfold pcInRanges at inside ⊢
@@ -14254,7 +14534,7 @@ private theorem writeSuccessBlockAccessHandoff
           by omega, by omega⟩
       · exact ⟨(0x15b9c, 0x15d38), by simp [Elflings.writeSuccessExecutionPcRanges],
           by omega, hi⟩)
-    fromStep 4 args value before callState childArgs rfl childEntry parentTrace
+    fromStep 4 args value before callState childArgs rfl childEntry parentTrace parentAmbient
     ⟨rfl, rfl, rfl, rfl⟩ callMemEq accessCall (by simpa [callState, callMemEq] using loaded)
     lower frameInWriter
   have payloadAfter := writeSuccessPayloadContextAfterChild decodedEq lower upper
@@ -14293,6 +14573,7 @@ private theorem writeSuccessBlockAccessHandoff
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl <;> omega)
   exact ⟨childUsed, after, {
+    ambient := handoff.ambient
     trace := handoff.trace
     atPc := handoff.atPc
     stack := handoff.stack
@@ -14311,6 +14592,7 @@ set_option genInjectivity false in
 structure WriteSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     (payloadBytes : Array UInt8) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep 9 before after
   atPc : EndpointPc after = some 0x1573c
@@ -14348,6 +14630,7 @@ private theorem writeSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessA
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -14537,7 +14820,10 @@ private theorem writeSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessA
     outputLengthStore := dataPmaAllows_of_pma_regions_eq outputPmaEq accessCall.outputLengthStore
     writerRegionBeforeOutputContext := accessCall.writerRegionBeforeOutputContext
     frameNotCode := accessCall.frameNotCode }
+  have parentAmbient := WriteSuccessAmbientFrame.ofSegCall seg3
+    0x15738 0x10190 retired3 0x1573c (by rfl : callState.machine = _)
   refine ⟨after, {
+    ambient := parentAmbient.trans ⟨output.preserved, output.aux⟩
     trace := by simpa [Nat.add_assoc] using parentTrace.append output.trace
     atPc := output.atPc
     stack := output.stackPreserved.trans
@@ -14559,6 +14845,7 @@ set_option genInjectivity false in
 structure WriteSuccessHashesHandoff (fromStep childUsed : Nat) (args : WriteSuccessArgs)
     (payloadBytes : Array UInt8) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep (2 + childUsed) before after
   atPc : EndpointPc after = some 0x158e0
@@ -14610,6 +14897,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     confined := .nil
     writes := .refl _ _
     mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
     retired := access.configured.retiredCounter
     atPc := atPc
     regs := by intro pair member; simp at member; subst pair; exact stack }
@@ -14784,6 +15072,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     writerRegionBeforeOutputContext := accessAtChild.writerRegionBeforeOutputContext
     frameNotCode := accessAtChild.frameNotCode }
   refine ⟨childUsed, after, {
+    ambient := by grind
     trace := by simpa [Nat.add_assoc] using parentTrace.append childTrace
     atPc := afterPc
     stack := stackAfter
@@ -14815,6 +15104,7 @@ set_option genInjectivity false in
 structure WriteSuccessBlobScalarsHandoff (fromStep blobUsed excessUsed : Nat)
     (args : WriteSuccessArgs) (payloadBytes : Array UInt8) (before after : EndpointState)
     (values : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep
     (3 + blobUsed + 3 + excessUsed) before after
@@ -14908,6 +15198,7 @@ private theorem writeSuccessBlobScalarsHandoff
       rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
         rfl | rfl | rfl <;> omega)
   refine ⟨blobUsed, excessUsed, after, {
+    ambient := blob.ambient.trans excess.ambient
     trace := ?_
     atPc := excess.atPc
     stack := excess.stack
@@ -14979,6 +15270,8 @@ set_option genInjectivity false in
 private structure WriteSuccessEarlyHandoff (fromStep used : Nat) (args : WriteSuccessArgs)
     (before after : EndpointState) (values : DecodeCalleeSavedValues)
     (payloadBytes : Array UInt8) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
+  initialSaved : DecodeCalleeSavedAtRegisters values before
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep used before after
   atPc : EndpointPc after = some 0x1573c
@@ -15149,7 +15442,15 @@ private theorem writeSuccessEarlyHandoff
           (WritesOnlyWithin.trans_same blobs.memory.withOutputContext
             (WritesOnlyWithin.trans_same optional.memory.withOutputContext
               (WritesOnlyWithin.trans_same blockAccessFrame outputFrame))))))
+  have fullAmbient := first.ambient.trans
+    (post.ambient.trans
+      (blockHash.ambient.trans
+        (arrays.ambient.trans
+          (blobs.ambient.trans
+            (optional.ambient.trans (blockAccess.ambient.trans output.ambient))))))
   refine ⟨used, s8, values, payloadBytes, {
+    ambient := fullAmbient
+    initialSaved := first.initialSaved
     trace := fullTrace
     atPc := output.atPc
     stackLower := lower
@@ -15261,6 +15562,7 @@ private theorem writeSuccessEncoding_eq (args : WriteSuccessArgs) :
 set_option genInjectivity false in
 private structure WriteSuccessLateHandoff (fromStep used : Nat) (args : WriteSuccessArgs)
     (before after : EndpointState) (values : DecodeCalleeSavedValues) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep used before after
   atPc : EndpointPc after = some 0x159d8
@@ -15285,6 +15587,7 @@ set_option genInjectivity false in
 private structure WriteSuccessLatePrefixHandoff (fromStep used : Nat) (args : WriteSuccessArgs)
     (before after : EndpointState) (values : DecodeCalleeSavedValues)
     (payloadBytes : Array UInt8) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep used before after
   atPc : EndpointPc after = some 0x1596c
@@ -15354,6 +15657,8 @@ private theorem writeSuccessLatePrefixHandoff
     (WritesOnlyWithin.trans_same requests.memory
       (WritesOnlyWithin.trans_same witness.memory chainId.memory))
   refine ⟨used, s4, {
+    ambient := hashes.ambient.trans
+      (requests.ambient.trans (witness.ambient.trans chainId.ambient))
     trace := fullTrace
     atPc := chainId.atPc
     stack := chainId.stack
@@ -15376,6 +15681,7 @@ set_option genInjectivity false in
 private structure WriteSuccessLateMiddleHandoff (fromStep used : Nat) (args : WriteSuccessArgs)
     (before after : EndpointState) (values : DecodeCalleeSavedValues)
     (payloadBytes : Array UInt8) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep used before after
   atPc : EndpointPc after = some 0x159b0
@@ -15432,6 +15738,7 @@ private theorem writeSuccessLateMiddleHandoff
     simpa only [used] using forkName.trace.append activeTrace
   have fullMemory := WritesOnlyWithin.trans_same forkName.memory activeFork.memory
   refine ⟨used, s6, {
+    ambient := forkName.ambient.trans activeFork.ambient
     trace := fullTrace
     atPc := activeFork.atPc
     stack := activeFork.stack
@@ -15495,6 +15802,8 @@ private theorem writeSuccessLateHandoff
     (WritesOnlyWithin.trans_same middle.memory
       (WritesOnlyWithin.trans_same optionals.memory publicKeys.memory))
   refine ⟨used, s8, {
+    ambient := latePrefix.ambient.trans
+      (middle.ambient.trans (optionals.ambient.trans publicKeys.ambient))
     trace := fullTrace
     atPc := publicKeys.atPc
     stack := publicKeys.stack
@@ -15526,6 +15835,8 @@ set_option genInjectivity false in
 /-- The complete production writer trace, with its emitted byte stream identified exactly. -/
 structure WriteSuccessEncodedHandoff (fromStep used : Nat) (args : WriteSuccessArgs)
     (before after : EndpointState) : Prop where
+  ambient : WriteSuccessAmbientFrame before after
+  frame : EndpointCallFrame before after
   trace : ConfinedTrace EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep used before after
   usedPositive : 0 < used
@@ -15576,7 +15887,74 @@ private theorem writeSuccessEncodedHandoff
     rw [epilogueMemory]
   have fullMemory := WritesOnlyWithin.trans_same early.memory
     (WritesOnlyWithin.trans_same late.memory.withOutputContext epilogueFrame)
+  have earlyLateAmbient := early.ambient.trans late.ambient
+  have epilogueAmbient : WriteSuccessAmbientFrame lateAfter after := by
+    simpa [after] using WriteSuccessAmbientFrame.ofSeg epilogue
+      instructionPreserved_disjoint_writeSuccessParentWrites
+  have fullAmbient := earlyLateAmbient.trans epilogueAmbient
+  have incoming := writeSuccessIncomingRegs_hold args before entry values early.initialSaved
+  have restored (pair : RegVal) (final : pair ∈ writeSuccessFinalRegs args values)
+      (initial : pair ∈ writeSuccessIncomingRegs args values) :
+      after.machine.regs.get? pair.1 = before.machine.regs.get? pair.1 := by
+    calc
+      after.machine.regs.get? pair.1 = some pair.2 := by
+        simpa [after] using epilogue.reg pair.1 pair.2 final
+      _ = before.machine.regs.get? pair.1 := (incoming pair initial).symm
+  have stackRestored : after.machine.regs.get? x2 = before.machine.regs.get? x2 := by
+    have finalStack : after.machine.regs.get? x2 =
+        some (BitVec.ofNat 64 args.stackPointer) := by
+      simpa [after] using epilogue.reg x2 (BitVec.ofNat 64 args.stackPointer) (by
+        simp [writeSuccessFinalRegs])
+    exact finalStack.trans entry.2.2.2.2.2.2.2.symm
+  have calleeAgree : Agree abiCalleePreserved before.machine after.machine := by
+    intro register preserved
+    by_cases link : register = x1
+    · subst register
+      have restoredLink : after.machine.regs.get? x1 =
+          some (BitVec.ofNat 64 args.returnAddress) := by
+        simpa [after, writeSuccessFinalRegs, writeSuccessRestoredRegs, returnEq] using
+          epilogue.reg x1 (BitVec.ofNat 64 args.returnAddress) (by
+            simp [writeSuccessFinalRegs, writeSuccessRestoredRegs, returnEq])
+      exact restoredLink.trans
+        (incoming ⟨x1, BitVec.ofNat 64 args.returnAddress⟩
+          (by simp [writeSuccessIncomingRegs])).symm
+    by_cases platform : platformPreserved register
+    · exact fullAmbient.1 register ⟨platform, link⟩
+    rcases preserved with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl
+    all_goals simp [platformPreserved] at platform
+    · exact stackRestored
+    · exact restored ⟨x8, values.s0⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+    · exact restored ⟨x9, values.s1⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+    · exact restored ⟨x18, values.s2⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+    · exact restored ⟨x19, values.s3⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+    · exact restored ⟨x20, values.s4⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+    · exact restored ⟨x21, values.s5⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+    · exact restored ⟨x22, values.s6⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+    · exact restored ⟨x23, values.s7⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+    · exact restored ⟨x24, values.s8⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+    · exact restored ⟨x25, values.s9⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+    · exact restored ⟨x26, values.s10⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+    · exact restored ⟨x27, values.s11⟩ (by simp [writeSuccessFinalRegs,
+        writeSuccessRestoredRegs]) (by simp [writeSuccessIncomingRegs])
+  have callFrame : EndpointCallFrame before after :=
+    ⟨calleeAgree, epilogue.retired, by simpa [after, epilogueMemory] using late.loaded,
+      fullAmbient.2.1, fullAmbient.2.2.1, fullAmbient.2.2.2⟩
   refine ⟨used, after, {
+    ambient := fullAmbient
+    frame := callFrame
     trace := fullTrace
     usedPositive := by omega
     atPc := by simpa [after, EndpointPc] using epilogue.atPc
@@ -15595,5 +15973,21 @@ contract. The remaining proof packages the completed machine handoff with the co
 aggregate endpoint call frame, and input-indexed step bound. -/
 theorem writeSuccessInstanceContract_of_level2
     (hLevel2 : Level2ContractAssumptions) : WriteSuccessInstanceContract := by
-  sorry
+  refine ⟨fun inputSize => 5 * writeSuccessPhaseBound hLevel2 inputSize + 15, ?_⟩
+  intro args fromStep before entry
+  have entryCopy := entry
+  obtain ⟨used, after, handoff, bounded⟩ :=
+    writeSuccessEncodedHandoff hLevel2 fromStep args before entry
+  rcases entryCopy with ⟨_, _, _, _, _, _, _, _, _, decodedRep, _, _, _, _, _, _⟩
+  let bytes := encodeZesuObservation (.success args.decoded)
+  have decoded : decodeZesuObservation bytes = some (.success args.decoded) := by
+    exact decodeZesuObservation_encode_success_of_rep decodedRep
+  refine ⟨used, after, bytes, handoff.usedPositive, bounded, handoff.trace, ?_, decoded, ?_⟩
+  · exact ⟨BitVec.ofNat 64 args.returnAddress, handoff.atPc, by
+      have returnEq : args.returnAddress = 0x14d10 := by
+        simpa [Elflings.writeSuccessExitPcs] using entry.1
+      simp [pcInList, returnEq, Elflings.writeSuccessExitPcs]⟩
+  · exact ⟨handoff.atPc, decoded, handoff.stdout, handoff.stdin, handoff.cursor,
+      handoff.exitCode, handoff.memory, handoff.frame⟩
+
 end BinaryFv.Zesu.MachineExecution
