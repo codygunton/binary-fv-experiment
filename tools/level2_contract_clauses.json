@@ -73,7 +73,7 @@
         {
           "id": "entry-execution-access",
           "requirement": "The entry supplies configured-machine, retirement, output-context PMA, MMIO, and write-access facts.",
-          "support": {"kind": "missing", "remaining": "Add a caller-derived encoder access bundle to ConstantEncoderEntry."}
+          "support": {"kind": "entry", "declaration": "EncoderOutputMachineAccess"}
         },
         {
           "id": "fixed-output",
@@ -100,7 +100,7 @@
         {
           "id": "entry-execution-access",
           "requirement": "The entry supplies configured-machine, retirement, output-context PMA, MMIO, and read/write-access facts.",
-          "support": {"kind": "missing", "remaining": "Add a caller-derived encoder access bundle to RawEncoderEntry."}
+          "support": {"kind": "entry", "declaration": "EncoderOutputMachineAccess"}
         },
         {
           "id": "source-binding",
@@ -136,7 +136,7 @@
         {
           "id": "entry-execution-access",
           "requirement": "The entry supplies configured-machine, retirement, stack PMA, MMIO, and read/write-access facts.",
-          "support": {"kind": "missing", "remaining": "Add a caller-derived encoder access bundle to EncoderCallEntry."}
+          "support": {"kind": "entry", "declaration": "EncoderCallMachineAccess"}
         },
         {
           "id": "value-binding",
@@ -169,7 +169,7 @@
         {
           "id": "entry-execution-access",
           "requirement": "The entry supplies configured-machine, retirement, PMA, MMIO, and all local and nested-call access facts.",
-          "support": {"kind": "missing", "remaining": "Add a route-specific caller-derived access bundle to InlineEncoderEntry."}
+          "support": {"kind": "entry", "declaration": "InlineEncoderMachineAccess"}
         },
         {
           "id": "count-binding",
