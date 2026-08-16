@@ -4525,10 +4525,10 @@ theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract 
     · exact output.preserved register instruction
     all_goals
       apply output.writes.get
-      decide
+      simp [writeOutputWrites, stepBookkeeping]
   have wholeAgree : Agree encoderInlinePreserved before.machine after.machine :=
     parentAgree.trans outputAgree
-  refine ⟨10, after, (), by omega, by omega, wholeTrace, ?_, trivial, ?_⟩
+  refine ⟨10, after, (), by omega, Nat.le_refl 10, wholeTrace, ?_, trivial, ?_⟩
   · exact ⟨0x14e14, output.atPc, by simp [pcInList, Elflings.writeSuccessRawLine131ExitPcs]⟩
   · refine ⟨output.atPc, ?_, ?_, ?_, ?_, ?_, wholeAgree, output.configured.retiredCounter,
       output.loaded, ?_⟩
@@ -4601,6 +4601,64 @@ private theorem liftPrevRandaoRawTrace {exit : BitVec 64 → Prop} (template : E
   | callStep fromStep used count call program parent callee before resume after transfer rest ih =>
       exact transfer.body.elim
 
+private theorem prevRandaoLengthStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e7c)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e7c retired x11 32) false := by
+  apply writeSuccessAddiX11FromZeroStep stepNo 0x14e7c 32 32
+    0x93 0x05 0x00 0x02 state configured atPc loaded
+  · native_decide
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+private theorem prevRandaoCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e80)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e80 retired x1 0xfe80) false := by
+  apply configuredAuipcStep stepNo state 0x14e80 0xffffb 0x97 0xb0 0xff 0xff
+    configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+
+private theorem prevRandaoCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e84)
+    (baseRead : state.regs.get? x1 = some 0xfe80)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e84 0x10190 x1 0x14e88)
+        0x10190 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x14e84 0xfe80 0x310 0x10190 0x14e88
+    0xe7 0x80 0x00 0x31 configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
 /-- The 32-byte raw `prev_randao` encoder reaches its declared exit without assumptions. -/
 theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceContract := by
   refine ⟨fun _ => 8, ?_⟩
@@ -4610,13 +4668,7 @@ theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceC
     prevRandaoRawParentWrites (fun _ => False) fromStep
     (childSummary := fun _ _ _ _ _ => False) access.configured.retiredCounter atPc).know
       x10 (BitVec.ofNat 64 args.sourceAddress) source
-  obtain ⟨r0, run0⟩ := writeSuccessAddiX11FromZeroStep fromStep 0x14e7c 32 32
-    0x93 0x05 0x00 0x02 before.machine access.configured atPc loaded
-    (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads access.configured; decode_run)
-    (by native_decide) (by rfl) (by native_decide) (by native_decide)
-    (by native_decide) (by native_decide)
+  obtain ⟨r0, run0⟩ := prevRandaoLengthStep fromStep before.machine access.configured atPc loaded
   have seg1 := seg0.stepKnown
     (by unfold prevRandaoRawParentPc; exact
       ⟨(0x14e7c, 0x14e88), by simp, by native_decide, by native_decide⟩)
@@ -4628,13 +4680,8 @@ theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceC
   have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully
       (afterRegisterWrite before.machine 0x14e7c r0 x11 32).mem := by
     simpa [seg1.memEq (by simp)] using loaded
-  obtain ⟨r1, run1⟩ := configuredAuipcStep (fromStep + 1)
-    (afterRegisterWrite before.machine 0x14e7c r0 x11 32) 0x14e80 0xffffb
-    0x97 0xb0 0xff 0xff cfg1 seg1.atPc loaded1
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
-    (by native_decide) (by rfl)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads cfg1; decode_run)
+  obtain ⟨r1, run1⟩ := prevRandaoCallBaseStep (fromStep + 1)
+    (afterRegisterWrite before.machine 0x14e7c r0 x11 32) cfg1 seg1.atPc loaded1
   have seg2 := seg1.stepKnown
     (by unfold prevRandaoRawParentPc; exact
       ⟨(0x14e7c, 0x14e88), by simp, by native_decide, by native_decide⟩)
@@ -4647,15 +4694,9 @@ theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceC
       (afterRegisterWrite (afterRegisterWrite before.machine 0x14e7c r0 x11 32)
         0x14e80 r1 x1 0xfe80).mem := by
     simpa [seg2.memEq (by simp)] using loaded
-  obtain ⟨r2, callRun⟩ := configuredJalrCallStep (fromStep + 2)
+  obtain ⟨r2, callRun⟩ := prevRandaoCallStep (fromStep + 2)
     (afterRegisterWrite (afterRegisterWrite before.machine 0x14e7c r0 x11 32)
-      0x14e80 r1 x1 0xfe80) 0x14e84 0xfe80 0x310 0x10190 0x14e88
-    0xe7 0x80 0x00 0x31 cfg2 seg2.atPc (seg2.reg x1 0xfe80 (by simp)) loaded2
-    (by native_decide) (by native_decide) (by native_decide) (by native_decide)
-    (by native_decide) (by rfl)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads cfg2; decode_run)
-    (by native_decide) (by native_decide) (by native_decide)
+      0x14e80 r1 x1 0xfe80) cfg2 seg2.atPc (seg2.reg x1 0xfe80 (by simp)) loaded2
   let parentMachine := afterRegisterWrite
     (afterRegisterWrite before.machine 0x14e7c r0 x11 32) 0x14e80 r1 x1 0xfe80
   let callMachine := tryStepControlFlowAfterRetired
@@ -4667,9 +4708,7 @@ theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceC
     simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       callLinkState, Std.ExtDHashMap.get?_insert]
   have callMemEq : callMachine.mem = before.machine.mem := by
-    have base : callMachine.mem = parentMachine.mem := by
-      simp [callMachine, parentMachine, tryStepControlFlowAfterRetired,
-        tryStepControlFlowAfterTick, callLinkState, controlFlowJumpState]
+    have base : callMachine.mem = parentMachine.mem := rfl
     exact base.trans (seg2.memEq (by simp))
   have callPrefix : ConfinedPrefix prevRandaoRawParentPc (fun pc => pc = 0x10190)
       (fun _ _ _ _ _ => False) (fromStep + 2) 1 parentMachine callMachine :=
@@ -4728,8 +4767,8 @@ theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceC
     · exact output.preserved register instruction
     all_goals
       apply output.writes.get
-      decide
-  refine ⟨8, after, (), by omega, by omega, wholeTrace,
+      simp [writeOutputWrites, stepBookkeeping]
+  refine ⟨8, after, (), by omega, Nat.le_refl 8, wholeTrace,
     ⟨0x14e88, output.atPc, by simp [pcInList, Elflings.writeSuccessRawLine140ExitPcs]⟩,
     trivial, ?_⟩
   refine ⟨output.atPc, ?_, ?_, ?_, ?_, ?_, parentAgree.trans outputAgree,
@@ -4820,7 +4859,7 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
   have finalAmbient := tailAmbient.trans (WriteSuccessAmbientFrame.ofInline childFrame)
   have pmaEq : final.machine.regs.get? pma_regions = tailMachine.regs.get? pma_regions := by
     simpa [tailState] using childFrame.1 pma_regions
-      (by simp [encoderInlinePreserved, abiCalleePreserved])
+      (Or.inl (by simp [instructionPreserved, platformPreserved]))
   have accessFinal : WriteSuccessMachineAccess args final.machine :=
     { configured := configuredAfterEncoderInline access.configured childFrame
       childFrame := access.childFrame.of_pma_regions_eq pmaEq
@@ -5824,8 +5863,7 @@ private theorem writeSuccessEncoderChildHandoff
       before.machine after.machine := by
     intro address outside
     rw [childMemory address (by simpa [argsEq] using outside), memoryEq]
-  have pmaEq := childFrame.1 pma_regions
-    (Or.inl (by simp [instructionPreserved, platformPreserved]))
+  have pmaEq := childFrame.1 pma_regions (by simp [abiCalleePreserved])
   have accessAfter : WriteSuccessMachineAccess writerArgs after.machine := {
     configured := configuredAfterEndpointCall access.configured childFrame
     childFrame := access.childFrame.of_pma_regions_eq pmaEq
@@ -13087,7 +13125,8 @@ private theorem writeSuccessBlockHashHandoff
     apply WritesOnlyWithin.trans_same
       (writesOnlyWithin_of_mem_eq (by simpa [pointerState] using seg1.memEq (by simp)))
     exact childMem
-  have pmaEq := childFrame.1 pma_regions (by simp [abiCalleePreserved])
+  have pmaEq := childFrame.1 pma_regions
+    (Or.inl (by simp [instructionPreserved, platformPreserved]))
   have parentPmaEq := seg1.writes.get pma_regions (by simp [writeSuccessParentWrites])
   have fullPmaEq := pmaEq.trans parentPmaEq
   have childAccess : WriteSuccessMachineAccess args after.machine :=

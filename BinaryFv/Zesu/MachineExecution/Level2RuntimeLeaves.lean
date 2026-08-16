@@ -333,7 +333,8 @@ def writeOutputTracePc (pc : BitVec 64) : Prop := writeOutputPc pc ∨ pc = 0x10
 
 private def writeOutputExit (pc : BitVec 64) : Prop := pc = 0x101a0
 
-private def writeOutputWrites : RegSet :=
+/-- Exact register write set of the bare-metal `write_output` leaf. -/
+def writeOutputWrites : RegSet :=
   RegSet.union stepBookkeeping (RegSet.only x5)
 
 private theorem writeOutputMemory_not_file {address : Nat} (inside : writeOutputMemory address) :
