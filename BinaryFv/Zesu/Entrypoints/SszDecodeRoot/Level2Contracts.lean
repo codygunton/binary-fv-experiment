@@ -164,6 +164,24 @@ structure EncoderOutputMachineAccess (state : MachineState) : Prop where
   outputLengthNoMMIO :
     StoreMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
 
+namespace EncoderOutputMachineAccess
+
+/-- Regression: no encoder entry may hide a missing configured-machine premise. -/
+theorem rejects_missing_configuration
+    (missing : ¬ConfiguredMachinePre EndpointMachinePc state) :
+    ¬EncoderOutputMachineAccess state := by
+  intro access
+  exact missing access.configured
+
+/-- Regression: no encoder entry may hide denied access to the output-buffer word. -/
+theorem rejects_denied_output_store
+    (denied : ¬StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8) :
+    ¬EncoderOutputMachineAccess state := by
+  intro access
+  exact denied access.outputBufferStore
+
+end EncoderOutputMachineAccess
+
 def RawEncoderEntry (entry : Nat) (args : RawEncoderArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.sourceAddress) ∧
