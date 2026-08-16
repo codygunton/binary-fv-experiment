@@ -213,6 +213,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_
     if (g_str_has_prefix(argv[i], "terminal="))
       terminal_pc = g_ascii_strtoull(argv[i] + 9, NULL, 0);
   }
+  if (capture_window_width > 64 * 1024 * 1024) return -1;
   out = path ? fopen(path, "w") : stderr;
   if (!out) return -1;
   if (input_path) {

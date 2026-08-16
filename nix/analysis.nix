@@ -194,12 +194,14 @@ let
         ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
         ${zesuSszDecodeLevel2Evidence}/level2-evidence.json \
         ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json \
-        ${zesuSszDecodeCfg}/zesu-cfg.json
+        ${zesuSszDecodeCfg}/zesu-cfg.json \
+        ${../tools/level2_contract_clauses.json}
       PYTHONPATH=${../tools} python ${../tools/generate_level2_admission.py} \
         --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
         --evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json \
         --bindings ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json \
         --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --registry ${../tools/level2_contract_clauses.json} \
         --output "$out/level2-admission.json"
     '';
 

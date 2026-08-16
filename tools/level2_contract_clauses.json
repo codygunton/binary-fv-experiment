@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "schemas": {
+    "memcpy": {
+      "contractDeclaration": "MemcpyInstanceContract",
+      "instanceNames": ["memcpy"],
+      "representativeProof": "memcpyInstanceContract",
+      "clauses": [
+        {
+          "id": "entry-execution-access",
+          "requirement": "The entry supplies configured-machine, PMA, MMIO, and destination-not-code facts.",
+          "support": {"kind": "entry", "declaration": "MemcpyMachineAccess"}
+        },
+        {
+          "id": "entry-window-safety",
+          "requirement": "The source and destination windows fit, do not wrap, and do not overlap.",
+          "support": {"kind": "entry", "declaration": "MemcpyEntry"}
+        },
+        {
+          "id": "machine-semantics",
+          "requirement": "The machine copies the represented source bytes and returns to the selected caller.",
+          "support": {"kind": "proof", "theorem": "memcpyInstanceContract"}
+        },
+        {
+          "id": "termination-and-frames",
+          "requirement": "A bound, register frame, memory frame, code frame, and auxiliary-state frame hold.",
+          "support": {"kind": "proof", "theorem": "memcpyInstanceContract"}
+        }
+      ]
+    },
+    "decode-inline": {
+      "contractDeclaration": "SszDecodeLevel2InstanceContract",
+      "instanceNames": ["sszDecode"],
+      "representativeProof": null,
+      "representativeProofWork": "Prove one initial or resumed decode route from DecodeInlineFrame before accepting this schema.",
+      "clauses": [
+        {
+          "id": "entry-execution-access",
+          "requirement": "The entry supplies the configured machine and the represented input and stack frame.",
+          "support": {"kind": "entry", "declaration": "DecodeInlineFrame"}
+        },
+        {
+          "id": "entry-input-result-separation",
+          "requirement": "The input does not overlap the caller slots or the result window through stackPointer + 0x380.",
+          "support": {
+            "kind": "partial",
+            "checker": "decode-boundary-layout",
+            "mutationTest": "decode-boundary-layout-mutation",
+            "remaining": "Strengthen DecodeBoundaryEntry from stackPointer <= inputAddress to stackPointer + 0x380 <= inputAddress."
+          }
+        },
+        {
+          "id": "semantic-result",
+          "requirement": "The machine result satisfies DecodeMeaningModuloKnownBugs.",
+          "support": {
+            "kind": "partial",
+            "checker": "endpoint-source-probe",
+            "mutationTest": "known-bug-fixture-mutations",
+            "remaining": "Complete the per-clause source and EVM-Sail relation matrix."
+          }
+        },
+        {
+          "id": "termination-and-frames",
+          "requirement": "The initial and resumed routes have bounds and preserve their declared frames.",
+          "support": {"kind": "missing", "remaining": "Prove the selected decode routes from the strengthened entry."}
+        }
+      ]
+    },
+    "constant-encoder": {
+      "contractDeclaration": "ConstantEncoderInstanceContract",
+      "instanceNames": ["writeSuccessRawLine131", "writeFailureRawLine127"],
+      "representativeProof": null,
+      "representativeProofWork": "Prove one constant encoder from a configured entry through its output and return.",
+      "clauses": [
+        {
+          "id": "entry-execution-access",
+          "requirement": "The entry supplies configured-machine, retirement, output-context PMA, MMIO, and write-access facts.",
+          "support": {"kind": "missing", "remaining": "Add a caller-derived encoder access bundle to ConstantEncoderEntry."}
+        },
+        {
+          "id": "fixed-output",
+          "requirement": "The encoder appends the exact success-prefix or failure-record bytes.",
+          "support": {"kind": "empirical", "checker": "fixed-write-bytes", "mutationTest": "forged-fixed-write"}
+        },
+        {
+          "id": "termination-and-frames",
+          "requirement": "The encoder terminates and preserves its declared register, memory, code, and auxiliary-state frames.",
+          "support": {"kind": "missing", "remaining": "Prove the representative constant encoder after its entry is executable."}
+        }
+      ]
+    },
+    "raw-encoder": {
+      "contractDeclaration": "RawEncoderInstanceContract",
+      "instanceNames": [
+        "writeSuccessRawLine135", "writeSuccessRawLine136", "writeSuccessRawLine137",
+        "writeSuccessRawLine138", "writeSuccessRawLine139", "writeSuccessRawLine140",
+        "writeSuccessRawLine147", "writeSuccessRawLine156"
+      ],
+      "representativeProof": null,
+      "representativeProofWork": "Prove one fixed-width raw encoder from a configured entry through output and return.",
+      "clauses": [
+        {
+          "id": "entry-execution-access",
+          "requirement": "The entry supplies configured-machine, retirement, output-context PMA, MMIO, and read/write-access facts.",
+          "support": {"kind": "missing", "remaining": "Add a caller-derived encoder access bundle to RawEncoderEntry."}
+        },
+        {
+          "id": "source-binding",
+          "requirement": "x10 identifies the represented source bytes for this occurrence.",
+          "support": {"kind": "empirical", "checker": "fixed-source-pointer", "mutationTest": "forged-fixed-pointer"}
+        },
+        {
+          "id": "complete-output",
+          "requirement": "The complete emitted bytes equal the represented source bytes.",
+          "support": {"kind": "empirical", "checker": "fixed-write-bytes", "mutationTest": "forged-fixed-write"}
+        },
+        {
+          "id": "termination-and-frames",
+          "requirement": "The encoder terminates and preserves its declared register, memory, code, and auxiliary-state frames.",
+          "support": {"kind": "missing", "remaining": "Prove the representative raw encoder after its entry is executable."}
+        }
+      ]
+    },
+    "encoder-call": {
+      "contractDeclaration": "EncoderCallInstanceContract",
+      "instanceNames": [
+        "writeSuccessBoolean", "writeSuccessOptionalU64", "writeSuccessByteLists",
+        "writeSuccessBytes", "writeSuccessInt"
+      ],
+      "representativeProof": null,
+      "representativeProofWork": "Prove one frame-writing called encoder from a safe configured entry through return.",
+      "clauses": [
+        {
+          "id": "entry-frame-fits",
+          "requirement": "frameSize is not greater than callerStack before the child subtracts its frame.",
+          "support": {"kind": "contradiction", "remaining": "Move frameSize <= callerStack from EncoderCallExit into EncoderCallEntry."}
+        },
+        {
+          "id": "entry-execution-access",
+          "requirement": "The entry supplies configured-machine, retirement, stack PMA, MMIO, and read/write-access facts.",
+          "support": {"kind": "missing", "remaining": "Add a caller-derived encoder access bundle to EncoderCallEntry."}
+        },
+        {
+          "id": "value-binding",
+          "requirement": "The entry registers or memory represent the semantic value.",
+          "support": {
+            "kind": "partial",
+            "checker": "called-encoder-entry-output",
+            "mutationTest": "called-encoder-binding-mutations",
+            "remaining": "Add complete optional, byte-list-list, and integer-width occurrence checks."
+          }
+        },
+        {
+          "id": "complete-output",
+          "requirement": "The complete emitted substream equals the source encoder output.",
+          "support": {"kind": "missing", "remaining": "Compare every occurrence with an independent focused source encoder."}
+        },
+        {
+          "id": "termination-and-frames",
+          "requirement": "The encoder terminates and preserves its declared register, memory, code, and auxiliary-state frames.",
+          "support": {"kind": "missing", "remaining": "Prove the representative called encoder after its entry is executable."}
+        }
+      ]
+    },
+    "inline-array-encoder": {
+      "contractDeclaration": "InlineEncoderInstanceContract",
+      "instanceNames": ["writeSuccessTransactions", "writeSuccessWithdrawals", "writeSuccessHashes"],
+      "representativeProof": null,
+      "representativeProofWork": "Prove one optimized inline array encoder from its live-state entry through its declared exit.",
+      "clauses": [
+        {
+          "id": "entry-execution-access",
+          "requirement": "The entry supplies configured-machine, retirement, PMA, MMIO, and all local and nested-call access facts.",
+          "support": {"kind": "missing", "remaining": "Add a route-specific caller-derived access bundle to InlineEncoderEntry."}
+        },
+        {
+          "id": "count-binding",
+          "requirement": "The live count register equals the represented collection size.",
+          "support": {"kind": "empirical", "checker": "collection-count", "mutationTest": "forged-collection-count"}
+        },
+        {
+          "id": "address-binding",
+          "requirement": "The live register or stack word identifies the represented collection address.",
+          "support": {"kind": "missing", "remaining": "Capture and validate the stack word or register against the represented collection. Do not emit a validated binding from a constant."}
+        },
+        {
+          "id": "collection-coverage",
+          "requirement": "Fixtures exercise empty, one-element, and multi-element collections.",
+          "support": {
+            "kind": "partial",
+            "checker": "collection-count",
+            "mutationTest": "missing-nonempty-collection",
+            "remaining": "Add multi-element fixtures and a mutation that removes all empty observations."
+          }
+        },
+        {
+          "id": "complete-output",
+          "requirement": "The complete emitted substream equals the independent source encoder output.",
+          "support": {"kind": "missing", "remaining": "Add per-occurrence source-oracle substream comparison."}
+        },
+        {
+          "id": "termination-and-frames",
+          "requirement": "The inline region terminates and preserves every declared live value and frame.",
+          "support": {"kind": "missing", "remaining": "Prove the representative inline encoder after its entry is executable."}
+        }
+      ]
+    }
+  }
+}

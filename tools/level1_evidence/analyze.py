@@ -250,6 +250,8 @@ def validate_initialized_decoded_prefixes(_vectors: list[dict],
     expected = {
         label for label, trace in traces if 0x14d30 in trace["executed"]
     }
+    if not expected:
+        raise ValueError("no successful vectors reached the decoded-prefix capture PC")
     captured = [
         {"vector": label, **window}
         for label, trace in traces for window in trace.get("memoryWindows", [])

@@ -128,6 +128,11 @@ class EvidenceTest(unittest.TestCase):
             validate_initialized_decoded_prefixes(
                 vectors, [("ok", {"executed": [0x14d30], "memoryWindows": []})])
 
+    def test_rejects_stale_decoded_prefix_capture_pc(self):
+        with self.assertRaisesRegex(ValueError, "no successful vectors"):
+            validate_initialized_decoded_prefixes(
+                [{"label": "ok"}], [("ok", {"executed": [], "memoryWindows": []})])
+
     def test_rejects_missing_exit_snapshot(self):
         trace = copy.deepcopy(self.trace)
         trace["executions"][-1]["registers"] = None

@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from generate_level2_lean import source_name
+from level2_contract_matrix import expand as expand_clause_matrix
 
 
 SEMANTICS = {
@@ -49,7 +50,8 @@ FIXED_WRITE_BYTES = {
 }
 
 
-def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
+def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict,
+          registry: dict | None = None) -> dict:
     if any(manifest["artifact"] != document["artifact"]
            for document in (evidence, bindings, cfg)):
         raise ValueError("Level 2 admission inputs describe different ELFs")
@@ -143,12 +145,6 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
                 raise ValueError(f"{name} lacks empty/nonempty evidence")
             collection_counts = counts
             entry_binding = {"countRegister": count_register, "encoding": "little-u64-prefix"}
-            if name == "writeSuccessTransactions":
-                entry_binding["addressBinding"] = "stack-u64-at-sp+104"
-            elif name == "writeSuccessWithdrawals":
-                entry_binding["addressRegister"] = 8
-            elif name == "writeSuccessHashes":
-                entry_binding["addressRegister"] = 9
         rows.append({
             "id": instance["id"], "leanName": name, "qualified": instance["qualified"],
             "parentInstanceIds": instance["parentInstanceIds"],
@@ -180,16 +176,26 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
         })
     if {row["leanName"] for row in rows} != set(SEMANTICS):
         raise ValueError("semantic review does not cover the exact Level 2 inventory")
-    return {"schemaVersion": 1, "artifact": manifest["artifact"], "instances": rows}
+    result = {"schemaVersion": 2, "artifact": manifest["artifact"], "instances": rows}
+    if registry is None:
+        raise ValueError("Level 2 contract clause registry is required")
+    result.update(expand_clause_matrix(registry, {row["leanName"] for row in rows}))
+    schema_by_instance = {
+        instance: schema["name"]
+        for schema in result["contractSchemas"] for instance in schema["instanceNames"]
+    }
+    for row in rows:
+        row["contractSchema"] = schema_by_instance[row["leanName"]]
+    return result
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    for name in ("manifest", "evidence", "bindings", "cfg", "output"):
+    for name in ("manifest", "evidence", "bindings", "cfg", "registry", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
     args = parser.parse_args()
     result = build(*(json.loads(getattr(args, name).read_text())
-                     for name in ("manifest", "evidence", "bindings", "cfg")))
+                     for name in ("manifest", "evidence", "bindings", "cfg", "registry")))
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return 0
 
