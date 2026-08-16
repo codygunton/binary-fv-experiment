@@ -140,6 +140,12 @@ private theorem writeSuccessChildStackFits {stackPointer : Nat} (lower : 0x880 �
   apply Nat.le_sub_of_add_le
   exact Nat.le_trans (by decide : 16 + 0x7d0 ≤ 0x880) lower
 
+private theorem writeSuccessChildFrameFits {stackPointer frameSize : Nat}
+    (frameBound : frameSize + 0x7d0 ≤ 0x880) (lower : 0x880 ≤ stackPointer) :
+    frameSize ≤ stackPointer - 0x7d0 := by
+  apply Nat.le_sub_of_add_le
+  exact Nat.le_trans frameBound lower
+
 private theorem writeSuccessChild16_in_child48 {stackPointer address : Nat}
     (lower : 0x880 ≤ stackPointer)
     (inside : byteRange (stackPointer - 0x7d0 - 16) 16 address) :
@@ -5042,7 +5048,7 @@ private theorem writeSuccessEncoderChildHandoff
       callerStack := writerArgs.stackPointer - 0x7d0
       inputSize := writerArgs.inputSize
       value })
-    (childEntry : EncoderCallEntry entry exitPcs bindValue childArgs callState)
+    (childEntry : EncoderCallEntry entry exitPcs frameSize bindValue childArgs callState)
     (parentTrace : ConfinedTrace EndpointStep EndpointPc
       (pcInRanges Elflings.writeSuccessExecutionPcRanges)
       fromStep parentUsed before callState)
@@ -5105,7 +5111,7 @@ private theorem writeSuccessEncoderChildHandoff
     atPc := by simpa [argsEq] using afterPc
     stack := by
       have := childFrame.1 x2 (by simp [abiCalleePreserved])
-      simpa [argsEq] using this.trans childEntry.2.2.2.2.1
+      simpa [argsEq] using this.trans childEntry.2.2.2.2.2.1
     stdout := by simpa [argsEq, io.2.2.1] using stdout
     stdin := by simpa [io.1] using stdin
     cursor := by simpa [io.2.1] using cursor
@@ -6644,8 +6650,9 @@ theorem writeSuccessFirstIntHandoff
       inputSize := args.inputSize
       value := args.decoded.payload.blockNumber }
   have childEntry : EncoderCallEntry Elflings.writeSuccessIntEntry
-      Elflings.writeSuccessIntExitPcs UInt64EncoderBinding childArgs callState := by
+      Elflings.writeSuccessIntExitPcs 16 UInt64EncoderBinding childArgs callState := by
     refine ⟨(by show 0x14e94 ∈ Elflings.writeSuccessIntExitPcs; native_decide),
+      (by dsimp [childArgs]; exact writeSuccessChildStackFits lower),
       (by dsimp [childArgs]; omega), ?_, ?_, ?_, ?_, ?_⟩
     · simpa [callState] using callAtPc
     · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -7488,10 +7495,12 @@ private theorem writeSuccessIntCallHandoff
       inputSize := args.inputSize
       value }
   have childEntry : EncoderCallEntry Elflings.writeSuccessIntEntry
-      Elflings.writeSuccessIntExitPcs UInt64EncoderBinding childArgs callState := by
+      Elflings.writeSuccessIntExitPcs 16 UInt64EncoderBinding childArgs callState := by
     unfold EncoderCallEntry
     constructor
     · exact returnListed
+    constructor
+    · exact writeSuccessChildStackFits lower
     constructor
     · change args.stackPointer - 0x7d0 < 2 ^ 64
       exact writeSuccessChildStackBound upper
@@ -8064,10 +8073,11 @@ private theorem writeSuccessLateBytesHandoff
     inputSize := args.inputSize
     value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessBytesEntry
-      Elflings.writeSuccessBytesExitPcs BytesEncoderBinding childArgs callState := by
+      Elflings.writeSuccessBytesExitPcs 48 BytesEncoderBinding childArgs callState := by
     unfold EncoderCallEntry
     refine ⟨(by simpa [childArgs] using returnListed),
-      writeSuccessChildStackBound upper, setup.atPc, ?_, ?_, ?_, setup.loaded⟩
+      writeSuccessChildFrameFits (by decide) lower, writeSuccessChildStackBound upper,
+      setup.atPc, ?_, ?_, ?_, setup.loaded⟩
     · simpa [childArgs] using setup.link
     · simpa [childArgs] using setup.stack
     · refine ⟨bytesRep.1, ?_, ?_, ?_⟩
@@ -8491,9 +8501,10 @@ private theorem writeSuccessLateByteListsFromSetup
     inputSize := args.inputSize
     value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessByteListsEntry
-      Elflings.writeSuccessByteListsExitPcs ByteListsEncoderBinding childArgs callState := by
+      Elflings.writeSuccessByteListsExitPcs 64 ByteListsEncoderBinding childArgs callState := by
     unfold EncoderCallEntry
-    refine ⟨by simpa [childArgs] using returnListed, writeSuccessChildStackBound upper,
+    refine ⟨by simpa [childArgs] using returnListed,
+      writeSuccessChildFrameFits (by decide) lower, writeSuccessChildStackBound upper,
       setup.atPc, ?_, ?_, ?_, setup.loaded⟩
     · simpa [childArgs] using setup.link
     · simpa [childArgs] using setup.stack
@@ -8610,9 +8621,10 @@ private theorem writeSuccessLateByteListsSite
     inputSize := args.inputSize
     value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessByteListsEntry
-      Elflings.writeSuccessByteListsExitPcs ByteListsEncoderBinding childArgs callState := by
+      Elflings.writeSuccessByteListsExitPcs 64 ByteListsEncoderBinding childArgs callState := by
     unfold EncoderCallEntry
-    refine ⟨by simpa [childArgs] using returnListed, writeSuccessChildStackBound upper,
+    refine ⟨by simpa [childArgs] using returnListed,
+      writeSuccessChildFrameFits (by decide) lower, writeSuccessChildStackBound upper,
       setup.atPc, ?_, ?_, ?_, setup.loaded⟩
     · simpa [childArgs] using setup.link
     · simpa [childArgs] using setup.stack
@@ -9408,8 +9420,9 @@ private theorem writeSuccessForkNameBooleanCallHandoff
     inputSize := args.inputSize
     value }
   have childEntry : EncoderCallEntry Elflings.writeSuccessBooleanEntry
-      Elflings.writeSuccessBooleanExitPcs BooleanEncoderBinding childArgs callState := by
-    refine ⟨returnListed, writeSuccessChildStackBound upper, ?_, ?_, ?_, ?_, ?_⟩
+      Elflings.writeSuccessBooleanExitPcs 16 BooleanEncoderBinding childArgs callState := by
+    refine ⟨returnListed, writeSuccessChildStackFits lower, writeSuccessChildStackBound upper,
+      ?_, ?_, ?_, ?_, ?_⟩
     · simpa [callState] using callAtPc
     · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, childArgs]
@@ -9506,7 +9519,7 @@ private theorem writeSuccessForkNameBooleanCallHandoff
     atPc := by simpa [childArgs] using afterPc
     stack := by
       have preserved := childFrame.1 x2 (by simp [abiCalleePreserved])
-      simpa [childArgs] using preserved.trans childEntry.2.2.2.2.1
+      simpa [childArgs] using preserved.trans childEntry.2.2.2.2.2.1
     stdout := by simpa [childArgs] using stdout
     stdin := by simpa [callState] using stdin
     cursor := by simpa [callState] using cursor
@@ -10786,10 +10799,10 @@ private theorem writeSuccessLateOptionalHandoff
     { returnAddress := returnPc, callerStack := args.stackPointer - 0x7d0,
       inputSize := args.inputSize, value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessOptionalU64Entry
-      Elflings.writeSuccessOptionalU64ExitPcs OptionalUInt64EncoderBinding childArgs callState := by
+      Elflings.writeSuccessOptionalU64ExitPcs 16 OptionalUInt64EncoderBinding childArgs callState := by
     unfold EncoderCallEntry
-    refine ⟨(by simpa [childArgs] using returnListed), writeSuccessChildStackBound upper,
-      ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨(by simpa [childArgs] using returnListed), writeSuccessChildStackFits lower,
+      writeSuccessChildStackBound upper, ?_, ?_, ?_, ?_, ?_⟩
     · simpa [callState] using callAtPc
     · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, childArgs]
@@ -11703,10 +11716,11 @@ private theorem writeSuccessExtraDataHandoff
   have extraBytes : BytesRep before.machine.mem extraAddress
       args.decoded.payload.extraData := extraRep.byteSliceBytesRep
   have childEntry : EncoderCallEntry Elflings.writeSuccessBytesEntry
-      Elflings.writeSuccessBytesExitPcs BytesEncoderBinding childArgs callState := by
+      Elflings.writeSuccessBytesExitPcs 48 BytesEncoderBinding childArgs callState := by
     unfold EncoderCallEntry
     refine ⟨(by show 0x14ec8 ∈ Elflings.writeSuccessBytesExitPcs; native_decide),
-      writeSuccessChildStackBound upper, ?_, ?_, ?_, ?_, ?_⟩
+      writeSuccessChildFrameFits (by decide) lower, writeSuccessChildStackBound upper,
+      ?_, ?_, ?_, ?_, ?_⟩
     · simpa [callState] using callAtPc
     · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, childArgs]
@@ -12992,9 +13006,10 @@ private theorem writeSuccessRawTransactionsHandoff
       inputSize := args.inputSize
       value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessByteListsEntry
-      Elflings.writeSuccessByteListsExitPcs ByteListsEncoderBinding childArgs callState := by
+      Elflings.writeSuccessByteListsExitPcs 64 ByteListsEncoderBinding childArgs callState := by
     unfold EncoderCallEntry
-    refine ⟨(by dsimp [childArgs]; native_decide), writeSuccessChildStackBound upper,
+    refine ⟨(by dsimp [childArgs]; native_decide),
+      writeSuccessChildFrameFits (by decide) lower, writeSuccessChildStackBound upper,
       ?_, ?_, ?_, ?_, ?_⟩
     · simpa [callState] using callAtPc
     · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -14231,10 +14246,10 @@ private theorem writeSuccessOptionalHandoff
       inputSize := args.inputSize
       value := childValue }
   have childEntry : EncoderCallEntry Elflings.writeSuccessOptionalU64Entry
-      Elflings.writeSuccessOptionalU64ExitPcs OptionalUInt64EncoderBinding childArgs callState := by
+      Elflings.writeSuccessOptionalU64ExitPcs 16 OptionalUInt64EncoderBinding childArgs callState := by
     unfold EncoderCallEntry
-    refine ⟨(by dsimp [childArgs]; native_decide), writeSuccessChildStackBound upper,
-      ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨(by dsimp [childArgs]; native_decide), writeSuccessChildStackFits lower,
+      writeSuccessChildStackBound upper, ?_, ?_, ?_, ?_, ?_⟩
     · simpa [callState] using callAtPc
     · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, childArgs]
@@ -14494,9 +14509,10 @@ private theorem writeSuccessBlockAccessHandoff
       inputSize := args.inputSize
       value }
   have childEntry : EncoderCallEntry Elflings.writeSuccessBytesEntry
-      Elflings.writeSuccessBytesExitPcs BytesEncoderBinding childArgs callState := by
+      Elflings.writeSuccessBytesExitPcs 48 BytesEncoderBinding childArgs callState := by
     unfold EncoderCallEntry
-    refine ⟨(by dsimp [childArgs]; native_decide), writeSuccessChildStackBound upper,
+    refine ⟨(by dsimp [childArgs]; native_decide),
+      writeSuccessChildFrameFits (by decide) lower, writeSuccessChildStackBound upper,
       ?_, ?_, ?_, ?_, ?_⟩
     · simpa [callState] using callAtPc
     · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,

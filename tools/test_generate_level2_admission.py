@@ -91,9 +91,9 @@ class Level2AdmissionTests(unittest.TestCase):
         encoder = next(row for row in result["contractSchemas"]
                        if row["name"] == "encoder-call")
         self.assertFalse(encoder["entryAndExecutionReady"])
-        self.assertTrue(any(item["schema"] == "encoder-call" and
-                            item["status"] == "contradiction"
-                            for item in result["workItems"]))
+        self.assertFalse(any(item["schema"] == "encoder-call" and
+                             item["status"] == "contradiction"
+                             for item in result["workItems"]))
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)

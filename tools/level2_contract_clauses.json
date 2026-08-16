@@ -43,10 +43,8 @@
           "id": "entry-input-result-separation",
           "requirement": "The input does not overlap the caller slots or the result window through stackPointer + 0x380.",
           "support": {
-            "kind": "partial",
-            "checker": "decode-boundary-layout",
-            "mutationTest": "decode-boundary-layout-mutation",
-            "remaining": "Strengthen DecodeBoundaryEntry from stackPointer <= inputAddress to stackPointer + 0x380 <= inputAddress."
+            "kind": "entry",
+            "declaration": "DecodeBoundaryEntry"
           }
         },
         {
@@ -133,7 +131,7 @@
         {
           "id": "entry-frame-fits",
           "requirement": "frameSize is not greater than callerStack before the child subtracts its frame.",
-          "support": {"kind": "contradiction", "remaining": "Move frameSize <= callerStack from EncoderCallExit into EncoderCallEntry."}
+          "support": {"kind": "entry", "declaration": "EncoderCallEntry"}
         },
         {
           "id": "entry-execution-access",

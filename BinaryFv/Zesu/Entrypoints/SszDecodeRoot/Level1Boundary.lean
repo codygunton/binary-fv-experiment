@@ -138,7 +138,7 @@ def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Pr
   0xbb0 ≤ args.stackPointer ∧ args.stackPointer % 16 = 0 ∧
   args.stackPointer + 0x380 < 2 ^ 64 ∧
   args.inputAddress + args.input.size ≤ 2 ^ 64 ∧
-  (args.stackPointer ≤ args.inputAddress ∨
+  (args.stackPointer + 0x380 ≤ args.inputAddress ∨
     args.inputAddress + args.input.size ≤ args.stackPointer - 0xbb0) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
@@ -154,6 +154,13 @@ def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Pr
   BytesRep state.machine.mem args.inputAddress args.input ∧
   DecodeBoundaryMachineAccess args state.machine ∧
   ∃ values, DecodeCalleeSavedAtRegisters values state
+
+theorem decodeBoundaryEntry_rejects_overlapping_input
+    (overlapsResult : args.inputAddress < args.stackPointer + 0x380)
+    (overlapsFrame : args.stackPointer - 0xbb0 < args.inputAddress + args.input.size) :
+    ¬DecodeBoundaryEntry args state := by
+  intro accepted
+  grind [DecodeBoundaryEntry]
 
 /-- The exact Sail read consumed by main's `lhu`, tied to the represented decoder status. -/
 def DecodeStatusLoadWitness (state : EndpointState) (status : Nat) : Prop :=

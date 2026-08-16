@@ -1462,12 +1462,12 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
         some (BitVec.ofNat 64 Elflings.decodeInputEntry) := by
       simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.decodeInputEntry]
-    have separation : decodeArgs.stackPointer ≤ decodeArgs.inputAddress ∨
+    have separation : decodeArgs.stackPointer + 0x380 ≤ decodeArgs.inputAddress ∨
         decodeArgs.inputAddress + decodeArgs.input.size ≤ decodeArgs.stackPointer - 0xbb0 := by
       left
-      change args.stackPointer ≤ readOutcome.inputAddress
+      change args.stackPointer + 0x380 ≤ readOutcome.inputAddress
       rw [inputAddressExact]
-      exact Nat.le_trans (Nat.le_add_right _ _) entry.stackBelowInputBuffer
+      exact entry.stackBelowInputBuffer
     have link : callState.machine.regs.get? x1 =
         some (BitVec.ofNat 64 decodeArgs.returnAddress) := by
       change callMachine.regs.get? x1 = some (BitVec.ofNat 64 decodeArgs.returnAddress)

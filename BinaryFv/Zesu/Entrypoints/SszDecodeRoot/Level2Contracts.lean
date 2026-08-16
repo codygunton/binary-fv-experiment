@@ -288,14 +288,21 @@ structure EncoderCallArgs (Value : Type) where
   inputSize : Nat
   value : Value
 
-def EncoderCallEntry (entry : Nat) (exitPcs : List Nat) (bindValue : EndpointState → Value → Prop)
-    (args : EncoderCallArgs Value) (state : EndpointState) : Prop :=
-  args.returnAddress ∈ exitPcs ∧ args.callerStack < 2 ^ 64 ∧
+def EncoderCallEntry (entry : Nat) (exitPcs : List Nat) (frameSize : Nat)
+    (bindValue : EndpointState → Value → Prop) (args : EncoderCallArgs Value)
+    (state : EndpointState) : Prop :=
+  args.returnAddress ∈ exitPcs ∧ frameSize ≤ args.callerStack ∧ args.callerStack < 2 ^ 64 ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.callerStack) ∧
   bindValue state args.value ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+
+theorem encoderCallEntry_rejects_small_stack
+    (small : args.callerStack < frameSize) :
+    ¬EncoderCallEntry entry exitPcs frameSize bindValue args state := by
+  intro accepted
+  exact (Nat.not_le_of_gt small) accepted.2.1
 
 def EncoderCallExit (frameSize : Nat)
     (encode : Value → Array UInt8) (args : EncoderCallArgs Value) (_outcome : Unit)
@@ -314,7 +321,7 @@ def encoderCallContract (entry : Nat) (exitPcs : List Nat) (frameSize : Nat)
     (encode : Value → Array UInt8) (bindValue : EndpointState → Value → Prop)
     (stepBound : Nat → Nat) : RelationalMachineContract EndpointState (EncoderCallArgs Value) Unit :=
   { allows := fun _ _ => True
-    entry := EncoderCallEntry entry exitPcs bindValue
+    entry := EncoderCallEntry entry exitPcs frameSize bindValue
     exit := EncoderCallExit frameSize encode
     stepBound := fun args => stepBound args.inputSize }
 
