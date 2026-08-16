@@ -164,6 +164,10 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict) -> dict:
                 "universal termination bound", "universal register and memory frame",
                 "source-value relation at optimized inline boundary",
             ],
+            "proofOnly": [
+                "Sail choiceState/tags/sailOutput preservation is machine-execution bookkeeping, "
+                "not an empirically observable function result",
+            ],
             "contractStatus": "not-admitted",
         })
     if {row["leanName"] for row in rows} != set(SEMANTICS):

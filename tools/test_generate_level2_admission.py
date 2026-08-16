@@ -27,6 +27,10 @@ class Level2AdmissionTests(unittest.TestCase):
                          {"reviewed"})
         self.assertEqual({row["contractStatus"] for row in result["instances"]},
                          {"not-admitted"})
+        self.assertTrue(all(row["proofOnly"] == [
+            "Sail choiceState/tags/sailOutput preservation is machine-execution bookkeeping, "
+            "not an empirically observable function result",
+        ] for row in result["instances"]))
         memcpy = next(row for row in result["instances"] if row["leanName"] == "memcpy")
         self.assertEqual({row["name"] for row in memcpy["measured"]["dwarfBindings"]
                           if row["kind"] == "parameter"}, {"dst", "src", "n"})
@@ -123,6 +127,27 @@ class Level2AdmissionTests(unittest.TestCase):
         occurrence["entryRegisters"]["values"][10] += 1
         with self.assertRaisesRegex(ValueError, "byte-slice pointer/length binding mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3])
+
+    def test_rejects_forged_collection_count_bindings(self):
+        ids = {
+            "fi:1:3e96": "writeSuccessTransactions",
+            "fi:1:40af": "writeSuccessWithdrawals",
+            "fi:1:4116": "writeSuccessHashes",
+        }
+        for instance_id, name in ids.items():
+            with self.subTest(name=name):
+                occurrence = next(
+                    occurrence
+                    for vector in self.documents[1]["vectors"]
+                    for row in vector["instances"] if row["id"] == instance_id
+                    for occurrence in row["occurrences"])
+                original = occurrence["hostWrites"][0]["bytes"]
+                occurrence["hostWrites"][0]["bytes"] = "0100000000000000"
+                try:
+                    with self.assertRaisesRegex(ValueError, f"{name} count binding mismatch"):
+                        self.module.build(*self.documents)
+                finally:
+                    occurrence["hostWrites"][0]["bytes"] = original
 
 if __name__ == "__main__":
     unittest.main()
