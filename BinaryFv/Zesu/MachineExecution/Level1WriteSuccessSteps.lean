@@ -12745,7 +12745,7 @@ private theorem writeSuccessTransactionsHandoff
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, stackAfter,
     bindingAfter, savedAfter, decodedAfter, parentRootAfter, versionedHashesAfter,
     payloadAfter, destinationAfter, sourceAfter, copiedSourceAfter,
-    childMemory, childAgree, childRetired, loadedAfter⟩
+    childAux, childMemory, childAgree, childRetired, loadedAfter⟩
   have childInWriter : ∀ address, inlineEncoderMemoryRegion childArgs.stackPointer address →
       writeSuccessFrameMemory args address := by
     intro address inside
@@ -12814,7 +12814,12 @@ private theorem writeSuccessTransactionsHandoff
     writerRegionBeforeOutputContext := accessAtChild.writerRegionBeforeOutputContext
     frameNotCode := accessAtChild.frameNotCode }
   refine ⟨childUsed, after, {
-    ambient := by grind
+    ambient := (by
+      have parentAmbient : WriteSuccessAmbientFrame before childState := by
+        simpa [childState] using WriteSuccessAmbientFrame.ofSeg seg4
+          instructionPreserved_disjoint_writeSuccessParentWrites
+      exact parentAmbient.trans
+        ⟨childAgree.weaken instructionPreserved_inlineEncoderPreserved, childAux⟩)
     trace := by
       have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace)
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
@@ -13272,7 +13277,7 @@ private theorem writeSuccessWithdrawalsHandoff
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, stackAfter,
     bindingAfter, savedAfter, decodedAfter, parentRootAfter, versionedHashesAfter,
     payloadAfter, destinationAfter, sourceAfter, copiedSourceAfter,
-    childMemory, childAgree, childRetired, loadedAfter⟩
+    childAux, childMemory, childAgree, childRetired, loadedAfter⟩
   have childInWriter : ∀ address, inlineEncoderMemoryRegion childArgs.stackPointer address →
       writeSuccessFrameMemory args address := by
     intro address inside
@@ -13344,7 +13349,12 @@ private theorem writeSuccessWithdrawalsHandoff
     writerRegionBeforeOutputContext := accessAtChild.writerRegionBeforeOutputContext
     frameNotCode := accessAtChild.frameNotCode }
   exact ⟨childUsed, after, {
-    ambient := by grind
+    ambient := (by
+      have parentAmbient : WriteSuccessAmbientFrame before childState := by
+        simpa [childState] using WriteSuccessAmbientFrame.ofSeg seg2
+          instructionPreserved_disjoint_writeSuccessParentWrites
+      exact parentAmbient.trans
+        ⟨childAgree.weaken instructionPreserved_inlineEncoderPreserved, childAux⟩)
     trace := by
       have all := parentTrace.append (by simpa [Nat.add_assoc] using childTrace)
       simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using all
@@ -15006,7 +15016,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     (fromStep + 2) childArgs childState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, stackAfter,
     bindingAfter, savedAfter, decodedAfter, parentRootAfter, versionedHashesAfter,
-    payloadAfter, destinationAfter, sourceAfter, copiedSourceAfter, childMemory, childAgree,
+    payloadAfter, destinationAfter, sourceAfter, copiedSourceAfter, childAux, childMemory, childAgree,
     childRetired, loadedAfter⟩
   have childInWriter : ∀ address, inlineEncoderMemoryRegion childArgs.stackPointer address →
       writeSuccessFrameMemory args address := by
@@ -15072,7 +15082,12 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     writerRegionBeforeOutputContext := accessAtChild.writerRegionBeforeOutputContext
     frameNotCode := accessAtChild.frameNotCode }
   refine ⟨childUsed, after, {
-    ambient := by grind
+    ambient := (by
+      have parentAmbient : WriteSuccessAmbientFrame before childState := by
+        simpa [childState] using WriteSuccessAmbientFrame.ofSeg seg2
+          instructionPreserved_disjoint_writeSuccessParentWrites
+      exact parentAmbient.trans
+        ⟨childAgree.weaken instructionPreserved_inlineEncoderPreserved, childAux⟩)
     trace := by simpa [Nat.add_assoc] using parentTrace.append childTrace
     atPc := afterPc
     stack := stackAfter
@@ -15905,7 +15920,7 @@ private theorem writeSuccessEncodedHandoff
         some (BitVec.ofNat 64 args.stackPointer) := by
       simpa [after] using epilogue.reg x2 (BitVec.ofNat 64 args.stackPointer) (by
         simp [writeSuccessFinalRegs])
-    exact finalStack.trans entry.2.2.2.2.2.2.2.symm
+    exact finalStack.trans entry.2.2.2.2.2.2.2.1.symm
   have calleeAgree : Agree abiCalleePreserved before.machine after.machine := by
     intro register preserved
     by_cases link : register = x1
