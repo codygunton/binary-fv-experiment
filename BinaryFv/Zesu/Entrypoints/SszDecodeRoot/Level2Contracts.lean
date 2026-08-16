@@ -188,6 +188,20 @@ def writeOutputMemory : Region :=
   Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
     (byteRange (Elflings.ioContextAddress + 16) 8)
 
+/-- Registers preserved by an encoder fragment inlined into `writeSuccess`. Such a fragment may
+overwrite the link register for its `write_output` call, so this is deliberately not an ABI frame. -/
+def encoderInlinePreserved (register : Register) : Prop :=
+  instructionPreserved register ∨ register = x2 ∨ register = x8 ∨ register = x9 ∨
+    register = x18 ∨ register = x19 ∨ register = x20 ∨ register = x21 ∨
+    register = x22 ∨ register = x23 ∨ register = x24 ∨ register = x25 ∨
+    register = x26 ∨ register = x27
+
+def EncoderInlineFrame (before after : EndpointState) : Prop :=
+  Agree encoderInlinePreserved before.machine after.machine ∧
+  RetiredCounterPresent after.machine ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+  EndpointMachineAuxAgree before.machine after.machine
+
 def RawEncoderEntry (entry : Nat) (args : RawEncoderArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.sourceAddress) ∧
@@ -203,7 +217,7 @@ def RawEncoderExit (successPc : Nat) (args : RawEncoderArgs) (_outcome : Unit)
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.exitCode = before.exitCode ∧
   WritesOnlyWithin writeOutputMemory before.machine after.machine ∧
-  EndpointCallFrame before after
+  EncoderInlineFrame before after
 
 def rawEncoderContract (entry successPc : Nat)
     (stepBound : RawEncoderArgs → Nat) :
@@ -248,7 +262,7 @@ def ConstantEncoderExit (successPc : Nat) (bytes : Array UInt8) (_args _outcome 
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.exitCode = before.exitCode ∧
   WritesOnlyWithin writeOutputMemory before.machine after.machine ∧
-  EndpointCallFrame before after
+  EncoderInlineFrame before after
 
 def constantEncoderContract (entry successPc : Nat) (bytes : Array UInt8)
     (stepBound : Nat) : RelationalMachineContract EndpointState Unit Unit :=

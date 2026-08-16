@@ -382,6 +382,19 @@ private theorem WriteSuccessAmbientFrame.ofCall {before after : EndpointState}
   ⟨frame.1.weaken instructionPreserved_abiCalleePreserved_local,
     frame.2.2.2.1, frame.2.2.2.2.1, frame.2.2.2.2.2⟩
 
+private theorem WriteSuccessAmbientFrame.ofInline {before after : EndpointState}
+    (frame : EncoderInlineFrame before after) : WriteSuccessAmbientFrame before after :=
+  ⟨frame.1.weaken (fun _ preserved => Or.inl preserved),
+    frame.2.2.2⟩
+
+private theorem configuredAfterEncoderInline {before after : EndpointState}
+    (configured : ConfiguredMachinePre EndpointMachinePc before.machine)
+    (frame : EncoderInlineFrame before after) :
+    ConfiguredMachinePre EndpointMachinePc after.machine :=
+  configured.mono
+    (frame.1.weaken (fun _ preserved => Or.inl preserved))
+    frame.2.1
+
 private theorem WriteSuccessAmbientFrame.ofSeg
     {own exit : BitVec 64 → Prop}
     {summary : Elfling.FunctionInstanceId → Nat → Nat → State → State → Prop}
@@ -4193,6 +4206,340 @@ private theorem writeSuccessPrefixPc_in_execution {pc : BitVec 64}
   · exact ⟨(0x14d30, 0x15a14), by simp [Elflings.writeSuccessExecutionPcRanges], by omega,
       by omega⟩
 
+private theorem constantPrefixAddressHighStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e00)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e00 retired x10 0x17e00) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14e00
+  have pcRead : Runs (readReg PC) premise premise 0x14e00 := by
+    apply readReg_run
+    simp [premise, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, atPc]
+  have execute : Runs (execute (.UTYPE (3, .Regidx 10#5, .AUIPC))) premise
+      { premise with regs := premise.regs.insert x10 0x17e00 } (.Retire_Success ()) := by
+    change Runs (execute_UTYPE 3 (.Regidx 10#5) .AUIPC) _ _ _
+    simpa using execute_UTYPE_auipc_run premise _ 3 (.Regidx 10#5) 0x14e00 pcRead
+      (wX_x10_run premise 0x17e00)
+  exact configuredRegisterWriteStep stepNo 0x14e00 state x10 0x17e00
+    (.UTYPE (3, .Regidx 10#5, .AUIPC)) 0x17 0x35 0x00 0x00 configured atPc loaded
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured; decode_run) execute (base := by rfl)
+
+private theorem constantPrefixAddressLowStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e04)
+    (source : state.regs.get? x10 = some 0x17e00)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e04 retired x10 0x179c5) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14e04
+  have source' := (stepPremiseState_writes state 0x14e04).get x10 (by decide) |>.trans source
+  have execute : Runs (execute (.ITYPE (0xbc5, .Regidx 10#5, .Regidx 10#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x10 0x179c5 } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0xbc5 (.Regidx 10#5) (.Regidx 10#5) .ADDI) _ _ _
+    have resultEq : iTypeResult .ADDI 0xbc5 0x17e00 = 0x179c5 := by native_decide
+    simpa only [resultEq] using execute_ITYPE_run premise _ 0xbc5 (.Regidx 10#5)
+      (.Regidx 10#5) .ADDI 0x17e00 (rX_x10_run premise 0x17e00 source')
+      (wX_x10_run premise (iTypeResult .ADDI 0xbc5 0x17e00))
+  exact configuredRegisterWriteStep stepNo 0x14e04 state x10 0x179c5
+    (.ITYPE (0xbc5, .Regidx 10#5, .Regidx 10#5, .ADDI)) 0x13 0x05 0x55 0xbc
+    configured atPc loaded
+    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+          writeSuccessLoadDecodeReads configured; decode_run) execute (base := by rfl)
+
+private theorem constantPrefixLengthStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e08)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e08 retired x11 6) false := by
+  apply writeSuccessAddiX11FromZeroStep stepNo 0x14e08 6 6
+    0x93 0x05 0x60 0x00 state configured atPc loaded
+  · native_decide
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · rfl
+  all_goals native_decide
+
+private theorem constantPrefixCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e0c)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x14e0c retired x1 0xfe0c) false := by
+  apply configuredAuipcStep stepNo state 0x14e0c 0xffffb 0x97 0xb0 0xff 0xff
+    configured atPc loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+
+private theorem constantPrefixCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x14e10)
+    (baseRead : state.regs.get? x1 = some 0xfe0c)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e10 0x10190 x1 0x14e14)
+        0x10190 retired) false := by
+  apply configuredJalrCallStep stepNo state 0x14e10 0xfe0c 0x384 0x10190 0x14e14
+    0xe7 0x80 0x40 0x38 configured atPc baseRead loaded
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+      writeSuccessLoadDecodeReads configured
+    decode_run
+  · native_decide
+  · native_decide
+  · native_decide
+
+private def constantPrefixParentPc (pc : BitVec 64) : Prop :=
+  pcInRanges [(0x14e00, 0x14e14)] pc
+
+private def constantPrefixParentWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x1 ∨ register = x10 ∨ register = x11
+
+private theorem encoderInlinePreserved_disjoint_constantPrefixParentWrites :
+    RegSet.Disjoint encoderInlinePreserved constantPrefixParentWrites := by
+  intro register preserved written
+  simp [encoderInlinePreserved, constantPrefixParentWrites, instructionPreserved,
+    platformPreserved, stepBookkeeping] at preserved written
+  grind
+
+private theorem instructionPreserved_disjoint_constantPrefixParentWrites :
+    RegSet.Disjoint instructionPreserved constantPrefixParentWrites := by
+  intro register preserved written
+  exact encoderInlinePreserved_disjoint_constantPrefixParentWrites register (Or.inl preserved)
+    written
+
+private theorem liftConstantPrefixTrace {exit : BitVec 64 → Prop} (template : EndpointState)
+    {fromStep count : Nat} {before after : State}
+    (trace : ScopedTrace constantPrefixParentPc exit
+      (fun _ _ _ _ _ => False) fromStep count before after) :
+    ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessRawLine131ExecutionPcRanges)
+      fromStep count { template with machine := before } { template with machine := after } := by
+  induction trace with
+  | exitAt fromStep state pc atPc exitPc => exact .refl fromStep { template with machine := state }
+  | ownStep fromStep count pc before middle after atPc inside notExit machineStep rest ih =>
+      refine ConfinedTrace.step fromStep count pc
+        { template with machine := before } { template with machine := middle }
+        { template with machine := after } ?_ ?_ ?_ ?_
+      · exact atPc
+      · unfold constantPrefixParentPc at inside
+        unfold pcInRanges at inside ⊢
+        rcases inside with ⟨range, member, lo, hi⟩
+        simp at member
+        subst range
+        exact ⟨(0x14e00, 0x14e14),
+          by simp [Elflings.writeSuccessRawLine131ExecutionPcRanges], lo, hi⟩
+      · exact endpointStep_sail fromStep { template with machine := before } middle
+          (fun observed observedPc => by
+            change before.regs.get? PC = some observed at observedPc
+            rw [atPc] at observedPc
+            cases Option.some.inj observedPc
+            unfold constantPrefixParentPc pcInRanges at inside
+            rcases inside with ⟨range, member, lo, hi⟩
+            simp at member
+            subst range
+            simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+              exitContextStorePc]
+            omega) machineStep
+      · simpa using ih
+  | childBody fromStep used count child before middle after body rest ih => exact body.elim
+  | inlineStep fromStep used count boundary program parent child before resume after transfer rest ih =>
+      exact transfer.body.elim
+  | inlineCallStep fromStep childUsed calleeUsed count boundary program parent child callee before
+      resume after transfer rest ih => exact transfer.body.elim
+  | callStep fromStep used count call program parent callee before resume after transfer rest ih =>
+      exact transfer.body.elim
+
+/-- The exact static six-byte success prefix reaches its declared exit without assumptions. -/
+theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract := by
+  refine ⟨10, ?_⟩
+  intro _ fromStep before entry
+  rcases entry with ⟨atPc, loaded, access⟩
+  have seg0 := Seg.nil constantPrefixParentPc (fun pc => pc = 0x10190)
+    constantPrefixParentWrites (fun _ => False) fromStep
+    (childSummary := fun _ _ _ _ _ => False) access.configured.retiredCounter atPc
+  obtain ⟨r0, run0⟩ := constantPrefixAddressHighStep fromStep before.machine
+    access.configured atPc loaded
+  let s1 := afterRegisterWrite before.machine 0x14e00 r0 x10 0x17e00
+  have seg1 := seg0.stepKnown
+    (by unfold constantPrefixParentPc; exact
+      ⟨(0x14e00, 0x14e14), by simp, by native_decide, by native_decide⟩)
+    (by native_decide) x10 0x17e00 0x14e04 r0 run0
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  have cfg1 := access.configured.mono
+    (seg1.agree instructionPreserved_disjoint_constantPrefixParentWrites)
+    seg1.retired
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully s1.mem := by
+    simpa [s1] using loaded
+  obtain ⟨r1, run1⟩ := constantPrefixAddressLowStep (fromStep + 1) s1 cfg1 seg1.atPc
+    (seg1.reg x10 0x17e00 (by simp)) loaded1
+  let s2 := afterRegisterWrite s1 0x14e04 r1 x10 0x179c5
+  have seg1' := seg1.forget (kv' := []) (by simp)
+  have seg2 := seg1'.stepKnown
+    (by unfold constantPrefixParentPc; exact
+      ⟨(0x14e00, 0x14e14), by simp, by native_decide, by native_decide⟩)
+    (by native_decide) x10 0x179c5 0x14e08 r1 run1
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  have cfg2 := access.configured.mono
+    (seg2.agree instructionPreserved_disjoint_constantPrefixParentWrites)
+    seg2.retired
+  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully s2.mem := by
+    simpa [s2, s1] using loaded
+  obtain ⟨r2, run2⟩ := constantPrefixLengthStep (fromStep + 2) s2 cfg2 seg2.atPc loaded2
+  let s3 := afterRegisterWrite s2 0x14e08 r2 x11 6
+  have seg3 := seg2.stepKnown
+    (by unfold constantPrefixParentPc; exact
+      ⟨(0x14e00, 0x14e14), by simp, by native_decide, by native_decide⟩)
+    (by native_decide) x11 6 0x14e0c r2 run2
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inr rfl)))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  have cfg3 := access.configured.mono
+    (seg3.agree instructionPreserved_disjoint_constantPrefixParentWrites)
+    seg3.retired
+  have loaded3 : Artifacts.programImage.fileBytesLoadedFaithfully s3.mem := by
+    simpa [s3, s2, s1] using loaded
+  obtain ⟨r3, run3⟩ := constantPrefixCallBaseStep (fromStep + 3) s3 cfg3 seg3.atPc loaded3
+  let s4 := afterRegisterWrite s3 0x14e0c r3 x1 0xfe0c
+  have seg4 := seg3.stepKnown
+    (by unfold constantPrefixParentPc; exact
+      ⟨(0x14e00, 0x14e14), by simp, by native_decide, by native_decide⟩)
+    (by native_decide) x1 0xfe0c 0x14e10 r3 run3
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  have cfg4 := access.configured.mono
+    (seg4.agree instructionPreserved_disjoint_constantPrefixParentWrites)
+    seg4.retired
+  have loaded4 : Artifacts.programImage.fileBytesLoadedFaithfully s4.mem := by
+    simpa [s4, s3, s2, s1] using loaded
+  obtain ⟨r4, callRun⟩ := constantPrefixCallStep (fromStep + 4) s4 cfg4 seg4.atPc
+    (seg4.reg x1 0xfe0c (by simp)) loaded4
+  let callMachine := tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement s4) 0x14e10 0x10190 x1 0x14e14)
+    0x10190 r4
+  let callState : EndpointState := { before with machine := callMachine }
+  have callWrites := callRetirement_writes s4 0x14e10 0x10190 r4 x1 0x14e14
+  have callAtPc : callMachine.regs.get? PC = some 0x10190 := by
+    simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      callLinkState, controlFlowJumpState, Std.ExtDHashMap.get?_insert]
+  have callMemEq : callMachine.mem = before.machine.mem := by
+    have callBaseMemEq : callMachine.mem = s4.mem := by
+      change
+        (tryStepControlFlowAfterRetired
+          (callLinkState (tryStepControlFlowAfterIncrement s4) 0x14e10 0x10190 x1 0x14e14)
+          0x10190 r4).mem = s4.mem
+      rw [tryStepControlFlowAfterRetired_mem]
+      change (controlFlowJumpState (tryStepControlFlowAfterIncrement s4)
+        0x14e10 0x10190).mem = s4.mem
+      rw [controlFlowJumpState_mem]
+      rfl
+    exact callBaseMemEq.trans (seg4.memEq (by simp))
+  have callPrefix : ConfinedPrefix constantPrefixParentPc (fun pc => pc = 0x10190)
+      (fun _ _ _ _ _ => False) (fromStep + 4) 1 s4 callMachine :=
+    ConfinedPrefix.ownStep seg4.atPc
+      (by unfold constantPrefixParentPc; exact
+        ⟨(0x14e00, 0x14e14), by simp, by native_decide, by native_decide⟩)
+      (by native_decide) callRun
+  have parentMachineTrace := seg4.confined.trans callPrefix 0 callMachine
+    (.exitAt _ _ 0x10190 callAtPc rfl)
+  have parentTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessRawLine131ExecutionPcRanges) fromStep 5 before callState := by
+    simpa [callState] using liftConstantPrefixTrace before parentMachineTrace
+  have staticRep : BytesRep callMachine.mem 0x179c5 successPrefixBytes := by
+    refine ⟨by native_decide, ?_⟩
+    intro index inBounds
+    rw [callMemEq]
+    have cases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨ index = 5 := by
+      simp [successPrefixBytes] at inBounds
+      omega
+    rcases cases with rfl | rfl | rfl | rfl | rfl | rfl <;>
+      simpa [successPrefixBytes] using
+        loaded _ _ (by native_decide)
+  have outside : ∀ index, index < successPrefixBytes.size →
+      ¬writeOutputMemory (0x179c5 + index) := by
+    intro index inBounds inside
+    unfold writeOutputMemory Region.union byteRange at inside
+    simp [successPrefixBytes] at inBounds
+    simp [Elflings.ioContextAddress] at inside
+    rcases inside with inside | inside <;> omega
+  have callConfigured : ConfiguredMachinePre EndpointMachinePc callMachine :=
+    configuredAfterWriteSuccessCall 0x14e10 0x10190 0x14e14 r4 cfg4
+  have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
+  have fullPmaEq : callMachine.regs.get? pma_regions =
+      before.machine.regs.get? pma_regions :=
+    callPmaEq.trans (seg4.writes.get pma_regions (by
+      simp [constantPrefixParentWrites, stepBookkeeping]))
+  obtain ⟨after, output⟩ := writeOutputHandoff (fromStep + 5) 0x179c5 successPrefixBytes
+    0x14e14 callState (by simpa [callState] using callAtPc)
+    (by simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert])
+    (by change callMachine.regs.get? x10 = some 0x179c5
+        exact (callWrites.get x10 (by decide)).trans (seg4.reg x10 0x179c5 (by simp)))
+    (by change callMachine.regs.get? x11 = some 6
+        exact (callWrites.get x11 (by decide)).trans (seg4.reg x11 6 (by simp)))
+    (by simpa [callState] using staticRep) outside
+    (dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputBufferStore)
+    (dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputLengthStore)
+    (by native_decide) callConfigured (by simpa [callState, callMemEq] using loaded)
+  have outputTrace := output.trace.weaken (fun pc inside => by
+    unfold writeOutputTracePc writeOutputPc at inside
+    rcases inside with (rfl | rfl | rfl | rfl) | rfl <;>
+      exact ⟨(0x10190, 0x101c4), by simp [Elflings.writeSuccessRawLine131ExecutionPcRanges],
+        by native_decide, by native_decide⟩)
+  have wholeTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeSuccessRawLine131ExecutionPcRanges) fromStep 10 before after := by
+    simpa [Nat.add_assoc] using parentTrace.append outputTrace
+  have parentAgree : Agree encoderInlinePreserved before.machine callMachine := by
+    exact (seg4.writes.agree encoderInlinePreserved_disjoint_constantPrefixParentWrites).trans
+      (callWrites.agree (by
+        intro register preserved written
+        apply encoderInlinePreserved_disjoint_constantPrefixParentWrites register preserved
+        rcases written with bookkeeping | rfl
+        · exact Or.inl bookkeeping
+        · exact Or.inr (Or.inl rfl)))
+  have outputAgree : Agree encoderInlinePreserved callMachine after.machine := by
+    intro register preserved
+    rcases preserved with instruction | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl
+    · exact output.preserved register instruction
+    all_goals
+      apply output.writes.get
+      decide
+  have wholeAgree : Agree encoderInlinePreserved before.machine after.machine :=
+    parentAgree.trans outputAgree
+  refine ⟨10, after, (), by omega, by omega, wholeTrace, ?_, trivial, ?_⟩
+  · exact ⟨0x14e14, output.atPc, by simp [pcInList, Elflings.writeSuccessRawLine131ExitPcs]⟩
+  · refine ⟨output.atPc, ?_, ?_, ?_, ?_, ?_, wholeAgree, output.configured.retiredCounter,
+      output.loaded, ?_⟩
+    · simpa [callState] using output.stdout
+    · simpa [callState] using output.stdin
+    · simpa [callState] using output.cursor
+    · simpa [callState] using output.exitCode
+    · intro address outsideMemory
+      exact (output.memory address outsideMemory).trans
+        (congrArg (fun mem => mem.get? address) callMemEq)
+    · exact (seg4.aux.trans (AuxStateAgree.callRetirement s4 0x14e10 0x10190 r4 x1 0x14e14)).trans
+        output.aux
+
 /-- Consume the selected constant-prefix encoder after the exact initial writer transfer. -/
 theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
     (fromStep : Nat) (args : WriteSuccessArgs) (state : EndpointState)
@@ -4265,11 +4612,12 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
     ambient.trans (by
       simpa [tailState] using WriteSuccessAmbientFrame.ofSeg tailSeg
         instructionPreserved_disjoint_writeSuccessParentWrites)
-  have finalAmbient := tailAmbient.trans (WriteSuccessAmbientFrame.ofCall childFrame)
+  have finalAmbient := tailAmbient.trans (WriteSuccessAmbientFrame.ofInline childFrame)
   have pmaEq : final.machine.regs.get? pma_regions = tailMachine.regs.get? pma_regions := by
-    simpa [tailState] using childFrame.1 pma_regions (by simp [abiCalleePreserved])
+    simpa [tailState] using childFrame.1 pma_regions
+      (by simp [encoderInlinePreserved, abiCalleePreserved])
   have accessFinal : WriteSuccessMachineAccess args final.machine :=
-    { configured := configuredAfterEndpointCall access.configured childFrame
+    { configured := configuredAfterEncoderInline access.configured childFrame
       childFrame := access.childFrame.of_pma_regions_eq pmaEq
       frameLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width inBounds)
@@ -4289,7 +4637,7 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
     _memcpyBounded, ?_⟩
   · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using fullTrace
   · simpa [EndpointPc, MachinePc] using finalPc
-  · exact (childFrame.1 x2 (by simp [abiCalleePreserved])).trans
+  · exact (childFrame.1 x2 (by simp [encoderInlinePreserved, abiCalleePreserved])).trans
       (tailSeg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
   · calc
       final.stdout = tailState.stdout ++ successPrefixBytes := stdout
@@ -5365,10 +5713,12 @@ private theorem writeSuccessRawEncoderThenPointerHandoff
     writeSuccessRawEncoderHandoff child insideWriter fromStep rawArgs before childEntry
   rcases childExit with ⟨childPc, stdout, stdin, cursor, exitCode, childMem, childFrame⟩
   have childAtPc : childAfter.machine.regs.get? PC = some (BitVec.ofNat 64 success) := childPc
-  have childStack := (childFrame.1 x2 (by simp [abiCalleePreserved])).trans stack
-  have pmaEq := childFrame.1 pma_regions (by simp [abiCalleePreserved])
+  have childStack :=
+    (childFrame.1 x2 (by simp [encoderInlinePreserved, abiCalleePreserved])).trans stack
+  have pmaEq := childFrame.1 pma_regions
+    (Or.inl (by simp [instructionPreserved, platformPreserved]))
   have childAccess : WriteSuccessMachineAccess writerArgs childAfter.machine :=
-    { configured := configuredAfterEndpointCall access.configured childFrame
+    { configured := configuredAfterEncoderInline access.configured childFrame
       childFrame := access.childFrame.of_pma_regions_eq pmaEq
       frameLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width inBounds)
@@ -5416,7 +5766,7 @@ private theorem writeSuccessRawEncoderThenPointerHandoff
       childAfter after := by
     simpa [after] using liftWriteSuccessParentTrace childAfter parentMachineTrace
   refine ⟨childUsed, after, {
-    ambient := (WriteSuccessAmbientFrame.ofCall childFrame).trans (by
+    ambient := (WriteSuccessAmbientFrame.ofInline childFrame).trans (by
       simpa [after] using WriteSuccessAmbientFrame.ofSeg seg1
         instructionPreserved_disjoint_writeSuccessParentWrites)
     trace := by simpa [Nat.add_assoc] using childTrace.append parentTrace
@@ -5877,9 +6227,10 @@ private theorem writeSuccessLastThreeRawHandoff
     writeSuccessPrevRandaoHandoff prevRandao start2 args after2 h2.atPc h2.source
       fields2.prevRandao fields2.prevRandaoSize beforeHandoff.stackLower h2.loaded h2.access
   rcases exit3 with ⟨pc3, stdout3, stdin3, cursor3, exitCode3, memory3, frame3⟩
-  have pmaEq3 := frame3.1 pma_regions (by simp [abiCalleePreserved])
+  have pmaEq3 := frame3.1 pma_regions
+    (Or.inl (by simp [instructionPreserved, platformPreserved]))
   have access3 : WriteSuccessMachineAccess args after3.machine :=
-    { configured := configuredAfterEndpointCall h2.access.configured frame3
+    { configured := configuredAfterEncoderInline h2.access.configured frame3
       childFrame := h2.access.childFrame.of_pma_regions_eq pmaEq3
       frameLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq3 (h2.access.frameLoad offset width inBounds)
@@ -5897,10 +6248,10 @@ private theorem writeSuccessLastThreeRawHandoff
       (args.stackPointer - 0x7d0 + 0x408) args.decoded.payload := by
     exact rawPayloadFieldsAfterOutput beforeHandoff.stackLower h2.access fields2 memory3
   refine ⟨receiptsUsed, logsUsed, prevRandaoUsed, after3, {
-    ambient := h1.ambient.trans (h2.ambient.trans (WriteSuccessAmbientFrame.ofCall frame3))
+    ambient := h1.ambient.trans (h2.ambient.trans (WriteSuccessAmbientFrame.ofInline frame3))
     trace := ?_
     atPc := by simpa [EndpointPc, MachinePc] using pc3
-    stack := (frame3.1 x2 (by simp [abiCalleePreserved])).trans h2.stack
+    stack := (frame3.1 x2 (by simp [encoderInlinePreserved])).trans h2.stack
     stdout := ?_
     stdin := stdin3.trans (h2.stdin.trans h1.stdin)
     cursor := cursor3.trans (h2.cursor.trans h1.cursor)
