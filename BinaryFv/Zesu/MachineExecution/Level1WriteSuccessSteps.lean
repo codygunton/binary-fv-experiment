@@ -326,6 +326,31 @@ private theorem configuredAfterWriteSuccessCall {state : State} (callPc target r
       (callLinkState (tryStepControlFlowAfterIncrement state) callPc target x1 returnPc)
       target retired
 
+private theorem writeSuccessAccessAfterCall {args : WriteSuccessArgs} {state : State}
+    (callPc target returnPc retired : BitVec 64)
+    (access : WriteSuccessMachineAccess args state) :
+    WriteSuccessMachineAccess args
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) callPc target x1 returnPc)
+        target retired) := by
+  have writes := callRetirement_writes state callPc target retired x1 returnPc
+  have pmaEq := writes.get pma_regions (by simp [stepBookkeeping])
+  exact
+    { configured := configuredAfterWriteSuccessCall callPc target returnPc retired access.configured
+      childFrame := access.childFrame.of_pma_regions_eq pmaEq
+      frameLoad := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width bound)
+      frameStore := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width bound)
+      frameNoMMIO := access.frameNoMMIO
+      decodedLoad := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.decodedLoad offset width bound)
+      decodedNoMMIO := access.decodedNoMMIO
+      outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq access.outputBufferStore
+      outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq access.outputLengthStore
+      writerRegionBeforeOutputContext := access.writerRegionBeforeOutputContext
+      frameNotCode := access.frameNotCode }
+
 private theorem configuredAfterEndpointCall {before after : EndpointState}
     (configured : ConfiguredMachinePre EndpointMachinePc before.machine)
     (frame : EndpointCallFrame before after) :
@@ -555,6 +580,7 @@ private theorem writeSuccessAccessOfSeg {args : WriteSuccessArgs} {owned exit M 
   have pmaEq := seg.writes.get pma_regions (by simp [writeSuccessParentWrites, stepBookkeeping])
   exact
     { configured := access.configured.mono (seg.agree disjoint) seg.retired
+      childFrame := access.childFrame.of_pma_regions_eq pmaEq
       frameLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width inBounds)
       frameStore := fun offset width inBounds =>
@@ -569,6 +595,111 @@ private theorem writeSuccessAccessOfSeg {args : WriteSuccessArgs} {owned exit M 
         dataPmaAllows_of_pma_regions_eq pmaEq access.outputLengthStore
       writerRegionBeforeOutputContext := access.writerRegionBeforeOutputContext
       frameNotCode := access.frameNotCode }
+
+private theorem outputBufferNoMMIO :
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8 :=
+  data_mmio_address_excluded_of_after_layout _ _ (by decide) (by native_decide)
+    (by native_decide)
+
+private theorem outputLengthNoMMIO :
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8 :=
+  data_mmio_address_excluded_of_after_layout _ _ (by decide) (by native_decide)
+    (by native_decide)
+
+private def encoderOutputAccess (access : WriteSuccessMachineAccess args state) :
+    EncoderOutputMachineAccess state :=
+  { configured := access.configured
+    outputBufferStore := access.outputBufferStore
+    outputLengthStore := access.outputLengthStore
+    outputBufferNoMMIO
+    outputLengthNoMMIO }
+
+private theorem encoderCallAccess (frameSize : Nat) (frameBound : frameSize ≤ 0xb0)
+    (stackLower : 0x880 ≤ writerArgs.stackPointer)
+    (callerStack : childArgs.callerStack = writerArgs.stackPointer - 0x7d0)
+    (access : WriteSuccessMachineAccess writerArgs state) :
+    EncoderCallMachineAccess frameSize childArgs state := by
+  have frameFits : frameSize ≤ childArgs.callerStack := by omega
+  refine
+    { output := encoderOutputAccess access
+      frameLoad := ?_
+      frameStore := ?_
+      frameLoadNoMMIO := ?_
+      frameStoreNoMMIO := ?_
+      frameNotCode := ?_ }
+  · intro offset width bound
+    have addressEq : childArgs.callerStack - frameSize + offset =
+        writerArgs.stackPointer - 0x880 + (0xb0 - frameSize + offset) := by omega
+    rw [addressEq]
+    exact access.childFrame.load (0xb0 - frameSize + offset) width (by omega)
+  · intro offset width bound
+    have addressEq : childArgs.callerStack - frameSize + offset =
+        writerArgs.stackPointer - 0x880 + (0xb0 - frameSize + offset) := by omega
+    rw [addressEq]
+    exact access.childFrame.store (0xb0 - frameSize + offset) width (by omega)
+  · intro offset width bound
+    have addressEq : childArgs.callerStack - frameSize + offset =
+        writerArgs.stackPointer - 0x880 + (0xb0 - frameSize + offset) := by omega
+    rw [addressEq]
+    exact access.childFrame.loadNoMMIO (0xb0 - frameSize + offset) width (by omega)
+  · intro offset width bound
+    have addressEq : childArgs.callerStack - frameSize + offset =
+        writerArgs.stackPointer - 0x880 + (0xb0 - frameSize + offset) := by omega
+    rw [addressEq]
+    exact access.childFrame.storeNoMMIO (0xb0 - frameSize + offset) width (by omega)
+  · intro address lower upper
+    exact access.frameNotCode address (by omega) (by omega)
+
+private theorem inlineEncoderAccess
+    (stackLower : 0x880 ≤ writerArgs.stackPointer)
+    (stack : inlineArgs.stackPointer = writerArgs.stackPointer - 0x7d0)
+    (access : WriteSuccessMachineAccess writerArgs state) :
+    InlineEncoderMachineAccess inlineArgs state := by
+  refine
+    { output := encoderOutputAccess access
+      localLoad := ?_
+      localStore := ?_
+      localLoadNoMMIO := ?_
+      localStoreNoMMIO := ?_
+      writerLoad := ?_
+      writerStore := ?_
+      writerLoadNoMMIO := ?_
+      writerStoreNoMMIO := ?_
+      regionNotCode := ?_ }
+  · intro offset width bound
+    have addressEq : inlineArgs.stackPointer - 0xb0 + offset =
+        writerArgs.stackPointer - 0x880 + offset := by omega
+    rw [addressEq]
+    exact access.childFrame.load offset width bound
+  · intro offset width bound
+    have addressEq : inlineArgs.stackPointer - 0xb0 + offset =
+        writerArgs.stackPointer - 0x880 + offset := by omega
+    rw [addressEq]
+    exact access.childFrame.store offset width bound
+  · intro offset width bound
+    have addressEq : inlineArgs.stackPointer - 0xb0 + offset =
+        writerArgs.stackPointer - 0x880 + offset := by omega
+    rw [addressEq]
+    exact access.childFrame.loadNoMMIO offset width bound
+  · intro offset width bound
+    have addressEq : inlineArgs.stackPointer - 0xb0 + offset =
+        writerArgs.stackPointer - 0x880 + offset := by omega
+    rw [addressEq]
+    exact access.childFrame.storeNoMMIO offset width bound
+  · intro offset width bound
+    rw [stack]
+    exact access.frameLoad offset width (by omega)
+  · intro offset width bound
+    rw [stack]
+    exact access.frameStore offset width (by omega)
+  · intro offset width bound
+    rw [stack]
+    exact access.frameNoMMIO offset width (by omega)
+  · intro offset width bound
+    rw [stack]
+    exact access.frameNoMMIO offset width (by omega)
+  · intro address lower upper
+    exact access.frameNotCode address (by omega) (by omega)
 
 private theorem writeSuccessConfiguredOfSeg {args : WriteSuccessArgs} {exit M kv a n base cur pc}
     (access : WriteSuccessMachineAccess args base)
@@ -2374,6 +2505,7 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
     (childFrame.1 pma_regions (by simp [abiCalleePreserved])).trans pmaEq
   have accessAfter : WriteSuccessMachineAccess args after.machine :=
     { configured := configuredAfter
+      childFrame := access.childFrame.of_pma_regions_eq childPmaEq
       frameLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq childPmaEq (access.frameLoad offset width inBounds)
       frameStore := fun offset width inBounds =>
@@ -4095,7 +4227,8 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
     simpa [tailState, Nat.add_assoc] using liftWriteSuccessParentTrace parentAfter machineTrace
   have childImpl := ConstantEncoderInstanceContract.implements child
   have childEntry : ConstantEncoderEntry Elflings.writeSuccessRawLine131Entry () tailState := by
-    exact ⟨by simpa [tailState] using tailSeg.atPc, by simpa [tailState] using loaded⟩
+    exact ⟨by simpa [tailState] using tailSeg.atPc, by simpa [tailState] using loaded,
+      by simpa [tailState] using encoderOutputAccess access⟩
   obtain ⟨childUsed, final, unit, positive, bounded, childTrace, childExitPc, _allowed,
     childExit⟩ := childImpl () (fromStep + 20 + parentUsed + 32) tailState childEntry
   have childTrace' := childTrace.weaken (fun _ inside => writeSuccessPrefixPc_in_execution inside)
@@ -4123,6 +4256,7 @@ theorem writeSuccessPrefixHandoff (child : WriteSuccessPrefixInstanceContract)
     simpa [tailState] using childFrame.1 pma_regions (by simp [abiCalleePreserved])
   have accessFinal : WriteSuccessMachineAccess args final.machine :=
     { configured := configuredAfterEndpointCall access.configured childFrame
+      childFrame := access.childFrame.of_pma_regions_eq pmaEq
       frameLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width inBounds)
       frameStore := fun offset width inBounds =>
@@ -4735,6 +4869,7 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     (childFrame.1 pma_regions (by simp [abiCalleePreserved])).trans pmaEq
   have accessAfter : WriteSuccessMachineAccess args childAfter.machine :=
     { configured := childConfigured
+      childFrame := access.childFrame.of_pma_regions_eq childPmaEq
       frameLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq childPmaEq (access.frameLoad offset width inBounds)
       frameStore := fun offset width inBounds =>
@@ -5079,6 +5214,7 @@ private theorem writeSuccessEncoderChildHandoff
   have pmaEq := childFrame.1 pma_regions (by simp [abiCalleePreserved])
   have accessAfter : WriteSuccessMachineAccess writerArgs after.machine := {
     configured := configuredAfterEndpointCall access.configured childFrame
+    childFrame := access.childFrame.of_pma_regions_eq pmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -5174,6 +5310,7 @@ private theorem writeSuccessRawEncoderThenPointerHandoff
   have pmaEq := childFrame.1 pma_regions (by simp [abiCalleePreserved])
   have childAccess : WriteSuccessMachineAccess writerArgs childAfter.machine :=
     { configured := configuredAfterEndpointCall access.configured childFrame
+      childFrame := access.childFrame.of_pma_regions_eq pmaEq
       frameLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width inBounds)
       frameStore := fun offset width inBounds =>
@@ -5187,7 +5324,7 @@ private theorem writeSuccessRawEncoderThenPointerHandoff
       writerRegionBeforeOutputContext := access.writerRegionBeforeOutputContext
       frameNotCode := access.frameNotCode }
   have childLoaded : Artifacts.programImage.fileBytesLoadedFaithfully childAfter.machine.mem := by
-    simpa [childMem] using childEntry.2.2.2
+    simpa [childMem] using childEntry.2.2.2.1
   have seg0 : Seg writeSuccessParentPc
       (fun pc => pc = BitVec.ofNat 64 nextEntry)
       (fun _ _ _ _ _ => False) writeSuccessParentWrites (fun _ => False)
@@ -5284,7 +5421,7 @@ private theorem writeSuccessParentHashThenFee
     (writeSuccessFeeRecipientSourceStep (stackPointer := args.stackPointer - 0x7d0))
     (by native_decide) fromStep args rawArgs before
   · exact ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, loaded⟩
+      by simpa [rawArgs] using rep, loaded, encoderOutputAccess access⟩
   · exact stack
   · rfl
   · exact access
@@ -5321,7 +5458,7 @@ private theorem writeSuccessFeeThenStateRoot
     (writeSuccessStateRootSourceStep (stackPointer := args.stackPointer - 0x7d0))
     (by native_decide) fromStep args rawArgs before
   · exact ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, loaded⟩
+      by simpa [rawArgs] using rep, loaded, encoderOutputAccess access⟩
   · exact stack
   · rfl
   · exact access
@@ -5358,7 +5495,7 @@ private theorem writeSuccessStateThenReceiptsRoot
     (writeSuccessReceiptsRootSourceStep (stackPointer := args.stackPointer - 0x7d0))
     (by native_decide) fromStep args rawArgs before
   · exact ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, loaded⟩
+      by simpa [rawArgs] using rep, loaded, encoderOutputAccess access⟩
   · exact stack
   · rfl
   · exact access
@@ -5395,7 +5532,7 @@ private theorem writeSuccessReceiptsThenLogsBloom
     (writeSuccessLogsBloomSourceStep (stackPointer := args.stackPointer - 0x7d0))
     (by native_decide) fromStep args rawArgs before
   · exact ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, loaded⟩
+      by simpa [rawArgs] using rep, loaded, encoderOutputAccess access⟩
   · exact stack
   · rfl
   · exact access
@@ -5432,7 +5569,7 @@ private theorem writeSuccessLogsThenPrevRandao
     (writeSuccessPrevRandaoSourceStep (stackPointer := args.stackPointer - 0x7d0))
     (by native_decide) fromStep args rawArgs before
   · exact ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, loaded⟩
+      by simpa [rawArgs] using rep, loaded, encoderOutputAccess access⟩
   · exact stack
   · rfl
   · exact access
@@ -5535,7 +5672,8 @@ private theorem writeSuccessPrevRandaoHandoff
       some (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x614)))
     (rep : BytesRep before.machine.mem (args.stackPointer - 0x7d0 + 0x614)
       args.decoded.payload.prevRandao)
-    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem) :
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (access : WriteSuccessMachineAccess args before.machine) :
     ∃ used after,
       ConfinedTrace EndpointStep EndpointPc
         (pcInRanges Elflings.writeSuccessExecutionPcRanges) fromStep used before after ∧
@@ -5553,7 +5691,7 @@ private theorem writeSuccessPrevRandaoHandoff
       writeSuccessRawPc_in_writeSuccess inside (by omega) (by omega))
     fromStep rawArgs before
     ⟨by simpa [EndpointPc, MachinePc] using atPc, by simpa [rawArgs] using source,
-      by simpa [rawArgs] using rep, loaded⟩
+      by simpa [rawArgs] using rep, loaded, encoderOutputAccess access⟩
   exact ⟨used, after, trace, exit, by simpa [rawArgs] using bounded⟩
 
 set_option genInjectivity false in
@@ -5613,11 +5751,12 @@ private theorem writeSuccessLastThreeRawHandoff
   let start2 := start1 + logsUsed + 1
   obtain ⟨prevRandaoUsed, after3, trace3, exit3, prevBounded⟩ :=
     writeSuccessPrevRandaoHandoff prevRandao start2 args after2 h2.atPc h2.source
-      fields2.prevRandao h2.loaded
+      fields2.prevRandao h2.loaded h2.access
   rcases exit3 with ⟨pc3, stdout3, stdin3, cursor3, exitCode3, memory3, frame3⟩
   have pmaEq3 := frame3.1 pma_regions (by simp [abiCalleePreserved])
   have access3 : WriteSuccessMachineAccess args after3.machine :=
     { configured := configuredAfterEndpointCall h2.access.configured frame3
+      childFrame := h2.access.childFrame.of_pma_regions_eq pmaEq3
       frameLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq pmaEq3 (h2.access.frameLoad offset width inBounds)
       frameStore := fun offset width inBounds =>
@@ -6649,6 +6788,9 @@ theorem writeSuccessFirstIntHandoff
       callerStack := args.stackPointer - 0x7d0
       inputSize := args.inputSize
       value := args.decoded.payload.blockNumber }
+  have callAccess : WriteSuccessMachineAccess args callMachine := by
+    simpa [callMachine] using
+      writeSuccessAccessAfterCall 0x14e90 0x15d10 0x14e94 retired2 access2
   have childEntry : EncoderCallEntry Elflings.writeSuccessIntEntry
       Elflings.writeSuccessIntExitPcs 16 UInt64EncoderBinding childArgs callState := by
     refine ⟨(by show 0x14e94 ∈ Elflings.writeSuccessIntExitPcs; native_decide),
@@ -6661,7 +6803,8 @@ theorem writeSuccessFirstIntHandoff
         (seg2.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
     · exact ⟨handoff.payloadRep.1.1, (callWrites.get x10 (by decide)).trans
         (seg2.reg x10 (BitVec.ofNat 64 args.decoded.payload.blockNumber) (by simp))⟩
-    · simpa [callState, callMemEq] using handoff.loaded
+    · exact ⟨by simpa [callState, callMemEq] using handoff.loaded,
+        encoderCallAccess 16 (by decide) lower (by simp [childArgs]) callAccess⟩
   have intImpl := EncoderCallInstanceContract.implements intChild
   obtain ⟨intUsed, after, unit, positive, bounded, childTrace, childPc, allowed, childExit⟩ :=
     intImpl childArgs (startStep + 3) callState childEntry
@@ -6751,6 +6894,7 @@ theorem writeSuccessFirstIntHandoff
     { configured := configuredAfterEndpointCall
         (configuredAfterWriteSuccessCall 0x14e90 0x15d10 0x14e94 retired2 access2.configured)
         childFrame
+      childFrame := access2.childFrame.of_pma_regions_eq pmaEq
       frameLoad := fun offset width bound =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access2.frameLoad offset width bound)
       frameStore := fun offset width bound =>
@@ -7494,6 +7638,9 @@ private theorem writeSuccessIntCallHandoff
       callerStack := args.stackPointer - 0x7d0
       inputSize := args.inputSize
       value }
+  have callAccess : WriteSuccessMachineAccess args callMachine := by
+    simpa [callMachine] using writeSuccessAccessAfterCall
+      (BitVec.ofNat 64 (pc + 8)) 0x15d10 returnPc retired2 access2
   have childEntry : EncoderCallEntry Elflings.writeSuccessIntEntry
       Elflings.writeSuccessIntExitPcs 16 UInt64EncoderBinding childArgs callState := by
     unfold EncoderCallEntry
@@ -7515,7 +7662,8 @@ private theorem writeSuccessIntCallHandoff
     constructor
     · exact ⟨rep.1, (callWrites.get x10 (by decide)).trans
         (seg2.reg x10 (BitVec.ofNat 64 value) (by simp))⟩
-    · simpa [callState, callMemEq] using loaded
+    · exact ⟨by simpa [callState, callMemEq] using loaded,
+        encoderCallAccess 16 (by decide) lower (by simp [childArgs]) callAccess⟩
   obtain ⟨childUsed, after, unit, _positive, bounded, childTrace, _childPc, _allowed,
       childExit⟩ := EncoderCallInstanceContract.implements intChild childArgs
         (fromStep + 3) callState childEntry
@@ -7553,6 +7701,7 @@ private theorem writeSuccessIntCallHandoff
         (configuredAfterWriteSuccessCall (BitVec.ofNat 64 (pc + 8)) 0x15d10 returnPc retired2
           access2.configured)
         childFrame
+      childFrame := access2.childFrame.of_pma_regions_eq pmaEq
       frameLoad := fun position width bound =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access2.frameLoad position width bound)
       frameStore := fun position width bound =>
@@ -7786,6 +7935,7 @@ private theorem writeSuccessSliceCallSetup
   have accessCall : WriteSuccessMachineAccess args callMachine := {
     configured := configuredAfterWriteSuccessCall (BitVec.ofNat 64 (pc + 12)) target returnPc
       retired3 access3.configured
+    childFrame := access3.childFrame.of_pma_regions_eq pmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq pmaEq (access3.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -8077,7 +8227,8 @@ private theorem writeSuccessLateBytesHandoff
     unfold EncoderCallEntry
     refine ⟨(by simpa [childArgs] using returnListed),
       writeSuccessChildFrameFits (by decide) lower, writeSuccessChildStackBound upper,
-      setup.atPc, ?_, ?_, ?_, setup.loaded⟩
+      setup.atPc, ?_, ?_, ?_, ⟨setup.loaded,
+        encoderCallAccess 48 (by decide) lower (by simp [childArgs]) setup.access⟩⟩
     · simpa [childArgs] using setup.link
     · simpa [childArgs] using setup.stack
     · refine ⟨bytesRep.1, ?_, ?_, ?_⟩
@@ -8505,7 +8656,8 @@ private theorem writeSuccessLateByteListsFromSetup
     unfold EncoderCallEntry
     refine ⟨by simpa [childArgs] using returnListed,
       writeSuccessChildFrameFits (by decide) lower, writeSuccessChildStackBound upper,
-      setup.atPc, ?_, ?_, ?_, setup.loaded⟩
+      setup.atPc, ?_, ?_, ?_, ⟨setup.loaded,
+        encoderCallAccess 64 (by decide) lower (by simp [childArgs]) setup.access⟩⟩
     · simpa [childArgs] using setup.link
     · simpa [childArgs] using setup.stack
     · refine ⟨arrayRep.1, ?_, ?_, ?_⟩
@@ -8625,7 +8777,8 @@ private theorem writeSuccessLateByteListsSite
     unfold EncoderCallEntry
     refine ⟨by simpa [childArgs] using returnListed,
       writeSuccessChildFrameFits (by decide) lower, writeSuccessChildStackBound upper,
-      setup.atPc, ?_, ?_, ?_, setup.loaded⟩
+      setup.atPc, ?_, ?_, ?_, ⟨setup.loaded,
+        encoderCallAccess 64 (by decide) lower (by simp [childArgs]) setup.access⟩⟩
     · simpa [childArgs] using setup.link
     · simpa [childArgs] using setup.stack
     · refine ⟨arrayRep.1, ?_, ?_, ?_⟩
@@ -9419,6 +9572,9 @@ private theorem writeSuccessForkNameBooleanCallHandoff
     callerStack := args.stackPointer - 0x7d0
     inputSize := args.inputSize
     value }
+  have entryAccess : WriteSuccessMachineAccess args callMachine := by
+    simpa [callMachine] using writeSuccessAccessAfterCall
+      (BitVec.ofNat 64 (pc + 8)) 0x15b9c (BitVec.ofNat 64 returnPc) retired2 access2
   have childEntry : EncoderCallEntry Elflings.writeSuccessBooleanEntry
       Elflings.writeSuccessBooleanExitPcs 16 BooleanEncoderBinding childArgs callState := by
     refine ⟨returnListed, writeSuccessChildStackFits lower, writeSuccessChildStackBound upper,
@@ -9430,7 +9586,8 @@ private theorem writeSuccessForkNameBooleanCallHandoff
         (seg2.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp))
     · exact (callWrites.get x10 (by decide)).trans
         (seg2.reg x10 valueBits (by simp [valueBits]))
-    · simpa [callState, callMemEq] using loaded
+    · exact ⟨by simpa [callState, callMemEq] using loaded,
+        encoderCallAccess 16 (by decide) lower (by simp [childArgs]) entryAccess⟩
   have callPrefix : ConfinedPrefix writeSuccessParentPc (fun target => target = 0x15b9c)
       (fun _ _ _ _ _ => False) (fromStep + 2) 1 baseMachine callMachine :=
     ConfinedPrefix.ownStep seg2.atPc
@@ -9446,6 +9603,7 @@ private theorem writeSuccessForkNameBooleanCallHandoff
   have accessCall : WriteSuccessMachineAccess args callMachine := {
     configured := configuredAfterWriteSuccessCall (BitVec.ofNat 64 (pc + 8)) 0x15b9c
       (BitVec.ofNat 64 returnPc) retired2 access2.configured
+    childFrame := access2.childFrame.of_pma_regions_eq callPmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq callPmaEq (access2.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -9482,6 +9640,7 @@ private theorem writeSuccessForkNameBooleanCallHandoff
   have pmaEq := childFrame.1 pma_regions (by simp [abiCalleePreserved])
   have accessAfter : WriteSuccessMachineAccess args after.machine := {
     configured := configuredAfterEndpointCall accessCall.configured childFrame
+    childFrame := accessCall.childFrame.of_pma_regions_eq pmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq pmaEq (accessCall.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -10045,6 +10204,7 @@ private theorem writeSuccessForkNamePresentBytesHandoff
   have accessCall : WriteSuccessMachineAccess args callMachine := {
     configured := configuredAfterWriteSuccessCall 0x1598c 0x15c6c 0x15990 retired3
       access3.configured
+    childFrame := access3.childFrame.of_pma_regions_eq callPmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq callPmaEq (access3.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -10798,6 +10958,9 @@ private theorem writeSuccessLateOptionalHandoff
   let childArgs : EncoderCallArgs OptionalUInt64EncoderValue :=
     { returnAddress := returnPc, callerStack := args.stackPointer - 0x7d0,
       inputSize := args.inputSize, value := childValue }
+  have entryAccess : WriteSuccessMachineAccess args callMachine := by
+    simpa [callMachine] using writeSuccessAccessAfterCall
+      (BitVec.ofNat 64 (pc + 8)) 0x15bc8 returnPc retired2 access2
   have childEntry : EncoderCallEntry Elflings.writeSuccessOptionalU64Entry
       Elflings.writeSuccessOptionalU64ExitPcs 16 OptionalUInt64EncoderBinding childArgs callState := by
     unfold EncoderCallEntry
@@ -10820,11 +10983,13 @@ private theorem writeSuccessLateOptionalHandoff
       · exact (callWrites.get x10 (by decide)).trans
           (seg2.reg x10 (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + descriptor)) (by simp))
       · simpa [callState, callMemEq, childValue] using rep
-    · simpa [callState, callMemEq] using loaded
+    · exact ⟨by simpa [callState, callMemEq] using loaded,
+        encoderCallAccess 16 (by decide) lower (by simp [childArgs]) entryAccess⟩
   have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
   have callAccess : WriteSuccessMachineAccess args callMachine := {
     configured := configuredAfterWriteSuccessCall (BitVec.ofNat 64 (pc + 8)) 0x15bc8
       returnPc retired2 access2.configured
+    childFrame := access2.childFrame.of_pma_regions_eq callPmaEq
     frameLoad := fun o w b => dataPmaAllows_of_pma_regions_eq callPmaEq (access2.frameLoad o w b)
     frameStore := fun o w b => dataPmaAllows_of_pma_regions_eq callPmaEq (access2.frameStore o w b)
     frameNoMMIO := access2.frameNoMMIO
@@ -11157,6 +11322,7 @@ private theorem writeSuccessPublicKeysSetup
   have accessCall : WriteSuccessMachineAccess args callMachine := {
     configured := configuredAfterWriteSuccessCall 0x159d4 0x15c10 0x159d8 retired3
       access3.configured
+    childFrame := access3.childFrame.of_pma_regions_eq callPmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq callPmaEq (access3.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -11715,6 +11881,9 @@ private theorem writeSuccessExtraDataHandoff
       value }
   have extraBytes : BytesRep before.machine.mem extraAddress
       args.decoded.payload.extraData := extraRep.byteSliceBytesRep
+  have entryAccess : WriteSuccessMachineAccess args callMachine := by
+    simpa [callMachine] using
+      writeSuccessAccessAfterCall 0x14ec4 0x15c6c 0x14ec8 retired3 access3
   have childEntry : EncoderCallEntry Elflings.writeSuccessBytesEntry
       Elflings.writeSuccessBytesExitPcs 48 BytesEncoderBinding childArgs callState := by
     unfold EncoderCallEntry
@@ -11732,7 +11901,8 @@ private theorem writeSuccessExtraDataHandoff
       · exact (callWrites.get x11 (by decide)).trans
           (seg3.reg x11 (BitVec.ofNat 64 args.decoded.payload.extraData.size) (by simp))
       · simpa [childArgs, value, callState, callMemEq] using extraBytes
-    · simpa [callState, callMemEq] using loaded
+    · exact ⟨by simpa [callState, callMemEq] using loaded,
+        encoderCallAccess 48 (by decide) lower (by simp [childArgs]) entryAccess⟩
   obtain ⟨childUsed, after, unit, _positive, bounded, childTrace, _childPc, _allowed,
       childExit⟩ := EncoderCallInstanceContract.implements bytesChild childArgs
         (fromStep + 4) callState childEntry
@@ -11773,6 +11943,7 @@ private theorem writeSuccessExtraDataHandoff
     { configured := configuredAfterEndpointCall
         (configuredAfterWriteSuccessCall 0x14ec4 0x15c6c 0x14ec8 retired3 access3.configured)
         childFrame
+      childFrame := access3.childFrame.of_pma_regions_eq pmaEq
       frameLoad := fun position width bound =>
         dataPmaAllows_of_pma_regions_eq pmaEq (access3.frameLoad position width bound)
       frameStore := fun position width bound =>
@@ -12113,11 +12284,12 @@ private theorem writeSuccessBlockHashHandoff
   have blockHashRep : BytesRep pointerMachine.mem rawArgs.sourceAddress rawArgs.bytes := by
     simpa [rawArgs, seg1.memEq (by simp)] using blockHash
   have childEntry : RawEncoderEntry Elflings.writeSuccessRawLine147Entry rawArgs pointerState := by
-    refine ⟨?_, ?_, blockHashRep, ?_⟩
+    refine ⟨?_, ?_, blockHashRep, ?_, ?_⟩
     · simpa [pointerState, EndpointPc, MachinePc] using seg1.atPc
     · simpa [pointerState] using
         seg1.reg x10 (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x634)) (by simp)
     · simpa [pointerState, seg1.memEq (by simp)] using loaded
+    · simpa [pointerState] using encoderOutputAccess (writeSuccessAccessOfSeg access seg1)
   obtain ⟨childUsed, after, childBounded, childTrace, childExit⟩ :=
     writeSuccessRawEncoderHandoff child
     (fun inside => by
@@ -12133,6 +12305,7 @@ private theorem writeSuccessBlockHashHandoff
   have childAccess : WriteSuccessMachineAccess args after.machine :=
     { configured := configuredAfterEndpointCall (writeSuccessAccessOfSeg access seg1).configured
         childFrame
+      childFrame := access.childFrame.of_pma_regions_eq fullPmaEq
       frameLoad := fun offset width inBounds =>
         dataPmaAllows_of_pma_regions_eq fullPmaEq (access.frameLoad offset width inBounds)
       frameStore := fun offset width inBounds =>
@@ -12688,6 +12861,8 @@ private theorem writeSuccessTransactionsHandoff
       copiedPayloadBytes := payloadBytes
       copiedSourceBytes := fullCopyBytes
       decoded := args.decoded }
+  have entryAccess : WriteSuccessMachineAccess args childState.machine := by
+    simpa [childState] using writeSuccessAccessOfSeg access seg4
   have childEntry : InlineEncoderEntry Elflings.writeSuccessTransactionsEntry
       (InlineArrayEncoderBinding
         (fun state count => state.machine.regs.get? x10 = some (BitVec.ofNat 64 count))
@@ -12737,7 +12912,8 @@ private theorem writeSuccessTransactionsHandoff
       fullCopyRep.of_writesOnlyWithin seg4.mem (by
         intro index inBounds inside
         unfold setupMemory writeSuccessTransactionSetupMemory byteRange at inside
-        rcases inside with inside | inside <;> omega), codeOfSeg seg4⟩
+        rcases inside with inside | inside <;> omega), codeOfSeg seg4,
+      inlineEncoderAccess lower (by simp [childArgs]) entryAccess⟩
   obtain ⟨childUsed, after, childBounded, childTrace, childExit⟩ :=
     writeSuccessInlineEncoderHandoff child
     (fun inside => by
@@ -12815,6 +12991,7 @@ private theorem writeSuccessTransactionsHandoff
   have accessAfter : WriteSuccessMachineAccess args after.machine := {
     configured := accessAtChild.configured.mono
       (childAgree.weaken instructionPreserved_inlineEncoderPreserved) childRetired
+    childFrame := accessAtChild.childFrame.of_pma_regions_eq pmaEq
     frameLoad := fun offset width inBounds =>
       dataPmaAllows_of_pma_regions_eq pmaEq (accessAtChild.frameLoad offset width inBounds)
     frameStore := fun offset width inBounds =>
@@ -13005,6 +13182,9 @@ private theorem writeSuccessRawTransactionsHandoff
       callerStack := args.stackPointer - 0x7d0
       inputSize := args.inputSize
       value := childValue }
+  have entryAccess : WriteSuccessMachineAccess args callMachine := by
+    simpa [callMachine] using
+      writeSuccessAccessAfterCall 0x15674 0x15c10 0x15678 retired3 access3
   have childEntry : EncoderCallEntry Elflings.writeSuccessByteListsEntry
       Elflings.writeSuccessByteListsExitPcs 64 ByteListsEncoderBinding childArgs callState := by
     unfold EncoderCallEntry
@@ -13022,11 +13202,13 @@ private theorem writeSuccessRawTransactionsHandoff
       · exact (callWrites.get x11 (by decide)).trans
           (seg3.reg x11 (BitVec.ofNat 64 args.decoded.payload.rawTransactions.size) (by simp))
       · simpa [callState, callMemEq] using rawArrayRep
-    · simpa [callState, callMemEq] using loaded
+    · exact ⟨by simpa [callState, callMemEq] using loaded,
+        encoderCallAccess 64 (by decide) lower (by simp [childArgs]) entryAccess⟩
   have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
   have accessCall : WriteSuccessMachineAccess args callMachine := {
     configured := configuredAfterWriteSuccessCall 0x15674 0x15c10 0x15678 retired3
       access3.configured
+    childFrame := access3.childFrame.of_pma_regions_eq callPmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq callPmaEq (access3.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -13230,6 +13412,8 @@ private theorem writeSuccessWithdrawalsHandoff
       copiedPayloadBytes := payloadBytes
       copiedSourceBytes := fullCopyBytes
       decoded := args.decoded }
+  have entryAccess : WriteSuccessMachineAccess args childState.machine := by
+    simpa [childState] using writeSuccessAccessOfSeg access seg2
   have childEntry : InlineEncoderEntry Elflings.writeSuccessWithdrawalsEntry
       (InlineArrayEncoderBinding
         (fun state count => state.machine.regs.get? x9 = some (BitVec.ofNat 64 count))
@@ -13260,7 +13444,8 @@ private theorem writeSuccessWithdrawalsHandoff
         exact context.destinationRep),
       (by exact ⟨by simpa [childState, seg2.memEq (by simp)] using fullDecodedRep,
         by simpa [childState, seg2.memEq (by simp)] using fullCopyRep,
-        by simpa [childState, seg2.memEq (by simp)] using loaded⟩)⟩
+        by simpa [childState, seg2.memEq (by simp)] using loaded,
+        inlineEncoderAccess lower (by simp [childArgs]) entryAccess⟩)⟩
     · simpa [childState, EndpointPc, MachinePc] using seg2.atPc
     · simpa [childState] using
         seg2.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -13351,6 +13536,7 @@ private theorem writeSuccessWithdrawalsHandoff
   have accessAfter : WriteSuccessMachineAccess args after.machine := {
     configured := accessAtChild.configured.mono
       (childAgree.weaken instructionPreserved_inlineEncoderPreserved) childRetired
+    childFrame := accessAtChild.childFrame.of_pma_regions_eq pmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq pmaEq (accessAtChild.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -14245,6 +14431,9 @@ private theorem writeSuccessOptionalHandoff
       callerStack := args.stackPointer - 0x7d0
       inputSize := args.inputSize
       value := childValue }
+  have entryAccess : WriteSuccessMachineAccess args callMachine := by
+    simpa [callMachine] using
+      writeSuccessAccessAfterCall 0x15718 0x15bc8 0x1571c retired2 access2
   have childEntry : EncoderCallEntry Elflings.writeSuccessOptionalU64Entry
       Elflings.writeSuccessOptionalU64ExitPcs 16 OptionalUInt64EncoderBinding childArgs callState := by
     unfold EncoderCallEntry
@@ -14273,11 +14462,13 @@ private theorem writeSuccessOptionalHandoff
       · exact (callWrites.get x10 (by decide)).trans
           (seg2.reg x10 (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + 0x658)) (by simp))
       · simpa [callState, callMemEq, childValue] using setup.localRep
-    · simpa [callState, callMemEq] using setup.loaded
+    · exact ⟨by simpa [callState, callMemEq] using setup.loaded,
+        encoderCallAccess 16 (by decide) lower (by simp [childArgs]) entryAccess⟩
   have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
   have accessCall : WriteSuccessMachineAccess args callMachine := {
     configured := configuredAfterWriteSuccessCall 0x15718 0x15bc8 0x1571c retired2
       access2.configured
+    childFrame := access2.childFrame.of_pma_regions_eq callPmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq callPmaEq (access2.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -14508,6 +14699,9 @@ private theorem writeSuccessBlockAccessHandoff
       callerStack := args.stackPointer - 0x7d0
       inputSize := args.inputSize
       value }
+  have entryAccess : WriteSuccessMachineAccess args callMachine := by
+    simpa [callMachine] using
+      writeSuccessAccessAfterCall 0x15728 0x15c6c 0x1572c retired3 access3
   have childEntry : EncoderCallEntry Elflings.writeSuccessBytesEntry
       Elflings.writeSuccessBytesExitPcs 48 BytesEncoderBinding childArgs callState := by
     unfold EncoderCallEntry
@@ -14525,11 +14719,13 @@ private theorem writeSuccessBlockAccessHandoff
       · exact (callWrites.get x11 (by decide)).trans
           (seg3.reg x11 (BitVec.ofNat 64 args.decoded.payload.blockAccessList.size) (by simp))
       · simpa [callState, callMemEq, childArgs, value] using bytesRep.byteSliceBytesRep
-    · simpa [callState, callMemEq] using loaded
+    · exact ⟨by simpa [callState, callMemEq] using loaded,
+        encoderCallAccess 48 (by decide) lower (by simp [childArgs]) entryAccess⟩
   have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
   have accessCall : WriteSuccessMachineAccess args callMachine := {
     configured := configuredAfterWriteSuccessCall 0x15728 0x15c6c 0x1572c retired3
       access3.configured
+    childFrame := access3.childFrame.of_pma_regions_eq callPmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq callPmaEq (access3.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -14747,6 +14943,7 @@ private theorem writeSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessA
   have accessCall : WriteSuccessMachineAccess args callMachine := {
     configured := configuredAfterWriteSuccessCall 0x15738 0x10190 0x1573c retired3
       access3.configured
+    childFrame := access3.childFrame.of_pma_regions_eq callPmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq callPmaEq (access3.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -14834,6 +15031,7 @@ private theorem writeSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessA
     (by simp [instructionPreserved, platformPreserved])
   have accessAfter : WriteSuccessMachineAccess args after.machine := {
     configured := output.configured
+    childFrame := accessCall.childFrame.of_pma_regions_eq outputPmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq outputPmaEq (accessCall.frameLoad offset width bound)
     frameStore := fun offset width bound =>
@@ -14991,6 +15189,8 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     copiedPayloadBytes := payloadBytes
     copiedSourceBytes := fullCopyBytes
     decoded := args.decoded }
+  have entryAccess : WriteSuccessMachineAccess args childState.machine := by
+    simpa [childState] using writeSuccessAccessOfSeg access seg2
   have childEntry : InlineEncoderEntry Elflings.writeSuccessHashesEntry
       (InlineArrayEncoderBinding
         (fun state count => state.machine.regs.get? x8 = some (BitVec.ofNat 64 count))
@@ -15016,7 +15216,8 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
     · simpa [childState, seg2.memEq (by simp)] using context.destinationRep
     · exact ⟨by simpa [childState, seg2.memEq (by simp)] using fullDecodedRep,
         by simpa [childState, seg2.memEq (by simp)] using fullCopyRep,
-        by simpa [childState, seg2.memEq (by simp)] using loaded⟩
+        by simpa [childState, seg2.memEq (by simp)] using loaded,
+      inlineEncoderAccess lower (by simp [childArgs]) entryAccess⟩
   obtain ⟨childUsed, after, childBounded, childTrace, childExit⟩ :=
     writeSuccessInlineEncoderHandoff child
     (fun inside => by
@@ -15085,6 +15286,7 @@ private theorem writeSuccessHashesHandoff (child : WriteSuccessHashesInstanceCon
   have accessAfter : WriteSuccessMachineAccess args after.machine := {
     configured := accessAtChild.configured.mono
       (childAgree.weaken instructionPreserved_inlineEncoderPreserved) childRetired
+    childFrame := accessAtChild.childFrame.of_pma_regions_eq pmaEq
     frameLoad := fun offset width bound =>
       dataPmaAllows_of_pma_regions_eq pmaEq (accessAtChild.frameLoad offset width bound)
     frameStore := fun offset width bound =>

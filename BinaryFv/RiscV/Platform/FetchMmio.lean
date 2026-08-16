@@ -177,6 +177,27 @@ theorem data_mmio_address_excluded_of_before_layout (address : BitVec 64) (width
     intro starts
     exact (noSigStart starts).elim
 
+/-- A data-access range starting after both fixed MMIO regions avoids both regions. -/
+theorem data_mmio_address_excluded_of_after_layout (address : BitVec 64) (width : Nat)
+    (widthPositive : 0 < width)
+    (afterClint : BitVec.toNat plat_clint_base + BitVec.toNat plat_clint_size ≤ address.toNat)
+    (afterSig : BitVec.toNat plat_sig_base + BitVec.toNat plat_sig_size ≤ address.toNat) :
+    DataMMIOAddressExcluded address width := by
+  unfold DataMMIOAddressExcluded
+  constructor
+  · unfold Sail.BitVec.toNatInt
+    simp
+    intro _
+    have strict : BitVec.toNat plat_clint_base + BitVec.toNat plat_clint_size <
+        address.toNat + width := by omega
+    exact_mod_cast strict
+  · unfold Sail.BitVec.toNatInt
+    simp
+    intro _
+    have strict : BitVec.toNat plat_sig_base + BitVec.toNat plat_sig_size <
+        address.toNat + width := by omega
+    exact_mod_cast strict
+
 /-- Compatibility wrapper for store proofs. -/
 theorem store_mmio_address_excluded_of_before_layout (address : BitVec 64) (width : Nat)
     (widthPositive : 0 < width)

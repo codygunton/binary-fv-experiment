@@ -2035,6 +2035,39 @@ theorem main_write_selected_output (contracts : Level1ResolvedContracts) (args :
         · simpa [callState, writeArgs, callMemory] using initialized848
         · refine
             { configured := callConfigured
+              childFrame := {
+                load := fun offset width bound => by
+                  have stackLower := entry.stackLower
+                  have addressEq : writeArgs.stackPointer - 0x880 + offset =
+                      args.stackPointer - 0xbb0 + (0x330 + offset) := by
+                    dsimp [writeArgs]
+                    omega
+                  rw [addressEq]
+                  exact callDataAccess.decodeFrameLoad (0x330 + offset) width (by omega)
+                store := fun offset width bound => by
+                  have stackLower := entry.stackLower
+                  have addressEq : writeArgs.stackPointer - 0x880 + offset =
+                      args.stackPointer - 0xbb0 + (0x330 + offset) := by
+                    dsimp [writeArgs]
+                    omega
+                  rw [addressEq]
+                  exact callDataAccess.decodeFrameStore (0x330 + offset) width (by omega)
+                loadNoMMIO := fun offset width bound => by
+                  have stackLower := entry.stackLower
+                  have addressEq : writeArgs.stackPointer - 0x880 + offset =
+                      args.stackPointer - 0xbb0 + (0x330 + offset) := by
+                    dsimp [writeArgs]
+                    omega
+                  rw [addressEq]
+                  exact entry.decodeFrameNoMMIO (0x330 + offset) width (by omega)
+                storeNoMMIO := fun offset width bound => by
+                  have stackLower := entry.stackLower
+                  have addressEq : writeArgs.stackPointer - 0x880 + offset =
+                      args.stackPointer - 0xbb0 + (0x330 + offset) := by
+                    dsimp [writeArgs]
+                    omega
+                  rw [addressEq]
+                  exact entry.decodeFrameNoMMIO (0x330 + offset) width (by omega) }
               frameLoad := ?_
               frameStore := ?_
               frameNoMMIO := ?_

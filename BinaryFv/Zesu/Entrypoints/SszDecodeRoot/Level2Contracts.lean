@@ -151,11 +151,25 @@ structure RawEncoderArgs where
   sourceAddress : Nat
   bytes : Array UInt8
 
+set_option genInjectivity false in
+/-- Shared bare-metal output permissions required by every observation encoder. -/
+structure EncoderOutputMachineAccess (state : MachineState) : Prop where
+  configured : ConfiguredMachinePre EndpointMachinePc state
+  outputBufferStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
+  outputLengthStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
+  outputBufferNoMMIO :
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
+  outputLengthNoMMIO :
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
+
 def RawEncoderEntry (entry : Nat) (args : RawEncoderArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.sourceAddress) ∧
   BytesRep state.machine.mem args.sourceAddress args.bytes ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  EncoderOutputMachineAccess state.machine
 
 def RawEncoderExit (successPc : Nat) (args : RawEncoderArgs) (_outcome : Unit)
     (before after : EndpointState) : Prop :=
@@ -198,7 +212,8 @@ end RawEncoderInstanceContract
 
 def ConstantEncoderEntry (entry : Nat) (_args : Unit) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  EncoderOutputMachineAccess state.machine
 
 def ConstantEncoderExit (successPc : Nat) (bytes : Array UInt8) (_args _outcome : Unit)
     (before after : EndpointState) : Prop :=
@@ -288,6 +303,22 @@ structure EncoderCallArgs (Value : Type) where
   inputSize : Nat
   value : Value
 
+set_option genInjectivity false in
+/-- Machine permissions for one genuine called encoder's local stack frame and output leaf. -/
+structure EncoderCallMachineAccess (frameSize : Nat) (args : EncoderCallArgs Value)
+    (state : MachineState) : Prop where
+  output : EncoderOutputMachineAccess state
+  frameLoad : ∀ offset width, offset + width ≤ frameSize →
+    LoadPmaAllows state (BitVec.ofNat 64 (args.callerStack - frameSize + offset)) width
+  frameStore : ∀ offset width, offset + width ≤ frameSize →
+    StorePmaAllows state (BitVec.ofNat 64 (args.callerStack - frameSize + offset)) width
+  frameLoadNoMMIO : ∀ offset width, offset + width ≤ frameSize →
+    LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.callerStack - frameSize + offset)) width
+  frameStoreNoMMIO : ∀ offset width, offset + width ≤ frameSize →
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.callerStack - frameSize + offset)) width
+  frameNotCode : ∀ address, args.callerStack - frameSize ≤ address →
+    address < args.callerStack → Artifacts.programImage.readFileByte? address = none
+
 def EncoderCallEntry (entry : Nat) (exitPcs : List Nat) (frameSize : Nat)
     (bindValue : EndpointState → Value → Prop) (args : EncoderCallArgs Value)
     (state : EndpointState) : Prop :=
@@ -296,7 +327,8 @@ def EncoderCallEntry (entry : Nat) (exitPcs : List Nat) (frameSize : Nat)
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.callerStack) ∧
   bindValue state args.value ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  EncoderCallMachineAccess frameSize args state.machine
 
 theorem encoderCallEntry_rejects_small_stack
     (small : args.callerStack < frameSize) :
@@ -519,6 +551,29 @@ encoders use at most 0xb0 bytes below `sp`. The writer's ABI save area begins at
 def inlineEncoderMemoryRegion (stackPointer : Nat) : BinaryFv.RiscV.Region :=
   BinaryFv.RiscV.byteRange (stackPointer - 0xb0) 0x7f0
 
+set_option genInjectivity false in
+/-- Machine permissions for the complete optimized inline encoder region and its output leaf. -/
+structure InlineEncoderMachineAccess (args : InlineEncoderArgs Value) (state : MachineState) : Prop where
+  output : EncoderOutputMachineAccess state
+  localLoad : ∀ offset width, offset + width ≤ 0xb0 →
+    LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0xb0 + offset)) width
+  localStore : ∀ offset width, offset + width ≤ 0xb0 →
+    StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0xb0 + offset)) width
+  localLoadNoMMIO : ∀ offset width, offset + width ≤ 0xb0 →
+    LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer - 0xb0 + offset)) width
+  localStoreNoMMIO : ∀ offset width, offset + width ≤ 0xb0 →
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer - 0xb0 + offset)) width
+  writerLoad : ∀ offset width, offset + width ≤ 0x740 →
+    LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  writerStore : ∀ offset width, offset + width ≤ 0x740 →
+    StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  writerLoadNoMMIO : ∀ offset width, offset + width ≤ 0x740 →
+    LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  writerStoreNoMMIO : ∀ offset width, offset + width ≤ 0x740 →
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  regionNotCode : ∀ address, args.stackPointer - 0xb0 ≤ address →
+    address < args.stackPointer + 0x740 → Artifacts.programImage.readFileByte? address = none
+
 def InlineEncoderEntry (entry : Nat) (bindValue : EndpointState → Value → Prop)
     (args : InlineEncoderArgs Value) (state : EndpointState) : Prop :=
   0xb0 ≤ args.stackPointer ∧ args.stackPointer + 0x740 ≤ 2 ^ 64 ∧
@@ -535,7 +590,8 @@ def InlineEncoderEntry (entry : Nat) (bindValue : EndpointState → Value → Pr
   BytesRep state.machine.mem args.copiedPayloadAddress args.copiedPayloadBytes ∧
   BytesRep state.machine.mem args.decodedAddress args.copiedSourceBytes ∧
   BytesRep state.machine.mem args.copiedSourceAddress args.copiedSourceBytes ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  InlineEncoderMachineAccess args state.machine
 
 def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
     (preservedValue : EndpointState → Value → Prop) (args : InlineEncoderArgs Value)

@@ -170,9 +170,37 @@ def writeSuccessMemoryRegion (args : WriteSuccessArgs) : Region :=
   writeSuccessMemoryRegionAt args.stackPointer
 
 set_option genInjectivity false in
+/-- Caller-derived permissions for the 176-byte area immediately below the writer's own frame.
+Selected called encoders use this area for their local ABI frames. -/
+structure WriteSuccessChildFrameAccess (args : WriteSuccessArgs) (state : MachineState) : Prop where
+  load : ∀ offset width, offset + width ≤ 0xb0 →
+    LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0x880 + offset)) width
+  store : ∀ offset width, offset + width ≤ 0xb0 →
+    StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0x880 + offset)) width
+  loadNoMMIO : ∀ offset width, offset + width ≤ 0xb0 →
+    LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer - 0x880 + offset)) width
+  storeNoMMIO : ∀ offset width, offset + width ≤ 0xb0 →
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer - 0x880 + offset)) width
+
+namespace WriteSuccessChildFrameAccess
+
+theorem of_pma_regions_eq (access : WriteSuccessChildFrameAccess args before)
+    (pmaEq : after.regs.get? pma_regions = before.regs.get? pma_regions) :
+    WriteSuccessChildFrameAccess args after :=
+  { load := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq pmaEq (access.load offset width bound)
+    store := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq pmaEq (access.store offset width bound)
+    loadNoMMIO := access.loadNoMMIO
+    storeNoMMIO := access.storeNoMMIO }
+
+end WriteSuccessChildFrameAccess
+
+set_option genInjectivity false in
 /-- Caller-derived machine permissions for the parent-owned `writeSuccess` instructions. -/
 structure WriteSuccessMachineAccess (args : WriteSuccessArgs) (state : MachineState) : Prop where
   configured : ConfiguredMachinePre EndpointMachinePc state
+  childFrame : WriteSuccessChildFrameAccess args state
   frameLoad : ∀ offset width, offset + width ≤ 0x7d0 →
     LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + offset)) width
   frameStore : ∀ offset width, offset + width ≤ 0x7d0 →
