@@ -3,6 +3,16 @@
 Analysis of `BinaryFv/Zesu/MachineExecution` at `origin/main` **`9935fb21`** (PR #96, the merged
 `root_compliance hLevel2`). Read-only: this report changes no proof code.
 
+> **SUPERSEDED IN PART — read `proof-cost-reduction-strategy.md` §1, §5, §6 and §9 first.**
+> Every figure here that joins the proof to the *binary* was computed against the wrong artifact. The
+> study's CFG describes an ELF64 relocatable object; `main` proves a linked executable. Corrected:
+> the endpoint holds **7,222** instructions (not 4,435), the proof covers **296** real instruction
+> addresses (not "488"), the rate is **83.5** lines for each instruction (not 51), and the endpoint
+> extrapolates to **≈603,000** lines (not 226,000). The proof-text measurements below — the census, the
+> controls, the cascade, and the site counts in §4 — are counted in Lean and are unaffected. The
+> class-layer figures in §4 Opportunity 1 used a contaminated denominator and are corrected in the
+> strategy record §5.
+
 The n-gram technique was built for the compiled instruction stream. It applies unchanged to the
 proof text, and the proof text is where the immediate savings are. This report measures them and
 costs each one.
@@ -89,7 +99,10 @@ the lemma.
 | 3 | 165 | 427 | 854 | 5.2 | 606 | 50.3% |
 | 2 | 301 | 753 | 753 | 2.5 | 907 | 56.4% |
 
-**Stop at n = 8.**
+**Stop at n = 8 — for proof text.** This covering is of the *proof*, and the floor below is derived
+from it. The covering of the *instruction stream* has a different distribution: sites for each lemma
+rises to 6.25 at n = 2 instead of staying flat at 2.5, so every band there clears break-even. Do not
+apply this floor to motif lemmas over runs of instructions. See the strategy record §3.
 
 An earlier draft of this section said n = 16, by comparing lines-recovered-per-lemma against a flat
 39–83-line authoring cost taken from `InstructionClassSteps.lean`. **That comparison was wrong.** The
@@ -192,10 +205,23 @@ So adoption is 38% of stepping theorems, not one fifth.
 **The measurement that retires it.** Normalise by instructions covered, which is the metric this
 whole effort turns on:
 
-| group | theorems | lines | address mentions | **lines per address** |
+| group | theorems | lines | real instruction addresses | **lines per instruction** |
 |---|---|---|---|---|
-| uses a class lemma | 86 | 3,097 | 485 | **6.4** |
-| hand-rolled | 140 | 5,154 | 932 | **5.5** |
+| uses a class lemma | 86 | 3,097 | 171 | **18.11** |
+| hand-rolled | 140 | 5,154 | 312 | **16.52** |
+
+*(An earlier version of this table counted every hex literal of two or more digits as an address, which
+swept in the encoding bytes the class lemmas take as arguments, and reported 6.4 against 5.5. The
+denominator above admits only real instruction addresses in the endpoint image. The ratio moves from
+1.16× to 1.10×; the direction does not change.)*
+
+The like-for-like comparison is stronger. Restricted to theorems naming exactly **one** real
+instruction address, where a per-instruction lemma is exactly the right tool:
+
+| group | theorems | median lines | mean lines |
+|---|---|---|---|
+| uses a class lemma | 19 | **37.0** | 43.4 |
+| hand-rolled | 30 | **17.0** | 22.3 |
 
 **A theorem that uses the class layer costs more lines per instruction, not fewer.** The point
 estimate goes the wrong way. The comparison is confounded — the two groups do not step the same
@@ -206,17 +232,24 @@ way."**
 **Why the hypothesis failed.** The class layer is a per-instruction tool, and the hand-rolled lines
 are not per-instruction cost:
 
-| hand-rolled theorems by addresses named | theorems | lines |
-|---|---|---|
-| 0 addresses | 11 | 176 |
-| 1 address | 12 | 496 |
-| 2–4 addresses | 14 | 409 |
-| **5–9 addresses** | **89** | **3,215** |
-| 10 or more | 14 | 858 |
+| hand-rolled theorems by **real** addresses named | theorems | lines | share |
+|---|---|---|---|
+| 0 | 16 | 620 | 12% |
+| 1 | 30 | 668 | 13% |
+| **2–4** | **80** | **2,619** | **51%** |
+| 5–9 | 13 | 1,184 | 23% |
+| 10 or more | 1 | 63 | 1% |
 
-**79% of the 5,154 lines sit in theorems that name five or more addresses.** Those theorems compose;
-they do not step one instruction. A per-instruction lemma cannot reach their bulk, whatever its
-design. The composition layer is the target, which is Opportunity 4 and `Seg`, not this.
+**This explanation was also wrong and is withdrawn.** The first version reported 79% in theorems naming
+five or more addresses and concluded the bulk is composition beyond a per-instruction lemma's reach.
+With real addresses only **24%** name five or more, and half name two to four — well inside a class
+lemma's reach.
+
+The retraction therefore stands on the measurement, not on this explanation. The layer does not reduce
+lines for each instruction, and the single-address comparison shows it costs more than twice as much at
+the median. **Why** it costs more is now open, and the likeliest answer is that a class lemma's premises
+move work into the call site rather than removing it. That is the measurement to run before anyone
+revives this opportunity.
 
 ### Opportunity 2 — the decode-context block, 40 sites, no lemma
 

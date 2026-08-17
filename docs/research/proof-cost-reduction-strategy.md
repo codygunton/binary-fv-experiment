@@ -111,9 +111,46 @@ passes down to n = 3, but the margin thins to noise and the library grows fast f
 Moving the floor from 8 to 4 adds **245 lemmas to recover 2,319 lines**. Library size is itself a
 cost, because somebody must find the right idiom among the entries.
 
-**The general lesson.** The stopping point was decided twice from the same data and got two different
-answers, because the first attempt invented a cost model while a measured one already existed. Prefer
-a measured break-even to a modelled one.
+### The floor is n = 8 for proof text, and it is lower for the instruction stream
+
+The table above is the covering of the **proof text**. The covering of the **instruction stream** is a
+different distribution, and the same break-even test gives a different answer. Re-run on the endpoint
+image, with basic blocks as segments so no pattern crosses a control transfer:
+
+| band | lemmas | sites | sites for each lemma | break-even | margin | verdict |
+|---|---|---|---|---|---|---|
+| n ≥ 64 | 3 | 6 | 2.00 | 1.10 | 1.82× | pays |
+| 32–63 | 5 | 13 | 2.60 | 1.10 | 2.36× | pays |
+| 16–31 | 14 | 49 | 3.50 | 1.25 | 2.80× | pays |
+| 10–15 | 30 | 70 | 2.33 | 1.37 | 1.70× | pays |
+| 8–9 | 24 | 58 | 2.42 | 1.57 | 1.53× | pays |
+| 6–7 | 45 | 118 | 2.62 | 1.81 | 1.45× | pays |
+| 4–5 | 70 | 299 | 4.27 | 2.04 | 2.09× | pays |
+| 3 | 62 | 257 | 4.15 | 2.50 | 1.66× | pays |
+| **2** | 57 | 356 | **6.25** | 3.30 | **1.89×** | **pays** |
+
+**Every band pays on the instruction stream, including n = 2.** The reason is visible in one column:
+sites for each lemma *rises* as the patterns get shorter, reaching 6.25 at n = 2, where the proof text
+stays flat at 2.5. A two-instruction pattern recurs across the binary far more often than a two-line
+pattern recurs across the proof.
+
+The campaign confirms this independently. It measured a real n = 2 instruction motif, `mv addi`, at 45
+sites, and it paid at 32%.
+
+**So the two floors are different and must not be conflated:**
+
+| covering | floor | reason |
+|---|---|---|
+| proof text — a lemma over repeated Lean lines | **n = 8** | sites for each lemma flat at 2.5; break-even rises past it below n = 8 |
+| instruction stream — a motif lemma over a run of instructions | **n = 2** | sites for each lemma rises to 6.25; every band clears break-even |
+
+Coverage of the instruction stream, cumulative: **76 lemmas cover 45.3%** of the image at a floor of
+n ≥ 8, and 310 lemmas cover 94.7% at n ≥ 2.
+
+**The general lesson.** The stopping point was decided three times and got three answers: n = 16 from a
+modelled cost, n = 8 once the measured break-even was used, and n = 2 once the right stream was
+measured. Two of the three errors came from using data that described something other than the thing
+being decided.
 
 ---
 
@@ -213,24 +250,53 @@ rank second and third in the layer by use, at 22 and 21.
 **The corrected counts are much smaller.** 86 of 226 stepping theorems use the layer, not 43. The
 theorems that do not hold 5,154 lines, not 6,326.
 
-**The normalisation that retired it.** Divide by the instructions each group covers:
+**The normalisation that retired it.** Divide by the instructions each group covers. The first attempt
+at this counted every hex literal of two or more digits as an address, which swept in the encoding
+bytes the class lemmas take as arguments — `0x97`, `0xb0`, `0xff`. Only literals that are real
+instruction addresses in the image belong in the denominator:
 
-| group | theorems | lines | address mentions | lines for each address |
-|---|---|---|---|---|
-| uses a class lemma | 86 | 3,097 | 485 | **6.4** |
-| writes the step by hand | 140 | 5,154 | 932 | **5.5** |
+| denominator | class-lemma users | hand-rolled | ratio |
+|---|---|---|---|
+| all hex literals, 2+ digits (the first attempt) | 6.4 | 5.5 | 1.16× |
+| all hex literals, 3+ digits | 11.91 | 10.19 | 1.17× |
+| **real instruction addresses in the image** | **18.11** | **16.52** | **1.10×** |
 
-A theorem that uses the class layer costs *more* lines for each instruction. The two groups do not
-step the same instruction shapes, so the comparison is not clean, and the honest reading is not that
-the layer is harmful. It is that **no evidence shows the layer reduces lines for each instruction,
-and what evidence exists points the other way.**
+The absolute figures are roughly three times what the first attempt reported, and the ratio is 1.10×
+rather than 1.16×. The direction is unchanged: **a theorem that uses the class layer costs more lines
+for each instruction.**
 
-The reason is visible once the lines are grouped by how many addresses each theorem names. **79% of
-the 5,154 lines are in theorems naming five or more addresses.** Those theorems compose; they do not
-step one instruction. A lemma for one instruction cannot reach that bulk, whatever its design.
+**The stronger evidence is the like-for-like comparison**, which the corrected denominator makes
+possible. Restrict to theorems naming exactly **one** real instruction address, where a
+per-instruction lemma is exactly the right tool:
+
+| group | theorems | median lines | mean lines |
+|---|---|---|---|
+| uses a class lemma | 19 | **37.0** | 43.4 |
+| writes the step by hand | 30 | **17.0** | 22.3 |
+
+For a single instruction, a class-lemma theorem is **more than twice as long at the median**. That is
+the cleanest test available and it goes against the layer.
+
+**One piece of the original reasoning was also wrong.** The first version said 79% of the hand-rolled
+lines sit in theorems naming five or more addresses, and concluded the bulk is composition beyond a
+per-instruction lemma's reach. With real addresses the distribution is different:
+
+| hand-rolled theorems by real addresses named | theorems | lines | share |
+|---|---|---|---|
+| 0 | 16 | 620 | 12% |
+| 1 | 30 | 668 | 13% |
+| **2–4** | **80** | **2,619** | **51%** |
+| 5–9 | 13 | 1,184 | 23% |
+| 10 or more | 1 | 63 | 1% |
+
+Only **24%** name five or more, not 79%. Half name two to four, which is well inside a class lemma's
+reach. **So the "it is all composition" explanation does not hold.** The retraction stands on the
+measurement, not on that explanation: the layer does not reduce lines for each instruction, and the
+single-address comparison shows it costs more. Why it costs more is now an open question, and the most
+likely answer is that a class lemma's premises push work into the call site rather than removing it.
 
 **A count of repeated lines is never evidence that the lever which removes them works.** This
-retraction, and the four worthless generated cases in §7, are the same failure at two scales.
+retraction, and the four worthless generated cases in §8, are the same failure at two scales.
 
 ---
 
@@ -390,7 +456,57 @@ measured for the full covering, so the generator needs a budget for each instanc
 
 ---
 
-## 9. What follows
+## 9. Expected impact
+
+Every earlier version of this analysis costed levers against the **24,719 existing lines**. That is the
+wrong denominator. Coverage is 4.1%, so the existing corpus is 4% of the work and the reduction that
+matters is on the **95.9% not yet written**.
+
+| | instructions | lines at 83.5 for each instruction |
+|---|---|---|
+| proven today | 296 | 24,719 (actual) |
+| **not yet proven** | **6,926** | **578,391** |
+| **endpoint total** | **7,222** | **603,110** |
+
+Each lever is therefore expressed as a **cut in the rate**, then applied to both parts.
+
+| lever | rate cut | on the existing 24,719 | on the remaining 578,391 |
+|---|---|---|---|
+| quantification — the three named cases | 3.6% | 900 lines | **21,059 lines** |
+| motif lemmas, instruction stream, n ≥ 8 | 27.2% | 6,719 lines | **157,207 lines** |
+| proof-text pattern lemmas, n ≥ 8 | 31.3% | 7,731 lines | 180,895 lines |
+
+**Do not add all three rows.** The second and third are largely the same saving counted from two
+directions: a motif lemma over a run of instructions removes precisely the stepping and composition
+text that the proof-text covering also finds. Adding them double-counts.
+
+**Taking the two that are independent** — quantification, which removes obligations, and motif lemmas,
+which remove stepping text:
+
+| | lines |
+|---|---|
+| endpoint at the current rate | **603,110** |
+| avoided by quantification + motif lemmas at n ≥ 8 | −178,266 |
+| **projected endpoint** | **≈417,000** |
+
+### How much to trust each row
+
+| lever | confidence | basis |
+|---|---|---|
+| quantification, 900 lines on the existing corpus | **high** | 40 and 182 sites counted directly in the Lean; each has a working precedent in the tree |
+| quantification forward, 21,059 lines | medium | assumes the same obligations recur at the same density in code not yet written |
+| motif lemmas, 27.2% rate cut | **medium** | 45.3% instruction coverage is measured on the correct image; the 60% saving is interpolated from five measured cases, none of which was on this image |
+| proof-text pattern lemmas, 31.3% | **low** | an upper bound assuming a one-line application at every site, with no named lemma for most patterns |
+
+**The honest headline.** The measured levers plausibly remove roughly **30% of the projected cost**, and
+would leave about **417,000 lines**. Nothing in this record shows a path to an order-of-magnitude
+reduction, and the single largest uncertainty is not in these percentages — it is that the rate rose
+from 33 to 83.5 lines for each instruction as the effort reached harder code, and no measurement here
+says where it stops.
+
+---
+
+## 10. What follows
 
 Two plans carry this forward. They live in `docs/ai/plan/` and are not committed.
 
@@ -409,7 +525,8 @@ Ordering that follows from this record:
 3. **Prefer quantification to repetition** wherever §4's rule applies. Take the three named cases
    first — extend `stepContext`, add the region tactic, and cover the store-path variant — because
    each is pure deletion with a working precedent.
-4. **Set the pattern-lemma floor at n = 8**, from §3.
+4. **Use the right floor for the right stream**, from §3: n = 8 for a lemma over repeated proof
+   text, n = 2 for a motif lemma over a run of instructions. Conflating them was an error.
 5. **Pilot on `sizeClassOfBytes`.** One shape, four contiguous instances, two already proven. If a
    pipeline cannot make that case cheap, a 196-entry library will not help.
 
@@ -418,5 +535,6 @@ Ordering that follows from this record:
 Coverage is **4.1%** of the endpoint, at **83.5 lines for each instruction**, extrapolating to
 **≈603,000 lines**. The three retractions in this record all moved the same way: the work is bigger,
 and the measured levers are weaker, than the earlier reports claimed. The two mechanisms that survive
-scrutiny are quantification, which has no measured ceiling yet, and pattern lemmas at n ≥ 8, which are
-measured and bounded. Nothing in this record shows that repetition alone closes a 603,000-line gap.
+scrutiny are quantification and motif lemmas, and §9 costs both: together they plausibly remove about
+30% of the projected cost, leaving ≈417,000 lines. Nothing in this record shows a path to an
+order-of-magnitude reduction.
