@@ -1549,23 +1549,53 @@ private theorem allocatorPcNotExit (pc : BitVec 64)
   rcases literal with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
     unfold pcInList <;> native_decide
 
-private theorem allocatorConfinedSailStep (stepNo : Nat) (before : EndpointState)
-    (after : State) (pc : BitVec 64)
-    (literal : pc = 0x14ccc ∨ pc = 0x14cd0 ∨ pc = 0x14cd4 ∨ pc = 0x14cd8 ∨
-      pc = 0x14cdc ∨ pc = 0x14ce0 ∨ pc = 0x14ce4 ∨ pc = 0x14ce8)
-    (atPc : EndpointPc before = some pc) (step : MachineStep stepNo before.machine after) :
+private theorem liftAllocatorTrace (template : EndpointState) {fromStep count before after}
+    (trace : ScopedTrace (pcInRanges Elflings.allocatorGetExecutionPcRanges)
+      (pcInList Elflings.allocatorGetExitPcs) (fun _ _ _ _ _ => False)
+      fromStep count before after) :
     ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.allocatorGetExecutionPcRanges)
-      stepNo 1 before { before with machine := after } := by
-  apply ConfinedTrace.step stepNo 0 pc before { before with machine := after }
-    { before with machine := after }
-  · exact atPc
-  · exact allocatorPcInside pc literal
-  · exact endpointStep_sail stepNo before after (fun target targetPc => by
-      rw [atPc] at targetPc
-      cases Option.some.inj targetPc
-      simp only [BareMetalHostTransitionPc]
-      rcases literal with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> native_decide) step
-  · exact .refl (stepNo + 1) _
+      fromStep count { template with machine := before } { template with machine := after } := by
+  induction trace with
+  | exitAt fromStep state pc atPc exitPc => exact .refl fromStep { template with machine := state }
+  | ownStep fromStep count pc before middle after atPc inside notExit machineStep rest ih =>
+      refine ConfinedTrace.step fromStep count pc
+        { template with machine := before } { template with machine := middle }
+        { template with machine := after } atPc inside ?_ ih
+      exact endpointStep_sail fromStep { template with machine := before } middle
+        (fun observed observedPc => by
+          change before.regs.get? PC = some observed at observedPc
+          rw [atPc] at observedPc
+          cases Option.some.inj observedPc
+          rcases inside with ⟨range, member, lower, upper⟩
+          simp [Elflings.allocatorGetExecutionPcRanges] at member
+          subst range
+          simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+            exitContextStorePc]
+          omega) machineStep
+  | childBody fromStep used count child before middle after body rest ih => exact body.elim
+  | inlineStep fromStep used count boundary program parent child before resume after transfer rest ih =>
+      exact transfer.body.elim
+  | inlineCallStep fromStep childUsed calleeUsed count boundary program parent child callee before
+      resume after transfer rest ih => exact transfer.body.elim
+  | callStep fromStep used count call program parent callee before resume after transfer rest ih =>
+      exact transfer.body.elim
+
+private theorem allocatorLoadedOfSeg {args : AllocatorGetArgs} {kv a n base cur pc}
+    (notFile : ∀ address, args.stackPointer + 0x10 ≤ address →
+      address < args.stackPointer + 0x20 → Artifacts.programImage.readFileByte? address = none)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully base.mem)
+    (seg : Seg (pcInRanges Elflings.allocatorGetExecutionPcRanges)
+      (pcInList Elflings.allocatorGetExitPcs) (fun _ _ _ _ _ => False)
+      allocatorWrites (allocatorMemory args) kv a n base cur pc) :
+    Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
+  intro address byte fileByte
+  have outside : ¬allocatorMemory args address := by
+    intro inside
+    unfold allocatorMemory Region.union byteRange at inside
+    have none := notFile address (by omega) (by omega)
+    rw [fileByte] at none
+    cases none
+  exact (seg.mem address outside).trans (loaded address byte fileByte)
 
 /-- The exact eight parent-owned instructions implement the allocator-get Level 1 contract. -/
 theorem allocatorGetInstanceContract : AllocatorGetInstanceContract := by
@@ -1581,136 +1611,108 @@ theorem allocatorGetInstanceContract : AllocatorGetInstanceContract := by
     (childSummary := fun _ _ _ _ _ => False) ⟨retired0, retiredRead0⟩ atPc
   have seg0 := seg0.know x2 (BitVec.ofNat 64 args.stackPointer) stackRead
   obtain ⟨r1, run1⟩ := allocatorStateBaseHighStep fromStep before.machine configured atPc loaded
-  let s1 := afterRegisterWrite before.machine 0x14ccc r1 x10 0x24019ccc
-  have seg1 := seg0.stepKnown (allocatorPcInside 0x14ccc (Or.inl rfl))
-    (allocatorPcNotExit 0x14ccc (Or.inl rfl)) x10 0x24019ccc 0x14cd0 r1 run1
+  obtain ⟨s1, seg1⟩ := seg0.step (allocatorPcInside 0x14ccc (Or.inl rfl))
+    (allocatorPcNotExit 0x14ccc (Or.inl rfl)) x10 0x24019ccc 0x14cd0 ⟨r1, run1⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have cfg1 := configured.mono (seg1.agree instructionPreserved_disjoint_allocatorWrites) seg1.retired
-  have code1 : Artifacts.programImage.fileBytesLoadedFaithfully s1.mem := by simpa [s1] using loaded
+  have code1 := allocatorLoadedOfSeg notFile loaded seg1
   obtain ⟨r2, run2⟩ := allocatorVtableBaseHighStep (fromStep + 1) s1 cfg1 seg1.atPc code1
-  let s2 := afterRegisterWrite s1 0x14cd0 r2 x11 0x17cd0
-  have seg2 := seg1.stepKnown (allocatorPcInside 0x14cd0 (Or.inr (Or.inl rfl)))
-    (allocatorPcNotExit 0x14cd0 (Or.inr (Or.inl rfl))) x11 0x17cd0 0x14cd4 r2 run2
+  obtain ⟨s2, seg2⟩ := seg1.step (allocatorPcInside 0x14cd0 (Or.inr (Or.inl rfl)))
+    (allocatorPcNotExit 0x14cd0 (Or.inr (Or.inl rfl))) x11 0x17cd0 0x14cd4 ⟨r2, run2⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have cfg2 := configured.mono (seg2.agree instructionPreserved_disjoint_allocatorWrites) seg2.retired
-  have code2 : Artifacts.programImage.fileBytesLoadedFaithfully s2.mem := by simpa [s2, s1] using loaded
-  have sizeRep2 : UIntRep 8 s2.mem (args.stackPointer + 8) args.input.size := by simpa [s2, s1] using sizeRep
+  have code2 := allocatorLoadedOfSeg notFile loaded seg2
+  have sizeRep2 := sizeRep.of_writesOnlyWithin seg2.mem (by
+    intro index bound inside
+    unfold allocatorMemory Region.union byteRange at inside
+    omega)
   obtain ⟨r3, run3⟩ := allocatorLoadInputSizeStep (fromStep + 2) s2 args.stackPointer
     args.input.size cfg2 seg2.atPc (seg2.reg x2 _ (by simp)) sizeRep2
     (loadPmaAllows_of_agree (seg2.agree platformPreserved_disjoint_allocatorWrites) sizePma)
     sizeMMIO aligned fits code2
-  let s3 := afterRegisterWrite s2 0x14cd4 r3 x13 (BitVec.ofNat 64 args.input.size)
-  have seg3 := seg2.stepKnown (allocatorPcInside 0x14cd4 (Or.inr (Or.inr (Or.inl rfl))))
+  obtain ⟨s3, seg3⟩ := seg2.step (allocatorPcInside 0x14cd4 (Or.inr (Or.inr (Or.inl rfl))))
     (allocatorPcNotExit 0x14cd4 (Or.inr (Or.inr (Or.inl rfl)))) x13
-    (BitVec.ofNat 64 args.input.size) 0x14cd8 r3 run3
+    (BitVec.ofNat 64 args.input.size) 0x14cd8 ⟨r3, run3⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inr (Or.inr rfl))))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have cfg3 := configured.mono (seg3.agree instructionPreserved_disjoint_allocatorWrites) seg3.retired
-  have code3 : Artifacts.programImage.fileBytesLoadedFaithfully s3.mem := by simpa [s3, s2, s1] using loaded
-  have pointerRep3 : UIntRep 8 s3.mem args.stackPointer args.inputAddress := by simpa [s3, s2, s1] using pointerRep
+  have code3 := allocatorLoadedOfSeg notFile loaded seg3
+  have pointerRep3 := pointerRep.of_writesOnlyWithin seg3.mem (by
+    intro index bound inside
+    unfold allocatorMemory Region.union byteRange at inside
+    omega)
   obtain ⟨r4, run4⟩ := allocatorLoadInputAddressStep (fromStep + 3) s3 args.stackPointer
     args.inputAddress cfg3 seg3.atPc (seg3.reg x2 _ (by simp)) pointerRep3
     (loadPmaAllows_of_agree (seg3.agree platformPreserved_disjoint_allocatorWrites) pointerPma)
     pointerMMIO aligned fits code3
-  let s4 := afterRegisterWrite s3 0x14cd8 r4 x12 (BitVec.ofNat 64 args.inputAddress)
-  have seg4 := seg3.stepKnown (allocatorPcInside 0x14cd8 (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))
+  obtain ⟨s4, seg4⟩ := seg3.step
+    (allocatorPcInside 0x14cd8 (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))
     (allocatorPcNotExit 0x14cd8 (Or.inr (Or.inr (Or.inr (Or.inl rfl))))) x12
-    (BitVec.ofNat 64 args.inputAddress) 0x14cdc r4 run4
+    (BitVec.ofNat 64 args.inputAddress) 0x14cdc ⟨r4, run4⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inr (Or.inl rfl))))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have seg4' := seg4.forget (kv' :=
     [⟨x12, BitVec.ofNat 64 args.inputAddress⟩, ⟨x13, BitVec.ofNat 64 args.input.size⟩,
       ⟨x11, 0x17cd0⟩, ⟨x2, BitVec.ofNat 64 args.stackPointer⟩]) (by simp)
   have cfg4 := configured.mono (seg4.agree instructionPreserved_disjoint_allocatorWrites) seg4.retired
-  have code4 : Artifacts.programImage.fileBytesLoadedFaithfully s4.mem := by simpa [s4, s3, s2, s1] using loaded
+  have code4 := allocatorLoadedOfSeg notFile loaded seg4
   obtain ⟨r5, run5⟩ := allocatorStateBaseLowStep (fromStep + 4) s4 cfg4 seg4.atPc
     (seg4.reg x10 0x24019ccc (by simp)) code4
-  let s5 := afterRegisterWrite s4 0x14cdc r5 x10 (BitVec.ofNat 64 0x2401a0b0)
-  have seg5 := seg4'.stepKnown
+  obtain ⟨s5, seg5⟩ := seg4'.step
     (allocatorPcInside 0x14cdc (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
     (allocatorPcNotExit 0x14cdc (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
-    x10 (BitVec.ofNat 64 0x2401a0b0) 0x14ce0 r5 run5
+    x10 (BitVec.ofNat 64 0x2401a0b0) 0x14ce0 ⟨r5, run5⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have seg5' := seg5.forget (kv' :=
     [⟨x10, BitVec.ofNat 64 0x2401a0b0⟩, ⟨x12, BitVec.ofNat 64 args.inputAddress⟩,
       ⟨x13, BitVec.ofNat 64 args.input.size⟩, ⟨x2, BitVec.ofNat 64 args.stackPointer⟩]) (by simp)
   have cfg5 := configured.mono (seg5.agree instructionPreserved_disjoint_allocatorWrites) seg5.retired
-  have code5 : Artifacts.programImage.fileBytesLoadedFaithfully s5.mem := by simpa [s5, s4, s3, s2, s1] using loaded
+  have code5 := allocatorLoadedOfSeg notFile loaded seg5
   obtain ⟨r6, run6⟩ := allocatorVtableBaseLowStep (fromStep + 5) s5 cfg5 seg5.atPc
     (seg5.reg x11 0x17cd0 (by simp)) code5
-  let s6 := afterRegisterWrite s5 0x14ce0 r6 x11 (BitVec.ofNat 64 Elflings.allocatorVtableAddress)
-  have seg6 := seg5'.stepKnown
+  obtain ⟨s6, seg6⟩ := seg5'.step
     (allocatorPcInside 0x14ce0 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))
     (allocatorPcNotExit 0x14ce0 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))))
-    x11 (BitVec.ofNat 64 Elflings.allocatorVtableAddress) 0x14ce4 r6 run6
+    x11 (BitVec.ofNat 64 Elflings.allocatorVtableAddress) 0x14ce4 ⟨r6, run6⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have cfg6 := configured.mono (seg6.agree instructionPreserved_disjoint_allocatorWrites) seg6.retired
-  have code6 : Artifacts.programImage.fileBytesLoadedFaithfully s6.mem := by simpa [s6, s5, s4, s3, s2, s1] using loaded
+  have code6 := allocatorLoadedOfSeg notFile loaded seg6
   obtain ⟨r7, run7⟩ := allocatorStoreStateStep (fromStep + 6) s6 args.stackPointer cfg6
     seg6.atPc (seg6.reg x2 _ (by simp)) (seg6.reg x10 _ (by simp))
     (storePmaAllows_of_agree (seg6.agree platformPreserved_disjoint_allocatorWrites) statePma)
     stateMMIO aligned fits code6
-  let s7 := tryStepStoreAfterRetired
-    (afterWriteBytes (width := 8) (coreStoreNextState (tryStepStoreAfterIncrement s6) 0x14ce4)
-      (args.stackPointer + 0x10) (BitVec.ofNat 64 0x2401a0b0)) 0x14ce4 r7
-  have seg7 := seg6.stepStoreKnown (args.stackPointer + 0x10) (BitVec.ofNat 64 0x2401a0b0)
-    0x14ce8 r7 (allocatorPcInside 0x14ce4 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))))
+  obtain ⟨_, s7, s7Eq, seg7⟩ := seg6.stepStoreWitness
+    (args.stackPointer + 0x10) (BitVec.ofNat 64 0x2401a0b0) 0x14ce8
+    (allocatorPcInside 0x14ce4 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))))
     (allocatorPcNotExit 0x14ce4 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))))
-    run7 (by decide) (by intro address lower upper; exact Or.inl ⟨lower, upper⟩)
+    ⟨r7, run7⟩ (by decide) (by intro address lower upper; exact Or.inl ⟨lower, upper⟩)
     (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
   have cfg7 := configured.mono (seg7.agree instructionPreserved_disjoint_allocatorWrites) seg7.retired
-  have code7 : Artifacts.programImage.fileBytesLoadedFaithfully s7.mem := by
-    intro address byte fileByte
-    have frame := seg7.mem address (by
-      intro inside
-      unfold allocatorMemory Region.union byteRange at inside
-      rcases inside with inside | inside
-      · have none := notFile address inside.1 (by omega)
-        rw [fileByte] at none
-        cases none
-      · have none := notFile address (by omega) (by omega)
-        rw [fileByte] at none
-        cases none)
-    have frame' : s7.mem.get? address = before.machine.mem.get? address := by
-      simpa [s7, tryStepStoreAfterRetired, tryStepStoreAfterTick] using frame
-    exact frame'.trans (loaded address byte fileByte)
+  have code7 := allocatorLoadedOfSeg notFile loaded seg7
   obtain ⟨r8, run8⟩ := allocatorStoreVtableStep (fromStep + 7) s7 args.stackPointer cfg7
     seg7.atPc (seg7.reg x2 _ (by simp)) (seg7.reg x11 _ (by simp))
     (storePmaAllows_of_agree (seg7.agree platformPreserved_disjoint_allocatorWrites) vtablePma)
     vtableMMIO aligned fits code7
-  let s8 := tryStepStoreAfterRetired
-    (afterWriteBytes (width := 8) (coreStoreNextState (tryStepStoreAfterIncrement s7) 0x14ce8)
-      (args.stackPointer + 0x18) (BitVec.ofNat 64 Elflings.allocatorVtableAddress)) 0x14ce8 r8
-  have seg8 := seg7.stepStoreKnown (args.stackPointer + 0x18)
-    (BitVec.ofNat 64 Elflings.allocatorVtableAddress) 0x14cec r8
+  obtain ⟨_, s8, s8Eq, seg8⟩ := seg7.stepStoreWitness (args.stackPointer + 0x18)
+    (BitVec.ofNat 64 Elflings.allocatorVtableAddress) 0x14cec
     (allocatorPcInside 0x14ce8 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr rfl))))))))
     (allocatorPcNotExit 0x14ce8 (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr rfl))))))))
-    run8 (by decide) (by intro address lower upper; exact Or.inr ⟨lower, upper⟩)
+    ⟨r8, run8⟩ (by decide) (by intro address lower upper; exact Or.inr ⟨lower, upper⟩)
     (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
   let after : EndpointState := { before with machine := s8 }
   have trace : ConfinedTrace EndpointStep EndpointPc
       (pcInRanges Elflings.allocatorGetExecutionPcRanges) fromStep 8 before after := by
-    have t1 := allocatorConfinedSailStep fromStep before s1 0x14ccc (Or.inl rfl) atPc run1
-    have t2 := allocatorConfinedSailStep (fromStep + 1) { before with machine := s1 } s2 0x14cd0
-      (Or.inr (Or.inl rfl)) seg1.atPc run2
-    have t3 := allocatorConfinedSailStep (fromStep + 2) { before with machine := s2 } s3 0x14cd4
-      (Or.inr (Or.inr (Or.inl rfl))) seg2.atPc run3
-    have t4 := allocatorConfinedSailStep (fromStep + 3) { before with machine := s3 } s4 0x14cd8
-      (Or.inr (Or.inr (Or.inr (Or.inl rfl)))) seg3.atPc run4
-    have t5 := allocatorConfinedSailStep (fromStep + 4) { before with machine := s4 } s5 0x14cdc
-      (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))) seg4.atPc run5
-    have t6 := allocatorConfinedSailStep (fromStep + 5) { before with machine := s5 } s6 0x14ce0
-      (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))) seg5.atPc run6
-    have t7 := allocatorConfinedSailStep (fromStep + 6) { before with machine := s6 } s7 0x14ce4
-      (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))) seg6.atPc run7
-    have t8 := allocatorConfinedSailStep (fromStep + 7) { before with machine := s7 } s8 0x14ce8
-      (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr rfl))))))) seg7.atPc run8
-    simpa only [Nat.reduceAdd, Nat.add_assoc] using
-      ((((((t1.append t2).append t3).append t4).append t5).append t6).append t7).append t8
+    have machineTrace : ScopedTrace (pcInRanges Elflings.allocatorGetExecutionPcRanges)
+        (pcInList Elflings.allocatorGetExitPcs) (fun _ _ _ _ _ => False)
+        fromStep 8 before.machine s8 := by
+      simpa using seg8.confined 0 s8 (.exitAt _ _ 0x14cec seg8.atPc (by
+        unfold pcInList
+        native_decide))
+    simpa [after] using liftAllocatorTrace before machineTrace
   have returnEq : args.returnAddress = 0x14cec := by
     simpa [Elflings.allocatorGetExitPcs] using returnPc
   have finalPc : s8.regs.get? PC = some (BitVec.ofNat 64 args.returnAddress) := by
@@ -1731,12 +1733,14 @@ theorem allocatorGetInstanceContract : AllocatorGetInstanceContract := by
       unfold allocatorMemory Region.union byteRange at inside
       rcases inside with inside | inside <;> omega)
   have stateRep7 : UIntRep 8 s7.mem (args.stackPointer + 0x10) 0x2401a0b0 := by
-    simpa [s7, tryStepStoreAfterRetired, tryStepStoreAfterTick] using
+    rw [s7Eq]
+    simpa [tryStepStoreAfterRetired, tryStepStoreAfterTick] using
       uintRep_afterWriteBytes_eight
         (coreStoreNextState (tryStepStoreAfterIncrement s6) 0x14ce4)
         (args.stackPointer + 0x10) 0x2401a0b0 (by native_decide) (by omega)
   have secondWrites : WritesOnlyWithin (byteRange (args.stackPointer + 0x18) 8) s7 s8 := by
     intro address outside
+    rw [s8Eq]
     exact storeRetirement_mem_writes s7 0x14ce8 0x14cec r8
       (args.stackPointer + 0x18) (BitVec.ofNat 64 Elflings.allocatorVtableAddress) address outside
   have stateAfter : UIntRep 8 s8.mem (args.stackPointer + 0x10) 0x2401a0b0 :=
@@ -1746,7 +1750,8 @@ theorem allocatorGetInstanceContract : AllocatorGetInstanceContract := by
       omega)
   have vtableAfter : UIntRep 8 s8.mem (args.stackPointer + 0x18)
       Elflings.allocatorVtableAddress := by
-    simpa [s8, tryStepStoreAfterRetired, tryStepStoreAfterTick] using
+    rw [s8Eq]
+    simpa [tryStepStoreAfterRetired, tryStepStoreAfterTick] using
       uintRep_afterWriteBytes_eight
         (coreStoreNextState (tryStepStoreAfterIncrement s7) 0x14ce8)
         (args.stackPointer + 0x18) Elflings.allocatorVtableAddress
@@ -1766,30 +1771,9 @@ theorem allocatorGetInstanceContract : AllocatorGetInstanceContract := by
       · exact inputOutside.elim (fun lower => by omega) (fun upper => by omega)
       · exact inputOutside.elim (fun lower => by omega) (fun upper => by omega))).trans
         (inputRep.2 index bound)
-  have code8 : Artifacts.programImage.fileBytesLoadedFaithfully s8.mem := by
-    intro address byte fileByte
-    have frame := secondWrites address (by
-      intro inside
-      have none := notFile address (by unfold byteRange at inside; omega)
-        (by unfold byteRange at inside; omega)
-      rw [fileByte] at none
-      cases none)
-    exact frame.trans (code7 address byte fileByte)
-  have nonRegister : NonRegisterFrame before.machine s8 :=
-    (((((((nonRegisterFrame_afterRegisterWrite before.machine 0x14ccc r1 x10 0x24019ccc).trans
-      (nonRegisterFrame_afterRegisterWrite s1 0x14cd0 r2 x11 0x17cd0)).trans
-      (nonRegisterFrame_afterRegisterWrite s2 0x14cd4 r3 x13
-        (BitVec.ofNat 64 args.input.size))).trans
-      (nonRegisterFrame_afterRegisterWrite s3 0x14cd8 r4 x12
-        (BitVec.ofNat 64 args.inputAddress))).trans
-      (nonRegisterFrame_afterRegisterWrite s4 0x14cdc r5 x10
-        (BitVec.ofNat 64 0x2401a0b0))).trans
-      (nonRegisterFrame_afterRegisterWrite s5 0x14ce0 r6 x11
-        (BitVec.ofNat 64 Elflings.allocatorVtableAddress))).trans
-      (nonRegisterFrame_afterStore s6 0x14ce4 r7 (args.stackPointer + 0x10)
-        (BitVec.ofNat 64 0x2401a0b0))).trans
-      (nonRegisterFrame_afterStore s7 0x14ce8 r8 (args.stackPointer + 0x18)
-        (BitVec.ofNat 64 Elflings.allocatorVtableAddress))
+  have code8 := allocatorLoadedOfSeg notFile loaded seg8
+  have nonRegister : NonRegisterFrame before.machine s8 := by
+    simpa [NonRegisterFrame, AuxStateAgree] using seg8.aux
   exact ⟨pointerAfter, sizeAfter, stateAfter, vtableAfter, savedAfter, inputAfter, seg8.mem,
     rfl, rfl, rfl, rfl,
     ⟨seg8.agree (by
