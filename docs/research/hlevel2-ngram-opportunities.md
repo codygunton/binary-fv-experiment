@@ -356,7 +356,7 @@ half of the 364 lines from a lemma, and nearly all of them from a tactic.
 ### Opportunity 4 — motif lemmas over the instruction runs
 
 Measured on branch `motif-lemmas`: **32% of lines saved at n=2 rising to 70% at n=32**, break-even
-between 1.1 and 3.3 sites, five cases that build. Composition is 79.5% of this corpus, which is the
+between 1.1 and 3.3 sites, five cases that build. Composition is 69.4% of this corpus, which is the
 bucket those lemmas reduce.
 
 **Cost:** already measured. The blocker is not the technique but its reach — three of eight cases

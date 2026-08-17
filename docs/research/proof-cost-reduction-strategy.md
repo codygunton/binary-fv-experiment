@@ -58,8 +58,10 @@ declaration and its multiset of lines, and destroys only the order. That shuffle
 n=2, 0.8% at n=4, and **0.0% from n=6 upward**, against 28.0% real. A planted 7-line pattern was
 recovered 9 times of 9. The repetition is real structure in the order of the lines.
 
-**Composition is 79.5% of the corpus** — 384 declarations naming two or more addresses, holding
-19,776 lines. That is the bucket any pattern lemma reduces.
+**Composition is 69.4% of the corpus** — 282 declarations naming two or more real instruction
+addresses, holding 17,261 lines. That is the bucket any pattern lemma reduces. A further 266
+declarations (4,815 lines, 19.4%) name no instruction at all and are generic support, which no pattern
+lemma touches. *An earlier figure of 79.5% counted every hex literal as an address.*
 
 ### What a share is not
 
