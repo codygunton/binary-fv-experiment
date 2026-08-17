@@ -45,6 +45,15 @@ theorem ConfiguredMachinePre.storeDecodeContext {pcs : BitVec 64 → Prop} {stat
           writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
       _ = some bits := seccfgRead
 
+/-- The minimal configured context consumed by a store-path `decode_run`. -/
+theorem ConfiguredMachinePre.storeDecodeRunsContext {pcs : BitVec 64 → Prop} {state : State}
+    (configured : ConfiguredMachinePre pcs state) :
+    ∃ bits,
+      (tryStepStoreAfterIncrement state).regs.get? cur_privilege = some Privilege.Machine ∧
+      (tryStepStoreAfterIncrement state).regs.get? mseccfg = some bits := by
+  obtain ⟨bits, _, _, privilegeAfter, seccfgAfter⟩ := configured.storeDecodeContext
+  exact ⟨bits, privilegeAfter, seccfgAfter⟩
+
 def tryStepStoreAfterTick (afterWrite : State) (pc : BitVec 64) : State :=
   { afterWrite with regs := afterWrite.regs.insert PC (Sail.BitVec.addInt pc 4) }
 

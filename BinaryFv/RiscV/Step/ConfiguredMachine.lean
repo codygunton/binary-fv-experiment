@@ -53,6 +53,16 @@ theorem ConfiguredMachinePre.decodeContext {pcs : BitVec 64 → Prop} {state : S
       configured.normal.2.1,
     (agree mseccfg (by simp [instructionPreserved, platformPreserved])).trans seccfgRead⟩
 
+/-- The minimal configured context consumed by a control-flow `decode_run`. -/
+theorem ConfiguredMachinePre.decodeRunsContext {pcs : BitVec 64 → Prop} {state : State}
+    (configured : ConfiguredMachinePre pcs state) :
+    ∃ bits,
+      (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+        some Privilege.Machine ∧
+      (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some bits := by
+  obtain ⟨bits, _, _, privilegeAfter, seccfgAfter⟩ := configured.decodeContext
+  exact ⟨bits, privilegeAfter, seccfgAfter⟩
+
 /-- Fetch, interrupt, and landing-pad premises at one configured instruction address. -/
 theorem ConfiguredMachinePre.stepContext {pcs : BitVec 64 → Prop} {state : State}
     (configured : ConfiguredMachinePre pcs state) (pc : BitVec 64)

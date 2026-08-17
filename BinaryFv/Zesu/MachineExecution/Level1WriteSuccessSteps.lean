@@ -480,6 +480,18 @@ private theorem writeSuccessLoadDecodeReads {state : State}
   obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ := configured.decodeContext
   exact ⟨seccfgBits, privilegeAfter, seccfgAfter⟩
 
+macro "write_success_decode " configured:term : tactic =>
+  `(tactic|
+    (obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+        writeSuccessLoadDecodeReads $configured
+     decode_run))
+
+macro "write_success_store_decode " configured:term : tactic =>
+  `(tactic|
+    (obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+        writeSuccessStoreDecodeReads $configured
+     decode_run))
+
 /-- Execute one exact parent-owned dword load from the optimized decoded-value window. -/
 private theorem writeSuccessDecodedDwordLoadStep (stepNo pc offset value : Nat)
     (args : WriteSuccessArgs) (state : State) (rd : regidx) (destination : Register)
@@ -549,9 +561,7 @@ private theorem writeSuccessLoadDecoded720 (stepNo value : Nat) (args : WriteSuc
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 value)
   · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+    write_success_decode configured
   all_goals decide
 
 private theorem writeSuccessCodeOfSeg {args : WriteSuccessArgs} {W kv a n base cur pc}
@@ -1139,8 +1149,7 @@ theorem writeSuccessSaveRa {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7c8#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1188,8 +1197,7 @@ theorem writeSuccessSaveS0 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7c0#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1239,8 +1247,7 @@ theorem writeSuccessSaveS1 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7b8#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1292,8 +1299,7 @@ theorem writeSuccessSaveS2 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7b0#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1347,8 +1353,7 @@ theorem writeSuccessSaveS3 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7a8#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1404,8 +1409,7 @@ theorem writeSuccessSaveS4 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7a0#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1463,8 +1467,7 @@ theorem writeSuccessSaveS5 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x798#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1524,8 +1527,7 @@ theorem writeSuccessSaveS6 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x790#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1587,8 +1589,7 @@ theorem writeSuccessSaveS7 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x788#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1652,8 +1653,7 @@ theorem writeSuccessSaveS8 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x780#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1719,8 +1719,7 @@ theorem writeSuccessSaveS9 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x778#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1788,8 +1787,7 @@ theorem writeSuccessSaveS10 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x770#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -1859,8 +1857,7 @@ theorem writeSuccessSaveS11 {fromStep : Nat} {args : WriteSuccessArgs}
   · write_success_pc
   · unfold writeSuccessInitialExitPc; native_decide
   · intro configured'
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessStoreDecodeReads configured'
-    decode_run
+    write_success_store_decode configured'
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x768#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
@@ -2841,9 +2838,7 @@ theorem writeSuccessFirstTailPairHandoff (fromStep : Nat) (args : WriteSuccessAr
     (by unfold writeSuccessInitialExitPc; native_decide)
     (by
       intro configured
-      obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-        writeSuccessStoreDecodeReads configured
-      decode_run)
+      write_success_store_decode configured)
     (by
       change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x18#64 = _
       rw [← BitVec.ofNat_add])
@@ -3108,14 +3103,10 @@ theorem writeSuccessSecondTailPairHandoff (fromStep : Nat) (args : WriteSuccessA
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide)
@@ -3188,14 +3179,10 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide)
@@ -3217,14 +3204,10 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide)
@@ -3246,14 +3229,10 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide)
@@ -3275,14 +3254,10 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide)
@@ -3304,14 +3279,10 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide)
@@ -3333,14 +3304,10 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide)
@@ -3362,14 +3329,10 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide)
@@ -3391,14 +3354,10 @@ theorem writeSuccessFirstTenTailPairsHandoff (fromStep : Nat) (args : WriteSucce
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide) (by native_decide)
@@ -3580,9 +3539,7 @@ theorem writeSuccessFirstFourFinalLoadsHandoff (fromStep : Nat) (args : WriteSuc
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (fun premise => wX_x10_run premise
         (BitVec.ofNat 64 (tailValues ⟨10, by omega⟩)))
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
@@ -3602,9 +3559,7 @@ theorem writeSuccessFirstFourFinalLoadsHandoff (fromStep : Nat) (args : WriteSuc
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (fun premise => wX_x11_run premise
         (BitVec.ofNat 64 (tailValues ⟨11, by omega⟩)))
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
@@ -3624,9 +3579,7 @@ theorem writeSuccessFirstFourFinalLoadsHandoff (fromStep : Nat) (args : WriteSuc
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (fun premise => wX_x12_run premise
         (BitVec.ofNat 64 (tailValues ⟨12, by omega⟩)))
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
@@ -3646,9 +3599,7 @@ theorem writeSuccessFirstFourFinalLoadsHandoff (fromStep : Nat) (args : WriteSuc
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (fun premise => wX_x13_run premise
         (BitVec.ofNat 64 (tailValues ⟨13, by omega⟩)))
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
@@ -3828,9 +3779,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (fun premise => wX_x14_run premise
         (BitVec.ofNat 64 (tailValues ⟨14, by omega⟩)))
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
@@ -3858,9 +3807,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
           rw [← BitVec.ofNat_add])
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide)
       (by write_success_pc)
@@ -3877,9 +3824,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
           rw [← BitVec.ofNat_add])
       (by
         intro configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured
-        decode_run)
+        write_success_decode configured)
       (fun premise => wX_x14_run premise
         (BitVec.ofNat 64 (tailValues ⟨15, by omega⟩)))
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
@@ -3907,9 +3852,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
           rw [← BitVec.ofNat_add])
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide)
       (by write_success_pc)
@@ -3931,9 +3874,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
           rw [← BitVec.ofNat_add])
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide)
       (by write_success_pc)
@@ -3955,9 +3896,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
           rw [← BitVec.ofNat_add])
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide)
       (by write_success_pc)
@@ -3979,9 +3918,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
           rw [← BitVec.ofNat_add])
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide)
       (by write_success_pc)
@@ -4003,9 +3940,7 @@ theorem writeSuccessTailSegmentHandoff (fromStep : Nat) (args : WriteSuccessArgs
           rw [← BitVec.ofNat_add])
       (by
         intro storeState configured
-        obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessStoreDecodeReads configured
-        decode_run)
+        write_success_store_decode configured)
       (by native_decide) (by native_decide) (by native_decide) (by native_decide)
       (by native_decide)
       (by write_success_pc)
@@ -4112,8 +4047,7 @@ private theorem constantPrefixAddressHighStep (stepNo : Nat) (state : State)
       (wX_x10_run premise 0x17e00)
   exact configuredRegisterWriteStep stepNo 0x14e00 state x10 0x17e00
     (.UTYPE (3, .Regidx 10#5, .AUIPC)) 0x17 0x35 0x00 0x00 configured atPc loaded
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured; decode_run) execute (base := by rfl)
+    (by write_success_decode configured) execute (base := by rfl)
 
 private theorem constantPrefixAddressLowStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -4134,8 +4068,7 @@ private theorem constantPrefixAddressLowStep (stepNo : Nat) (state : State)
   exact configuredRegisterWriteStep stepNo 0x14e04 state x10 0x179c5
     (.ITYPE (0xbc5, .Regidx 10#5, .Regidx 10#5, .ADDI)) 0x13 0x05 0x55 0xbc
     configured atPc loaded
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured; decode_run) execute (base := by rfl)
+    (by write_success_decode configured) execute (base := by rfl)
 
 private theorem constantPrefixLengthStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -4146,9 +4079,7 @@ private theorem constantPrefixLengthStep (stepNo : Nat) (state : State)
   apply writeSuccessAddiX11FromZeroStep stepNo 0x14e08 6 6
     0x93 0x05 0x60 0x00 state configured atPc loaded
   · native_decide
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -4160,7 +4091,7 @@ private theorem constantPrefixCallBaseStep (stepNo : Nat) (state : State)
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14e0c retired x1 0xfe0c) false := by
   exact configuredAuipcStep stepNo state 0x14e0c 0xffffb 0x97 0xb0 0xff 0xff
-    configured atPc loaded (decode := by configured_decode configured)
+    configured atPc loaded (decode := by write_success_decode configured)
 
 private theorem constantPrefixCallStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -4172,7 +4103,7 @@ private theorem constantPrefixCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e10 0x10190 x1 0x14e14)
         0x10190 retired) false := by
   exact configuredJalrCallStep stepNo state 0x14e10 0xfe0c 0x384 0x10190 0x14e14
-    0xe7 0x80 0x40 0x38 configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x40 0x38 configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 private def constantPrefixParentPc (pc : BitVec 64) : Prop :=
   pcInRanges [(0x14e00, 0x14e14)] pc
@@ -4473,9 +4404,7 @@ private theorem prevRandaoLengthStep (stepNo : Nat) (state : State)
   apply writeSuccessAddiX11FromZeroStep stepNo 0x14e7c 32 32
     0x93 0x05 0x00 0x02 state configured atPc loaded
   · native_decide
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -4487,7 +4416,7 @@ private theorem prevRandaoCallBaseStep (stepNo : Nat) (state : State)
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14e80 retired x1 0xfe80) false := by
   exact configuredAuipcStep stepNo state 0x14e80 0xffffb 0x97 0xb0 0xff 0xff
-    configured atPc loaded (decode := by configured_decode configured)
+    configured atPc loaded (decode := by write_success_decode configured)
 
 private theorem prevRandaoCallStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -4499,7 +4428,7 @@ private theorem prevRandaoCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e84 0x10190 x1 0x14e88)
         0x10190 retired) false := by
   exact configuredJalrCallStep stepNo state 0x14e84 0xfe80 0x310 0x10190 0x14e88
-    0xe7 0x80 0x00 0x31 configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x00 0x31 configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- The 32-byte raw `prev_randao` encoder reaches its declared exit without assumptions. -/
 theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceContract := by
@@ -4800,9 +4729,7 @@ theorem writeSuccessSecondMemcpyDestinationStep (stepNo : Nat) (state : State)
     change BitVec.ofNat 64 stackPointer + sign_extend (BitVec.ofNat 12 0x408) = _
     rw [show sign_extend (m := 64) (0x408#12) = 0x408#64 by native_decide]
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -4822,9 +4749,7 @@ theorem writeSuccessSecondMemcpySourceStep (stepNo : Nat) (state : State)
     change BitVec.ofNat 64 stackPointer + sign_extend (BitVec.ofNat 12 0x138) = _
     rw [show sign_extend (m := 64) (0x138#12) = 0x138#64 by native_decide]
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -4839,9 +4764,7 @@ theorem writeSuccessSecondMemcpyLengthStep (stepNo : Nat) (state : State)
   apply writeSuccessAddiX12FromZeroStep stepNo 0x14e1c 0x250 0x250
     0x13 0x06 0x00 0x25 state configured atPc loaded
   · native_decide
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -4854,7 +4777,7 @@ theorem writeSuccessSecondMemcpyCallBaseStep (stepNo : Nat) (state : State)
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14e20 retired x1 0xfe20) false := by
   exact configuredAuipcStep stepNo state 0x14e20 0xffffb 0x97 0xb0 0xff 0xff
-    configured atPc loaded (decode := by configured_decode configured)
+    configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14e24: jalr ra,0x3b4(ra)`, entering `memcpy`. -/
 theorem writeSuccessSecondMemcpyCallStep (stepNo : Nat) (state : State)
@@ -4867,7 +4790,7 @@ theorem writeSuccessSecondMemcpyCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e24 0x101d4 x1 0x14e28)
         0x101d4 retired) false := by
   exact configuredJalrCallStep stepNo state 0x14e24 0xfe20 0x3b4 0x101d4 0x14e28
-    0xe7 0x80 0x40 0x3b configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x40 0x3b configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14e28: addi a0,sp,0x4a0`. -/
 theorem writeSuccessParentHashSourceStep (stepNo : Nat) (state : State)
@@ -4884,9 +4807,7 @@ theorem writeSuccessParentHashSourceStep (stepNo : Nat) (state : State)
     change BitVec.ofNat 64 stackPointer + sign_extend (BitVec.ofNat 12 0x4a0) = _
     rw [show sign_extend (m := 64) (0x4a0#12) = 0x4a0#64 by native_decide]
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -4906,9 +4827,7 @@ private theorem writeSuccessBlockHashSourceStep (stepNo : Nat) (state : State)
     change BitVec.ofNat 64 stackPointer + sign_extend (BitVec.ofNat 12 0x634) = _
     rw [show sign_extend (m := 64) (0x634#12) = 0x634#64 by native_decide]
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -4952,9 +4871,7 @@ private theorem writeSuccessFeeRecipientSourceStep (stepNo : Nat) (state : State
     change BitVec.ofNat 64 stackPointer + sign_extend (0x4c0#12) = _
     rw [show sign_extend (m := 64) (0x4c0#12) = 0x4c0#64 by native_decide,
       ← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
 
 private theorem writeSuccessStateRootSourceStep (stepNo : Nat) (state : State)
     (stackPointer : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -4970,9 +4887,7 @@ private theorem writeSuccessStateRootSourceStep (stepNo : Nat) (state : State)
     change BitVec.ofNat 64 stackPointer + sign_extend (0x4d4#12) = _
     rw [show sign_extend (m := 64) (0x4d4#12) = 0x4d4#64 by native_decide,
       ← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
 
 private theorem writeSuccessReceiptsRootSourceStep (stepNo : Nat) (state : State)
     (stackPointer : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -4988,9 +4903,7 @@ private theorem writeSuccessReceiptsRootSourceStep (stepNo : Nat) (state : State
     change BitVec.ofNat 64 stackPointer + sign_extend (0x4f4#12) = _
     rw [show sign_extend (m := 64) (0x4f4#12) = 0x4f4#64 by native_decide,
       ← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
 
 private theorem writeSuccessLogsBloomSourceStep (stepNo : Nat) (state : State)
     (stackPointer : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -5006,9 +4919,7 @@ private theorem writeSuccessLogsBloomSourceStep (stepNo : Nat) (state : State)
     change BitVec.ofNat 64 stackPointer + sign_extend (0x514#12) = _
     rw [show sign_extend (m := 64) (0x514#12) = 0x514#64 by native_decide,
       ← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
 
 private theorem writeSuccessPrevRandaoSourceStep (stepNo : Nat) (state : State)
     (stackPointer : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -5024,9 +4935,7 @@ private theorem writeSuccessPrevRandaoSourceStep (stepNo : Nat) (state : State)
     change BitVec.ofNat 64 stackPointer + sign_extend (0x614#12) = _
     rw [show sign_extend (m := 64) (0x614#12) = 0x614#64 by native_decide,
       ← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
 
 set_option genInjectivity false in
 /-- State carried from the second writer `memcpy` to the parent-hash encoder. -/
@@ -6754,9 +6663,7 @@ private theorem writeSuccessBlockNumberLoadStep (stepNo : Nat) (args : WriteSucc
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x408#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 args.decoded.payload.blockNumber)
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -6768,7 +6675,7 @@ private theorem writeSuccessFirstIntCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14e8c retired x1 0x15e8c) false := by
-  exact configuredAuipcStep stepNo state 0x14e8c 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
+  exact configuredAuipcStep stepNo state 0x14e8c 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14e90: jalr ra,-380(ra)`, entering the shared integer encoder. -/
 private theorem writeSuccessFirstIntCallStep (stepNo : Nat) (state : State)
@@ -6781,7 +6688,7 @@ private theorem writeSuccessFirstIntCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e90 0x15d10 x1 0x14e94)
         0x15d10 retired) false := by
   exact configuredJalrCallStep stepNo state 0x14e90 0x15e8c 0xe84 0x15d10 0x14e94
-    0xe7 0x80 0x40 0xe8 configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x40 0xe8 configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14e94: ld a0,0x410(sp)`. -/
 private theorem writeSuccessGasLimitLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -6801,9 +6708,7 @@ private theorem writeSuccessGasLimitLoadStep (stepNo : Nat) (args : WriteSuccess
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x410#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 args.decoded.payload.gasLimit)
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -6815,7 +6720,7 @@ private theorem writeSuccessGasLimitCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14e98 retired x1 0x15e98) false := by
-  exact configuredAuipcStep stepNo state 0x14e98 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
+  exact configuredAuipcStep stepNo state 0x14e98 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14e9c: jalr ra,-392(ra)`. -/
 private theorem writeSuccessGasLimitCallStep (stepNo : Nat) (state : State)
@@ -6828,7 +6733,7 @@ private theorem writeSuccessGasLimitCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e9c 0x15d10 x1 0x14ea0)
         0x15d10 retired) false := by
   exact configuredJalrCallStep stepNo state 0x14e9c 0x15e98 0xe78 0x15d10 0x14ea0
-    0xe7 0x80 0x80 0xe7 configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x80 0xe7 configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14ea0: ld a0,0x418(sp)`. -/
 private theorem writeSuccessGasUsedLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -6848,9 +6753,7 @@ private theorem writeSuccessGasUsedLoadStep (stepNo : Nat) (args : WriteSuccessA
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x418#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 args.decoded.payload.gasUsed)
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -6862,7 +6765,7 @@ private theorem writeSuccessGasUsedCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14ea4 retired x1 0x15ea4) false := by
-  exact configuredAuipcStep stepNo state 0x14ea4 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
+  exact configuredAuipcStep stepNo state 0x14ea4 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14ea8: jalr ra,-404(ra)`. -/
 private theorem writeSuccessGasUsedCallStep (stepNo : Nat) (state : State)
@@ -6875,7 +6778,7 @@ private theorem writeSuccessGasUsedCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14ea8 0x15d10 x1 0x14eac)
         0x15d10 retired) false := by
   exact configuredJalrCallStep stepNo state 0x14ea8 0x15ea4 0xe6c 0x15d10 0x14eac
-    0xe7 0x80 0xc0 0xe6 configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0xc0 0xe6 configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14eac: ld a0,0x420(sp)`. -/
 private theorem writeSuccessTimestampLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -6895,9 +6798,7 @@ private theorem writeSuccessTimestampLoadStep (stepNo : Nat) (args : WriteSucces
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x420#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 args.decoded.payload.timestamp)
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -6909,7 +6810,7 @@ private theorem writeSuccessTimestampCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14eb0 retired x1 0x15eb0) false := by
-  exact configuredAuipcStep stepNo state 0x14eb0 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
+  exact configuredAuipcStep stepNo state 0x14eb0 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14eb4: jalr ra,-416(ra)`. -/
 private theorem writeSuccessTimestampCallStep (stepNo : Nat) (state : State)
@@ -6922,7 +6823,7 @@ private theorem writeSuccessTimestampCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14eb4 0x15d10 x1 0x14eb8)
         0x15d10 retired) false := by
   exact configuredJalrCallStep stepNo state 0x14eb4 0x15eb0 0xe60 0x15d10 0x14eb8
-    0xe7 0x80 0x00 0xe6 configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x00 0xe6 configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14eb8: ld a0,0x428(sp)`, loading the extra-data pointer. -/
 private theorem writeSuccessExtraDataPointerLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -6940,9 +6841,7 @@ private theorem writeSuccessExtraDataPointerLoadStep (stepNo : Nat) (args : Writ
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x428#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 address)
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -6963,9 +6862,7 @@ private theorem writeSuccessExtraDataLengthLoadStep (stepNo : Nat) (args : Write
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x430#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x11_run premise (BitVec.ofNat 64 length)
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -6977,7 +6874,7 @@ private theorem writeSuccessExtraDataCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14ec0 retired x1 0x15ec0) false := by
-  exact configuredAuipcStep stepNo state 0x14ec0 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
+  exact configuredAuipcStep stepNo state 0x14ec0 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14ec4: jalr ra,-596(ra)`, entering the shared byte encoder. -/
 private theorem writeSuccessExtraDataCallStep (stepNo : Nat) (state : State)
@@ -6990,7 +6887,7 @@ private theorem writeSuccessExtraDataCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14ec4 0x15c6c x1 0x14ec8)
         0x15c6c retired) false := by
   exact configuredJalrCallStep stepNo state 0x14ec4 0x15ec0 0xdac 0x15c6c 0x14ec8
-    0xe7 0x80 0xc0 0xda configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0xc0 0xda configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14ec8: ld a0,0x438(sp)`. -/
 private theorem writeSuccessBaseFeeLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -7010,9 +6907,7 @@ private theorem writeSuccessBaseFeeLoadStep (stepNo : Nat) (args : WriteSuccessA
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x438#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise (BitVec.ofNat 64 args.decoded.payload.baseFeePerGas)
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -7024,7 +6919,7 @@ private theorem writeSuccessBaseFeeCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14ecc retired x1 0x15ecc) false := by
-  exact configuredAuipcStep stepNo state 0x14ecc 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
+  exact configuredAuipcStep stepNo state 0x14ecc 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x14ed0: jalr ra,-444(ra)`. -/
 private theorem writeSuccessBaseFeeCallStep (stepNo : Nat) (state : State)
@@ -7037,7 +6932,7 @@ private theorem writeSuccessBaseFeeCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14ed0 0x15d10 x1 0x14ed4)
         0x15d10 retired) false := by
   exact configuredJalrCallStep stepNo state 0x14ed0 0x15ecc 0xe44 0x15d10 0x14ed4
-    0xe7 0x80 0x40 0xe4 configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x40 0xe4 configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x1572c: addi a0,sp,0x3e8`. -/
 private theorem writeSuccessOutputBufferStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -7054,9 +6949,7 @@ private theorem writeSuccessOutputBufferStep (stepNo : Nat) (args : WriteSuccess
     change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + sign_extend (0x3e8#12) = _
     rw [show sign_extend (m := 64) (0x3e8#12) = 0x3e8#64 by native_decide]
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -7071,9 +6964,7 @@ private theorem writeSuccessOutputLengthStep (stepNo : Nat) (state : State)
   apply writeSuccessAddiX11FromZeroStep stepNo 0x15730 32 32
     0x93 0x05 0x00 0x02 state configured atPc loaded
   · native_decide
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -7086,7 +6977,7 @@ private theorem writeSuccessOutputCallBaseStep (stepNo : Nat) (state : State)
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x15734 retired x1 0x10734) false := by
   exact configuredAuipcStep stepNo state 0x15734 0xffffb 0x97 0xb0 0xff 0xff
-    configured atPc loaded (decode := by configured_decode configured)
+    configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x15738: jalr ra,-0x5a4(ra)`, entering bare-metal `write_output`. -/
 private theorem writeSuccessOutputCallStep (stepNo : Nat) (state : State)
@@ -7099,7 +6990,7 @@ private theorem writeSuccessOutputCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x15738 0x10190 x1 0x1573c)
         0x10190 retired) false := by
   exact configuredJalrCallStep stepNo state 0x15738 0x10734 0xa5c 0x10190 0x1573c
-    0xe7 0x80 0xc0 0xa5 configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0xc0 0xa5 configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x1573c: ld s1,0x388(sp)`. -/
 private theorem writeSuccessHashesAddressLoadStep (stepNo address : Nat)
@@ -7118,9 +7009,7 @@ private theorem writeSuccessHashesAddressLoadStep (stepNo address : Nat)
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x388#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x9_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -7142,9 +7031,7 @@ private theorem writeSuccessHashesCountLoadStep (stepNo count : Nat)
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x390#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x8_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -8796,8 +8683,7 @@ macro "writeSuccessLateSliceSteps(" args:term ";" pc:term "," returnPc:term ","
         (BitVec.ofNat 64 address) $a0 $a1 $a2 $a3 $args state access atPc stack rep
         (by omega) (by omega) loaded (fun premise => wX_x10_run premise _)
         (by native_decide)
-        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads access.configured; decode_run)
+        (by write_success_decode access.configured)
         (by native_decide) (by decide) (by decide) (by decide) (by decide)
         (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     lengthLoad := by
@@ -8806,8 +8692,7 @@ macro "writeSuccessLateSliceSteps(" args:term ";" pc:term "," returnPc:term ","
         (BitVec.ofNat 64 length) $l0 $l1 $l2 $l3 $args state access atPc stack rep
         (by omega) (by omega) loaded (fun premise => wX_x11_run premise _)
         (by native_decide)
-        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads access.configured; decode_run)
+        (by write_success_decode access.configured)
         (by native_decide) (by decide) (by decide) (by decide) (by decide)
         (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     callBaseStep := by
@@ -8815,16 +8700,14 @@ macro "writeSuccessLateSliceSteps(" args:term ";" pc:term "," returnPc:term ","
       exact writeSuccessLateSliceCallBaseStep stepNo $callBase state configured atPc loaded
         (by native_decide) (by native_decide) (by native_decide) (by native_decide)
         (by native_decide)
-        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured; decode_run)
+        (by write_success_decode configured)
     callStep := by
       intro stepNo state configured atPc base loaded
       exact writeSuccessLateSliceCallStep stepNo ($pc + 12) $target $returnPc $immediate
         $j0 $j1 $j2 $j3 state configured atPc base loaded
         (by native_decide) (by native_decide) (by native_decide) (by native_decide)
         (by native_decide) (by native_decide) (by native_decide) (by rfl)
-        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured; decode_run)
+        (by write_success_decode configured)
         (by native_decide) (by native_decide) (by native_decide) })
 
 /-- Consume the selected shared bytes contract from a completed late slice-call setup. -/
@@ -8980,8 +8863,7 @@ private theorem writeSuccessFirstRequestHandoff
         (by omega) (by omega) loaded
         (fun premise => wX_x10_run premise _)
         (by native_decide)
-        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads access.configured; decode_run)
+        (by write_success_decode access.configured)
         (by native_decide) (by decide) (by decide) (by decide) (by decide)
         (by rfl) (by native_decide) (by native_decide) (by native_decide)
         (by native_decide))
@@ -8992,8 +8874,7 @@ private theorem writeSuccessFirstRequestHandoff
         0x83 0x35 0x01 0x3a args state access pc stack rep (by omega) (by omega) loaded
         (fun premise => wX_x11_run premise _)
         (by native_decide)
-        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads access.configured; decode_run)
+        (by write_success_decode access.configured)
         (by native_decide) (by decide) (by decide) (by decide) (by decide)
         (by rfl) (by native_decide) (by native_decide) (by native_decide)
         (by native_decide))
@@ -9001,15 +8882,13 @@ private theorem writeSuccessFirstRequestHandoff
       writeSuccessLateSliceCallBaseStep step 0x158e8 state configured pc loaded
         (by native_decide) (by native_decide) (by native_decide) (by native_decide)
         (by native_decide)
-        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured; decode_run))
+        (by write_success_decode configured))
     (fun step state configured pc base loaded =>
       writeSuccessLateSliceCallStep step 0x158ec 0x15c6c 0x158f0 0x384
         0xe7 0x80 0x40 0x38 state configured pc base loaded (by native_decide)
         (by native_decide) (by native_decide) (by native_decide) (by native_decide)
         (by native_decide) (by native_decide) (by rfl)
-        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads configured; decode_run)
+        (by write_success_decode configured)
         (by native_decide) (by native_decide) (by native_decide))
     (by write_success_pc)
     (by write_success_pc)
@@ -9568,8 +9447,7 @@ private theorem writeSuccessChainIdLoadStep (stepNo : Nat) (args : WriteSuccessA
     (.Regidx 10#5) x10 (BitVec.ofNat 64 args.decoded.chainConfig.chainId)
     0x03 0x35 0x01 0x04 args state access atPc stack rep (by omega) (by omega) loaded
     (fun premise => wX_x10_run premise _) (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by write_success_decode access.configured)
     (by native_decide) (by decide) (by decide) (by decide) (by decide)
     (by rfl) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide)
@@ -9584,8 +9462,7 @@ private theorem writeSuccessChainIdCallBaseStep (stepNo : Nat) (state : State)
   writeSuccessLateSliceCallBaseStep stepNo 0x15964 state configured atPc loaded
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured; decode_run)
+    (by write_success_decode configured)
 
 /-- Production `0x15968: jalr ra,0x3ac(ra)`, entering the shared integer encoder. -/
 private theorem writeSuccessChainIdCallStep (stepNo : Nat) (state : State)
@@ -9601,8 +9478,7 @@ private theorem writeSuccessChainIdCallStep (stepNo : Nat) (state : State)
     0xe7 0x80 0xc0 0x3a state configured atPc base loaded (by native_decide)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide) (by native_decide) (by rfl)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured; decode_run)
+    (by write_success_decode configured)
     (by native_decide) (by native_decide) (by native_decide)
 
 set_option genInjectivity false in
@@ -9701,8 +9577,7 @@ private theorem writeSuccessForkNamePointerLoadStep (stepNo : Nat) (args : Write
   exact writeSuccessLateSliceLoadStep stepNo 0x1596c 0x48 address (.Regidx 8#5) x8
     (BitVec.ofNat 64 address) 0x03 0x34 0x81 0x04 args state access atPc stack rep
     (by omega) (by omega) loaded (fun premise => wX_x8_run premise _) (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by write_success_decode access.configured)
     (by native_decide) (by decide) (by decide) (by decide) (by decide)
     (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
 
@@ -9712,9 +9587,7 @@ private theorem writeSuccessForkNameBranchDecode (state : State)
     Runs (ext_decode (fetchWord 0x63#8 0x02#8 0x04#8 0x02#8))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.BTYPE (0x024, .Regidx 0#5, .Regidx 8#5, .BEQ)) := by
-  obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-    writeSuccessLoadDecodeReads configured
-  decode_run
+  write_success_decode configured
 
 /-- Production `0x15970: beqz s0,0x15994`, on a present fork name. -/
 private theorem writeSuccessForkNamePresentBranchStep (stepNo : Nat) (state : State)
@@ -9837,9 +9710,7 @@ private theorem writeSuccessForkNamePresentBooleanStep (stepNo : Nat) (state : S
       (afterRegisterWrite state 0x15974 retired x10 1) false := by
   apply writeSuccessForkNameBooleanLiteralStep stepNo 0x15974 1 1 0x10 state
     configured atPc loaded (by native_decide) (by
-      obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-        writeSuccessLoadDecodeReads configured
-      decode_run) (by native_decide)
+      write_success_decode configured) (by native_decide)
 
 private theorem writeSuccessForkNameAbsentBooleanStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -9849,9 +9720,7 @@ private theorem writeSuccessForkNameAbsentBooleanStep (stepNo : Nat) (state : St
       (afterRegisterWrite state 0x15994 retired x10 0) false := by
   apply writeSuccessForkNameBooleanLiteralStep stepNo 0x15994 0 0 0x00 state
     configured atPc loaded (by native_decide) (by
-      obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-        writeSuccessLoadDecodeReads configured
-      decode_run) (by native_decide)
+      write_success_decode configured) (by native_decide)
 
 private theorem writeSuccessForkNamePresentBooleanCallBaseStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -9865,9 +9734,7 @@ private theorem writeSuccessForkNamePresentBooleanCallBaseStep (stepNo : Nat) (s
   · native_decide
   · native_decide
   · native_decide
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
 
 private theorem writeSuccessForkNamePresentBooleanCallStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -9888,9 +9755,7 @@ private theorem writeSuccessForkNamePresentBooleanCallStep (stepNo : Nat) (state
   · native_decide
   · native_decide
   · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · native_decide
   · native_decide
@@ -9907,9 +9772,7 @@ private theorem writeSuccessForkNameAbsentBooleanCallBaseStep (stepNo : Nat) (st
   · native_decide
   · native_decide
   · native_decide
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
 
 private theorem writeSuccessForkNameAbsentBooleanCallStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -9930,9 +9793,7 @@ private theorem writeSuccessForkNameAbsentBooleanCallStep (stepNo : Nat) (state 
   · native_decide
   · native_decide
   · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · native_decide
   · native_decide
@@ -9961,9 +9822,7 @@ private theorem writeSuccessForkNameBytesAddressStep (stepNo : Nat) (state : Sta
   exact configuredRegisterWriteStep stepNo 0x15980 state x10 (BitVec.ofNat 64 address)
     (.ITYPE (0, .Regidx 8#5, .Regidx 10#5, .ADDI)) 0x13 0x05 0x04 0x00
     configured atPc loaded (by
-      obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-        writeSuccessLoadDecodeReads configured
-      decode_run) execute (base := by rfl)
+      write_success_decode configured) execute (base := by rfl)
 
 /-- Production `0x15984: ld a1,8(sp)` on the present fork-name route. -/
 private theorem writeSuccessForkNameBytesLengthStep (stepNo : Nat) (state : State)
@@ -9980,8 +9839,7 @@ private theorem writeSuccessForkNameBytesLengthStep (stepNo : Nat) (state : Stat
     (BitVec.ofNat 64 length) 0x83 0x35 0x81 0x00 args state access atPc stack rep
     (by omega) (by omega) loaded (fun premise => wX_x11_run premise _)
     (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by write_success_decode access.configured)
     (by native_decide) (by decide) (by decide) (by decide) (by decide)
     (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
 
@@ -9998,8 +9856,7 @@ private theorem writeSuccessForkNameBytesCallBaseStep (stepNo : Nat) (state : St
   · native_decide
   · native_decide
   · native_decide
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
 
 /-- Production `0x1598c: jalr 0x2e4(ra)` into the fork-name bytes child. -/
 private theorem writeSuccessForkNameBytesCallStep (stepNo : Nat) (state : State)
@@ -10021,8 +9878,7 @@ private theorem writeSuccessForkNameBytesCallStep (stepNo : Nat) (state : State)
   · native_decide
   · native_decide
   · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · native_decide
   · native_decide
@@ -10038,8 +9894,7 @@ private theorem writeSuccessForkNameJoinStep (stepNo : Nat) (state : State)
         0x159a0 retired) false := by
   apply configuredJStep stepNo 0x15990 0x159a0 state 0x10
     0x6f 0x00 0x00 0x01 configured atPc loaded (base := by rfl)
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   · native_decide
   · native_decide
   · native_decide
@@ -10801,8 +10656,7 @@ private theorem writeSuccessPublicKeysPointerLoadStep (stepNo : Nat) (args : Wri
   exact writeSuccessLateSliceLoadStep stepNo 0x159a0 0x60 address (.Regidx 8#5) x8
     (BitVec.ofNat 64 address) 0x03 0x34 0x01 0x06 args state access atPc stack rep
     (by omega) (by omega) loaded (fun premise => wX_x8_run premise _) (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by write_success_decode access.configured)
     (by native_decide) (by decide) (by decide) (by decide) (by decide)
     (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
 
@@ -10822,8 +10676,7 @@ private theorem writeSuccessActiveForkLoadStep (stepNo : Nat) (args : WriteSucce
     (BitVec.ofNat 64 args.decoded.chainConfig.activeForkIndex)
     0x03 0x35 0x01 0x05 args state access atPc stack rep (by omega) (by omega) loaded
     (fun premise => wX_x10_run premise _) (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by write_success_decode access.configured)
     (by native_decide) (by decide) (by decide) (by decide) (by decide)
     (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
 
@@ -10836,8 +10689,7 @@ private theorem writeSuccessActiveForkCallBaseStep (stepNo : Nat) (state : State
   writeSuccessLateSliceCallBaseStep stepNo 0x159a8 state configured atPc loaded
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured; decode_run)
+    (by write_success_decode configured)
 
 private theorem writeSuccessActiveForkCallStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -10852,8 +10704,7 @@ private theorem writeSuccessActiveForkCallStep (stepNo : Nat) (state : State)
     0xe7 0x80 0x80 0x36 state configured atPc base loaded (by native_decide)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide) (by native_decide) (by rfl)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured; decode_run)
+    (by write_success_decode configured)
     (by native_decide) (by native_decide) (by native_decide)
 
 /-- Production `0x159b0: addi a0,sp,0x128`. -/
@@ -10870,9 +10721,7 @@ private theorem writeSuccessActivationBlockSourceStep (stepNo : Nat) (args : Wri
   · simp only [iTypeResult]
     change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x128#64 = _
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   all_goals native_decide
 
 private theorem writeSuccessActivationBlockCallBaseStep (stepNo : Nat) (state : State)
@@ -10884,8 +10733,7 @@ private theorem writeSuccessActivationBlockCallBaseStep (stepNo : Nat) (state : 
   writeSuccessLateSliceCallBaseStep stepNo 0x159b4 state configured atPc loaded
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured; decode_run)
+    (by write_success_decode configured)
 
 private theorem writeSuccessActivationBlockCallStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -10900,8 +10748,7 @@ private theorem writeSuccessActivationBlockCallStep (stepNo : Nat) (state : Stat
     0xe7 0x80 0x40 0x21 state configured atPc base loaded (by native_decide)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide) (by native_decide) (by rfl)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured; decode_run)
+    (by write_success_decode configured)
     (by native_decide) (by native_decide) (by native_decide)
 
 /-- Production `0x159bc: addi a0,sp,0x118`. -/
@@ -10918,9 +10765,7 @@ private theorem writeSuccessActivationTimestampSourceStep (stepNo : Nat) (args :
   · simp only [iTypeResult]
     change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x118#64 = _
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   all_goals native_decide
 
 private theorem writeSuccessActivationTimestampCallBaseStep (stepNo : Nat) (state : State)
@@ -10932,8 +10777,7 @@ private theorem writeSuccessActivationTimestampCallBaseStep (stepNo : Nat) (stat
   writeSuccessLateSliceCallBaseStep stepNo 0x159c0 state configured atPc loaded
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured; decode_run)
+    (by write_success_decode configured)
 
 private theorem writeSuccessActivationTimestampCallStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -10948,8 +10792,7 @@ private theorem writeSuccessActivationTimestampCallStep (stepNo : Nat) (state : 
     0xe7 0x80 0x80 0x20 state configured atPc base loaded (by native_decide)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide) (by native_decide) (by rfl)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured; decode_run)
+    (by write_success_decode configured)
     (by native_decide) (by native_decide) (by native_decide)
 
 /-- Production `0x159c8: mv a0,s0` before the public-key byte-list child. -/
@@ -10976,9 +10819,7 @@ private theorem writeSuccessPublicKeysAddressStep (stepNo : Nat) (state : State)
   exact configuredRegisterWriteStep stepNo 0x159c8 state x10 (BitVec.ofNat 64 address)
     (.ITYPE (0, .Regidx 8#5, .Regidx 10#5, .ADDI)) 0x13 0x05 0x04 0x00
     configured atPc loaded (by
-      obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-        writeSuccessLoadDecodeReads configured
-      decode_run) execute (base := by rfl)
+      write_success_decode configured) execute (base := by rfl)
 
 /-- Production `0x159cc: ld a1,0x58(sp)` before the public-key byte-list child. -/
 private theorem writeSuccessPublicKeysLengthStep (stepNo : Nat) (state : State)
@@ -10993,8 +10834,7 @@ private theorem writeSuccessPublicKeysLengthStep (stepNo : Nat) (state : State)
   exact writeSuccessLateSliceLoadStep stepNo 0x159cc 0x58 length (.Regidx 11#5) x11
     (BitVec.ofNat 64 length) 0x83 0x35 0x81 0x05 args state access atPc stack rep
     (by omega) (by omega) loaded (fun premise => wX_x11_run premise _) (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured; decode_run)
+    (by write_success_decode access.configured)
     (by native_decide) (by decide) (by decide) (by decide) (by decide)
     (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide)
 
@@ -11007,8 +10847,7 @@ private theorem writeSuccessPublicKeysCallBaseStep (stepNo : Nat) (state : State
   writeSuccessLateSliceCallBaseStep stepNo 0x159d0 state configured atPc loaded
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured; decode_run)
+    (by write_success_decode configured)
 
 private theorem writeSuccessPublicKeysCallStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -11023,8 +10862,7 @@ private theorem writeSuccessPublicKeysCallStep (stepNo : Nat) (state : State)
     0xe7 0x80 0x00 0x24 state configured atPc base loaded (by native_decide)
     (by native_decide) (by native_decide) (by native_decide) (by native_decide)
     (by native_decide) (by native_decide) (by rfl)
-    (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured; decode_run)
+    (by write_success_decode configured)
     (by native_decide) (by native_decide) (by native_decide)
 
 macro "writeSuccessRestoreStep(" name:ident ";" pc:term "," offset:term ","
@@ -11044,8 +10882,7 @@ macro "writeSuccessRestoreStep(" name:ident ";" pc:term "," offset:term ","
         (by omega) (by omega) loaded
         (fun premise => $wrun premise (BitVec.ofNat 64 value))
         (by native_decide)
-        (by obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-          writeSuccessLoadDecodeReads access.configured; decode_run)
+        (by write_success_decode access.configured)
         (by native_decide) (by decide) (by decide) (by decide) (by decide)
         (by rfl) (by native_decide) (by native_decide) (by native_decide) (by native_decide))
 
@@ -12964,9 +12801,7 @@ private theorem writeSuccessTransactionsPointerLoadStep (stepNo : Nat)
     rw [← BitVec.ofNat_add]
   · intro premise
     exact wX_x10_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   · native_decide
@@ -12994,9 +12829,7 @@ private theorem writeSuccessTransactionsPointerStoreStep (stepNo : Nat)
     0x23 0x34 0xa1 0x06 access atPc stack data (by omega) (by omega) loaded upper
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x68#64 = _
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessStoreDecodeReads access.configured
-    decode_run
+  · write_success_store_decode access.configured
   · native_decide
   · rfl
   · native_decide
@@ -13022,9 +12855,7 @@ private theorem writeSuccessTransactionsCountLoadStep (stepNo : Nat)
     rw [← BitVec.ofNat_add]
   · intro premise
     exact wX_x10_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   · native_decide
@@ -13052,9 +12883,7 @@ private theorem writeSuccessTransactionsCountStoreStep (stepNo : Nat)
     0x23 0x38 0xa1 0x06 access atPc stack data (by omega) (by omega) loaded upper
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x70#64 = _
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessStoreDecodeReads access.configured
-    decode_run
+  · write_success_store_decode access.configured
   · native_decide
   · rfl
   · native_decide
@@ -13079,9 +12908,7 @@ private theorem writeSuccessRawTransactionsAddressLoadStep (stepNo : Nat)
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x450#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -13103,9 +12930,7 @@ private theorem writeSuccessRawTransactionsCountLoadStep (stepNo : Nat)
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x458#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x11_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -13117,7 +12942,7 @@ private theorem writeSuccessByteListsCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x15670 retired x1 0x15670) false := by
-  exact configuredAuipcStep stepNo state 0x15670 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
+  exact configuredAuipcStep stepNo state 0x15670 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x15674: jalr ra,0x5a0(ra)`, entering the byte-list encoder. -/
 private theorem writeSuccessByteListsCallStep (stepNo : Nat) (state : State)
@@ -13130,7 +12955,7 @@ private theorem writeSuccessByteListsCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x15674 0x15c10 x1 0x15678)
         0x15c10 retired) false := by
   exact configuredJalrCallStep stepNo state 0x15674 0x15670 0x5a0 0x15c10 0x15678
-    0xe7 0x80 0x00 0x5a configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x00 0x5a configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x15678: ld s0,0x460(sp)`. -/
 private theorem writeSuccessWithdrawalsAddressLoadStep (stepNo : Nat)
@@ -13149,9 +12974,7 @@ private theorem writeSuccessWithdrawalsAddressLoadStep (stepNo : Nat)
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x460#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x8_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -13173,9 +12996,7 @@ private theorem writeSuccessWithdrawalsCountLoadStep (stepNo : Nat)
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x468#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x9_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -14238,9 +14059,7 @@ private theorem writeSuccessBlobGasUsedLoadStep (stepNo : Nat) (args : WriteSucc
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x470#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -14252,7 +14071,7 @@ private theorem writeSuccessBlobGasUsedCallBaseStep (stepNo : Nat) (state : Stat
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x156ec retired x1 0x156ec) false := by
-  exact configuredAuipcStep stepNo state 0x156ec 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
+  exact configuredAuipcStep stepNo state 0x156ec 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x156f0: jalr ra,0x624(ra)`. -/
 private theorem writeSuccessBlobGasUsedCallStep (stepNo : Nat) (state : State)
@@ -14265,7 +14084,7 @@ private theorem writeSuccessBlobGasUsedCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x156f0 0x15d10 x1 0x156f4)
         0x15d10 retired) false := by
   exact configuredJalrCallStep stepNo state 0x156f0 0x156ec 0x624 0x15d10 0x156f4
-    0xe7 0x80 0x40 0x62 configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x40 0x62 configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x156f4: ld a0,0x478(sp)`. -/
 private theorem writeSuccessExcessBlobGasLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -14285,9 +14104,7 @@ private theorem writeSuccessExcessBlobGasLoadStep (stepNo : Nat) (args : WriteSu
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x478#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -14299,7 +14116,7 @@ private theorem writeSuccessExcessBlobGasCallBaseStep (stepNo : Nat) (state : St
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x156f8 retired x1 0x156f8) false := by
-  exact configuredAuipcStep stepNo state 0x156f8 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
+  exact configuredAuipcStep stepNo state 0x156f8 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x156fc: jalr ra,0x618(ra)`. -/
 private theorem writeSuccessExcessBlobGasCallStep (stepNo : Nat) (state : State)
@@ -14312,7 +14129,7 @@ private theorem writeSuccessExcessBlobGasCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x156fc 0x15d10 x1 0x15700)
         0x15d10 retired) false := by
   exact configuredJalrCallStep stepNo state 0x156fc 0x156f8 0x618 0x15d10 0x15700
-    0xe7 0x80 0x80 0x61 configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x80 0x61 configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x15700: ld a0,0x480(sp)`. -/
 private theorem writeSuccessSlotWordLoadStep (stepNo value : Nat) (args : WriteSuccessArgs)
@@ -14330,9 +14147,7 @@ private theorem writeSuccessSlotWordLoadStep (stepNo value : Nat) (args : WriteS
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x480#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -14353,9 +14168,7 @@ private theorem writeSuccessSlotTagLoadStep (stepNo tag : Nat) (args : WriteSucc
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x488#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x11_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -14378,9 +14191,7 @@ private theorem writeSuccessSlotWordStoreStep (stepNo value : Nat) (args : Write
     0x23 0x3c 0xa1 0x64 access atPc stack data (by omega) (by omega) loaded upper
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x658#64 = _
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessStoreDecodeReads access.configured
-    decode_run
+  · write_success_store_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -14404,9 +14215,7 @@ private theorem writeSuccessSlotTagStoreStep (stepNo tag : Nat) (args : WriteSuc
     loaded upper
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x660#64 = _
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessStoreDecodeReads access.configured
-    decode_run
+  · write_success_store_decode access.configured
   · native_decide
   · rfl
   · native_decide
@@ -14430,9 +14239,7 @@ private theorem writeSuccessSlotSourceStep (stepNo : Nat) (args : WriteSuccessAr
   · simp only [iTypeResult]
     change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x658#64 = _
     rw [← BitVec.ofNat_add]
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  · write_success_decode configured
   all_goals native_decide
 
 /-- Production `0x15714: auipc ra,0`. -/
@@ -14442,7 +14249,7 @@ private theorem writeSuccessOptionalCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x15714 retired x1 0x15714) false := by
-  exact configuredAuipcStep stepNo state 0x15714 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
+  exact configuredAuipcStep stepNo state 0x15714 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x15718: jalr ra,0x4b4(ra)`, entering optional-u64. -/
 private theorem writeSuccessOptionalCallStep (stepNo : Nat) (state : State)
@@ -14455,7 +14262,7 @@ private theorem writeSuccessOptionalCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x15718 0x15bc8 x1 0x1571c)
         0x15bc8 retired) false := by
   exact configuredJalrCallStep stepNo state 0x15718 0x15714 0x4b4 0x15bc8 0x1571c
-    0xe7 0x80 0x40 0x4b configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x40 0x4b configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 /-- Production `0x1571c: ld a0,0x490(sp)`. -/
 private theorem writeSuccessBlockAccessPointerLoadStep (stepNo address : Nat)
@@ -14473,9 +14280,7 @@ private theorem writeSuccessBlockAccessPointerLoadStep (stepNo address : Nat)
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x490#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x10_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -14496,9 +14301,7 @@ private theorem writeSuccessBlockAccessLengthLoadStep (stepNo address length : N
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x498#64 = _
     rw [← BitVec.ofNat_add]
   · exact fun premise => wX_x11_run premise _
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads access.configured
-    decode_run
+  · write_success_decode access.configured
   · native_decide
   · rfl
   all_goals native_decide
@@ -14510,7 +14313,7 @@ private theorem writeSuccessBlockAccessCallBaseStep (stepNo : Nat) (state : Stat
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x15724 retired x1 0x15724) false := by
-  exact configuredAuipcStep stepNo state 0x15724 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
+  exact configuredAuipcStep stepNo state 0x15724 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by write_success_decode configured)
 
 /-- Production `0x15728: jalr ra,0x548(ra)`, entering the shared bytes encoder. -/
 private theorem writeSuccessBlockAccessCallStep (stepNo : Nat) (state : State)
@@ -14523,7 +14326,7 @@ private theorem writeSuccessBlockAccessCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x15728 0x15c6c x1 0x1572c)
         0x15c6c retired) false := by
   exact configuredJalrCallStep stepNo state 0x15728 0x15724 0x548 0x15c6c 0x1572c
-    0xe7 0x80 0x80 0x54 configured atPc baseRead loaded (decode := by configured_decode configured)
+    0xe7 0x80 0x80 0x54 configured atPc baseRead loaded (decode := by write_success_decode configured)
 
 set_option genInjectivity false in
 /-- The four parent loads/stores that materialize the optional slot descriptor. -/
