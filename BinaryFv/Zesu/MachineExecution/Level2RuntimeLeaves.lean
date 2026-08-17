@@ -2259,6 +2259,15 @@ private theorem platformPreserved_disjoint_zkvmExitWrites :
   platformPreserved_disjoint.union
     (RegSet.Disjoint.only (by simp [platformPreserved]))
 
+private theorem zkvmExitLoadedOfSeg {fromStep count : Nat} {base after : State}
+    {kv : List RegVal} {pc : BitVec 64}
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully base.mem)
+    (seg : Seg (pcInRanges Elflings.zkvmExitExecutionPcRanges)
+      (pcInList Elflings.zkvmExitExitPcs) (fun _ _ _ _ _ => False)
+      zkvmExitWrites (fun _ => False) kv fromStep count base after pc) :
+    Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
+  simpa [seg.memEq (by simp)] using loaded
+
 private theorem zkvmExitPcInside (pc : BitVec 64)
     (literal : pc = 0x101c4 ∨ pc = 0x101c8 ∨ pc = 0x101cc) :
     pcInRanges Elflings.zkvmExitExecutionPcRanges pc := by
@@ -2307,51 +2316,42 @@ theorem zkvmExitInstanceContract : ZkvmExitInstanceContract := by
   refine ⟨3, ?_⟩
   intro args fromStep before entry
   rcases entry with ⟨atPc, codeRead, pma, loaded, configured⟩
+  obtain ⟨retired0, retiredRead0⟩ := configured.retiredCounter
+  have seg0 := Seg.nil (pcInRanges Elflings.zkvmExitExecutionPcRanges)
+    (pcInList Elflings.zkvmExitExitPcs) zkvmExitWrites (fun _ => False) fromStep
+    (childSummary := fun _ _ _ _ _ => False) ⟨retired0, retiredRead0⟩ atPc
+  have seg0 := seg0.know x10 (BitVec.ofNat 64 args.code) codeRead
   obtain ⟨retired1, run1⟩ := zkvmExitLoadContextBaseStep fromStep before.machine
     configured atPc loaded
   let state1 := afterRegisterWrite before.machine 0x101c4 retired1 x5 0x2401a1c4
-  have writes1 : WritesOnlyRegs zkvmExitWrites before.machine state1 :=
-    (afterRegisterWrite_writes before.machine 0x101c4 retired1 x5 0x2401a1c4).mono
-      (fun _ written => written.elim Or.inl (fun h => h ▸ Or.inr rfl))
+  have seg1 := seg0.stepKnown (zkvmExitPcInside 0x101c4 (Or.inl rfl))
+    (zkvmExitPcNotExit 0x101c4 (Or.inl rfl)) x5 0x2401a1c4 0x101c8 retired1 run1
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr rfl)
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have configured1 : ConfiguredMachinePre EndpointMachinePc state1 :=
-    configured.mono (writes1.agree instructionPreserved_disjoint_zkvmExitWrites)
-      (afterRegisterWrite_retired_present before.machine 0x101c4 retired1 x5 0x2401a1c4)
-  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully state1.mem := by
-    rw [afterRegisterWrite_mem]
-    exact loaded
-  have base1 : state1.regs.get? x5 = some (BitVec.ofNat 64 0x2401a1c4) :=
-    afterRegisterWrite_destination before.machine 0x101c4 retired1 x5 0x2401a1c4
-      (by decide) (by decide)
-  have atPc1 : state1.regs.get? PC = some (BitVec.ofNat 64 0x101c8) := by
-    simpa using afterRegisterWrite_pc before.machine 0x101c4 retired1 x5 0x2401a1c4
+    configured.mono (seg1.agree instructionPreserved_disjoint_zkvmExitWrites) seg1.retired
+  have loaded1 := zkvmExitLoadedOfSeg loaded seg1
+  have seg1' := seg1.forget (kv' := [⟨x10, BitVec.ofNat 64 args.code⟩]) (by simp)
   obtain ⟨retired2, run2⟩ := zkvmExitFinishContextBaseStep (fromStep + 1) state1
-    configured1 atPc1 base1 loaded1
+    configured1 seg1.atPc (seg1.reg x5 0x2401a1c4 (by simp)) loaded1
   let state2 := afterRegisterWrite state1 0x101c8 retired2 x5 0x2401a0b8
-  have writes2 : WritesOnlyRegs zkvmExitWrites state1 state2 :=
-    (afterRegisterWrite_writes state1 0x101c8 retired2 x5 0x2401a0b8).mono
-      (fun _ written => written.elim Or.inl (fun h => h ▸ Or.inr rfl))
+  have seg2 := seg1'.stepKnown (zkvmExitPcInside 0x101c8 (Or.inr (Or.inl rfl)))
+    (zkvmExitPcNotExit 0x101c8 (Or.inr (Or.inl rfl))) x5 0x2401a0b8 0x101cc retired2 run2
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr rfl)
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have configured2 : ConfiguredMachinePre EndpointMachinePc state2 :=
-    configured1.mono (writes2.agree instructionPreserved_disjoint_zkvmExitWrites)
-      (afterRegisterWrite_retired_present state1 0x101c8 retired2 x5 0x2401a0b8)
-  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully state2.mem := by
-    rw [afterRegisterWrite_mem]
-    exact loaded1
+    configured.mono (seg2.agree instructionPreserved_disjoint_zkvmExitWrites) seg2.retired
+  have loaded2 := zkvmExitLoadedOfSeg loaded seg2
   have context2 : state2.regs.get? x5 =
       some (BitVec.ofNat 64 Elflings.ioContextAddress) := by
-    simpa [Elflings.ioContextAddress] using
-      afterRegisterWrite_destination state1 0x101c8 retired2 x5 0x2401a0b8
-        (by decide) (by decide)
-  have atPc2 : state2.regs.get? PC = some (BitVec.ofNat 64 0x101cc) := by
-    simpa using afterRegisterWrite_pc state1 0x101c8 retired2 x5 0x2401a0b8
+    simpa [Elflings.ioContextAddress] using seg2.reg x5 0x2401a0b8 (by simp)
   have code2 : state2.regs.get? x10 = some (BitVec.ofNat 64 args.code) := by
-    exact (writes2.get x10 (by simp [zkvmExitWrites])).trans
-      ((writes1.get x10 (by simp [zkvmExitWrites])).trans codeRead)
+    exact seg2.reg x10 (BitVec.ofNat 64 args.code) (by simp)
   have pma2 : StorePmaAllows state2
       (BitVec.ofNat 64 (Elflings.ioContextAddress + 24)) 8 :=
-    storePmaAllows_of_agree
-      ((writes1.trans_same writes2).agree platformPreserved_disjoint_zkvmExitWrites) pma
+    storePmaAllows_of_agree (seg2.agree platformPreserved_disjoint_zkvmExitWrites) pma
   obtain ⟨retired3, run3⟩ := zkvmExitStoreCodeStep (fromStep + 2) state2 args.code
-    configured2 atPc2 context2 code2 pma2 loaded2
+    configured2 seg2.atPc context2 code2 pma2 loaded2
   let state3 := tryStepStoreAfterRetired
     (afterWriteBytes (width := 8)
       (coreStoreNextState (tryStepStoreAfterIncrement state2) 0x101cc)
@@ -2363,7 +2363,7 @@ theorem zkvmExitInstanceContract : ZkvmExitInstanceContract := by
   have trace1 := zkvmExitConfinedSailStep fromStep before state1 0x101c4 (Or.inl rfl)
     atPc run1
   have trace2 := zkvmExitConfinedSailStep (fromStep + 1) state1Endpoint state2 0x101c8
-    (Or.inr rfl) atPc1 run2
+    (Or.inr rfl) seg1.atPc run2
   have finalPc : state3.regs.get? PC =
       some (BitVec.ofNat 64 Elflings.zkvmExitTerminalPc) := by
     simp only [state3, tryStepStoreAfterRetired, tryStepStoreAfterTick]
@@ -2372,7 +2372,7 @@ theorem zkvmExitInstanceContract : ZkvmExitInstanceContract := by
     rw [dif_pos (by decide : (PC == PC) = true)]
     rfl
   have exitStep : BareMetalExitStep (fromStep + 2) state2Endpoint after := by
-    exact ⟨args.code, atPc2, code2, run3, rfl, rfl, rfl, rfl, finalPc⟩
+    exact ⟨args.code, seg2.atPc, code2, run3, rfl, rfl, rfl, rfl, finalPc⟩
   have trace3 := zkvmExitConfinedStoreStep (fromStep + 2) state2Endpoint after exitStep
   have trace12 : ConfinedTrace EndpointStep EndpointPc
       (pcInRanges Elflings.zkvmExitExecutionPcRanges) fromStep 2 before state2Endpoint := by
@@ -2385,7 +2385,7 @@ theorem zkvmExitInstanceContract : ZkvmExitInstanceContract := by
   · exact ⟨0x101d0, finalPc, by unfold pcInList; native_decide⟩
   · refine ⟨finalPc, rfl, rfl, rfl, rfl, ?_⟩
     have prefixMem : state2.mem = before.machine.mem := by
-      simp [state2, state1, afterRegisterWrite_mem]
+      exact seg2.memEq (by simp)
     have storeMem : WritesOnlyWithin (byteRange (Elflings.ioContextAddress + 24) 8)
         state2 state3 := by
       intro address outside
