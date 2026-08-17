@@ -1,4 +1,5 @@
-{ binaryFvLean, evmSail, evmSailCompiler, leanSail, pkgs, repo, zesuSszDecodeSmoke }:
+{ binaryFvLean, evmSail, evmSailCompiler, leanSail, pkgs, repo, zesuSszDecodeSmoke
+, zesuSszDecodeCfg, zesuSszDecodeLevel1Manifest, zesuSszDecodeLevel2Manifest }:
 let
   customSail = pkgs.ocamlPackages.sail.overrideAttrs (_old: {
     pname = "sail-evm-sail";
@@ -210,7 +211,27 @@ let
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
     lean --tstack=65536 DifferentialSmoke.lean
-    touch "$out"
+    lean ${repo}/tools/RootProofDependencies.lean > root-dependencies.tsv
+    mkdir -p "$out"
+    cp root-dependencies.tsv "$out/"
+  '';
+
+  hlevel2Baseline = pkgs.runCommand "zesu-hlevel2-proof-baseline" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    mkdir -p "$out"
+    python ${repo}/tools/build_hlevel2_baseline.py \
+      --dependencies ${combinedImport}/root-dependencies.tsv \
+      --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+      --flame ${zesuSszDecodeCfg}/flame.json \
+      --level1 ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
+      --level2 ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+      --output "$out/hlevel2-baseline.json"
+    python ${repo}/tools/test_hlevel2_baseline.py \
+      ${combinedImport}/root-dependencies.tsv \
+      ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json \
+      ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
+      ${zesuSszDecodeLevel2Manifest}/level2-manifest.json
   '';
 in
 {
@@ -218,5 +239,6 @@ in
     evmSailCompiler = customSail;
     evmSailLeanExtraction = leanExtraction;
     binaryFvEvmSailCombinedImport = combinedImport;
+    zesuHlevel2ProofBaseline = hlevel2Baseline;
   };
 }
