@@ -290,49 +290,72 @@ A natural plan is to prove one instance of a function and reuse the proof at its
 limits it sharply. Every function with two or more instances in the endpoint image, with `main`'s
 proven addresses joined in:
 
-| function | instances | shapes | contiguous | proven | unproven | unproven instrs | % of image |
+**First, a definition that a previous draft of this section got wrong.** Instance coverage is a
+*fraction*, not a flag. An earlier version counted an instance as "proven" when the proof cited **one**
+of its program counters. By that measure two instances of `sizeClassOfBytes` looked proven; in fact the
+better of the two cites 3 of its 78 program counters. "Cited" and "proven" are different claims, and
+only the fraction supports either.
+
+**Measured properly, across all 234 instances in the image:**
+
+| instance coverage | instances |
+|---|---|
+| ≥ 90% of program counters cited | **9** |
+| ≥ 50% | 10 |
+| more than 0% | 49 |
+| **untouched** | **185** |
+
+**185 of 234 instances are completely untouched.** Nine are essentially complete.
+
+Every function with two or more instances:
+
+| function | instances | shapes | ≥90% | >0% | untouched | instrs | % of image |
 |---|---|---|---|---|---|---|---|
-| `mem.readInt` | 27 | 15 | 16 | 0 | 27 | 363 | 5.0% |
-| `mem.Allocator.allocAdvancedWithRetAddr` | 8 | 7 | 6 | 0 | 8 | 327 | 4.5% |
-| `alt_fl_alloc.sizeClass` | 4 | 3 | 4 | **2** | 2 | 168 | 2.3% |
-| **`alt_fl_alloc.sizeClassOfBytes`** | **4** | **1** | **4** | **2** | **2** | **156** | **2.2%** |
-| `ssz.readU32` | 15 | 9 | 9 | 0 | 15 | 147 | 2.0% |
-| `ssz.readU64` | 8 | 5 | 6 | 0 | 8 | 142 | 2.0% |
-| `ssz.decode__struct_1051.f` | 5 | 5 | 3 | 0 | 5 | 59 | 0.8% |
-| `ssz_decode_observation.Encoder.raw` | 23 | 6 | 23 | **11** | 12 | 52 | 0.7% |
-| `extern_io.write_output` | 23 | 6 | 23 | **11** | 12 | 52 | 0.7% |
-| `math.mul__anon_1837` | 9 | 7 | 4 | 0 | 9 | 43 | 0.6% |
-| `mem.Allocator.rawRemap` | 3 | 2 | **0** | 0 | 3 | 18 | 0.2% |
-| `mem.Allocator.rawFree` | 3 | 2 | **0** | 0 | 3 | 14 | 0.2% |
-| `mem.Allocator.rawAlloc` | 3 | 2 | 3 | 0 | 3 | 12 | 0.2% |
-| `mem.writeInt` | 4 | 4 | 4 | 0 | 4 | 8 | 0.1% |
+| `mem.readInt` | 27 | 15 | 0 | 0 | 27 | 363 | 5.0% |
+| `mem.Allocator.allocAdvancedWithRetAddr` | 8 | 7 | 0 | 0 | 8 | 327 | 4.5% |
+| `alt_fl_alloc.sizeClass` | 4 | 3 | 0 | 2 | 2 | 330 | 4.6% |
+| **`alt_fl_alloc.sizeClassOfBytes`** | **4** | **1** | **0** | **2** | **2** | **312** | **4.3%** |
+| `ssz.readU32` | 15 | 9 | 0 | 0 | 15 | 147 | 2.0% |
+| `ssz.readU64` | 8 | 5 | 0 | 0 | 8 | 142 | 2.0% |
+| `ssz.decode__struct_1051.f` | 5 | 5 | 0 | 0 | 5 | 59 | 0.8% |
+| `ssz_decode_observation.Encoder.raw` | 23 | 6 | **3** | 11 | 12 | 52 | 0.7% |
+| `extern_io.write_output` | 23 | 6 | **3** | 11 | 12 | 52 | 0.7% |
+| `math.mul__anon_1837` | 9 | 7 | 0 | 0 | 9 | 43 | 0.6% |
+| `mem.Allocator.rawRemap` | 3 | 2 | 0 | 0 | 3 | 18 | 0.2% |
+| `mem.Allocator.rawFree` | 3 | 2 | 0 | 0 | 3 | 14 | 0.2% |
+| `mem.Allocator.rawAlloc` | 3 | 2 | 0 | 0 | 3 | 12 | 0.2% |
+| `mem.writeInt` | 4 | 4 | 0 | 0 | 4 | 8 | 0.1% |
 
 **Exactly one function has all its instances sharing one opcode shape:** `sizeClassOfBytes`, with all
-four instances contiguous and two of the four already proven. Every other function splits, because the
-compiler specialised each call site. `mem.readInt` has 27 instances and 15 shapes.
-`allocAdvancedWithRetAddr` has 8 instances and 7 shapes.
+four contiguous. Every other function splits, because the compiler specialised each call site.
+`mem.readInt` has 27 instances and 15 shapes. `allocAdvancedWithRetAddr` has 8 instances and 7 shapes.
 
 **So the reusable unit is not the function instance. It is the shape** — the opcode or class sequence,
 which is what the covering already finds. A list of idioms and a list of motifs are therefore the same
 list.
 
-### The list worth building: proven at one instance, unproven at a sibling
+### The transfer opportunity is almost empty
 
-Four names have at least one proven instance and at least one unproven instance. This is the list that
-transfers existing work rather than creating new work:
-
-| function | proven | unproven | shapes | unproven instructions |
-|---|---|---|---|---|
-| `alt_fl_alloc.sizeClass` | 2 | 2 | 3 | 168 (2.3%) |
-| **`alt_fl_alloc.sizeClassOfBytes`** | **2** | **2** | **1** | **156 (2.2%)** |
-| `ssz_decode_observation.Encoder.raw` | 11 | 12 | 6 | 52 (0.7%) |
-| `extern_io.write_output` | 11 | 12 | 6 | 52 (0.7%) |
-| **total** | | | | **428 (5.9%)** |
-
-`sizeClassOfBytes` is the one clean case: a single shape, all instances contiguous, half already
-proven. It should be the pilot for any pipeline. The last two rows report identical figures, which
-suggests one is inlined into the other; the evidence generator must resolve that rather than
+A plan to transfer an existing instance proof to its siblings has **one** candidate: the
+`ssz_decode_observation.Encoder.raw` / `extern_io.write_output` pair, with 3 instances at ≥90% and 12
+untouched, worth 52 instructions — **0.7% of the image**. The two rows report identical figures, so one
+is probably inlined into the other and the evidence generator must resolve that rather than
 double-count it.
+
+No other function has a single instance at even 50%. **There is essentially no existing per-instance
+work to transfer.**
+
+### The real opportunity is reuse within new work
+
+`sizeClassOfBytes` remains the best pilot, but for the opposite reason to the one a previous draft
+gave. It is not half proven. It is **entirely unproven, with the cleanest possible reuse structure**:
+
+- 4 instances, **1 opcode shape**, 4 of 4 contiguous;
+- 78 instructions each, **312 instructions = 4.3% of the image**;
+- one lemma, applied four times, for 4.3% of the endpoint.
+
+That is a larger prize than the whole transfer list, and it tests the pipeline on new work, which is
+what the remaining 95.9% of the image consists of.
 
 **Contiguity is a second hard gate.** `rawRemap` and `rawFree` are 0 of 3 contiguous. `Seg` cannot
 state a non-contiguous instance at all, because the scheduler interleaved copies. An instance is a
