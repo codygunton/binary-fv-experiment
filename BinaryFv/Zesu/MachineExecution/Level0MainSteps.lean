@@ -1,5 +1,6 @@
 import BinaryFv.RiscV.Proof.ImageFetch
 import BinaryFv.RiscV.Instruction.Decode
+import BinaryFv.RiscV.Instruction.DecodeTactic
 import BinaryFv.RiscV.Step.ConfiguredMachine
 import BinaryFv.RiscV.Instruction.Execute.Arithmetic
 import BinaryFv.RiscV.Instruction.Execute.DataAddress
@@ -26,6 +27,12 @@ open BinaryFv.Binary
 open BinaryFv.RiscV
 open PreSail LeanRV64DExecutable.Functions Register
 open MemoryAccessType mem_payload page_based_mem_type
+
+/-- Derive the post-increment machine reads used by one concrete `decode_run`. -/
+macro "configured_decode " configured:term : tactic =>
+  `(tactic|
+    (obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ := ($configured).decodeContext
+     decode_run))
 
 /-- The exact generated Level 0 instruction addresses. -/
 def mainGluePcs (pc : BitVec 64) : Prop := pcInRanges Elflings.mainGluePcRanges pc
@@ -291,12 +298,12 @@ theorem configuredAuipcStep (stepNo : Nat) (state : State) (pc : Nat)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
-    (pcFits : pc < 2 ^ 64)
-    (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
-    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
-    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
-    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (pcFits : pc < 2 ^ 64 := by native_decide)
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by rfl)
     (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
       (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
@@ -350,15 +357,9 @@ theorem writeSuccessMemcpyCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14d78 retired x1 0xfd78) false := by
-  apply configuredAuipcStep stepNo state 0x14d78 0xffffb 0x97 0xb0 0xff 0xff
-    configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
+  exact configuredAuipcStep stepNo state 0x14d78 0xffffb 0x97 0xb0 0xff 0xff
+    configured atPc loaded (decode := by
+    obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
       configured.decodeContext
     unfold Runs
     rw [extDecode_eq]
@@ -367,7 +368,7 @@ theorem writeSuccessMemcpyCallBaseStep (stepNo : Nat) (state : State)
       EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
       instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
       MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    rfl)
 
 private theorem main_li_zero_step (stepNo : Nat) (state : State) (pc : Nat)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -433,19 +434,21 @@ theorem configuredJalrCallStep (stepNo : Nat) (state : State) (pc : Nat)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
     (baseRead : state.regs.get? x1 = some callBase)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
-    (pcFits : pc < 2 ^ 64)
-    (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
-    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
-    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
-    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (pcFits : pc < 2 ^ 64 := by native_decide)
+    (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
+    (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
+    (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by rfl)
     (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
       (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JALR (imm, .Regidx 1#5, .Regidx 1#5)))
-    (targetEq : Sail.BitVec.update (callBase + sign_extend (m := 64) imm) 0 0#1 = target)
-    (returnEq : Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = returnPc)
-    (targetBit1 : Sail.BitVec.access (callBase + sign_extend (m := 64) imm) 1 = 0#1) :
+    (targetEq : Sail.BitVec.update (callBase + sign_extend (m := 64) imm) 0 0#1 = target := by
+      native_decide)
+    (returnEq : Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = returnPc := by native_decide)
+    (targetBit1 : Sail.BitVec.access (callBase + sign_extend (m := 64) imm) 1 = 0#1 := by
+      native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc) target x1
@@ -1300,14 +1303,9 @@ theorem main_write_success_call_base_step (stepNo : Nat) (state : State)
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d08).regs.insert
             x1 0x14d08 }
         0x14d0c retired) false := by
-  apply configuredAuipcStep stepNo state 0x14d08 0 0x97 0x00 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
+  exact configuredAuipcStep stepNo state 0x14d08 0 0x97 0x00 0x00 0x00 configured atPc loaded
+    (decode := by
+    obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
       configured.decodeContext
     unfold Runs
     rw [extDecode_eq]
@@ -1316,7 +1314,7 @@ theorem main_write_success_call_base_step (stepNo : Nat) (state : State)
       EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
       instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
       MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    rfl)
 
 /-- Production `0x14d0c: jalr ra,0x28(ra)`, entering `writeSuccess` at `0x14d30`. -/
 theorem main_write_success_call_step (stepNo : Nat) (state : State)
@@ -1467,14 +1465,8 @@ theorem main_success_exit_call_base_step (stepNo : Nat) (state : State)
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d14).regs.insert
             x1 0xfd14 }
         0x14d18 retired) false := by
-  apply configuredAuipcStep stepNo state 0x14d14 0xffffb 0x97 0xb0 0xff 0xff configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · exact main_auipc_neg5_decode state configured
+  exact configuredAuipcStep stepNo state 0x14d14 0xffffb 0x97 0xb0 0xff 0xff configured atPc loaded
+    (decode := main_auipc_neg5_decode state configured)
 
 /-- Production `0x14d1c: auipc ra,1`, forming the `writeFailure` call base. -/
 theorem main_write_failure_call_base_step (stepNo : Nat) (state : State)
@@ -1487,14 +1479,8 @@ theorem main_write_failure_call_base_step (stepNo : Nat) (state : State)
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d1c).regs.insert
             x1 0x15d1c }
         0x14d20 retired) false := by
-  apply configuredAuipcStep stepNo state 0x14d1c 1 0x97 0x10 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · exact main_auipc_plus1_decode state configured
+  exact configuredAuipcStep stepNo state 0x14d1c 1 0x97 0x10 0x00 0x00 configured atPc loaded
+    (decode := main_auipc_plus1_decode state configured)
 
 /-- Production `0x14d28: auipc ra,-5`, forming the failure-route `zkvm_exit` call base. -/
 theorem main_failure_exit_call_base_step (stepNo : Nat) (state : State)
@@ -1507,14 +1493,8 @@ theorem main_failure_exit_call_base_step (stepNo : Nat) (state : State)
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d28).regs.insert
             x1 0xfd28 }
         0x14d2c retired) false := by
-  apply configuredAuipcStep stepNo state 0x14d28 0xffffb 0x97 0xb0 0xff 0xff configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · exact main_auipc_neg5_decode state configured
+  exact configuredAuipcStep stepNo state 0x14d28 0xffffb 0x97 0xb0 0xff 0xff configured atPc loaded
+    (decode := main_auipc_neg5_decode state configured)
 
 private theorem main_jalr_decode (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -1550,19 +1530,10 @@ theorem main_success_exit_call_step (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14d18 0x101c4 x1 0x14d1c)
         0x101c4 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14d18 0xfd14 0x4b0 0x101c4 0x14d1c
+  exact configuredJalrCallStep stepNo state 0x14d18 0xfd14 0x4b0 0x101c4 0x14d1c
     0xe7 0x80 0x00 0x4b configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · exact main_jalr_decode state configured 0xe7 0x80 0x00 0x4b 0x4b0
-      (by right; left; native_decide) (by native_decide)
-  · native_decide
-  · native_decide
-  · native_decide
+    (decode := main_jalr_decode state configured 0xe7 0x80 0x00 0x4b 0x4b0
+      (by right; left; native_decide) (by native_decide))
 
 /-- Production `0x14d20: jalr ra,0x4a4(ra)`, entering `writeFailure` at `0x161c0`. -/
 theorem main_write_failure_call_step (stepNo : Nat) (state : State)
@@ -1574,19 +1545,10 @@ theorem main_write_failure_call_step (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14d20 0x161c0 x1 0x14d24)
         0x161c0 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14d20 0x15d1c 0x4a4 0x161c0 0x14d24
+  exact configuredJalrCallStep stepNo state 0x14d20 0x15d1c 0x4a4 0x161c0 0x14d24
     0xe7 0x80 0x40 0x4a configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · exact main_jalr_decode state configured 0xe7 0x80 0x40 0x4a 0x4a4
-      (by right; right; left; native_decide) (by native_decide)
-  · native_decide
-  · native_decide
-  · native_decide
+    (decode := main_jalr_decode state configured 0xe7 0x80 0x40 0x4a 0x4a4
+      (by right; right; left; native_decide) (by native_decide))
 
 /-- Production `0x14d2c: jalr ra,0x49c(ra)`, entering `zkvm_exit` at `0x101c4`. -/
 theorem main_failure_exit_call_step (stepNo : Nat) (state : State)
@@ -1598,19 +1560,10 @@ theorem main_failure_exit_call_step (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14d2c 0x101c4 x1 0x14d30)
         0x101c4 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14d2c 0xfd28 0x49c 0x101c4 0x14d30
+  exact configuredJalrCallStep stepNo state 0x14d2c 0xfd28 0x49c 0x101c4 0x14d30
     0xe7 0x80 0xc0 0x49 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · exact main_jalr_decode state configured 0xe7 0x80 0xc0 0x49 0x49c
-      (by right; right; right; native_decide) (by native_decide)
-  · native_decide
-  · native_decide
-  · native_decide
+    (decode := main_jalr_decode state configured 0xe7 0x80 0xc0 0x49 0x49c
+      (by right; right; right; native_decide) (by native_decide))
 
 /-- Production `0x14cb0: addi sp, sp, -896`, including generated fetch and retirement. -/
 theorem main_stack_allocate_step (stepNo : Nat) (state : State) (stackValue : BitVec 64)
@@ -1686,15 +1639,9 @@ theorem writeSuccessMemcpyCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14d7c 0x101d4 x1 0x14d80)
         0x101d4 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14d7c 0xfd78 0x45c 0x101d4 0x14d80
-    0xe7 0x80 0xc0 0x45 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
+  exact configuredJalrCallStep stepNo state 0x14d7c 0xfd78 0x45c 0x101d4 0x14d80
+    0xe7 0x80 0xc0 0x45 configured atPc baseRead loaded (decode := by
+    obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
       configured.decodeContext
     unfold Runs
     rw [extDecode_eq]
@@ -1703,9 +1650,6 @@ theorem writeSuccessMemcpyCallStep (stepNo : Nat) (state : State)
       EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
       instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
       MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
-  · native_decide
-  · native_decide
-  · native_decide
+    rfl)
 
 end BinaryFv.Zesu

@@ -374,18 +374,8 @@ private theorem decodeInputStoreDecodeReads {state : State}
     ∃ seccfgBits,
       (tryStepStoreAfterIncrement state).regs.get? cur_privilege = some Privilege.Machine ∧
       (tryStepStoreAfterIncrement state).regs.get? mseccfg = some seccfgBits := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  refine ⟨seccfgBits, ?_, ?_⟩
-  · calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepStoreAfterIncrement] using writeReg_read_unchanged state
-          minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  · calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepStoreAfterIncrement] using writeReg_read_unchanged state
-          minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ := configured.storeDecodeContext
+  exact ⟨seccfgBits, privilegeAfter, seccfgAfter⟩
 
 private theorem decodeInputCodeOfSeg {args : DecodeInlineArgs} {W kv a n base cur pc}
     (access : DecodeBoundaryMachineAccess args.boundary args.origin.machine)

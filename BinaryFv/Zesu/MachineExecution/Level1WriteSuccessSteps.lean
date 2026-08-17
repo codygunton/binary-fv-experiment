@@ -468,18 +468,8 @@ private theorem writeSuccessStoreDecodeReads {state : State}
     ∃ seccfgBits,
       (tryStepStoreAfterIncrement state).regs.get? cur_privilege = some Privilege.Machine ∧
       (tryStepStoreAfterIncrement state).regs.get? mseccfg = some seccfgBits := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  refine ⟨seccfgBits, ?_, ?_⟩
-  · calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepStoreAfterIncrement] using writeReg_read_unchanged state
-          minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  · calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepStoreAfterIncrement] using writeReg_read_unchanged state
-          minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ := configured.storeDecodeContext
+  exact ⟨seccfgBits, privilegeAfter, seccfgAfter⟩
 
 private theorem writeSuccessLoadDecodeReads {state : State}
     (configured : ConfiguredMachinePre EndpointMachinePc state) :
@@ -487,18 +477,8 @@ private theorem writeSuccessLoadDecodeReads {state : State}
       (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
         some Privilege.Machine ∧
       (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some seccfgBits := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  refine ⟨seccfgBits, ?_, ?_⟩
-  · calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged state
-          minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  · calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged state
-          minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ := configured.decodeContext
+  exact ⟨seccfgBits, privilegeAfter, seccfgAfter⟩
 
 /-- Execute one exact parent-owned dword load from the optimized decoded-value window. -/
 private theorem writeSuccessDecodedDwordLoadStep (stepNo pc offset value : Nat)
@@ -4179,17 +4159,8 @@ private theorem constantPrefixCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14e0c retired x1 0xfe0c) false := by
-  apply configuredAuipcStep stepNo state 0x14e0c 0xffffb 0x97 0xb0 0xff 0xff
-    configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x14e0c 0xffffb 0x97 0xb0 0xff 0xff
+    configured atPc loaded (decode := by configured_decode configured)
 
 private theorem constantPrefixCallStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -4200,20 +4171,8 @@ private theorem constantPrefixCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e10 0x10190 x1 0x14e14)
         0x10190 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14e10 0xfe0c 0x384 0x10190 0x14e14
-    0xe7 0x80 0x40 0x38 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x14e10 0xfe0c 0x384 0x10190 0x14e14
+    0xe7 0x80 0x40 0x38 configured atPc baseRead loaded (decode := by configured_decode configured)
 
 private def constantPrefixParentPc (pc : BitVec 64) : Prop :=
   pcInRanges [(0x14e00, 0x14e14)] pc
@@ -4527,17 +4486,8 @@ private theorem prevRandaoCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14e80 retired x1 0xfe80) false := by
-  apply configuredAuipcStep stepNo state 0x14e80 0xffffb 0x97 0xb0 0xff 0xff
-    configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x14e80 0xffffb 0x97 0xb0 0xff 0xff
+    configured atPc loaded (decode := by configured_decode configured)
 
 private theorem prevRandaoCallStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -4548,20 +4498,8 @@ private theorem prevRandaoCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e84 0x10190 x1 0x14e88)
         0x10190 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14e84 0xfe80 0x310 0x10190 0x14e88
-    0xe7 0x80 0x00 0x31 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x14e84 0xfe80 0x310 0x10190 0x14e88
+    0xe7 0x80 0x00 0x31 configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- The 32-byte raw `prev_randao` encoder reaches its declared exit without assumptions. -/
 theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceContract := by
@@ -4915,17 +4853,8 @@ theorem writeSuccessSecondMemcpyCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14e20 retired x1 0xfe20) false := by
-  apply configuredAuipcStep stepNo state 0x14e20 0xffffb 0x97 0xb0 0xff 0xff
-    configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x14e20 0xffffb 0x97 0xb0 0xff 0xff
+    configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x14e24: jalr ra,0x3b4(ra)`, entering `memcpy`. -/
 theorem writeSuccessSecondMemcpyCallStep (stepNo : Nat) (state : State)
@@ -4937,20 +4866,8 @@ theorem writeSuccessSecondMemcpyCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e24 0x101d4 x1 0x14e28)
         0x101d4 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14e24 0xfe20 0x3b4 0x101d4 0x14e28
-    0xe7 0x80 0x40 0x3b configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x14e24 0xfe20 0x3b4 0x101d4 0x14e28
+    0xe7 0x80 0x40 0x3b configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x14e28: addi a0,sp,0x4a0`. -/
 theorem writeSuccessParentHashSourceStep (stepNo : Nat) (state : State)
@@ -6851,16 +6768,7 @@ private theorem writeSuccessFirstIntCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14e8c retired x1 0x15e8c) false := by
-  apply configuredAuipcStep stepNo state 0x14e8c 1 0x97 0x10 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x14e8c 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x14e90: jalr ra,-380(ra)`, entering the shared integer encoder. -/
 private theorem writeSuccessFirstIntCallStep (stepNo : Nat) (state : State)
@@ -6872,20 +6780,8 @@ private theorem writeSuccessFirstIntCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e90 0x15d10 x1 0x14e94)
         0x15d10 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14e90 0x15e8c 0xe84 0x15d10 0x14e94
-    0xe7 0x80 0x40 0xe8 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x14e90 0x15e8c 0xe84 0x15d10 0x14e94
+    0xe7 0x80 0x40 0xe8 configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x14e94: ld a0,0x410(sp)`. -/
 private theorem writeSuccessGasLimitLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -6919,15 +6815,7 @@ private theorem writeSuccessGasLimitCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14e98 retired x1 0x15e98) false := by
-  apply configuredAuipcStep stepNo state 0x14e98 1 0x97 0x10 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x14e98 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x14e9c: jalr ra,-392(ra)`. -/
 private theorem writeSuccessGasLimitCallStep (stepNo : Nat) (state : State)
@@ -6939,19 +6827,8 @@ private theorem writeSuccessGasLimitCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14e9c 0x15d10 x1 0x14ea0)
         0x15d10 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14e9c 0x15e98 0xe78 0x15d10 0x14ea0
-    0xe7 0x80 0x80 0xe7 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x14e9c 0x15e98 0xe78 0x15d10 0x14ea0
+    0xe7 0x80 0x80 0xe7 configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x14ea0: ld a0,0x418(sp)`. -/
 private theorem writeSuccessGasUsedLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -6985,15 +6862,7 @@ private theorem writeSuccessGasUsedCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14ea4 retired x1 0x15ea4) false := by
-  apply configuredAuipcStep stepNo state 0x14ea4 1 0x97 0x10 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x14ea4 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x14ea8: jalr ra,-404(ra)`. -/
 private theorem writeSuccessGasUsedCallStep (stepNo : Nat) (state : State)
@@ -7005,19 +6874,8 @@ private theorem writeSuccessGasUsedCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14ea8 0x15d10 x1 0x14eac)
         0x15d10 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14ea8 0x15ea4 0xe6c 0x15d10 0x14eac
-    0xe7 0x80 0xc0 0xe6 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x14ea8 0x15ea4 0xe6c 0x15d10 0x14eac
+    0xe7 0x80 0xc0 0xe6 configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x14eac: ld a0,0x420(sp)`. -/
 private theorem writeSuccessTimestampLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -7051,15 +6909,7 @@ private theorem writeSuccessTimestampCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14eb0 retired x1 0x15eb0) false := by
-  apply configuredAuipcStep stepNo state 0x14eb0 1 0x97 0x10 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x14eb0 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x14eb4: jalr ra,-416(ra)`. -/
 private theorem writeSuccessTimestampCallStep (stepNo : Nat) (state : State)
@@ -7071,19 +6921,8 @@ private theorem writeSuccessTimestampCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14eb4 0x15d10 x1 0x14eb8)
         0x15d10 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14eb4 0x15eb0 0xe60 0x15d10 0x14eb8
-    0xe7 0x80 0x00 0xe6 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x14eb4 0x15eb0 0xe60 0x15d10 0x14eb8
+    0xe7 0x80 0x00 0xe6 configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x14eb8: ld a0,0x428(sp)`, loading the extra-data pointer. -/
 private theorem writeSuccessExtraDataPointerLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -7138,15 +6977,7 @@ private theorem writeSuccessExtraDataCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14ec0 retired x1 0x15ec0) false := by
-  apply configuredAuipcStep stepNo state 0x14ec0 1 0x97 0x10 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x14ec0 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x14ec4: jalr ra,-596(ra)`, entering the shared byte encoder. -/
 private theorem writeSuccessExtraDataCallStep (stepNo : Nat) (state : State)
@@ -7158,19 +6989,8 @@ private theorem writeSuccessExtraDataCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14ec4 0x15c6c x1 0x14ec8)
         0x15c6c retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14ec4 0x15ec0 0xdac 0x15c6c 0x14ec8
-    0xe7 0x80 0xc0 0xda configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x14ec4 0x15ec0 0xdac 0x15c6c 0x14ec8
+    0xe7 0x80 0xc0 0xda configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x14ec8: ld a0,0x438(sp)`. -/
 private theorem writeSuccessBaseFeeLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -7204,15 +7024,7 @@ private theorem writeSuccessBaseFeeCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14ecc retired x1 0x15ecc) false := by
-  apply configuredAuipcStep stepNo state 0x14ecc 1 0x97 0x10 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x14ecc 1 0x97 0x10 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x14ed0: jalr ra,-444(ra)`. -/
 private theorem writeSuccessBaseFeeCallStep (stepNo : Nat) (state : State)
@@ -7224,19 +7036,8 @@ private theorem writeSuccessBaseFeeCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14ed0 0x15d10 x1 0x14ed4)
         0x15d10 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x14ed0 0x15ecc 0xe44 0x15d10 0x14ed4
-    0xe7 0x80 0x40 0xe4 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x14ed0 0x15ecc 0xe44 0x15d10 0x14ed4
+    0xe7 0x80 0x40 0xe4 configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x1572c: addi a0,sp,0x3e8`. -/
 private theorem writeSuccessOutputBufferStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -7284,17 +7085,8 @@ private theorem writeSuccessOutputCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x15734 retired x1 0x10734) false := by
-  apply configuredAuipcStep stepNo state 0x15734 0xffffb 0x97 0xb0 0xff 0xff
-    configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x15734 0xffffb 0x97 0xb0 0xff 0xff
+    configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x15738: jalr ra,-0x5a4(ra)`, entering bare-metal `write_output`. -/
 private theorem writeSuccessOutputCallStep (stepNo : Nat) (state : State)
@@ -7306,20 +7098,8 @@ private theorem writeSuccessOutputCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x15738 0x10190 x1 0x1573c)
         0x10190 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x15738 0x10734 0xa5c 0x10190 0x1573c
-    0xe7 0x80 0xc0 0xa5 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x15738 0x10734 0xa5c 0x10190 0x1573c
+    0xe7 0x80 0xc0 0xa5 configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x1573c: ld s1,0x388(sp)`. -/
 private theorem writeSuccessHashesAddressLoadStep (stepNo address : Nat)
@@ -8929,10 +8709,12 @@ private theorem writeSuccessLateSliceCallStep (stepNo pc target returnPc immedia
           (BitVec.ofNat 64 target) x1 (BitVec.ofNat 64 returnPc))
         (BitVec.ofNat 64 target) retired) false := by
   subst target returnPc
-  apply configuredJalrCallStep stepNo state pc (BitVec.ofNat 64 (pc - 4))
+  exact configuredJalrCallStep stepNo state pc (BitVec.ofNat 64 (pc - 4))
     (BitVec.ofNat 12 immediate) (BitVec.ofNat 64 (pc - 4 + immediate))
     (BitVec.ofNat 64 (pc + 4)) byte0 byte1 byte2 byte3 configured atPc baseRead loaded
-    pcFits read0 read1 read2 read3 base decode targetBits returnBits targetBit1
+    (pcFits := pcFits) (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+    (base := base) (decode := decode) (targetEq := targetBits) (returnEq := returnBits)
+    (targetBit1 := targetBit1)
 
 set_option genInjectivity false in
 /-- One late shared bytes call after the generic four-instruction parent setup. -/
@@ -13335,16 +13117,7 @@ private theorem writeSuccessByteListsCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x15670 retired x1 0x15670) false := by
-  apply configuredAuipcStep stepNo state 0x15670 0 0x97 0x00 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x15670 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x15674: jalr ra,0x5a0(ra)`, entering the byte-list encoder. -/
 private theorem writeSuccessByteListsCallStep (stepNo : Nat) (state : State)
@@ -13356,20 +13129,8 @@ private theorem writeSuccessByteListsCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x15674 0x15c10 x1 0x15678)
         0x15c10 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x15674 0x15670 0x5a0 0x15c10 0x15678
-    0xe7 0x80 0x00 0x5a configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x15674 0x15670 0x5a0 0x15c10 0x15678
+    0xe7 0x80 0x00 0x5a configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x15678: ld s0,0x460(sp)`. -/
 private theorem writeSuccessWithdrawalsAddressLoadStep (stepNo : Nat)
@@ -14491,15 +14252,7 @@ private theorem writeSuccessBlobGasUsedCallBaseStep (stepNo : Nat) (state : Stat
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x156ec retired x1 0x156ec) false := by
-  apply configuredAuipcStep stepNo state 0x156ec 0 0x97 0x00 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x156ec 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x156f0: jalr ra,0x624(ra)`. -/
 private theorem writeSuccessBlobGasUsedCallStep (stepNo : Nat) (state : State)
@@ -14511,19 +14264,8 @@ private theorem writeSuccessBlobGasUsedCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x156f0 0x15d10 x1 0x156f4)
         0x15d10 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x156f0 0x156ec 0x624 0x15d10 0x156f4
-    0xe7 0x80 0x40 0x62 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x156f0 0x156ec 0x624 0x15d10 0x156f4
+    0xe7 0x80 0x40 0x62 configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x156f4: ld a0,0x478(sp)`. -/
 private theorem writeSuccessExcessBlobGasLoadStep (stepNo : Nat) (args : WriteSuccessArgs)
@@ -14557,15 +14299,7 @@ private theorem writeSuccessExcessBlobGasCallBaseStep (stepNo : Nat) (state : St
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x156f8 retired x1 0x156f8) false := by
-  apply configuredAuipcStep stepNo state 0x156f8 0 0x97 0x00 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x156f8 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x156fc: jalr ra,0x618(ra)`. -/
 private theorem writeSuccessExcessBlobGasCallStep (stepNo : Nat) (state : State)
@@ -14577,19 +14311,8 @@ private theorem writeSuccessExcessBlobGasCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x156fc 0x15d10 x1 0x15700)
         0x15d10 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x156fc 0x156f8 0x618 0x15d10 0x15700
-    0xe7 0x80 0x80 0x61 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ := writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x156fc 0x156f8 0x618 0x15d10 0x15700
+    0xe7 0x80 0x80 0x61 configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x15700: ld a0,0x480(sp)`. -/
 private theorem writeSuccessSlotWordLoadStep (stepNo value : Nat) (args : WriteSuccessArgs)
@@ -14719,16 +14442,7 @@ private theorem writeSuccessOptionalCallBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x15714 retired x1 0x15714) false := by
-  apply configuredAuipcStep stepNo state 0x15714 0 0x97 0x00 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x15714 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x15718: jalr ra,0x4b4(ra)`, entering optional-u64. -/
 private theorem writeSuccessOptionalCallStep (stepNo : Nat) (state : State)
@@ -14740,20 +14454,8 @@ private theorem writeSuccessOptionalCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x15718 0x15bc8 x1 0x1571c)
         0x15bc8 retired) false := by
-  apply configuredJalrCallStep stepNo state 0x15718 0x15714 0x4b4 0x15bc8 0x1571c
-    0xe7 0x80 0x40 0x4b configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x15718 0x15714 0x4b4 0x15bc8 0x1571c
+    0xe7 0x80 0x40 0x4b configured atPc baseRead loaded (decode := by configured_decode configured)
 
 /-- Production `0x1571c: ld a0,0x490(sp)`. -/
 private theorem writeSuccessBlockAccessPointerLoadStep (stepNo address : Nat)
@@ -14808,16 +14510,7 @@ private theorem writeSuccessBlockAccessCallBaseStep (stepNo : Nat) (state : Stat
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x15724 retired x1 0x15724) false := by
-  apply configuredAuipcStep stepNo state 0x15724 0 0x97 0x00 0x00 0x00 configured atPc loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
+  exact configuredAuipcStep stepNo state 0x15724 0 0x97 0x00 0x00 0x00 configured atPc loaded (decode := by configured_decode configured)
 
 /-- Production `0x15728: jalr ra,0x548(ra)`, entering the shared bytes encoder. -/
 private theorem writeSuccessBlockAccessCallStep (stepNo : Nat) (state : State)
@@ -14829,20 +14522,8 @@ private theorem writeSuccessBlockAccessCallStep (stepNo : Nat) (state : State)
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x15728 0x15c6c x1 0x1572c)
         0x15c6c retired) false := by
-  apply configuredJalrCallStep stepNo state 0x15728 0x15724 0x548 0x15c6c 0x1572c
-    0xe7 0x80 0x80 0x54 configured atPc baseRead loaded
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · rfl
-  · obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      writeSuccessLoadDecodeReads configured
-    decode_run
-  · native_decide
-  · native_decide
-  · native_decide
+  exact configuredJalrCallStep stepNo state 0x15728 0x15724 0x548 0x15c6c 0x1572c
+    0xe7 0x80 0x80 0x54 configured atPc baseRead loaded (decode := by configured_decode configured)
 
 set_option genInjectivity false in
 /-- The four parent loads/stores that materialize the optional slot descriptor. -/
