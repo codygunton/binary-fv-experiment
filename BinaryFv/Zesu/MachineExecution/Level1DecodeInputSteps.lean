@@ -605,6 +605,52 @@ theorem decodeInputSaveStep {args : DecodeInlineArgs}
   · simpa [head] using currentRep
   · exact oldReps word tail
 
+/-- The save-step interface with all artifact-only byte and PC facts checked together. -/
+private theorem decodeInputSaveStepExact {args : DecodeInlineArgs}
+    {kv : List ((r : Register) × RegisterType r)} {a n : Nat} {cur : State} {pc : BitVec 64}
+    (seg : Seg decodeInputParentPc DecodeInlineInitialExecutionPc
+      (fun _ _ _ _ _ => False) decodeInputParentWrites (decodeInputFrameMemory args)
+      kv a n args.origin.machine cur pc)
+    (access : DecodeBoundaryMachineAccess args.boundary args.origin.machine)
+    (stackLower : 0xbb0 ≤ args.boundary.stackPointer)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully args.origin.machine.mem)
+    (words : List (Nat × Nat)) (wordsRep : SavedWordReps cur words)
+    (storePc stackPointer offset frameOffset : Nat) (source : BitVec 64) (imm : BitVec 12)
+    (rs2 : regidx) (byte0 byte1 byte2 byte3 : UInt8)
+    (stackRead : cur.regs.get? x2 = some (BitVec.ofNat 64 stackPointer))
+    (dataRun : ∀ premise, WritesOnlyRegs stepBookkeeping cur premise →
+      Runs (rX_bits rs2) premise premise source)
+    (addressEqNat : stackPointer + offset = args.boundary.stackPointer - 0xbb0 + frameOffset)
+    (frameBound : frameOffset + 8 ≤ 0xbb0)
+    (belowWords : ∀ word ∈ words, stackPointer + offset + 8 ≤ word.1)
+    (pcEq : pc = BitVec.ofNat 64 storePc)
+    (inRegion : decodeInputParentPc (BitVec.ofNat 64 storePc))
+    (notExit : ¬ DecodeInlineInitialExecutionPc (BitVec.ofNat 64 storePc))
+    (decodeOfConfigured : ConfiguredMachinePre EndpointMachinePc cur →
+      Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+        (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+        (BitVec.ofNat 8 byte3.toNat)))
+        (tryStepStoreAfterIncrement cur) (tryStepStoreAfterIncrement cur)
+        (.STORE (imm, rs2, .Regidx 2#5, 8)))
+    (addressEq : BitVec.ofNat 64 stackPointer + sign_extend (m := 64) imm =
+      BitVec.ofNat 64 (stackPointer + offset))
+    (aligned : (stackPointer + offset) % 8 = 0)
+    (fits : stackPointer + offset + 8 ≤ 2 ^ 64)
+    (keep : RegsOutside stepBookkeeping kv)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (site : ExactInstructionSite storePc byte0 byte1 byte2 byte3 := by
+      unfold ExactInstructionSite
+      native_decide) :
+    ∃ next,
+      Seg decodeInputParentPc DecodeInlineInitialExecutionPc (fun _ _ _ _ _ => False)
+        decodeInputParentWrites (decodeInputFrameMemory args) kv a (n + 1)
+        args.origin.machine next (BitVec.ofNat 64 (storePc + 4)) ∧
+      SavedWordReps next ((stackPointer + offset, source.toNat) :: words) :=
+  decodeInputSaveStep seg access stackLower loaded words wordsRep storePc stackPointer offset
+    frameOffset source imm rs2 byte0 byte1 byte2 byte3 stackRead dataRun addressEqNat frameBound
+    belowWords pcEq inRegion notExit decodeOfConfigured addressEq aligned fits keep site.pcFits base
+    site.read0 site.read1 site.read2 site.read3 site.advance
+
 /-- The first concrete save, `0x1216c: sd ra, 2024(sp)`. -/
 theorem decodeInputSaveRa {fromStep : Nat} {args : DecodeInlineArgs}
     {values : DecodeCalleeSavedValues} {cur : State}
@@ -627,7 +673,7 @@ theorem decodeInputSaveRa {fromStep : Nat} {args : DecodeInlineArgs}
       SavedWordReps next
         [(args.boundary.stackPointer - 0x7f0 + 0x7e8,
           (BitVec.ofNat 64 args.boundary.returnAddress).toNat)] := by
-  apply decodeInputSaveStep seg access stackLower loaded [] (by
+  apply decodeInputSaveStepExact seg access stackLower loaded [] (by
     intro word member
     simp at member) 0x1216c (args.boundary.stackPointer - 0x7f0) 0x7e8 0xba8
     (BitVec.ofNat 64 args.boundary.returnAddress) 0x7e8 (.Regidx 1#5)
@@ -655,13 +701,7 @@ theorem decodeInputSaveRa {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 /-- The second concrete save, `0x12170: sd s0, 2016(sp)`. -/
 theorem decodeInputSaveS0 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -689,7 +729,7 @@ theorem decodeInputSaveS0 {fromStep : Nat} {args : DecodeInlineArgs}
         [(args.boundary.stackPointer - 0x7f0 + 0x7e0, values.s0.toNat),
          (args.boundary.stackPointer - 0x7f0 + 0x7e8,
           (BitVec.ofNat 64 args.boundary.returnAddress).toNat)] := by
-  apply decodeInputSaveStep seg access stackLower loaded
+  apply decodeInputSaveStepExact seg access stackLower loaded
     [(args.boundary.stackPointer - 0x7f0 + 0x7e8,
       (BitVec.ofNat 64 args.boundary.returnAddress).toNat)] words
     0x12170 (args.boundary.stackPointer - 0x7f0) 0x7e0 0xba0 values.s0 0x7e0
@@ -718,13 +758,7 @@ theorem decodeInputSaveS0 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 /-- The third concrete save, `0x12174: sd s1, 2008(sp)`. -/
 theorem decodeInputSaveS1 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -750,7 +784,7 @@ theorem decodeInputSaveS1 {fromStep : Nat} {args : DecodeInlineArgs}
         fromStep 4 args.origin.machine next 0x12178 ∧
       SavedWordReps next
         ((args.boundary.stackPointer - 0x7f0 + 0x7d8, values.s1.toNat) :: prior) := by
-  apply decodeInputSaveStep seg access stackLower loaded prior words
+  apply decodeInputSaveStepExact seg access stackLower loaded prior words
     0x12174 (args.boundary.stackPointer - 0x7f0) 0x7d8 0xb98 values.s1 0x7d8
     (.Regidx 9#5) 0x23 0x3c 0x91 0x7c
   · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
@@ -774,13 +808,7 @@ theorem decodeInputSaveS1 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Production `0x12178: sd s2, 0x7d0(sp)`. -/
@@ -807,7 +835,7 @@ theorem decodeInputSaveS2 {fromStep : Nat} {args : DecodeInlineArgs}
         fromStep 5 args.origin.machine nextState 0x1217c ∧
       SavedWordReps nextState
         ((args.boundary.stackPointer - 0x7f0 + 0x7d0, values.s2.toNat) :: prior) := by
-  apply decodeInputSaveStep seg access stackLower loaded prior words
+  apply decodeInputSaveStepExact seg access stackLower loaded prior words
     0x12178 (args.boundary.stackPointer - 0x7f0) 0x7d0 0xb90 values.s2 0x7d0
     (.Regidx 18#5) 0x23 0x38 0x21 0x7d
   · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
@@ -831,13 +859,7 @@ theorem decodeInputSaveS2 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 /-- Production `0x1217c: sd s3, 0x7c8(sp)`. -/
 theorem decodeInputSaveS3 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -863,7 +885,7 @@ theorem decodeInputSaveS3 {fromStep : Nat} {args : DecodeInlineArgs}
         fromStep 6 args.origin.machine nextState 0x12180 ∧
       SavedWordReps nextState
         ((args.boundary.stackPointer - 0x7f0 + 0x7c8, values.s3.toNat) :: prior) := by
-  apply decodeInputSaveStep seg access stackLower loaded prior words
+  apply decodeInputSaveStepExact seg access stackLower loaded prior words
     0x1217c (args.boundary.stackPointer - 0x7f0) 0x7c8 0xb88 values.s3 0x7c8
     (.Regidx 19#5) 0x23 0x34 0x31 0x7d
   · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
@@ -887,13 +909,7 @@ theorem decodeInputSaveS3 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 /-- Production `0x12180: sd s4, 0x7c0(sp)`. -/
 theorem decodeInputSaveS4 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -919,7 +935,7 @@ theorem decodeInputSaveS4 {fromStep : Nat} {args : DecodeInlineArgs}
         fromStep 7 args.origin.machine nextState 0x12184 ∧
       SavedWordReps nextState
         ((args.boundary.stackPointer - 0x7f0 + 0x7c0, values.s4.toNat) :: prior) := by
-  apply decodeInputSaveStep seg access stackLower loaded prior words
+  apply decodeInputSaveStepExact seg access stackLower loaded prior words
     0x12180 (args.boundary.stackPointer - 0x7f0) 0x7c0 0xb80 values.s4 0x7c0
     (.Regidx 20#5) 0x23 0x30 0x41 0x7d
   · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
@@ -943,13 +959,7 @@ theorem decodeInputSaveS4 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 /-- Production `0x12184: sd s5, 0x7b8(sp)`. -/
 theorem decodeInputSaveS5 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -975,7 +985,7 @@ theorem decodeInputSaveS5 {fromStep : Nat} {args : DecodeInlineArgs}
         fromStep 8 args.origin.machine nextState 0x12188 ∧
       SavedWordReps nextState
         ((args.boundary.stackPointer - 0x7f0 + 0x7b8, values.s5.toNat) :: prior) := by
-  apply decodeInputSaveStep seg access stackLower loaded prior words
+  apply decodeInputSaveStepExact seg access stackLower loaded prior words
     0x12184 (args.boundary.stackPointer - 0x7f0) 0x7b8 0xb78 values.s5 0x7b8
     (.Regidx 21#5) 0x23 0x3c 0x51 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
@@ -999,13 +1009,7 @@ theorem decodeInputSaveS5 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 /-- Production `0x12188: sd s6, 0x7b0(sp)`. -/
 theorem decodeInputSaveS6 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1031,7 +1035,7 @@ theorem decodeInputSaveS6 {fromStep : Nat} {args : DecodeInlineArgs}
         fromStep 9 args.origin.machine nextState 0x1218c ∧
       SavedWordReps nextState
         ((args.boundary.stackPointer - 0x7f0 + 0x7b0, values.s6.toNat) :: prior) := by
-  apply decodeInputSaveStep seg access stackLower loaded prior words
+  apply decodeInputSaveStepExact seg access stackLower loaded prior words
     0x12188 (args.boundary.stackPointer - 0x7f0) 0x7b0 0xb70 values.s6 0x7b0
     (.Regidx 22#5) 0x23 0x38 0x61 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
@@ -1055,13 +1059,7 @@ theorem decodeInputSaveS6 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 /-- Production `0x1218c: sd s7, 0x7a8(sp)`. -/
 theorem decodeInputSaveS7 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1087,7 +1085,7 @@ theorem decodeInputSaveS7 {fromStep : Nat} {args : DecodeInlineArgs}
         fromStep 10 args.origin.machine nextState 0x12190 ∧
       SavedWordReps nextState
         ((args.boundary.stackPointer - 0x7f0 + 0x7a8, values.s7.toNat) :: prior) := by
-  apply decodeInputSaveStep seg access stackLower loaded prior words
+  apply decodeInputSaveStepExact seg access stackLower loaded prior words
     0x1218c (args.boundary.stackPointer - 0x7f0) 0x7a8 0xb68 values.s7 0x7a8
     (.Regidx 23#5) 0x23 0x34 0x71 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
@@ -1111,13 +1109,7 @@ theorem decodeInputSaveS7 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 /-- Production `0x12190: sd s8, 0x7a0(sp)`. -/
 theorem decodeInputSaveS8 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1143,7 +1135,7 @@ theorem decodeInputSaveS8 {fromStep : Nat} {args : DecodeInlineArgs}
         fromStep 11 args.origin.machine nextState 0x12194 ∧
       SavedWordReps nextState
         ((args.boundary.stackPointer - 0x7f0 + 0x7a0, values.s8.toNat) :: prior) := by
-  apply decodeInputSaveStep seg access stackLower loaded prior words
+  apply decodeInputSaveStepExact seg access stackLower loaded prior words
     0x12190 (args.boundary.stackPointer - 0x7f0) 0x7a0 0xb60 values.s8 0x7a0
     (.Regidx 24#5) 0x23 0x30 0x81 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
@@ -1167,13 +1159,7 @@ theorem decodeInputSaveS8 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 /-- Production `0x12194: sd s9, 0x798(sp)`. -/
 theorem decodeInputSaveS9 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1199,7 +1185,7 @@ theorem decodeInputSaveS9 {fromStep : Nat} {args : DecodeInlineArgs}
         fromStep 12 args.origin.machine nextState 0x12198 ∧
       SavedWordReps nextState
         ((args.boundary.stackPointer - 0x7f0 + 0x798, values.s9.toNat) :: prior) := by
-  apply decodeInputSaveStep seg access stackLower loaded prior words
+  apply decodeInputSaveStepExact seg access stackLower loaded prior words
     0x12194 (args.boundary.stackPointer - 0x7f0) 0x798 0xb58 values.s9 0x798
     (.Regidx 25#5) 0x23 0x3c 0x91 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
@@ -1223,13 +1209,7 @@ theorem decodeInputSaveS9 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 /-- Production `0x12198: sd s10, 0x790(sp)`. -/
 theorem decodeInputSaveS10 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1255,7 +1235,7 @@ theorem decodeInputSaveS10 {fromStep : Nat} {args : DecodeInlineArgs}
         fromStep 13 args.origin.machine nextState 0x1219c ∧
       SavedWordReps nextState
         ((args.boundary.stackPointer - 0x7f0 + 0x790, values.s10.toNat) :: prior) := by
-  apply decodeInputSaveStep seg access stackLower loaded prior words
+  apply decodeInputSaveStepExact seg access stackLower loaded prior words
     0x12198 (args.boundary.stackPointer - 0x7f0) 0x790 0xb50 values.s10 0x790
     (.Regidx 26#5) 0x23 0x38 0xa1 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
@@ -1279,13 +1259,7 @@ theorem decodeInputSaveS10 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 /-- Production `0x1219c: sd s11, 0x788(sp)`. -/
 theorem decodeInputSaveS11 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1311,7 +1285,7 @@ theorem decodeInputSaveS11 {fromStep : Nat} {args : DecodeInlineArgs}
         fromStep 14 args.origin.machine nextState 0x121a0 ∧
       SavedWordReps nextState
         ((args.boundary.stackPointer - 0x7f0 + 0x788, values.s11.toNat) :: prior) := by
-  apply decodeInputSaveStep seg access stackLower loaded prior words
+  apply decodeInputSaveStepExact seg access stackLower loaded prior words
     0x1219c (args.boundary.stackPointer - 0x7f0) 0x788 0xb48 values.s11 0x788
     (.Regidx 27#5) 0x23 0x34 0xb1 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) (by simp)
@@ -1320,7 +1294,7 @@ theorem decodeInputSaveS11 {fromStep : Nat} {args : DecodeInlineArgs}
       ((writes.get x27 (by decide)).trans
         (seg.reg x27 values.s11 (by simp [decodeInputIncomingRegs])))
   · omega
-  · native_decide
+  · omega
   · exact priorAbove
   · rfl
   · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
@@ -1335,13 +1309,7 @@ theorem decodeInputSaveS11 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- The exact initial stack-allocation and thirteen-save prefix, ending before the final stack
