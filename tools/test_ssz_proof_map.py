@@ -12,18 +12,19 @@ sys.argv[:] = sys.argv[:1]
 class ProofMapTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if len(INPUTS) != 8:
+        if len(INPUTS) not in (8, 9):
             raise RuntimeError(
                 "expected CFG FLAME L1_MANIFEST L1_EVIDENCE L1_BINDINGS "
-                "L2_MANIFEST L2_EVIDENCE L2_BINDINGS")
-        cls.documents = [json.loads(Path(path).read_text()) for path in INPUTS]
+                "L2_MANIFEST L2_EVIDENCE L2_BINDINGS HLEVEL2_BASELINE")
+        cls.documents = [json.loads(Path(path).read_text()) for path in INPUTS[:8]]
+        cls.baseline = json.loads(Path(INPUTS[8]).read_text()) if len(INPUTS) == 9 else None
         module_path = Path(__file__).with_name("build_ssz_proof_map.py")
         spec = importlib.util.spec_from_file_location("proof_map", module_path)
         cls.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.module)
 
     def test_exact_level_relationship(self):
-        result = self.module.build(*self.documents)
+        result = self.module.build(*self.documents, baseline=self.baseline)
         contracts = [node for node in result["refinementGraph"]["nodes"]
                      if node["kind"] == "level1Contract"]
         self.assertEqual(len(contracts), 6)
@@ -94,17 +95,27 @@ class ProofMapTest(unittest.TestCase):
         self.assertEqual(zkvm_exit["proofStatus"], "proved")
         self.assertEqual(result["targetModel"]["status"], "valid_bare_metal")
         self.assertEqual(len(progress), 27)
+        if self.baseline:
+            self.assertEqual(result["formalCoverage"]["directPcCount"],
+                             len(self.baseline["coverage"]["directlyDischargedStepPcs"]))
+            self.assertEqual(result["formalCoverage"]["boundaryRegionPcCount"], 295)
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
         documents[4]["artifact"]["sha256"] = "forged"
         with self.assertRaisesRegex(ValueError, "artifact identities differ"):
-            self.module.build(*documents)
+            self.module.build(*documents, baseline=self.baseline)
 
         documents = copy.deepcopy(self.documents)
         documents[7]["artifact"]["sha256"] = "forged"
         with self.assertRaisesRegex(ValueError, "Level 2 artifact identities differ"):
-            self.module.build(*documents)
+            self.module.build(*documents, baseline=self.baseline)
+
+        if self.baseline:
+            baseline = copy.deepcopy(self.baseline)
+            baseline["artifact"]["sha256"] = "forged"
+            with self.assertRaisesRegex(ValueError, "baseline artifact identities differ"):
+                self.module.build(*self.documents, baseline=baseline)
 
 
 if __name__ == "__main__":

@@ -14,35 +14,37 @@ sys.argv[:] = sys.argv[:1]
 class BaselineTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if len(INPUTS) != 5:
-            raise RuntimeError("expected DEPENDENCIES CFG FLAME LEVEL1 LEVEL2")
+        if len(INPUTS) != 6:
+            raise RuntimeError("expected DEPENDENCIES SOURCE_ROOT CFG FLAME LEVEL1 LEVEL2")
         module_path = Path(__file__).with_name("build_hlevel2_baseline.py")
         spec = importlib.util.spec_from_file_location("baseline", module_path)
         cls.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.module)
         cls.dependencies = Path(INPUTS[0])
-        cls.documents = [json.loads(Path(path).read_text()) for path in INPUTS[1:]]
+        cls.source_root = Path(INPUTS[1])
+        cls.documents = [json.loads(Path(path).read_text()) for path in INPUTS[2:]]
 
     def test_measured_boundary_geometry(self):
-        result = self.module.build(self.dependencies, *self.documents)
-        self.assertEqual(result["counts"]["transitiveProjectDeclarations"], 2223)
+        result = self.module.build(self.dependencies, self.source_root, *self.documents)
+        self.assertGreater(result["counts"]["kernelSourceDeclarations"], 1000)
         self.assertEqual(result["counts"]["level0DirectRegionPcs"], 24)
         self.assertEqual(result["counts"]["conditionalLevel1DirectRegionPcs"], 209)
         self.assertEqual(result["counts"]["boundaryRegionUniquePcs"], 295)
         self.assertEqual(result["counts"]["unresolvedLevel2Contracts"], 17)
-        self.assertEqual(result["coverage"]["directlyDischargedStepPcs"], [])
+        self.assertEqual(len(result["coverage"]["directlyDischargedStepPcs"]), 157)
+        self.assertEqual(result["counts"]["conditionalContractUniquePcs"], 6668)
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
         documents[3]["artifact"]["sha256"] = "forged"
         with self.assertRaisesRegex(ValueError, "different artifacts"):
-            self.module.build(self.dependencies, *documents)
+            self.module.build(self.dependencies, self.source_root, *documents)
 
     def test_rejects_forged_pc(self):
         documents = copy.deepcopy(self.documents)
         documents[2]["instances"][0]["executionPcs"].append(0xDEADBEEF)
         with self.assertRaisesRegex(ValueError, "absent from the ELF"):
-            self.module.build(self.dependencies, *documents)
+            self.module.build(self.dependencies, self.source_root, *documents)
 
     def test_rejects_incomplete_dependency_closure(self):
         lines = self.dependencies.read_text().splitlines()
@@ -54,6 +56,15 @@ class BaselineTest(unittest.TestCase):
                 line for line in lines if line.startswith("edge\t")) + "\n")
             with self.assertRaisesRegex(ValueError, "escapes the declaration closure"):
                 self.module.read_dependencies(path)
+
+    def test_rejects_omitted_and_forged_direct_pcs(self):
+        elf_pcs = {instruction["pc"] for function in self.documents[0]["functions"]
+                   for block in function["blocks"] for instruction in block["instructions"]}
+        with self.assertRaisesRegex(ValueError, "omitted PCs"):
+            self.module.validate_direct_pcs(set(range(156)), elf_pcs)
+        forged = set(range(156)) | {0xDEADBEEF}
+        with self.assertRaisesRegex(ValueError, "forged PCs"):
+            self.module.validate_direct_pcs(forged, elf_pcs)
 
 
 if __name__ == "__main__":

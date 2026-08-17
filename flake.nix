@@ -72,7 +72,7 @@
             inherit (proof.public) binaryFvLean;
             inherit (targets.public) zesuSszDecodeSmoke;
             inherit (analysis.public) zesuSszDecodeCfg zesuSszDecodeLevel1Manifest
-              zesuSszDecodeLevel2Manifest;
+              zesuSszDecodeLevel2Manifest zesuCfgUi;
           };
         in
         targets.public // analysis.public // proof.public // evmSailSpec.public;

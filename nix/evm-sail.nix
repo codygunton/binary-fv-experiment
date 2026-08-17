@@ -1,5 +1,5 @@
 { binaryFvLean, evmSail, evmSailCompiler, leanSail, pkgs, repo, zesuSszDecodeSmoke
-, zesuSszDecodeCfg, zesuSszDecodeLevel1Manifest, zesuSszDecodeLevel2Manifest }:
+, zesuSszDecodeCfg, zesuSszDecodeLevel1Manifest, zesuSszDecodeLevel2Manifest, zesuCfgUi }:
 let
   customSail = pkgs.ocamlPackages.sail.overrideAttrs (_old: {
     pname = "sail-evm-sail";
@@ -222,16 +222,39 @@ let
     mkdir -p "$out"
     python ${repo}/tools/build_hlevel2_baseline.py \
       --dependencies ${combinedImport}/root-dependencies.tsv \
+      --source-root ${repo} \
       --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
       --flame ${zesuSszDecodeCfg}/flame.json \
       --level1 ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
       --level2 ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
       --output "$out/hlevel2-baseline.json"
     python ${repo}/tools/test_hlevel2_baseline.py \
-      ${combinedImport}/root-dependencies.tsv \
+      ${combinedImport}/root-dependencies.tsv ${repo} \
       ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json \
       ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
       ${zesuSszDecodeLevel2Manifest}/level2-manifest.json
+  '';
+
+  hlevel2Ui = pkgs.runCommand "zesu-rv64-cfg-ui-hlevel2" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    cp -R ${zesuCfgUi} "$out"
+    chmod -R u+w "$out"
+    cp ${hlevel2Baseline}/hlevel2-baseline.json "$out/"
+    python ${repo}/tools/build_ssz_proof_map.py \
+      --cfg "$out/zesu-cfg.json" --flame "$out/flame.json" \
+      --manifest "$out/level1-manifest.json" --evidence "$out/level1-evidence.json" \
+      --bindings "$out/level1-boundary-bindings.json" \
+      --level2-manifest "$out/level2-manifest.json" \
+      --level2-evidence "$out/level2-evidence.json" \
+      --level2-bindings "$out/level2-boundary-bindings.json" \
+      --hlevel2-baseline "$out/hlevel2-baseline.json" \
+      --output "$out/proof-map.json" --flame-progress-output "$out/flame-progress.json"
+    python ${repo}/tools/test_ssz_proof_map.py \
+      "$out/zesu-cfg.json" "$out/flame.json" "$out/level1-manifest.json" \
+      "$out/level1-evidence.json" "$out/level1-boundary-bindings.json" \
+      "$out/level2-manifest.json" "$out/level2-evidence.json" \
+      "$out/level2-boundary-bindings.json" "$out/hlevel2-baseline.json"
   '';
 in
 {
@@ -240,5 +263,6 @@ in
     evmSailLeanExtraction = leanExtraction;
     binaryFvEvmSailCombinedImport = combinedImport;
     zesuHlevel2ProofBaseline = hlevel2Baseline;
+    zesuCfgUi = hlevel2Ui;
   };
 }
