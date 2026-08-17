@@ -73,11 +73,8 @@ times, at the right length. **PASS.**
 At each length, cover **every** pattern that still repeats, taking the most-placed first; then drop
 to n−1 on what remains. The strategy does not stop at one pattern per length.
 
-**Where to stop is a cost question, and the data answers it.** A pattern is worth a lemma only if
-the lines it recovers exceed the lines the lemma costs to author. Recovered is
-`sites × (n − 1)`, because one copy stays inside the lemma. The measured authoring cost of a
-class-style lemma on this target is **39 to 83 lines** (`InstructionClassSteps.lean`, six
-declarations, 391 code lines).
+**Where to stop is a cost question.** Recovered is `sites × (n − 1)`, because one copy stays inside
+the lemma.
 
 | band | lemmas | sites | lines recovered | **per lemma** | cumulative lemmas | cumulative cover |
 |---|---|---|---|---|---|---|
@@ -92,11 +89,47 @@ declarations, 391 code lines).
 | 3 | 165 | 427 | 854 | 5.2 | 606 | 50.3% |
 | 2 | 301 | 753 | 753 | 2.5 | 907 | 56.4% |
 
-**Stop at n = 16.** Down to that band a lemma returns 64 lines and costs 39 to 83, so the head of the
-curve pays for itself and little more. Below n = 16 every band loses money: at 10–15 a lemma returns
-27 lines against the same cost, and at n = 2 it returns 2.5. The cascade's own coverage figure keeps
-rising to 56.4%, but **the coverage below n = 16 is not recoverable by one lemma per pattern at any
-price.** Reaching it needs a different mechanism, and §5 names one.
+**Stop at n = 8.**
+
+An earlier draft of this section said n = 16, by comparing lines-recovered-per-lemma against a flat
+39–83-line authoring cost taken from `InstructionClassSteps.lean`. **That comparison was wrong.** The
+authoring cost is not flat — a longer pattern costs more to state — and the campaign on branch
+`motif-lemmas` already measured the quantity that matters directly: the **break-even site count**,
+which *falls* as `n` rises, from 3.3 sites at n=2 to 1.1 sites at n=32. The correct test is therefore
+sites-per-lemma against that break-even, not lines against a constant.
+
+Sites-per-lemma is almost flat across every band at roughly 2.5, so the break-even curve decides
+alone:
+
+| band | lemmas | sites | sites per lemma | break-even | margin | verdict |
+|---|---|---|---|---|---|---|
+| n ≥ 64 | 1 | 3 | 3.00 | 1.10 | 2.73× | pays |
+| 32–63 | 10 | 20 | 2.00 | 1.10 | 1.82× | pays |
+| 16–31 | 53 | 173 | 3.26 | 1.25 | 2.61× | pays |
+| 10–15 | 77 | 190 | 2.47 | 1.37 | 1.80× | pays |
+| **8–9** | 55 | 143 | 2.60 | 1.57 | **1.65×** | **pays** |
+| 6–7 | 71 | 167 | 2.35 | 1.81 | 1.30× | marginal |
+| 4–5 | 174 | 417 | 2.40 | 2.04 | 1.17× | marginal |
+| 3 | 165 | 427 | 2.59 | 2.50 | 1.04× | marginal |
+| 2 | 301 | 753 | 2.50 | 3.30 | **0.76×** | loses |
+
+Break-even is interpolated between the campaign's five measured cases (n = 2, 3, 4, 10, 32).
+
+**n = 8 is the last band that clears break-even with margin.** Below it the arithmetic still passes
+until n = 3, but the margin thins to noise and the library grows fast for little return:
+
+| floor | lemmas in the library | lines recovered | lines per lemma |
+|---|---|---|---|
+| 16 | 64 | 4,583 | 71.6 |
+| **8** | **196** | **7,731** | **39.4** |
+| 4 | 441 | 10,050 | 22.8 |
+| 2 | 907 | 11,657 | 12.9 |
+
+Going from a floor of 8 down to 4 adds **245 lemmas to recover 2,319 lines**. Library size is itself a
+cost, because somebody must find the right idiom among the entries. Stop at 8.
+
+The remaining coverage below n = 8 is not worth one lemma per pattern. Reaching it needs a different
+mechanism, and §5 names one.
 
 **The proof text is more fragmented than the binary.** The same cascade on the instruction stream
 reaches 74.2% with 149 patterns; here it takes 907 patterns to reach 56.4%.
