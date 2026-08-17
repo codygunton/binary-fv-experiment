@@ -369,14 +369,6 @@ private theorem platformPreserved_disjoint_decodeInputParentWrites :
   · exact platformPreserved_disjoint register preserved bookkeeping
   all_goals simp [platformPreserved] at preserved
 
-private theorem decodeInputStoreDecodeReads {state : State}
-    (configured : ConfiguredMachinePre EndpointMachinePc state) :
-    ∃ seccfgBits,
-      (tryStepStoreAfterIncrement state).regs.get? cur_privilege = some Privilege.Machine ∧
-      (tryStepStoreAfterIncrement state).regs.get? mseccfg = some seccfgBits := by
-  obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ := configured.storeDecodeContext
-  exact ⟨seccfgBits, privilegeAfter, seccfgAfter⟩
-
 private theorem decodeInputCodeOfSeg {args : DecodeInlineArgs} {W kv a n base cur pc}
     (access : DecodeBoundaryMachineAccess args.boundary args.origin.machine)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully args.origin.machine.mem)
@@ -559,21 +551,27 @@ private theorem decodeInputSaveStepExact {args : DecodeInlineArgs}
     (addressEqNat : stackPointer + offset = args.boundary.stackPointer - 0xbb0 + frameOffset)
     (frameBound : frameOffset + 8 ≤ 0xbb0)
     (belowWords : ∀ word ∈ words, stackPointer + offset + 8 ≤ word.1)
-    (pcEq : pc = BitVec.ofNat 64 storePc)
-    (inRegion : decodeInputParentPc (BitVec.ofNat 64 storePc))
-    (notExit : ¬ DecodeInlineInitialExecutionPc (BitVec.ofNat 64 storePc))
+    (pcEq : pc = BitVec.ofNat 64 storePc := by rfl)
+    (inRegion : decodeInputParentPc (BitVec.ofNat 64 storePc) := by
+      unfold decodeInputParentPc pcInRanges
+      native_decide)
+    (notExit : ¬ DecodeInlineInitialExecutionPc (BitVec.ofNat 64 storePc) := by
+      unfold DecodeInlineInitialExecutionPc pcInRanges
+      native_decide)
     (decodeOfConfigured : ConfiguredMachinePre EndpointMachinePc cur →
       Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
         (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
         (BitVec.ofNat 8 byte3.toNat)))
         (tryStepStoreAfterIncrement cur) (tryStepStoreAfterIncrement cur)
-        (.STORE (imm, rs2, .Regidx 2#5, 8)))
+        (.STORE (imm, rs2, .Regidx 2#5, 8)) := by
+      intro configured
+      configured_store_decode configured)
     (addressEq : BitVec.ofNat 64 stackPointer + sign_extend (m := 64) imm =
       BitVec.ofNat 64 (stackPointer + offset))
-    (aligned : (stackPointer + offset) % 8 = 0)
-    (fits : stackPointer + offset + 8 ≤ 2 ^ 64)
-    (keep : RegsOutside stepBookkeeping kv)
-    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (aligned : (stackPointer + offset) % 8 = 0 := by omega)
+    (fits : stackPointer + offset + 8 ≤ 2 ^ 64 := by omega)
+    (keep : RegsOutside stepBookkeeping kv := by exact of_decide_eq_true rfl)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by rfl)
     (site : ExactInstructionSite storePc byte0 byte1 byte2 byte3 := by
       unfold ExactInstructionSite
       native_decide) :
@@ -624,20 +622,8 @@ theorem decodeInputSaveRa {fromStep : Nat} {args : DecodeInlineArgs}
   · native_decide
   · intro word member
     simp at member
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x7e8#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 /-- The second concrete save, `0x12170: sd s0, 2016(sp)`. -/
 theorem decodeInputSaveS0 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -681,20 +667,8 @@ theorem decodeInputSaveS0 {fromStep : Nat} {args : DecodeInlineArgs}
     simp only [List.mem_singleton] at member
     subst word
     omega
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x7e0#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 /-- The third concrete save, `0x12174: sd s1, 2008(sp)`. -/
 theorem decodeInputSaveS1 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -731,20 +705,8 @@ theorem decodeInputSaveS1 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · native_decide
   · exact priorAbove
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x7d8#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 
 /-- Production `0x12178: sd s2, 0x7d0(sp)`. -/
@@ -782,20 +744,8 @@ theorem decodeInputSaveS2 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · native_decide
   · exact priorAbove
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x7d0#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 /-- Production `0x1217c: sd s3, 0x7c8(sp)`. -/
 theorem decodeInputSaveS3 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -832,20 +782,8 @@ theorem decodeInputSaveS3 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · native_decide
   · exact priorAbove
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x7c8#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 /-- Production `0x12180: sd s4, 0x7c0(sp)`. -/
 theorem decodeInputSaveS4 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -882,20 +820,8 @@ theorem decodeInputSaveS4 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · native_decide
   · exact priorAbove
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x7c0#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 /-- Production `0x12184: sd s5, 0x7b8(sp)`. -/
 theorem decodeInputSaveS5 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -932,20 +858,8 @@ theorem decodeInputSaveS5 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · native_decide
   · exact priorAbove
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x7b8#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 /-- Production `0x12188: sd s6, 0x7b0(sp)`. -/
 theorem decodeInputSaveS6 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -982,20 +896,8 @@ theorem decodeInputSaveS6 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · native_decide
   · exact priorAbove
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x7b0#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 /-- Production `0x1218c: sd s7, 0x7a8(sp)`. -/
 theorem decodeInputSaveS7 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1032,20 +934,8 @@ theorem decodeInputSaveS7 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · native_decide
   · exact priorAbove
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x7a8#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 /-- Production `0x12190: sd s8, 0x7a0(sp)`. -/
 theorem decodeInputSaveS8 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1082,20 +972,8 @@ theorem decodeInputSaveS8 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · native_decide
   · exact priorAbove
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x7a0#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 /-- Production `0x12194: sd s9, 0x798(sp)`. -/
 theorem decodeInputSaveS9 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1132,20 +1010,8 @@ theorem decodeInputSaveS9 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · native_decide
   · exact priorAbove
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x798#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 /-- Production `0x12198: sd s10, 0x790(sp)`. -/
 theorem decodeInputSaveS10 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1182,20 +1048,8 @@ theorem decodeInputSaveS10 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · native_decide
   · exact priorAbove
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x790#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 /-- Production `0x1219c: sd s11, 0x788(sp)`. -/
 theorem decodeInputSaveS11 {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1232,20 +1086,8 @@ theorem decodeInputSaveS11 {fromStep : Nat} {args : DecodeInlineArgs}
   · omega
   · omega
   · exact priorAbove
-  · rfl
-  · exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩
-  · unfold DecodeInlineInitialExecutionPc pcInRanges
-    native_decide
-  · intro configured
-    obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
-      decodeInputStoreDecodeReads configured
-    decode_run
   · change BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0) + 0x788#64 = _
     rw [← BitVec.ofNat_add]
-  · omega
-  · omega
-  · exact of_decide_eq_true rfl
-  · rfl
 
 
 /-- The exact initial stack-allocation and thirteen-save prefix, ending before the final stack

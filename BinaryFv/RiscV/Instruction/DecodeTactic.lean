@@ -33,4 +33,11 @@ macro "configured_decode " configured:term : tactic =>
     (obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ := ($configured).decodeContext
      decode_run))
 
+/-- Derive the configured post-increment reads for a concrete store decode. -/
+macro "configured_store_decode " configured:term : tactic =>
+  `(tactic|
+    (obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
+        ($configured).storeDecodeContext
+     decode_run))
+
 end BinaryFv.RiscV
