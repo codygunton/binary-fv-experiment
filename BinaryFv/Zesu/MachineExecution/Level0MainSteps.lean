@@ -13,6 +13,7 @@ import BinaryFv.RiscV.Step.TryStepStackAddiMemory
 import BinaryFv.Zesu.Artifacts.Image
 import BinaryFv.Zesu.Contracts.Machine
 import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.HostExecution
+import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 
 /-!
 # Concrete Level 0 instructions of the SSZ endpoint
@@ -607,38 +608,18 @@ theorem main_input_buffer_address_step (stepNo : Nat) (state : State)
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc).regs.insert
             x10 (iTypeResult .ADDI 0 source.value) }
         0x14cc0 retired) false := by
-  obtain ⟨retired, counters⟩ := configured.counters
-  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    endpointStepContext configured 0x14cbc atPc (by
-      refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
-  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
-      (tryStepControlFlowAfterIncrement state).mem := by
-    simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Artifacts.programImage
-    (tryStepControlFlowAfterIncrement state) 0x14cbc (by native_decide) loadedAfter
-    0x13 0x05 0x01 0x00 (by native_decide) (by native_decide) (by native_decide)
-    (by native_decide)
-  have decode : Runs
-      (ext_decode (fetchWord (0x13 : BitVec 8) (0x05 : BitVec 8) (0x01 : BitVec 8)
-        (0x00 : BitVec 8)))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (0, stackPointer, .Regidx 10#5, .ADDI)) := by
-    configured_decode configured
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc
   have execute : Runs (execute (.ITYPE (0, stackPointer, .Regidx 10#5, .ADDI)))
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc)
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc).regs.insert
-          x10 (iTypeResult .ADDI 0 source.value) }
+      premise { premise with regs := premise.regs.insert x10 (iTypeResult .ADDI 0 source.value) }
       (.Retire_Success ()) := by
     change Runs (execute_ITYPE 0 stackPointer (.Regidx 10#5) .ADDI) _ _ _
     exact execute_ITYPE_run _ _ 0 stackPointer (.Regidx 10#5) .ADDI source.value source.read
       (main_wX_bits_run_x10 _ _)
-  refine ⟨retired, tryStepFallThroughWriteRegRetires stepNo state 0x14cbc retired 0 0
-    0x13 0x05 0x01 0x00 (.ITYPE (0, stackPointer, .Regidx 10#5, .ADDI)) x10
-    (iTypeResult .ADDI 0 source.value) platform noMMIO bytes interrupts ?_ decode notExpected
-    execute (by decide) (by decide) (by decide) (by decide) counters.1 counters.2.1
-    counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1 counters.2.2.2.2.2⟩
-  rfl
+  simpa [afterRegisterWrite] using
+    MachineExecution.configuredRegisterWriteStep stepNo 0x14cbc state x10
+      (iTypeResult .ADDI 0 source.value)
+      (.ITYPE (0, stackPointer, .Regidx 10#5, .ADDI)) 0x13 0x05 0x01 0x00
+      configured atPc loaded (by configured_decode configured) execute (base := by rfl)
 
 /-- Production `0x14cc0: addi a1, sp, 8`. -/
 theorem main_input_size_slot_address_step (stepNo : Nat) (state : State)
@@ -652,38 +633,18 @@ theorem main_input_size_slot_address_step (stepNo : Nat) (state : State)
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc0).regs.insert
             x11 (iTypeResult .ADDI 8 source.value) }
         0x14cc4 retired) false := by
-  obtain ⟨retired, counters⟩ := configured.counters
-  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    endpointStepContext configured 0x14cc0 atPc (by
-      refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
-  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
-      (tryStepControlFlowAfterIncrement state).mem := by
-    simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Artifacts.programImage
-    (tryStepControlFlowAfterIncrement state) 0x14cc0 (by native_decide) loadedAfter
-    0x93 0x05 0x81 0x00 (by native_decide) (by native_decide) (by native_decide)
-    (by native_decide)
-  have decode : Runs
-      (ext_decode (fetchWord (0x93 : BitVec 8) (0x05 : BitVec 8) (0x81 : BitVec 8)
-        (0x00 : BitVec 8)))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.ITYPE (8, stackPointer, .Regidx 11#5, .ADDI)) := by
-    configured_decode configured
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc0
   have execute : Runs (execute (.ITYPE (8, stackPointer, .Regidx 11#5, .ADDI)))
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc0)
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc0 with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc0).regs.insert
-          x11 (iTypeResult .ADDI 8 source.value) }
+      premise { premise with regs := premise.regs.insert x11 (iTypeResult .ADDI 8 source.value) }
       (.Retire_Success ()) := by
     change Runs (execute_ITYPE 8 stackPointer (.Regidx 11#5) .ADDI) _ _ _
     exact execute_ITYPE_run _ _ 8 stackPointer (.Regidx 11#5) .ADDI source.value source.read
       (main_wX_bits_run_x11 _ _)
-  refine ⟨retired, tryStepFallThroughWriteRegRetires stepNo state 0x14cc0 retired 0 0
-    0x93 0x05 0x81 0x00 (.ITYPE (8, stackPointer, .Regidx 11#5, .ADDI)) x11
-    (iTypeResult .ADDI 8 source.value) platform noMMIO bytes interrupts ?_ decode notExpected
-    execute (by decide) (by decide) (by decide) (by decide) counters.1 counters.2.1
-    counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1 counters.2.2.2.2.2⟩
-  rfl
+  simpa [afterRegisterWrite] using
+    MachineExecution.configuredRegisterWriteStep stepNo 0x14cc0 state x11
+      (iTypeResult .ADDI 8 source.value)
+      (.ITYPE (8, stackPointer, .Regidx 11#5, .ADDI)) 0x93 0x05 0x81 0x00
+      configured atPc loaded (by configured_decode configured) execute (base := by rfl)
 
 /-- Production `0x14cc4: auipc ra, -5`, producing the base used by the `read_input` call. -/
 theorem main_read_input_call_base_step (stepNo : Nat) (state : State)
@@ -696,45 +657,8 @@ theorem main_read_input_call_base_step (stepNo : Nat) (state : State)
           regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc4).regs.insert
             x1 (0x14cc4 + sign_extend (m := 64) (0xffffb#20 ++ 0x000#12)) }
         0x14cc8 retired) false := by
-  obtain ⟨retired, counters⟩ := configured.counters
-  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    endpointStepContext configured 0x14cc4 atPc (by
-      refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
-  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
-      (tryStepControlFlowAfterIncrement state).mem := by
-    simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Artifacts.programImage
-    (tryStepControlFlowAfterIncrement state) 0x14cc4 (by native_decide) loadedAfter
-    0x97 0xb0 0xff 0xff (by native_decide) (by native_decide) (by native_decide)
-    (by native_decide)
-  have decode : Runs
-      (ext_decode (fetchWord (0x97 : BitVec 8) (0xb0 : BitVec 8) (0xff : BitVec 8)
-        (0xff : BitVec 8)))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.UTYPE (0xffffb#20, .Regidx 1#5, .AUIPC)) := by
-    configured_decode configured
-  have pcRead : Runs (readReg PC)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc4)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc4) 0x14cc4 := by
-    apply readReg_run
-    simp [coreControlFlowNextState, atPc, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
-  have execute : Runs (execute (.UTYPE (0xffffb#20, .Regidx 1#5, .AUIPC)))
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc4)
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc4 with
-        regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc4).regs.insert
-          x1 (0x14cc4 + sign_extend (m := 64) (0xffffb#20 ++ 0x000#12)) }
-      (.Retire_Success ()) := by
-    change Runs (execute_UTYPE 0xffffb#20 (.Regidx 1#5) .AUIPC) _ _ _
-    exact execute_UTYPE_auipc_run _ _ 0xffffb#20 (.Regidx 1#5) 0x14cc4 pcRead
-      (main_wX_bits_run_x1 _ _)
-  refine ⟨retired, tryStepFallThroughWriteRegRetires stepNo state 0x14cc4 retired 0 0
-    0x97 0xb0 0xff 0xff (.UTYPE (0xffffb#20, .Regidx 1#5, .AUIPC)) x1
-    (0x14cc4 + sign_extend (m := 64) (0xffffb#20 ++ 0x000#12)) platform noMMIO bytes
-    interrupts ?_ decode notExpected execute (by decide) (by decide) (by decide) (by decide)
-    counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1
-    counters.2.2.2.2.2⟩
-  rfl
+  exact configuredAuipcStep stepNo state 0x14cc4 0xffffb 0x97 0xb0 0xff 0xff
+    configured atPc loaded (decode := by configured_decode configured)
 
 theorem main_read_input_call_base_value :
     (0x14cc4 : BitVec 64) + sign_extend (m := 64) (0xffffb#20 ++ 0x000#12) = 0xfcc4 := by
@@ -916,46 +840,8 @@ theorem main_decode_call_base_step (stepNo : Nat) (state : State)
             (tryStepControlFlowAfterIncrement state) 0x14cf4).regs.insert
               x1 (0x14cf4 + sign_extend (m := 64) (0xffffd#20 ++ 0x000#12)) }
         0x14cf8 retired) false := by
-  obtain ⟨retired, counters⟩ := configured.counters
-  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    endpointStepContext configured 0x14cf4 atPc (by
-      refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
-  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
-      (tryStepControlFlowAfterIncrement state).mem := by
-    simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Artifacts.programImage
-    (tryStepControlFlowAfterIncrement state) 0x14cf4 (by native_decide) loadedAfter
-    0x97 0xd0 0xff 0xff (by native_decide) (by native_decide) (by native_decide)
-    (by native_decide)
-  have decode : Runs
-      (ext_decode (fetchWord (0x97 : BitVec 8) (0xd0 : BitVec 8) (0xff : BitVec 8)
-        (0xff : BitVec 8)))
-      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.UTYPE (0xffffd#20, .Regidx 1#5, .AUIPC)) := by
-    configured_decode configured
-  have pcRead : Runs (readReg PC)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cf4)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cf4) 0x14cf4 := by
-    apply readReg_run
-    simp [coreControlFlowNextState, atPc, tryStepControlFlowAfterIncrement,
-      Std.ExtDHashMap.get?_insert]
-  have execute : Runs (execute (.UTYPE (0xffffd#20, .Regidx 1#5, .AUIPC)))
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cf4)
-      { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cf4 with
-        regs := (coreControlFlowNextState
-          (tryStepControlFlowAfterIncrement state) 0x14cf4).regs.insert
-            x1 (0x14cf4 + sign_extend (m := 64) (0xffffd#20 ++ 0x000#12)) }
-      (.Retire_Success ()) := by
-    change Runs (execute_UTYPE 0xffffd#20 (.Regidx 1#5) .AUIPC) _ _ _
-    exact execute_UTYPE_auipc_run _ _ 0xffffd#20 (.Regidx 1#5) 0x14cf4 pcRead
-      (main_wX_bits_run_x1 _ _)
-  refine ⟨retired, tryStepFallThroughWriteRegRetires stepNo state 0x14cf4 retired 0 0
-    0x97 0xd0 0xff 0xff (.UTYPE (0xffffd#20, .Regidx 1#5, .AUIPC)) x1
-    (0x14cf4 + sign_extend (m := 64) (0xffffd#20 ++ 0x000#12)) platform noMMIO bytes
-    interrupts ?_ decode notExpected execute (by decide) (by decide) (by decide) (by decide)
-    counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1
-    counters.2.2.2.2.2⟩
-  rfl
+  exact configuredAuipcStep stepNo state 0x14cf4 0xffffd 0x97 0xd0 0xff 0xff
+    configured atPc loaded (decode := by configured_decode configured)
 
 theorem main_decode_call_base_value :
     (0x14cf4 : BitVec 64) + sign_extend (m := 64) (0xffffd#20 ++ 0x000#12) = 0x11cf4 := by
