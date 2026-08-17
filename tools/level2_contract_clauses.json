@@ -32,6 +32,7 @@
       "contractDeclaration": "SszDecodeLevel2InstanceContract",
       "instanceNames": ["sszDecode"],
       "level3RepresentativeProof": null,
+      "representativeProofWork": "Prove one complete decode-inline contract during Level 3 refinement.",
       "clauses": [
         {
           "id": "entry-execution-access",
@@ -66,7 +67,7 @@
     "constant-encoder": {
       "contractDeclaration": "ConstantEncoderInstanceContract / WriteFailureRecordInstanceContract",
       "instanceNames": ["writeSuccessRawLine131", "writeFailureRawLine127"],
-      "level3RepresentativeProof": null,
+      "level3RepresentativeProof": "writeSuccessPrefixInstanceContract",
       "clauses": [
         {
           "id": "entry-execution-access",
@@ -92,7 +93,7 @@
         "writeSuccessRawLine138", "writeSuccessRawLine139", "writeSuccessRawLine140",
         "writeSuccessRawLine147", "writeSuccessRawLine156"
       ],
-      "level3RepresentativeProof": null,
+      "level3RepresentativeProof": "writeSuccessPrevRandaoInstanceContract",
       "clauses": [
         {
           "id": "entry-execution-access",
@@ -123,6 +124,7 @@
         "writeSuccessBytes", "writeSuccessInt"
       ],
       "level3RepresentativeProof": null,
+      "representativeProofWork": "Prove one complete genuine encoder-call contract during Level 3 refinement.",
       "clauses": [
         {
           "id": "entry-frame-fits",
@@ -160,6 +162,7 @@
       "contractDeclaration": "InlineEncoderInstanceContract",
       "instanceNames": ["writeSuccessTransactions", "writeSuccessWithdrawals", "writeSuccessHashes"],
       "level3RepresentativeProof": null,
+      "representativeProofWork": "Prove one complete inline-array encoder contract during Level 3 refinement.",
       "clauses": [
         {
           "id": "entry-execution-access",

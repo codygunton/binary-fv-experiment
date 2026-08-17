@@ -98,6 +98,17 @@ class Level2AdmissionTests(unittest.TestCase):
         encoder = next(row for row in result["contractSchemas"]
                        if row["name"] == "encoder-call")
         self.assertTrue(encoder["entryAndExecutionReady"])
+        representatives = {
+            row["name"]: row["level3RepresentativeProof"]
+            for row in result["contractSchemas"]
+        }
+        self.assertEqual(representatives["constant-encoder"],
+                         "writeSuccessPrefixInstanceContract")
+        self.assertEqual(representatives["raw-encoder"],
+                         "writeSuccessPrevRandaoInstanceContract")
+        self.assertEqual({item["schema"] for item in result["workItems"]
+                          if item["clause"] == "representative-proof"},
+                         {"decode-inline", "encoder-call", "inline-array-encoder"})
         self.assertFalse(any(item["schema"] == "encoder-call" and
                              item["status"] == "contradiction"
                              for item in result["workItems"]))
@@ -119,6 +130,12 @@ class Level2AdmissionTests(unittest.TestCase):
     def test_requires_clause_registry(self):
         with self.assertRaisesRegex(ValueError, "registry is required"):
             self.module.build(*self.documents[:4])
+
+    def test_requires_representative_proof_work(self):
+        documents = copy.deepcopy(self.documents)
+        documents[4]["schemas"]["encoder-call"].pop("representativeProofWork")
+        with self.assertRaisesRegex(ValueError, "encoder-call lacks representative proof work"):
+            self.module.build(*documents)
 
     def test_requires_defect_audits(self):
         with self.assertRaisesRegex(ValueError, "defect audits are required"):

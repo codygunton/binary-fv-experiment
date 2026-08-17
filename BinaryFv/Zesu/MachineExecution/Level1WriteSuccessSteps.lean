@@ -16494,13 +16494,14 @@ private noncomputable def writeSuccessPhaseBound
   1000 + inputSize * 7 +
     100 * (MemcpyInstanceContract.stepBound memcpyInstanceContract 720 +
       MemcpyInstanceContract.stepBound memcpyInstanceContract 592 +
-      ConstantEncoderInstanceContract.stepBound h.writeSuccessPrefix +
+      ConstantEncoderInstanceContract.stepBound writeSuccessPrefixInstanceContract +
       stepBoundMax (RawEncoderInstanceContract.stepBound h.writeSuccessParentHash) (2 ^ 64) +
       stepBoundMax (RawEncoderInstanceContract.stepBound h.writeSuccessFeeRecipient) (2 ^ 64) +
       stepBoundMax (RawEncoderInstanceContract.stepBound h.writeSuccessStateRoot) (2 ^ 64) +
       stepBoundMax (RawEncoderInstanceContract.stepBound h.writeSuccessReceiptsRoot) (2 ^ 64) +
       stepBoundMax (RawEncoderInstanceContract.stepBound h.writeSuccessLogsBloom) (2 ^ 64) +
-      stepBoundMax (RawEncoderInstanceContract.stepBound h.writeSuccessPrevRandao) (2 ^ 64) +
+      stepBoundMax
+        (RawEncoderInstanceContract.stepBound writeSuccessPrevRandaoInstanceContract) (2 ^ 64) +
       stepBoundMax (RawEncoderInstanceContract.stepBound h.writeSuccessBlockHash) (2 ^ 64) +
       stepBoundMax (RawEncoderInstanceContract.stepBound h.writeSuccessParentBeaconRoot) (2 ^ 64) +
       EncoderCallInstanceContract.stepBound h.writeSuccessBoolean inputSize +
@@ -16548,9 +16549,9 @@ private theorem writeSuccessEarlyHandoff
   obtain ⟨values, payloadBytes, tailValues, parentUsed, prefixUsed, memcpyUsed, parentHashUsed,
     feeUsed, stateUsed, receiptsUsed, logsUsed, prevUsed, firstIntUsed, s1, first,
     parentBounded, prefixBounded, memcpyBounded, firstRawBounded, lastRawBounded,
-    firstIntBounded⟩ := writeSuccessFirstIntHandoff h.writeSuccessPrefix
+    firstIntBounded⟩ := writeSuccessFirstIntHandoff writeSuccessPrefixInstanceContract
       h.writeSuccessParentHash h.writeSuccessFeeRecipient h.writeSuccessStateRoot
-      h.writeSuccessReceiptsRoot h.writeSuccessLogsBloom h.writeSuccessPrevRandao
+      h.writeSuccessReceiptsRoot h.writeSuccessLogsBloom writeSuccessPrevRandaoInstanceContract
       h.writeSuccessInt fromStep args before
       ⟨returnListed, lower, aligned, upper, decodedEq, atPc, link, stack, decodedAddress,
         decodedRep, initialized, initializedFull, loaded, savedExists, access, stable⟩
@@ -16743,7 +16744,7 @@ private theorem writeSuccessEarlyHandoff
       (bound := RawEncoderInstanceContract.stepBound h.writeSuccessLogsBloom)
       (index := args.decoded.payload.logsBloom.size) (limit := 2 ^ 64) (by omega)
     have prevRandaoBudget := stepBound_le_max
-      (bound := RawEncoderInstanceContract.stepBound h.writeSuccessPrevRandao)
+      (bound := RawEncoderInstanceContract.stepBound writeSuccessPrevRandaoInstanceContract)
       (index := args.decoded.payload.prevRandao.size) (limit := 2 ^ 64) (by omega)
     have blockHashBudget := stepBound_le_max
       (bound := RawEncoderInstanceContract.stepBound h.writeSuccessBlockHash)

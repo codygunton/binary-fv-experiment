@@ -78,8 +78,15 @@ class ProofMapTest(unittest.TestCase):
         memcpy = next(row for row in self.documents[5]["instances"]
                       if row["qualified"] == "memcpy")
         self.assertEqual(progress[memcpy["id"]], "proved")
+        proved_encoder_entries = {0x14E00, 0x14E7C}
         self.assertEqual({progress[row["id"]] for row in self.documents[5]["instances"]
-                          if row["id"] != memcpy["id"]},
+                          if row["entryPc"] in proved_encoder_entries}, {"proved"})
+        self.assertEqual({row["entryPc"] for row in self.documents[5]["instances"]
+                          if progress[row["id"]] == "proved" and row["qualified"] != "memcpy"},
+                         proved_encoder_entries)
+        self.assertEqual({progress[row["id"]] for row in self.documents[5]["instances"]
+                          if row["id"] != memcpy["id"]
+                          and row["entryPc"] not in proved_encoder_entries},
                          {"contract_specified_assumption"})
         read_input = next(row for row in level1_boundaries if row["qualified"] == "read_input")
         zkvm_exit = next(row for row in level1_boundaries if row["qualified"] == "zkvm_exit")

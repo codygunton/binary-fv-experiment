@@ -64,11 +64,23 @@ def expand(registry: dict, instance_names: set[str]) -> dict:
                     "status": kind, "task": support["remaining"],
                 })
 
+        representative = schema.get("level3RepresentativeProof")
+        if representative is None:
+            task = schema.get("representativeProofWork")
+            if not task:
+                raise ValueError(f"schema {schema_name} lacks representative proof work")
+            work.append({
+                "schema": schema_name,
+                "clause": "representative-proof",
+                "status": "missing",
+                "task": task,
+            })
+
         schemas.append({
             "name": schema_name,
             "contractDeclaration": schema.get("contractDeclaration"),
             "instanceNames": names,
-            "level3RepresentativeProof": schema.get("level3RepresentativeProof"),
+            "level3RepresentativeProof": representative,
             "entryAndExecutionReady": bool(executability_kinds),
             "evidenceComplete": all(kind not in {"partial", "missing", "contradiction"}
                                     for kind in kinds),

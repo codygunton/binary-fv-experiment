@@ -59,8 +59,9 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         "ssz_decode_observation.writeFailure": "conditionally_proven",
     }
     level2_local_proofs = ({
-        next(row["id"] for row in level2_manifest["instances"]
-             if row["qualified"] == "memcpy"): "proved",
+        row["id"]: "proved"
+        for row in level2_manifest["instances"]
+        if row["qualified"] == "memcpy" or row["entryPc"] in {0x14E00, 0x14E7C}
     } if level2_manifest is not None else {})
     proved_level0_pcs = {
         0x14CB0, 0x14CB4, 0x14CB8, 0x14CBC, 0x14CC0, 0x14CC4, 0x14CC8,

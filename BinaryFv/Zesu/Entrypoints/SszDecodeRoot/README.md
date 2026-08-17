@@ -1,7 +1,7 @@
 # `ssz_decode_root.main`
 
 `Level1Boundary.lean` states exact call boundaries, `Level1Contracts.lean` bundles the six immediate
-immediate contracts, and `Level0Contract.lean` composes those opaque calls with all 24 parent-owned
+contracts, and `Level0Contract.lean` composes those opaque calls with all 24 parent-owned
 instructions. `Level2Contracts.lean` states the reviewed fixed-raw encoder contracts and the five
 genuine encoder-call contracts for booleans, optional u64 values, byte-list arrays, byte slices, and
 u64 values. The genuine-call contracts bind semantic values to entry registers and memory, and frame
@@ -14,8 +14,8 @@ regions use separate inline contracts: their live count registers and decoded ar
 are explicit, their writes are confined to the existing 2,000-byte `writeSuccess` frame, and no
 source-function ABI is assumed.
 
-`Level2ContractAssumptions` is the current proof-progress gauge: it contains exactly the 19
+`Level2ContractAssumptions` is the current proof-progress gauge: it contains exactly the 17
 unresolved generated instances above. `Level2Refinement.lean` proves
 `level1Contracts_of_level2`, filling the bare-metal read and exit leaves, allocator leaf, and
-`memcpy` unconditionally before deriving all six Level 1 contracts. `Root.lean` calls that edge
-explicitly from its sole `hLevel2` premise.
+`memcpy`, success-prefix encoder, and `prev_randao` raw encoder unconditionally before deriving all
+six Level 1 contracts. `Root.lean` calls that edge explicitly from its sole `hLevel2` premise.

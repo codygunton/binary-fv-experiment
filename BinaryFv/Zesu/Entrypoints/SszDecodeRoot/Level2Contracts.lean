@@ -775,17 +775,16 @@ abbrev WriteSuccessHashesInstanceContract : Prop :=
       (fun state address => state.machine.regs.get? x9 = some (BitVec.ofNat 64 address)) 32
       (fun mem address hash => hash.size = 32 ∧ BytesRep mem address hash))
 
-/-- The exact unresolved contracts selected at UI Level 2. The bare-metal read/exit leaves and the
-shared `memcpy` are omitted because `level1Contracts_of_level2` discharges them unconditionally. -/
+/-- The exact unresolved contracts selected at UI Level 2. The bare-metal read/exit leaves, shared
+`memcpy`, success prefix, and `prev_randao` raw encoder are omitted because
+`level1Contracts_of_level2` discharges them unconditionally. -/
 structure Level2ContractAssumptions : Prop where
   sszDecode : SszDecodeLevel2InstanceContract
-  writeSuccessPrefix : WriteSuccessPrefixInstanceContract
   writeSuccessParentHash : WriteSuccessParentHashInstanceContract
   writeSuccessFeeRecipient : WriteSuccessFeeRecipientInstanceContract
   writeSuccessStateRoot : WriteSuccessStateRootInstanceContract
   writeSuccessReceiptsRoot : WriteSuccessReceiptsRootInstanceContract
   writeSuccessLogsBloom : WriteSuccessLogsBloomInstanceContract
-  writeSuccessPrevRandao : WriteSuccessPrevRandaoInstanceContract
   writeSuccessBlockHash : WriteSuccessBlockHashInstanceContract
   writeSuccessParentBeaconRoot : WriteSuccessParentBeaconRootInstanceContract
   writeSuccessTransactions : WriteSuccessTransactionsInstanceContract

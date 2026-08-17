@@ -1,6 +1,6 @@
 # Level 2 contract repair proposal
 
-PR #96 correctly selects 19 Level 2 function instances, but four shared contract schemas do not yet
+PR #96 measures 20 Level 2 function instances, but four shared contract schemas did not initially
 describe executable entry states. The repair changes the entry predicates and their caller
 construction. It does not add fields to `Level2ContractAssumptions`.
 
@@ -15,14 +15,17 @@ construction. It does not add fields to `Level2ContractAssumptions`.
 3. Change the upper input arm of `DecodeBoundaryEntry` from
    `stackPointer ≤ inputAddress` to `stackPointer + 0x380 ≤ inputAddress`. Retain the lower disjoint
    arm. Prove both arms from the concrete Level 1 caller layout.
-4. Prove one complete constant, raw, called, and inline encoder contract before accepting the other
+4. Prove one complete constant, raw, called, and inline encoder contract before discharging the other
    instances that share its schema. The representative proof must execute from the strengthened
    entry and establish the declared exit, bound, and frames.
-5. Keep the 19 selected contracts in `Level2ContractAssumptions`. The theorem
-   `level1Contracts_of_level2` must construct the strengthened entries at each concrete call site.
-   `root_compliance` remains conditional on `hLevel2` until those 19 contracts are discharged.
+5. Keep only unresolved selected contracts in `Level2ContractAssumptions`. The theorem
+   `level1Contracts_of_level2` constructs strengthened entries at each concrete call site and fills
+   the hypothesis-free constant and raw representatives. Thus `hLevel2` contains 17 contracts;
+   `root_compliance` remains conditional until those contracts are discharged.
 
 The generated clause matrix is the admission gate. A schema remains `not-admitted` when it has a
 contradiction, a missing execution fact, an incomplete empirical clause, or no representative proof.
+`evidenceComplete` means only that every measurable clause has support; it does not discharge a
+contract. Only a Lean proof recorded by `level3RepresentativeProof` discharges an instance.
 Inline collection address bindings remain missing until a production trace or a proved caller fact
 binds the live register or stack word to the represented collection.
