@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "constants": {"ioContextAddress": 604086456},
+  "schemas": {
+    "memcpy": {
+      "preservedIntegerRegisters": [1, 2, 8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
+      "allowedStoreRegions": [
+        {"name": "destination", "baseRegister": 10, "widthRegister": 12}
+      ]
+    },
+    "decode-inline": {
+      "preservedIntegerRegisters": [],
+      "allowedStoreRegions": null,
+      "unmeasured": ["complete decoder heap and result write frame"]
+    },
+    "constant-encoder": {
+      "preservedIntegerRegisters": [2, 8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
+      "allowedStoreRegions": [
+        {"name": "output-buffer-word", "constant": "ioContextAddress", "offset": 8, "width": 8},
+        {"name": "output-length-word", "constant": "ioContextAddress", "offset": 16, "width": 8}
+      ],
+      "requireHostWrite": true
+    },
+    "raw-encoder": {
+      "preservedIntegerRegisters": [2, 8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
+      "allowedStoreRegions": [
+        {"name": "output-buffer-word", "constant": "ioContextAddress", "offset": 8, "width": 8},
+        {"name": "output-length-word", "constant": "ioContextAddress", "offset": 16, "width": 8}
+      ],
+      "requireHostWrite": true,
+      "sourceRegion": {"baseRegister": 10, "widthParameter": "expectedSize"},
+      "requireSourceOutsideStores": true
+    },
+    "encoder-call": {
+      "callerSiteIdentity": "return-register-x1",
+      "preservedIntegerRegisters": [1, 2, 8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
+      "stackAlignment": 16,
+      "allowedStoreRegions": [
+        {"name": "child-frame", "baseRegister": 2, "negativeWidthParameter": "frameSize", "widthParameter": "frameSize"},
+        {"name": "output-buffer-word", "constant": "ioContextAddress", "offset": 8, "width": 8},
+        {"name": "output-length-word", "constant": "ioContextAddress", "offset": 16, "width": 8}
+      ],
+      "requireHostWrite": true,
+      "requireStackRegionOutsideOutputContext": true
+    },
+    "inline-array-encoder": {
+      "callerSiteIdentity": "instance",
+      "preservedIntegerRegisters": [2],
+      "stackAlignment": 16,
+      "allowedStoreRegions": [
+        {"name": "inline-frame", "baseRegister": 2, "offset": -176, "width": 2032},
+        {"name": "output-buffer-word", "constant": "ioContextAddress", "offset": 8, "width": 8},
+        {"name": "output-length-word", "constant": "ioContextAddress", "offset": 16, "width": 8}
+      ],
+      "requireHostWrite": true,
+      "requireStackRegionOutsideOutputContext": true
+    }
+  },
+  "instances": {
+    "writeSuccessRawLine135": {"expectedSize": 32},
+    "writeSuccessRawLine136": {"expectedSize": 20},
+    "writeSuccessRawLine137": {"expectedSize": 32},
+    "writeSuccessRawLine138": {"expectedSize": 32},
+    "writeSuccessRawLine139": {"expectedSize": 256},
+    "writeSuccessRawLine140": {"expectedSize": 32},
+    "writeSuccessRawLine147": {"expectedSize": 32},
+    "writeSuccessRawLine156": {"expectedSize": 32},
+    "writeSuccessBoolean": {"frameSize": 16},
+    "writeSuccessOptionalU64": {"frameSize": 32},
+    "writeSuccessByteLists": {"frameSize": 80},
+    "writeSuccessBytes": {"frameSize": 48},
+    "writeSuccessInt": {"frameSize": 16}
+  }
+}

@@ -28,7 +28,7 @@ class EvidenceTest(unittest.TestCase):
                 for pc in [0, 4, 8, 12, 16]
             ],
             "registers": {4: [{"available": 2 ** 32 - 1, "values": [0] * 32}]},
-            "loads": [[8, 100, 8, 7]], "stores": [],
+            "loads": [[8, 100, 8, 7, 2]], "stores": [],
         }
 
     def test_reduces_boundary(self):
@@ -39,6 +39,8 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual(row["observedExits"][0]["afterPc"], 16)
         self.assertEqual(len(row["occurrences"]), 1)
         self.assertEqual(row["occurrences"][0]["hostWrites"], [])
+        self.assertEqual(row["occurrences"][0]["memoryWrites"], [])
+        self.assertEqual(row["memoryAccessSummary"], {"loads": 1, "stores": 0})
 
     def test_pairs_each_occurrence_with_its_own_host_writes(self):
         trace = copy.deepcopy(self.trace)
@@ -51,6 +53,17 @@ class EvidenceTest(unittest.TestCase):
         row = reduce_trace(self.manifest, trace, "twice")["instances"][0]
         self.assertEqual([[write["bytes"] for write in occurrence["hostWrites"]]
                           for occurrence in row["occurrences"]], [["01"], ["02"]])
+
+    def test_pairs_each_occurrence_with_its_own_memory_accesses(self):
+        trace = copy.deepcopy(self.trace)
+        trace["loads"] = []
+        trace["stores"] = [[8, 100, 8, 1, 2]]
+        trace["executions"].extend(copy.deepcopy(trace["executions"][1:]))
+        trace["registers"][4].append(copy.deepcopy(trace["registers"][4][0]))
+        trace["stores"].append([8, 200, 8, 2, 6])
+        row = reduce_trace(self.manifest, trace, "twice")["instances"][0]
+        self.assertEqual([[access["address"] for access in occurrence["memoryWrites"]]
+                          for occurrence in row["occurrences"]], [[100], [200]])
 
     def test_missing_entry_is_not_inferred(self):
         trace = copy.deepcopy(self.trace)

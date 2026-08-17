@@ -4,7 +4,7 @@
     "memcpy": {
       "contractDeclaration": "MemcpyInstanceContract",
       "instanceNames": ["memcpy"],
-      "representativeProof": "memcpyInstanceContract",
+      "level3RepresentativeProof": "memcpyInstanceContract",
       "clauses": [
         {
           "id": "entry-execution-access",
@@ -31,8 +31,7 @@
     "decode-inline": {
       "contractDeclaration": "SszDecodeLevel2InstanceContract",
       "instanceNames": ["sszDecode"],
-      "representativeProof": null,
-      "representativeProofWork": "Prove one initial or resumed decode route from DecodeInlineFrame before accepting this schema.",
+      "level3RepresentativeProof": null,
       "clauses": [
         {
           "id": "entry-execution-access",
@@ -60,15 +59,14 @@
         {
           "id": "termination-and-frames",
           "requirement": "The initial and resumed routes have bounds and preserve their declared frames.",
-          "support": {"kind": "missing", "remaining": "Prove the selected decode routes from the strengthened entry."}
+          "support": {"kind": "empirical", "checker": "joint-entry-exit-compatibility", "mutationTest": "boundary-frame-mutations"}
         }
       ]
     },
     "constant-encoder": {
       "contractDeclaration": "ConstantEncoderInstanceContract",
       "instanceNames": ["writeSuccessRawLine131", "writeFailureRawLine127"],
-      "representativeProof": null,
-      "representativeProofWork": "Prove one constant encoder from a configured entry through its output and return.",
+      "level3RepresentativeProof": null,
       "clauses": [
         {
           "id": "entry-execution-access",
@@ -83,7 +81,7 @@
         {
           "id": "termination-and-frames",
           "requirement": "The encoder terminates and preserves its declared register, memory, code, and auxiliary-state frames.",
-          "support": {"kind": "missing", "remaining": "Prove the representative constant encoder after its entry is executable."}
+          "support": {"kind": "empirical", "checker": "joint-entry-exit-compatibility", "mutationTest": "boundary-frame-mutations"}
         }
       ]
     },
@@ -94,8 +92,7 @@
         "writeSuccessRawLine138", "writeSuccessRawLine139", "writeSuccessRawLine140",
         "writeSuccessRawLine147", "writeSuccessRawLine156"
       ],
-      "representativeProof": null,
-      "representativeProofWork": "Prove one fixed-width raw encoder from a configured entry through output and return.",
+      "level3RepresentativeProof": null,
       "clauses": [
         {
           "id": "entry-execution-access",
@@ -115,7 +112,7 @@
         {
           "id": "termination-and-frames",
           "requirement": "The encoder terminates and preserves its declared register, memory, code, and auxiliary-state frames.",
-          "support": {"kind": "missing", "remaining": "Prove the representative raw encoder after its entry is executable."}
+          "support": {"kind": "empirical", "checker": "joint-entry-exit-compatibility", "mutationTest": "boundary-frame-mutations"}
         }
       ]
     },
@@ -125,8 +122,7 @@
         "writeSuccessBoolean", "writeSuccessOptionalU64", "writeSuccessByteLists",
         "writeSuccessBytes", "writeSuccessInt"
       ],
-      "representativeProof": null,
-      "representativeProofWork": "Prove one frame-writing called encoder from a safe configured entry through return.",
+      "level3RepresentativeProof": null,
       "clauses": [
         {
           "id": "entry-frame-fits",
@@ -156,15 +152,14 @@
         {
           "id": "termination-and-frames",
           "requirement": "The encoder terminates and preserves its declared register, memory, code, and auxiliary-state frames.",
-          "support": {"kind": "missing", "remaining": "Prove the representative called encoder after its entry is executable."}
+          "support": {"kind": "empirical", "checker": "joint-entry-exit-compatibility", "mutationTest": "alignment-frame-output-mutations"}
         }
       ]
     },
     "inline-array-encoder": {
       "contractDeclaration": "InlineEncoderInstanceContract",
       "instanceNames": ["writeSuccessTransactions", "writeSuccessWithdrawals", "writeSuccessHashes"],
-      "representativeProof": null,
-      "representativeProofWork": "Prove one optimized inline array encoder from its live-state entry through its declared exit.",
+      "level3RepresentativeProof": null,
       "clauses": [
         {
           "id": "entry-execution-access",
@@ -199,7 +194,7 @@
         {
           "id": "termination-and-frames",
           "requirement": "The inline region terminates and preserves every declared live value and frame.",
-          "support": {"kind": "missing", "remaining": "Prove the representative inline encoder after its entry is executable."}
+          "support": {"kind": "empirical", "checker": "joint-entry-exit-compatibility", "mutationTest": "alignment-frame-output-mutations"}
         }
       ]
     }

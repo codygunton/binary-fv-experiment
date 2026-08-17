@@ -36,6 +36,9 @@ def parse_trace(path: Path) -> dict:
                 registers.setdefault(pc, []).append(snapshot)
             elif parts[0] in {"L", "S"} and len(parts) == 5:
                 record = [int(value) for value in parts[1:]]
+                if not executions or executions[-1]["pc"] != record[0]:
+                    raise ValueError
+                record.append(len(executions) - 1)
                 (loads if parts[0] == "L" else stores).append(record)
             elif parts[0] == "B" and len(parts) in {4, 5}:
                 pc, address, length = map(int, parts[1:4])
@@ -68,8 +71,20 @@ def parse_trace(path: Path) -> dict:
             "terminalOutputs": outputs, "memoryWindows": windows}
 
 
-def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
+def reduce_trace(manifest: dict, trace: dict, label: str,
+                 include_memory_accesses: bool = True) -> dict:
     result = []
+    accesses_by_execution: dict[int, list[dict]] = {}
+    load_counts: dict[int, int] = {}
+    store_counts: dict[int, int] = {}
+    for record in trace["loads"]:
+        load_counts[record[0]] = load_counts.get(record[0], 0) + 1
+    for record in trace["stores"]:
+        store_counts[record[0]] = store_counts.get(record[0], 0) + 1
+        accesses_by_execution.setdefault(record[4], []).append({
+            "kind": "store", "pc": record[0], "address": record[1],
+            "width": record[2], "value": record[3],
+        })
     for instance in manifest["instances"]:
         extent = set(instance["executionPcs"])
         exits_expected = set(instance["exitPcs"])
@@ -81,12 +96,14 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
         transitions, exits, occurrences = [], [], []
         active_host_writes = []
         occurrence_writes = []
+        occurrence_start = None
         occurrence_entry = None
         active = False
         executions = trace["executions"]
         for index, current in enumerate(executions):
             if not active and current["pc"] == instance["entryPc"] and current["registers"] is not None:
                 active = True
+                occurrence_start = index
                 occurrence_entry = current["registers"]
                 occurrence_writes = []
             if not active:
@@ -102,10 +119,15 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             if index + 1 == len(executions):
                 if current["pc"] not in exits_expected:
                     raise ValueError(f"unterminated occurrence for {instance['id']}")
+                occurrence_accesses = [access for execution_index in
+                                       range(occurrence_start, index + 1)
+                                       for access in accesses_by_execution.get(execution_index, [])]
                 occurrences.append({"entryRegisters": occurrence_entry,
                                     "afterPc": current["pc"],
                                     "afterRegisters": None,
-                                    "hostWrites": occurrence_writes})
+                                    "hostWrites": occurrence_writes,
+                                    "memoryWrites": occurrence_accesses,
+                                    "executedInstructionCount": index - occurrence_start + 1})
                 active = False
                 continue
             after = executions[index + 1]
@@ -121,10 +143,14 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             transitions.append((current["pc"], after["pc"]))
             exits.append({"beforePc": current["pc"], "afterPc": after["pc"],
                           "afterRegisters": snapshot})
+            occurrence_accesses = [access for execution_index in range(occurrence_start, index + 1)
+                                   for access in accesses_by_execution.get(execution_index, [])]
             occurrences.append({"entryRegisters": occurrence_entry,
                                 "afterPc": after["pc"],
                                 "afterRegisters": snapshot,
-                                "hostWrites": occurrence_writes})
+                                "hostWrites": occurrence_writes,
+                                "memoryWrites": occurrence_accesses,
+                                "executedInstructionCount": index - occurrence_start + 1})
             active = False
         memory = [
             {"kind": kind, "pc": record[0], "address": record[1],
@@ -142,7 +168,11 @@ def reduce_trace(manifest: dict, trace: dict, label: str) -> dict:
             "observedExitTransitions": [list(pair) for pair in sorted(set(transitions))],
             "observedExits": exits,
             "occurrences": occurrences,
-            "memoryAccesses": memory,
+            "memoryAccesses": memory if include_memory_accesses else [],
+            "memoryAccessSummary": {
+                "loads": sum(load_counts.get(pc, 0) for pc in extent),
+                "stores": sum(store_counts.get(pc, 0) for pc in extent),
+            },
             "hostWrites": active_host_writes,
         })
     return {"label": label, "instances": result,
@@ -274,7 +304,8 @@ def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
     if digest != manifest["artifact"]["sha256"]:
         raise ValueError("manifest and observed ELF digests differ")
     parsed_traces = [(label, parse_trace(path)) for label, path in traces]
-    vectors = [reduce_trace(manifest, trace, label) for label, trace in parsed_traces]
+    vectors = [reduce_trace(manifest, trace, label, not structural_only)
+               for label, trace in parsed_traces]
     reached = {
         instance["id"] for vector in vectors for instance in vector["instances"]
         if instance["entryReached"]

@@ -110,10 +110,12 @@ let
       mkdir -p "$out/BinaryFv/Zesu/Elflings"
       PYTHONPATH=${../tools} python ${../tools/test_generate_level2_lean.py} \
         ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
-        ${zesuSszDecodeCfg}/zesu-cfg.json
+        ${zesuSszDecodeCfg}/zesu-cfg.json \
+        ${../tools/level2_contract_evidence_profiles.json}
       PYTHONPATH=${../tools} python ${../tools/generate_level2_lean.py} \
         --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
         --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --profiles ${../tools/level2_contract_evidence_profiles.json} \
         --output "$out/BinaryFv/Zesu/Elflings/GeneratedLevel2.lean"
       cmp "$out/BinaryFv/Zesu/Elflings/GeneratedLevel2.lean" \
         ${../BinaryFv/Zesu/Elflings/GeneratedLevel2.lean}
@@ -195,13 +197,17 @@ let
         ${zesuSszDecodeLevel2Evidence}/level2-evidence.json \
         ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json \
         ${zesuSszDecodeCfg}/zesu-cfg.json \
-        ${../tools/level2_contract_clauses.json}
+        ${../tools/level2_contract_clauses.json} \
+        ${../tools/level2_contract_evidence_profiles.json} \
+        ${../tools/level2_contract_defect_audits.json}
       PYTHONPATH=${../tools} python ${../tools/generate_level2_admission.py} \
         --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
         --evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json \
         --bindings ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json \
         --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
         --registry ${../tools/level2_contract_clauses.json} \
+        --profiles ${../tools/level2_contract_evidence_profiles.json} \
+        --defect-audits ${../tools/level2_contract_defect_audits.json} \
         --output "$out/level2-admission.json"
     '';
 

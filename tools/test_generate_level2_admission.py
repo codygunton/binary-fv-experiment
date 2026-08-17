@@ -15,8 +15,9 @@ sys.argv[:] = sys.argv[:1]
 class Level2AdmissionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if len(INPUTS) != 5:
-            raise RuntimeError("expected MANIFEST EVIDENCE BINDINGS CFG REGISTRY")
+        if len(INPUTS) != 7:
+            raise RuntimeError(
+                "expected MANIFEST EVIDENCE BINDINGS CFG REGISTRY PROFILES DEFECT_AUDITS")
         cls.documents = [json.loads(Path(path).read_text()) for path in INPUTS]
         cls.module = admission
 
@@ -27,6 +28,10 @@ class Level2AdmissionTests(unittest.TestCase):
                          {"reviewed"})
         self.assertEqual({row["contractStatus"] for row in result["instances"]},
                          {"not-admitted"})
+        self.assertTrue(all(
+            row["measured"]["entryToExitCompatibility"]["status"] == "measured-compatible"
+            and row["measured"]["entryToExitCompatibility"]["occurrenceCount"] > 0
+            for row in result["instances"]))
         self.assertTrue(all(row["proofOnly"] == [
             "Sail choiceState/tags/sailOutput preservation is machine-execution bookkeeping, "
             "not an empirically observable function result",
@@ -88,6 +93,8 @@ class Level2AdmissionTests(unittest.TestCase):
                             for count in hashes["measured"]["observedCollectionCounts"]))
         self.assertEqual(result["summary"]["instanceCount"], 20)
         self.assertEqual(result["summary"]["schemaCount"], 6)
+        self.assertEqual(result["measuredDefectCensus"]["totalInstanceCount"], 20)
+        self.assertEqual(result["measuredDefectCensus"]["failingInstanceCount"], 8)
         encoder = next(row for row in result["contractSchemas"]
                        if row["name"] == "encoder-call")
         self.assertTrue(encoder["entryAndExecutionReady"])
@@ -112,6 +119,10 @@ class Level2AdmissionTests(unittest.TestCase):
     def test_requires_clause_registry(self):
         with self.assertRaisesRegex(ValueError, "registry is required"):
             self.module.build(*self.documents[:4])
+
+    def test_requires_defect_audits(self):
+        with self.assertRaisesRegex(ValueError, "defect audits are required"):
+            self.module.build(*self.documents[:6])
 
     def test_rejects_incomplete_clause_inventory(self):
         documents = copy.deepcopy(self.documents)
@@ -140,7 +151,7 @@ class Level2AdmissionTests(unittest.TestCase):
         row["hostWrites"][0]["bytes"] = "0053535a0101"
         with self.assertRaisesRegex(ValueError, "fixed source write mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3],
-                              self.documents[4])
+                              self.documents[4], self.documents[5])
 
     def test_rejects_forged_fixed_pointer_binding(self):
         evidence = copy.deepcopy(self.documents[1])
@@ -149,7 +160,7 @@ class Level2AdmissionTests(unittest.TestCase):
         row["entryRegisters"][0]["values"][10] += 1
         with self.assertRaisesRegex(ValueError, "fixed source pointer binding mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3],
-                              self.documents[4])
+                              self.documents[4], self.documents[5])
 
     def test_rejects_forged_boolean_value_binding(self):
         evidence = copy.deepcopy(self.documents[1])
@@ -158,7 +169,7 @@ class Level2AdmissionTests(unittest.TestCase):
         row["occurrences"][0]["entryRegisters"]["values"][10] ^= 1
         with self.assertRaisesRegex(ValueError, "boolean entry/output binding mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3],
-                              self.documents[4])
+                              self.documents[4], self.documents[5])
 
     def test_rejects_forged_byte_slice_pointer_binding(self):
         evidence = copy.deepcopy(self.documents[1])
@@ -169,7 +180,7 @@ class Level2AdmissionTests(unittest.TestCase):
         occurrence["entryRegisters"]["values"][10] += 1
         with self.assertRaisesRegex(ValueError, "byte-slice pointer/length binding mismatch"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3],
-                              self.documents[4])
+                              self.documents[4], self.documents[5])
 
     def test_rejects_forged_collection_count_bindings(self):
         ids = {
@@ -220,7 +231,7 @@ class Level2AdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(
                 ValueError, "writeSuccessTransactions lacks empty/nonempty evidence"):
             self.module.build(self.documents[0], evidence, self.documents[2], self.documents[3],
-                              self.documents[4])
+                              self.documents[4], self.documents[5])
 
 if __name__ == "__main__":
     unittest.main()

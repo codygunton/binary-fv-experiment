@@ -9,6 +9,8 @@ from pathlib import Path
 
 from generate_level2_lean import source_name
 from level2_contract_matrix import expand as expand_clause_matrix
+from level2_contract_execution_evidence import evaluate_all as evaluate_execution_evidence
+from level2_contract_defect_census import build_census
 
 
 SEMANTICS = {
@@ -51,7 +53,8 @@ FIXED_WRITE_BYTES = {
 
 
 def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict,
-          registry: dict | None = None) -> dict:
+          registry: dict | None = None, profiles: dict | None = None,
+          defect_audits: dict | None = None) -> dict:
     if any(manifest["artifact"] != document["artifact"]
            for document in (evidence, bindings, cfg)):
         raise ValueError("Level 2 admission inputs describe different ELFs")
@@ -68,8 +71,8 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict,
                 slot["vectors"].append(vector["label"])
                 slot["entries"] += len(row["entryRegisters"])
             slot["exits"].update(tuple(edge) for edge in row["observedExitTransitions"])
-            slot["loads"] += sum(access["kind"] == "load" for access in row["memoryAccesses"])
-            slot["stores"] += sum(access["kind"] == "store" for access in row["memoryAccesses"])
+            slot["loads"] += row["memoryAccessSummary"]["loads"]
+            slot["stores"] += row["memoryAccessSummary"]["stores"]
             slot["hostWrites"].extend({"vector": vector["label"], **write}
                                       for write in row["hostWrites"])
             slot["occurrences"].extend({"vector": vector["label"], **occurrence}
@@ -186,16 +189,26 @@ def build(manifest: dict, evidence: dict, bindings: dict, cfg: dict,
     }
     for row in rows:
         row["contractSchema"] = schema_by_instance[row["leanName"]]
+    if profiles is None:
+        raise ValueError("Level 2 execution evidence profiles are required")
+    execution_evidence = evaluate_execution_evidence(rows, profiles)
+    for row in rows:
+        row["measured"]["entryToExitCompatibility"] = execution_evidence[row["leanName"]]
+    if defect_audits is None:
+        raise ValueError("Level 2 defect audits are required")
+    result["measuredDefectCensus"] = build_census(result, profiles, defect_audits)
     return result
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    for name in ("manifest", "evidence", "bindings", "cfg", "registry", "output"):
+    for name in ("manifest", "evidence", "bindings", "cfg", "registry", "profiles",
+                 "defect-audits", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
     args = parser.parse_args()
     result = build(*(json.loads(getattr(args, name).read_text())
-                     for name in ("manifest", "evidence", "bindings", "cfg", "registry")))
+                     for name in ("manifest", "evidence", "bindings", "cfg", "registry", "profiles",
+                                  "defect_audits")))
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return 0
 
