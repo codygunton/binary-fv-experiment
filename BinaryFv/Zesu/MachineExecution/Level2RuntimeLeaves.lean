@@ -402,6 +402,18 @@ private theorem liftWriteOutputPrefix (template : EndpointState) {fromStep count
   | callStep fromStep used count call program parent callee before resume after transfer rest ih =>
       exact transfer.body.elim
 
+private theorem writeOutputLoadedOfSeg {kv a n base cur pc}
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully base.mem)
+    (seg : Seg writeOutputPc writeOutputExit (fun _ _ _ _ _ => False)
+      writeOutputWrites writeOutputMemory kv a n base cur pc) :
+    Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
+  intro address byte file
+  have outside : ¬ writeOutputMemory address := by
+    intro inside
+    rw [writeOutputMemory_not_file inside] at file
+    cases file
+  exact (seg.mem address outside).trans (loaded address byte file)
+
 set_option genInjectivity false in
 /-- The exact bare-metal `write_output` function, including its observable return step. -/
 structure WriteOutputHandoff (fromStep : Nat) (buffer : Nat) (bytes : Array UInt8)
@@ -444,73 +456,46 @@ theorem writeOutputHandoff (fromStep buffer : Nat) (bytes : Array UInt8)
   have seg0 := (seg0.know x1 returnAddress link).know x10 (BitVec.ofNat 64 buffer) bufferRead
   have seg0 := seg0.know x11 (BitVec.ofNat 64 bytes.size) countRead
   obtain ⟨r1, run1⟩ := writeOutputContextBaseHighStep fromStep before.machine configured atPc loaded
-  let s1 := afterRegisterWrite before.machine 0x10190 r1 x5 0x2401a190
-  have seg1 := seg0.stepKnown (Or.inl rfl)
-    (by unfold writeOutputExit; native_decide) x5 0x2401a190 0x10194 r1 run1
+  obtain ⟨s1, seg1⟩ := seg0.step (Or.inl rfl)
+    (by unfold writeOutputExit; native_decide) x5 0x2401a190 0x10194 ⟨r1, run1⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr rfl)
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have cfg1 := configured.mono (seg1.agree instructionPreserved_disjoint_writeOutputWrites) seg1.retired
-  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully s1.mem := by
-    simpa [s1] using loaded
+  have loaded1 := writeOutputLoadedOfSeg loaded seg1
   obtain ⟨r2, run2⟩ := writeOutputContextBaseLowStep (fromStep + 1) s1 cfg1 seg1.atPc
     (seg1.reg x5 0x2401a190 (by simp)) loaded1
-  let s2 := afterRegisterWrite s1 0x10194 r2 x5
-    (BitVec.ofNat 64 Elflings.ioContextAddress)
   have seg1' := seg1.forget (kv' :=
     [⟨x11, BitVec.ofNat 64 bytes.size⟩, ⟨x10, BitVec.ofNat 64 buffer⟩,
       ⟨x1, returnAddress⟩]) (by simp)
-  have seg2 := seg1'.stepKnown (Or.inr (Or.inl rfl))
+  obtain ⟨s2, seg2⟩ := seg1'.step (Or.inr (Or.inl rfl))
     (by unfold writeOutputExit; native_decide) x5
-    (BitVec.ofNat 64 Elflings.ioContextAddress) 0x10198 r2 run2
+    (BitVec.ofNat 64 Elflings.ioContextAddress) 0x10198 ⟨r2, run2⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr rfl)
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have cfg2 := configured.mono (seg2.agree instructionPreserved_disjoint_writeOutputWrites) seg2.retired
-  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully s2.mem := by
-    simpa [s2, s1] using loaded
+  have loaded2 := writeOutputLoadedOfSeg loaded seg2
   obtain ⟨r3, run3⟩ := writeOutputStoreBufferStep (fromStep + 2) s2 buffer cfg2 seg2.atPc
     (seg2.reg x5 _ (by simp)) (seg2.reg x10 _ (by simp))
     (storePmaAllows_of_agree (seg2.agree platformPreserved_disjoint_writeOutputWrites) bufferPma)
     loaded2
-  let s3 := tryStepStoreAfterRetired
-    (afterWriteBytes (width := 8) (coreStoreNextState (tryStepStoreAfterIncrement s2) 0x10198)
-      (Elflings.ioContextAddress + 8) (BitVec.ofNat 64 buffer)) 0x10198 r3
-  have seg3 := seg2.stepStoreKnown (Elflings.ioContextAddress + 8)
-    (BitVec.ofNat 64 buffer) 0x1019c r3 (Or.inr (Or.inr (Or.inl rfl)))
-    (by unfold writeOutputExit; native_decide) run3
+  obtain ⟨s3, seg3⟩ := seg2.stepStore (Elflings.ioContextAddress + 8)
+    (BitVec.ofNat 64 buffer) 0x1019c (Or.inr (Or.inr (Or.inl rfl)))
+    (by unfold writeOutputExit; native_decide) ⟨r3, run3⟩
     (by decide) (by intro address lo hi; exact Or.inl ⟨lo, hi⟩)
     (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
   have cfg3 := configured.mono (seg3.agree instructionPreserved_disjoint_writeOutputWrites) seg3.retired
-  have loaded3 : Artifacts.programImage.fileBytesLoadedFaithfully s3.mem := by
-    intro address byte file
-    have outside : ¬ writeOutputMemory address := by
-      intro inside
-      rw [writeOutputMemory_not_file inside] at file
-      cases file
-    have frame : s3.mem.get? address = before.machine.mem.get? address := by
-      simpa [s3] using seg3.mem address outside
-    exact frame.trans (loaded address byte file)
+  have loaded3 := writeOutputLoadedOfSeg loaded seg3
   obtain ⟨r4, run4⟩ := writeOutputStoreLengthStep (fromStep + 3) s3 bytes.size cfg3 seg3.atPc
     (seg3.reg x5 _ (by simp)) (seg3.reg x11 _ (by simp))
     (storePmaAllows_of_agree (seg3.agree platformPreserved_disjoint_writeOutputWrites) lengthPma)
     loaded3
-  let s4 := tryStepStoreAfterRetired
-    (afterWriteBytes (width := 8) (coreStoreNextState (tryStepStoreAfterIncrement s3) 0x1019c)
-      (Elflings.ioContextAddress + 16) (BitVec.ofNat 64 bytes.size)) 0x1019c r4
-  have seg4 := seg3.stepStoreKnown (Elflings.ioContextAddress + 16)
-    (BitVec.ofNat 64 bytes.size) 0x101a0 r4 (Or.inr (Or.inr (Or.inr rfl)))
-    (by unfold writeOutputExit; native_decide) run4
+  obtain ⟨s4, seg4⟩ := seg3.stepStore (Elflings.ioContextAddress + 16)
+    (BitVec.ofNat 64 bytes.size) 0x101a0 (Or.inr (Or.inr (Or.inr rfl)))
+    (by unfold writeOutputExit; native_decide) ⟨r4, run4⟩
     (by decide) (by intro address lo hi; exact Or.inr ⟨lo, hi⟩)
     (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
   have cfg4 := configured.mono (seg4.agree instructionPreserved_disjoint_writeOutputWrites) seg4.retired
-  have loaded4 : Artifacts.programImage.fileBytesLoadedFaithfully s4.mem := by
-    intro address byte file
-    have outside : ¬ writeOutputMemory address := by
-      intro inside
-      rw [writeOutputMemory_not_file inside] at file
-      cases file
-    have frame : s4.mem.get? address = before.machine.mem.get? address := by
-      simpa [s4] using seg4.mem address outside
-    exact frame.trans (loaded address byte file)
+  have loaded4 := writeOutputLoadedOfSeg loaded seg4
   have bytes4 := bytesRep.of_writesOnlyWithin seg4.mem bufferOutside
   obtain ⟨r5, run5⟩ := writeOutputReturnStep (fromStep + 4) s4 returnAddress cfg4 seg4.atPc
     (seg4.reg x1 returnAddress (by simp)) targetAligned loaded4
