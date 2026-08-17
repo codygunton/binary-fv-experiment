@@ -1050,6 +1050,54 @@ theorem writeSuccessSaveStep {args : WriteSuccessArgs} {base : State}
       read0 read1 read2 read3 advance
   exact ⟨next, nextSeg, nextWords, nextConfigured⟩
 
+/-- The writer save interface with byte and PC facts checked as one artifact-only premise. -/
+private theorem writeSuccessSaveStepAtSite {args : WriteSuccessArgs} {base : State}
+    {kv : List RegVal} {a n : Nat} {cur : State} {pc : BitVec 64}
+    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
+      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
+      kv a n base cur pc)
+    (access : WriteSuccessMachineAccess args base)
+    (configured : ConfiguredMachinePre EndpointMachinePc cur)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully base.mem)
+    (stackLower : 0x880 ≤ args.stackPointer) (stackFits : args.stackPointer < 2 ^ 64)
+    (words : List (Nat × Nat)) (wordsRep : SavedWordReps cur words)
+    (storePc offset : Nat) (source : BitVec 64) (imm : BitVec 12) (rs2 : regidx)
+    (byte0 byte1 byte2 byte3 : UInt8)
+    (stackRead : cur.regs.get? x2 = some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)))
+    (dataRun : ∀ premise, WritesOnlyRegs stepBookkeeping cur premise →
+      Runs (rX_bits rs2) premise premise source)
+    (belowWords : ∀ word ∈ words,
+      args.stackPointer - 0x7d0 + offset + 8 ≤ word.1)
+    (frameBound : offset + 8 ≤ 0x7d0)
+    (aligned : (args.stackPointer - 0x7d0 + offset) % 8 = 0)
+    (pcEq : pc = BitVec.ofNat 64 storePc)
+    (inRegion : writeSuccessParentPc (BitVec.ofNat 64 storePc))
+    (notExit : ¬writeSuccessInitialExitPc (BitVec.ofNat 64 storePc))
+    (decodeOfConfigured : ConfiguredMachinePre EndpointMachinePc cur →
+      Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+        (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+        (BitVec.ofNat 8 byte3.toNat)))
+        (tryStepStoreAfterIncrement cur) (tryStepStoreAfterIncrement cur)
+        (.STORE (imm, rs2, .Regidx 2#5, 8)))
+    (addressEq : BitVec.ofNat 64 (args.stackPointer - 0x7d0) + sign_extend (m := 64) imm =
+      BitVec.ofNat 64 (args.stackPointer - 0x7d0 + offset))
+    (keep : RegsOutside stepBookkeeping kv)
+    (baseEncoding : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (site : ExactInstructionSite storePc byte0 byte1 byte2 byte3 := by
+      unfold ExactInstructionSite
+      native_decide) :
+    ∃ next,
+      Seg writeSuccessParentPc writeSuccessInitialExitPc
+        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
+        kv a (n + 1) base next (BitVec.ofNat 64 (storePc + 4)) ∧
+      SavedWordReps next
+        ((args.stackPointer - 0x7d0 + offset, source.toNat) :: words) ∧
+      ConfiguredMachinePre EndpointMachinePc next :=
+  writeSuccessSaveStep seg access configured loaded stackLower stackFits words wordsRep storePc
+    offset source imm rs2 byte0 byte1 byte2 byte3 stackRead dataRun belowWords frameBound aligned
+    pcEq inRegion notExit decodeOfConfigured addressEq keep site.pcFits baseEncoding site.read0
+    site.read1 site.read2 site.read3 site.advance
+
 private theorem initializedByteWindow_of_writeSuccessStore
     {cur next : State} {memAddress width storePc storeAddress : Nat}
     {source : BitVec 64} {retired : BitVec 64}
@@ -1106,7 +1154,7 @@ theorem writeSuccessSaveRa {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc next := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits [] (by
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits [] (by
     intro word member; simp at member) 0x14d34 0x7c8
     (BitVec.ofNat 64 args.returnAddress) 0x7c8 (.Regidx 1#5) 0x23 0x34 0x11 0x7c
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
@@ -1128,15 +1176,7 @@ theorem writeSuccessSaveRa {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7c8#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-
-
-  · native_decide
-  · native_decide
 
 /-- Exact second save, `0x14d38: sd s0,1984(sp)`. -/
 theorem writeSuccessSaveS0 {fromStep : Nat} {args : WriteSuccessArgs}
@@ -1163,7 +1203,7 @@ theorem writeSuccessSaveS0 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc next := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d38 0x7c0 values.s0 0x7c0 (.Regidx 8#5) 0x23 0x30 0x81 0x7c
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1186,13 +1226,7 @@ theorem writeSuccessSaveS0 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7c0#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Exact save at `0x14d3c: sd s1,1976(sp)`. -/
@@ -1222,7 +1256,7 @@ theorem writeSuccessSaveS1 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d3c 0x7b8 values.s1 0x7b8 (.Regidx 9#5) 0x23 0x3c 0x91 0x7a
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1244,13 +1278,7 @@ theorem writeSuccessSaveS1 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7b8#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Exact save at `0x14d40: sd s2,1968(sp)`. -/
@@ -1282,7 +1310,7 @@ theorem writeSuccessSaveS2 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d40 0x7b0 values.s2 0x7b0 (.Regidx 18#5) 0x23 0x38 0x21 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1304,13 +1332,7 @@ theorem writeSuccessSaveS2 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7b0#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Exact save at `0x14d44: sd s3,1960(sp)`. -/
@@ -1344,7 +1366,7 @@ theorem writeSuccessSaveS3 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d44 0x7a8 values.s3 0x7a8 (.Regidx 19#5) 0x23 0x34 0x31 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1366,13 +1388,7 @@ theorem writeSuccessSaveS3 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7a8#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Exact save at `0x14d48: sd s4,1952(sp)`. -/
@@ -1408,7 +1424,7 @@ theorem writeSuccessSaveS4 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d48 0x7a0 values.s4 0x7a0 (.Regidx 20#5) 0x23 0x30 0x41 0x7b
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1430,13 +1446,7 @@ theorem writeSuccessSaveS4 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7a0#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Exact save at `0x14d4c: sd s5,1944(sp)`. -/
@@ -1474,7 +1484,7 @@ theorem writeSuccessSaveS5 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d4c 0x798 values.s5 0x798 (.Regidx 21#5) 0x23 0x3c 0x51 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1496,13 +1506,7 @@ theorem writeSuccessSaveS5 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x798#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Exact save at `0x14d50: sd s6,1936(sp)`. -/
@@ -1542,7 +1546,7 @@ theorem writeSuccessSaveS6 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d50 0x790 values.s6 0x790 (.Regidx 22#5) 0x23 0x38 0x61 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1564,13 +1568,7 @@ theorem writeSuccessSaveS6 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x790#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Exact save at `0x14d54: sd s7,1928(sp)`. -/
@@ -1612,7 +1610,7 @@ theorem writeSuccessSaveS7 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d54 0x788 values.s7 0x788 (.Regidx 23#5) 0x23 0x34 0x71 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1634,13 +1632,7 @@ theorem writeSuccessSaveS7 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x788#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Exact save at `0x14d58: sd s8,1920(sp)`. -/
@@ -1684,7 +1676,7 @@ theorem writeSuccessSaveS8 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d58 0x780 values.s8 0x780 (.Regidx 24#5) 0x23 0x30 0x81 0x79
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1706,13 +1698,7 @@ theorem writeSuccessSaveS8 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x780#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Exact save at `0x14d5c: sd s9,1912(sp)`. -/
@@ -1758,7 +1744,7 @@ theorem writeSuccessSaveS9 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d5c 0x778 values.s9 0x778 (.Regidx 25#5) 0x23 0x3c 0x91 0x77
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1780,13 +1766,7 @@ theorem writeSuccessSaveS9 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x778#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Exact save at `0x14d60: sd s10,1904(sp)`. -/
@@ -1834,7 +1814,7 @@ theorem writeSuccessSaveS10 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d60 0x770 values.s10 0x770 (.Regidx 26#5) 0x23 0x38 0xa1 0x77
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1856,13 +1836,7 @@ theorem writeSuccessSaveS10 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x770#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 /-- Exact save at `0x14d64: sd s11,1896(sp)`. -/
@@ -1912,7 +1886,7 @@ theorem writeSuccessSaveS11 {fromStep : Nat} {args : WriteSuccessArgs}
           (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
       ConfiguredMachinePre EndpointMachinePc nextState := by
   rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStep seg access configured loaded lower fits _ words
+  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
     0x14d64 0x768 values.s11 0x768 (.Regidx 27#5) 0x23 0x34 0xb1 0x77
   · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
   · intro premise writes
@@ -1934,13 +1908,7 @@ theorem writeSuccessSaveS11 {fromStep : Nat} {args : WriteSuccessArgs}
   · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x768#64 = _
     rw [← BitVec.ofNat_add]
   · exact of_decide_eq_true rfl
-  · native_decide
   · rfl
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
-  · native_decide
 
 
 def writeSuccessSavedWords (args : WriteSuccessArgs) (values : DecodeCalleeSavedValues) :
