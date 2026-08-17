@@ -4400,59 +4400,55 @@ theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract 
     (childSummary := fun _ _ _ _ _ => False) access.configured.retiredCounter atPc
   obtain ⟨r0, run0⟩ := constantPrefixAddressHighStep fromStep before.machine
     access.configured atPc loaded
-  let s1 := afterRegisterWrite before.machine 0x14e00 r0 x10 0x17e00
-  have seg1 := seg0.stepKnown
+  obtain ⟨s1, seg1⟩ := seg0.step
     (by unfold constantPrefixParentPc; exact
-      ⟨(0x14e00, 0x14e14), by simp, by native_decide, by native_decide⟩)
-    (by native_decide) x10 0x17e00 0x14e04 r0 run0
+      ⟨(0x14e00, 0x14e14), by simp, by omega, by omega⟩)
+    (by decide) x10 0x17e00 0x14e04 ⟨r0, run0⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have cfg1 := access.configured.mono
     (seg1.agree instructionPreserved_disjoint_constantPrefixParentWrites)
     seg1.retired
   have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully s1.mem := by
-    simpa [s1] using loaded
+    simpa [seg1.memEq (by simp)] using loaded
   obtain ⟨r1, run1⟩ := constantPrefixAddressLowStep (fromStep + 1) s1 cfg1 seg1.atPc
     (seg1.reg x10 0x17e00 (by simp)) loaded1
-  let s2 := afterRegisterWrite s1 0x14e04 r1 x10 0x179c5
   have seg1' := seg1.forget (kv' := []) (by simp)
-  have seg2 := seg1'.stepKnown
+  obtain ⟨s2, seg2⟩ := seg1'.step
     (by unfold constantPrefixParentPc; exact
-      ⟨(0x14e00, 0x14e14), by simp, by native_decide, by native_decide⟩)
-    (by native_decide) x10 0x179c5 0x14e08 r1 run1
+      ⟨(0x14e00, 0x14e14), by simp, by omega, by omega⟩)
+    (by decide) x10 0x179c5 0x14e08 ⟨r1, run1⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have cfg2 := access.configured.mono
     (seg2.agree instructionPreserved_disjoint_constantPrefixParentWrites)
     seg2.retired
   have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully s2.mem := by
-    simpa [s2, s1] using loaded
+    simpa [seg2.memEq (by simp)] using loaded
   obtain ⟨r2, run2⟩ := constantPrefixLengthStep (fromStep + 2) s2 cfg2 seg2.atPc loaded2
-  let s3 := afterRegisterWrite s2 0x14e08 r2 x11 6
-  have seg3 := seg2.stepKnown
+  obtain ⟨s3, seg3⟩ := seg2.step
     (by unfold constantPrefixParentPc; exact
-      ⟨(0x14e00, 0x14e14), by simp, by native_decide, by native_decide⟩)
-    (by native_decide) x11 6 0x14e0c r2 run2
+      ⟨(0x14e00, 0x14e14), by simp, by omega, by omega⟩)
+    (by decide) x11 6 0x14e0c ⟨r2, run2⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inr rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have cfg3 := access.configured.mono
     (seg3.agree instructionPreserved_disjoint_constantPrefixParentWrites)
     seg3.retired
   have loaded3 : Artifacts.programImage.fileBytesLoadedFaithfully s3.mem := by
-    simpa [s3, s2, s1] using loaded
+    simpa [seg3.memEq (by simp)] using loaded
   obtain ⟨r3, run3⟩ := constantPrefixCallBaseStep (fromStep + 3) s3 cfg3 seg3.atPc loaded3
-  let s4 := afterRegisterWrite s3 0x14e0c r3 x1 0xfe0c
-  have seg4 := seg3.stepKnown
+  obtain ⟨s4, seg4⟩ := seg3.step
     (by unfold constantPrefixParentPc; exact
-      ⟨(0x14e00, 0x14e14), by simp, by native_decide, by native_decide⟩)
-    (by native_decide) x1 0xfe0c 0x14e10 r3 run3
+      ⟨(0x14e00, 0x14e14), by simp, by omega, by omega⟩)
+    (by decide) x1 0xfe0c 0x14e10 ⟨r3, run3⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have cfg4 := access.configured.mono
     (seg4.agree instructionPreserved_disjoint_constantPrefixParentWrites)
     seg4.retired
   have loaded4 : Artifacts.programImage.fileBytesLoadedFaithfully s4.mem := by
-    simpa [s4, s3, s2, s1] using loaded
+    simpa [seg4.memEq (by simp)] using loaded
   obtain ⟨r4, callRun⟩ := constantPrefixCallStep (fromStep + 4) s4 cfg4 seg4.atPc
     (seg4.reg x1 0xfe0c (by simp)) loaded4
   let callMachine := tryStepControlFlowAfterRetired
@@ -4479,8 +4475,8 @@ theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract 
       (fun _ _ _ _ _ => False) (fromStep + 4) 1 s4 callMachine :=
     ConfinedPrefix.ownStep seg4.atPc
       (by unfold constantPrefixParentPc; exact
-        ⟨(0x14e00, 0x14e14), by simp, by native_decide, by native_decide⟩)
-      (by native_decide) callRun
+        ⟨(0x14e00, 0x14e14), by simp, by omega, by omega⟩)
+      (by decide) callRun
   have parentMachineTrace := seg4.confined.trans callPrefix 0 callMachine
     (.exitAt _ _ 0x10190 callAtPc rfl)
   have parentTrace : ConfinedTrace EndpointStep EndpointPc
