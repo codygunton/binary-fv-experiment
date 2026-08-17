@@ -346,11 +346,17 @@ structure EncoderCallArgs (Value : Type) where
   inputSize : Nat
   value : Value
 
+def RegionsDoNotOverlap (left right : BinaryFv.RiscV.Region) : Prop :=
+  ∀ address, left address → ¬right address
+
 set_option genInjectivity false in
 /-- Machine permissions for one genuine called encoder's local stack frame and output leaf. -/
 structure EncoderCallMachineAccess (frameSize : Nat) (args : EncoderCallArgs Value)
     (state : MachineState) : Prop where
   output : EncoderOutputMachineAccess state
+  stackAligned : args.callerStack % 16 = 0
+  frameOutputDisjoint : RegionsDoNotOverlap
+    (BinaryFv.RiscV.byteRange (args.callerStack - frameSize) frameSize) writeOutputMemory
   frameLoad : ∀ offset width, offset + width ≤ frameSize →
     LoadPmaAllows state (BitVec.ofNat 64 (args.callerStack - frameSize + offset)) width
   frameStore : ∀ offset width, offset + width ≤ frameSize →
@@ -379,6 +385,31 @@ theorem encoderCallEntry_rejects_small_stack
   intro accepted
   exact (Nat.not_le_of_gt small) accepted.2.1
 
+theorem encoderCallMachineAccess_rejects_misaligned_stack
+    (misaligned : args.callerStack % 16 ≠ 0) :
+    ¬EncoderCallMachineAccess frameSize args state := by
+  intro accepted
+  exact misaligned accepted.stackAligned
+
+theorem encoderCallMachineAccess_rejects_output_overlap
+    (overlap : ¬RegionsDoNotOverlap
+      (BinaryFv.RiscV.byteRange (args.callerStack - frameSize) frameSize)
+      writeOutputMemory) :
+    ¬EncoderCallMachineAccess frameSize args state := by
+  intro accepted
+  exact overlap accepted.frameOutputDisjoint
+
+def encoderCallMemoryRegion (frameSize : Nat) (args : EncoderCallArgs Value) :
+    BinaryFv.RiscV.Region :=
+  BinaryFv.RiscV.Region.union
+    (BinaryFv.RiscV.byteRange (args.callerStack - frameSize) frameSize)
+    writeOutputMemory
+
+/-- Compile-time drift guard tying the called-encoder write frame to the measured profile. -/
+theorem encoderCallAllowedStoreRegions_match_evidence :
+    Elflings.encoderCallAllowedStoreRegionNames =
+      ["child-frame", "output-buffer-word", "output-length-word"] := rfl
+
 def EncoderCallExit (frameSize : Nat)
     (encode : Value → Array UInt8) (args : EncoderCallArgs Value) (_outcome : Unit)
     (before after : EndpointState) : Prop :=
@@ -388,8 +419,7 @@ def EncoderCallExit (frameSize : Nat)
   after.exitCode = before.exitCode ∧
   frameSize ≤ args.callerStack ∧
   BinaryFv.RiscV.WritesOnlyWithin
-    (BinaryFv.RiscV.byteRange (args.callerStack - frameSize) frameSize)
-    before.machine after.machine ∧
+    (encoderCallMemoryRegion frameSize args) before.machine after.machine ∧
   EndpointCallFrame before after
 
 def encoderCallContract (entry : Nat) (exitPcs : List Nat) (frameSize : Nat)
@@ -469,12 +499,14 @@ abbrev WriteSuccessBooleanInstanceContract : Prop :=
 
 abbrev WriteSuccessOptionalU64InstanceContract : Prop :=
   EncoderCallInstanceContract Elflings.writeSuccessOptionalU64Entry
-    Elflings.writeSuccessOptionalU64ExecutionPcRanges Elflings.writeSuccessOptionalU64ExitPcs 16
+    Elflings.writeSuccessOptionalU64ExecutionPcRanges Elflings.writeSuccessOptionalU64ExitPcs
+    Elflings.writeSuccessOptionalU64FrameSize
     (fun value => encodeOptional (encodeNatLE 8) value.value) OptionalUInt64EncoderBinding
 
 abbrev WriteSuccessByteListsInstanceContract : Prop :=
   EncoderCallInstanceContract Elflings.writeSuccessByteListsEntry
-    Elflings.writeSuccessByteListsExecutionPcRanges Elflings.writeSuccessByteListsExitPcs 64
+    Elflings.writeSuccessByteListsExecutionPcRanges Elflings.writeSuccessByteListsExitPcs
+    Elflings.writeSuccessByteListsFrameSize
     (fun value => encodeMany encodeBytes value.values) ByteListsEncoderBinding
 
 abbrev WriteSuccessBytesInstanceContract : Prop :=
@@ -594,10 +626,21 @@ encoders use at most 0xb0 bytes below `sp`. The writer's ABI save area begins at
 def inlineEncoderMemoryRegion (stackPointer : Nat) : BinaryFv.RiscV.Region :=
   BinaryFv.RiscV.byteRange (stackPointer - 0xb0) 0x7f0
 
+def inlineEncoderFullMemoryRegion (stackPointer : Nat) : BinaryFv.RiscV.Region :=
+  BinaryFv.RiscV.Region.union (inlineEncoderMemoryRegion stackPointer) writeOutputMemory
+
+/-- Compile-time drift guard tying the inline-encoder write frame to the measured profile. -/
+theorem inlineEncoderAllowedStoreRegions_match_evidence :
+    Elflings.inlineArrayEncoderAllowedStoreRegionNames =
+      ["inline-frame", "output-buffer-word", "output-length-word"] := rfl
+
 set_option genInjectivity false in
 /-- Machine permissions for the complete optimized inline encoder region and its output leaf. -/
 structure InlineEncoderMachineAccess (args : InlineEncoderArgs Value) (state : MachineState) : Prop where
   output : EncoderOutputMachineAccess state
+  stackAligned : args.stackPointer % 16 = 0
+  regionOutputDisjoint : RegionsDoNotOverlap
+    (inlineEncoderMemoryRegion args.stackPointer) writeOutputMemory
   localLoad : ∀ offset width, offset + width ≤ 0xb0 →
     LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0xb0 + offset)) width
   localStore : ∀ offset width, offset + width ≤ 0xb0 →
@@ -636,6 +679,19 @@ def InlineEncoderEntry (entry : Nat) (bindValue : EndpointState → Value → Pr
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   InlineEncoderMachineAccess args state.machine
 
+theorem inlineEncoderMachineAccess_rejects_misaligned_stack
+    (misaligned : args.stackPointer % 16 ≠ 0) :
+    ¬InlineEncoderMachineAccess args state := by
+  intro accepted
+  exact misaligned accepted.stackAligned
+
+theorem inlineEncoderMachineAccess_rejects_output_overlap
+    (overlap : ¬RegionsDoNotOverlap
+      (inlineEncoderMemoryRegion args.stackPointer) writeOutputMemory) :
+    ¬InlineEncoderMachineAccess args state := by
+  intro accepted
+  exact overlap accepted.regionOutputDisjoint
+
 def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
     (preservedValue : EndpointState → Value → Prop) (args : InlineEncoderArgs Value)
     (_outcome : Unit) (before after : EndpointState) : Prop :=
@@ -656,7 +712,7 @@ def InlineEncoderExit (successPc : Nat) (encode : Value → Array UInt8)
   BytesRep after.machine.mem args.copiedSourceAddress args.copiedSourceBytes ∧
   EndpointMachineAuxAgree before.machine after.machine ∧
   BinaryFv.RiscV.WritesOnlyWithin
-    (inlineEncoderMemoryRegion args.stackPointer) before.machine after.machine ∧
+    (inlineEncoderFullMemoryRegion args.stackPointer) before.machine after.machine ∧
   BinaryFv.RiscV.Agree inlineEncoderPreserved before.machine after.machine ∧
   BinaryFv.RiscV.RetiredCounterPresent after.machine ∧
   Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem
