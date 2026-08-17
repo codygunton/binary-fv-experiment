@@ -88,21 +88,8 @@ theorem decodeInputBindS2Step (stepNo : Nat) (state : State) (value : BitVec 64)
   exact configuredRegisterWriteStep stepNo 0x121a4 state x18 value
     (.ITYPE (0, .Regidx 12#5, .Regidx 18#5, .ADDI)) 0x13 0x09 0x06 0x00
     configured atPc loaded (by
-      obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-      have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-          some Privilege.Machine := by
-        calc
-          _ = state.regs.get? cur_privilege := by
-            simpa [tryStepControlFlowAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-          _ = some Privilege.Machine := configured.normal.2.1
-      have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-          some seccfgBits := by
-        calc
-          _ = state.regs.get? mseccfg := by
-            simpa [tryStepControlFlowAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-          _ = some seccfgBits := seccfgRead
+      obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+        configured.decodeContext
       decode_run) execute (base := by rfl)
 
 /-- Production `0x121a8: mv s0, a0`. -/
@@ -127,21 +114,8 @@ theorem decodeInputBindS0Step (stepNo : Nat) (state : State) (value : BitVec 64)
   exact configuredRegisterWriteStep stepNo 0x121a8 state x8 value
     (.ITYPE (0, .Regidx 10#5, .Regidx 8#5, .ADDI)) 0x13 0x04 0x05 0x00
     configured atPc loaded (by
-      obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-      have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-          some Privilege.Machine := by
-        calc
-          _ = state.regs.get? cur_privilege := by
-            simpa [tryStepControlFlowAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-          _ = some Privilege.Machine := configured.normal.2.1
-      have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-          some seccfgBits := by
-        calc
-          _ = state.regs.get? mseccfg := by
-            simpa [tryStepControlFlowAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-          _ = some seccfgBits := seccfgRead
+      obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+        configured.decodeContext
       decode_run) execute (base := by rfl)
 
 /-- Production error continuation `0x14ca8: mv s6, a0`. -/
@@ -166,21 +140,8 @@ theorem decodeInputBindErrorS6Step (stepNo : Nat) (state : State) (status : BitV
   exact configuredRegisterWriteStep stepNo 0x14ca8 state x22 status
     (.ITYPE (0, .Regidx 10#5, .Regidx 22#5, .ADDI)) 0x13 0x0b 0x05 0x00
     configured atPc loaded (by
-      obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-      have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-          some Privilege.Machine := by
-        calc
-          _ = state.regs.get? cur_privilege := by
-            simpa [tryStepControlFlowAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-          _ = some Privilege.Machine := configured.normal.2.1
-      have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-          some seccfgBits := by
-        calc
-          _ = state.regs.get? mseccfg := by
-            simpa [tryStepControlFlowAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-          _ = some seccfgBits := seccfgRead
+      obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+        configured.decodeContext
       decode_run) execute (base := by rfl)
 
 /-- An exact `sd offset(sp)`, parameterized by its generated source-register witness. -/
@@ -375,23 +336,8 @@ theorem decodeInputAllocateSaveArea (fromStep : Nat) (args : DecodeInlineArgs)
       (tryStepControlFlowAfterIncrement args.origin.machine)
       (tryStepControlFlowAfterIncrement args.origin.machine)
       (.ITYPE (0x810, .Regidx 2#5, .Regidx 2#5, .ADDI)) := by
-    obtain ⟨seccfgBits, seccfgRead, _⟩ := access.configured.seccfgPresent
-    have privilegeAfter :
-        (tryStepControlFlowAfterIncrement args.origin.machine).regs.get? cur_privilege =
-          some Privilege.Machine := by
-      calc
-        _ = args.origin.machine.regs.get? cur_privilege := by
-          simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged
-            args.origin.machine minstret_increment cur_privilege true (by decide)
-        _ = some Privilege.Machine := access.configured.normal.2.1
-    have seccfgAfter :
-        (tryStepControlFlowAfterIncrement args.origin.machine).regs.get? mseccfg =
-          some seccfgBits := by
-      calc
-        _ = args.origin.machine.regs.get? mseccfg := by
-          simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged
-            args.origin.machine minstret_increment mseccfg true (by decide)
-        _ = some seccfgBits := seccfgRead
+    obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
+      access.configured.decodeContext
     decode_run
   obtain ⟨retired, run⟩ := decodeInputAddiX2Step fromStep 0x12168 args.origin.machine 0x810
     (BitVec.ofNat 64 args.boundary.stackPointer)
@@ -1567,21 +1513,8 @@ theorem decodeInputFinishPrologue {fromStep : Nat} {args : DecodeInlineArgs}
         (0xc4 : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.ITYPE (0xc40, .Regidx 2#5, .Regidx 2#5, .ADDI)) := by
-    obtain ⟨seccfgBits, seccfgRead, _⟩ := configured0.seccfgPresent
-    have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-        some Privilege.Machine := by
-      calc
-        _ = state.regs.get? cur_privilege := by
-          simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged state
-            minstret_increment cur_privilege true (by decide)
-        _ = some Privilege.Machine := configured0.normal.2.1
-    have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-        some seccfgBits := by
-      calc
-        _ = state.regs.get? mseccfg := by
-          simpa [tryStepControlFlowAfterIncrement] using writeReg_read_unchanged state
-            minstret_increment mseccfg true (by decide)
-        _ = some seccfgBits := seccfgRead
+    obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
+      configured0.decodeContext
     decode_run
   obtain ⟨retired0, run0⟩ := decodeInputAddiX2Step (fromStep + 14) 0x121a0 state 0xc40
     (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0))
@@ -1744,21 +1677,8 @@ theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
   have decode1 : Runs (ext_decode (fetchWord 0x6f#8 0xd0#8 0x0f#8 0xe6#8))
       (tryStepControlFlowAfterIncrement middle) (tryStepControlFlowAfterIncrement middle)
       (.JAL (0x1fd660#21, zreg)) := by
-    obtain ⟨seccfgBits, seccfgRead, _⟩ := configured1.seccfgPresent
-    have privilegeAfter : (tryStepControlFlowAfterIncrement middle).regs.get? cur_privilege =
-        some Privilege.Machine := by
-      calc
-        _ = middle.regs.get? cur_privilege := by
-          simpa [tryStepControlFlowAfterIncrement] using
-            writeReg_read_unchanged middle minstret_increment cur_privilege true (by decide)
-        _ = some Privilege.Machine := configured1.normal.2.1
-    have seccfgAfter : (tryStepControlFlowAfterIncrement middle).regs.get? mseccfg =
-        some seccfgBits := by
-      calc
-        _ = middle.regs.get? mseccfg := by
-          simpa [tryStepControlFlowAfterIncrement] using
-            writeReg_read_unchanged middle minstret_increment mseccfg true (by decide)
-        _ = some seccfgBits := seccfgRead
+    obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
+      configured1.decodeContext
     decode_run
   obtain ⟨retired1, run1⟩ := configuredJStep (fromStep + 1) 0x14cac 0x1230c middle
     0x1fd660 0x6f 0xd0 0x0f 0xe6 configured1 seg1.atPc code1 decode1

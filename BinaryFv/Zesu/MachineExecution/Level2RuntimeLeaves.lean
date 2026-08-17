@@ -115,21 +115,8 @@ theorem writeOutputContextBaseHighStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x10190 retired x5 0x2401a190) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   exact configuredAuipcX5Step stepNo 0x10190 state 0x2400a 0x2401a190
     0x97 0xa2 0x00 0x24 configured atPc loaded (by native_decide) (by decode_run)
     (by native_decide) (by rfl)
@@ -143,21 +130,8 @@ theorem writeOutputContextBaseLowStep (stepNo : Nat) (state : State)
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x10194 retired x5
         (BitVec.ofNat 64 Elflings.ioContextAddress)) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   exact configuredAddiX5Step stepNo 0x10194 state 0xf28 0x2401a190
     (BitVec.ofNat 64 Elflings.ioContextAddress) 0x93 0x82 0x82 0xf2 configured atPc sourceRead loaded
     (by native_decide) (by decode_run) (by native_decide) (by rfl)
@@ -257,20 +231,8 @@ theorem writeOutputStoreBufferStep (stepNo : Nat) (state : State) (buffer : Nat)
         (afterWriteBytes (width := 8)
           (coreStoreNextState (tryStepStoreAfterIncrement state) 0x10198)
           (Elflings.ioContextAddress + 8) (BitVec.ofNat 64 buffer)) 0x10198 retired) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepStoreAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepStoreAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepStoreAfterIncrement state).regs.get? mseccfg = some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepStoreAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.storeDecodeContext
   apply writeOutputStoreStep stepNo 0x10198 8 state (BitVec.ofNat 64 buffer) (.Regidx 10#5)
     0xb4 0xa2 configured atPc contextRead _ pma loaded (by native_decide) (by native_decide)
     (by unfold StoreMMIOAddressExcluded DataMMIOAddressExcluded; constructor <;> rfl)
@@ -291,20 +253,8 @@ theorem writeOutputStoreLengthStep (stepNo : Nat) (state : State) (count : Nat)
         (afterWriteBytes (width := 8)
           (coreStoreNextState (tryStepStoreAfterIncrement state) 0x1019c)
           (Elflings.ioContextAddress + 16) (BitVec.ofNat 64 count)) 0x1019c retired) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepStoreAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepStoreAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepStoreAfterIncrement state).regs.get? mseccfg = some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepStoreAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.storeDecodeContext
   apply writeOutputStoreStep stepNo 0x1019c 16 state (BitVec.ofNat 64 count) (.Regidx 11#5)
     0xb8 0xb2 configured atPc contextRead _ pma loaded (by native_decide) (by native_decide)
     (by unfold StoreMMIOAddressExcluded DataMMIOAddressExcluded; constructor <;> rfl)
@@ -556,21 +506,8 @@ theorem allocatorStateBaseHighStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14ccc retired x10 0x24019ccc) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14ccc
   have pcRead : Runs (readReg PC) premise premise 0x14ccc := by
     apply readReg_run
@@ -592,21 +529,8 @@ theorem allocatorVtableBaseHighStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14cd0 retired x11 0x17cd0) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cd0
   have pcRead : Runs (readReg PC) premise premise 0x14cd0 := by
     apply readReg_run
@@ -646,21 +570,8 @@ theorem allocatorStateBaseLowStep (stepNo : Nat) (state : State)
     (BitVec.ofNat 64 0x2401a0b0)
     (.ITYPE (0x3e4, .Regidx 10#5, .Regidx 10#5, .ADDI)) 0x13 0x05 0x45 0x3e
     configured atPc loaded (by
-      obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-      have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-          some Privilege.Machine := by
-        calc
-          _ = state.regs.get? cur_privilege := by
-            simpa [tryStepControlFlowAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-          _ = some Privilege.Machine := configured.normal.2.1
-      have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-          some seccfgBits := by
-        calc
-          _ = state.regs.get? mseccfg := by
-            simpa [tryStepControlFlowAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-          _ = some seccfgBits := seccfgRead
+      obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+        configured.decodeContext
       decode_run) execute (base := by rfl)
 
 /-- Production `0x14ce0: addi a1, a1, -1320`. -/
@@ -688,21 +599,8 @@ theorem allocatorVtableBaseLowStep (stepNo : Nat) (state : State)
     (BitVec.ofNat 64 Elflings.allocatorVtableAddress)
     (.ITYPE (0xad8, .Regidx 11#5, .Regidx 11#5, .ADDI)) 0x93 0x85 0x85 0xad
     configured atPc loaded (by
-      obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-      have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-          some Privilege.Machine := by
-        calc
-          _ = state.regs.get? cur_privilege := by
-            simpa [tryStepControlFlowAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-          _ = some Privilege.Machine := configured.normal.2.1
-      have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-          some seccfgBits := by
-        calc
-          _ = state.regs.get? mseccfg := by
-            simpa [tryStepControlFlowAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-          _ = some seccfgBits := seccfgRead
+      obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+        configured.decodeContext
       decode_run) execute (base := by rfl)
 
 private theorem allocatorLoadAtX2Step (stepNo pc offset : Nat) (state : State)
@@ -804,21 +702,8 @@ theorem allocatorLoadInputSizeStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14cd4 retired x13 (BitVec.ofNat 64 inputSize)) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   exact allocatorLoadAtX2Step stepNo 0x14cd4 8 state stackPointer inputSize 8
     (.Regidx 13#5) x13 (BitVec.ofNat 64 inputSize) 0x83 0x36 0x81 0x00
     configured atPc stackRead rep pma notMMIO aligned fits loaded
@@ -844,21 +729,8 @@ theorem allocatorLoadInputAddressStep (stepNo : Nat) (state : State)
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x14cd8 retired x12 (BitVec.ofNat 64 inputAddress)) false := by
   have rep' : UIntRep 8 state.mem (stackPointer + 0) inputAddress := by simpa using rep
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   exact allocatorLoadAtX2Step stepNo 0x14cd8 0 state stackPointer inputAddress 0
     (.Regidx 12#5) x12 (BitVec.ofNat 64 inputAddress) 0x03 0x36 0x01 0x00
     configured atPc stackRead rep' pma notMMIO aligned fits loaded
@@ -962,20 +834,8 @@ theorem allocatorStoreStateStep (stepNo : Nat) (state : State) (stackPointer : N
     configured atPc stackRead pma notMMIO (by omega) fits (by omega) loaded
     (by change BitVec.ofNat 64 stackPointer + (0x10#64) = _; rw [← BitVec.ofNat_add])
     (by
-      obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-      have privilegeAfter : (tryStepStoreAfterIncrement state).regs.get? cur_privilege =
-          some Privilege.Machine := by
-        calc
-          _ = state.regs.get? cur_privilege := by
-            simpa [tryStepStoreAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-          _ = some Privilege.Machine := configured.normal.2.1
-      have seccfgAfter : (tryStepStoreAfterIncrement state).regs.get? mseccfg = some seccfgBits := by
-        calc
-          _ = state.regs.get? mseccfg := by
-            simpa [tryStepStoreAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-          _ = some seccfgBits := seccfgRead
+      obtain ⟨_, _, _, privilegeAfter, seccfgAfter⟩ :=
+        configured.storeDecodeContext
       decode_run)
     (fun premise writes => rX_x10_run premise _
       ((writes.get x10 (by decide)).trans sourceRead))
@@ -1003,20 +863,8 @@ theorem allocatorStoreVtableStep (stepNo : Nat) (state : State) (stackPointer : 
     0x23 0x3c 0xb1 0x00 configured atPc stackRead pma notMMIO (by omega) fits (by omega) loaded
     (by change BitVec.ofNat 64 stackPointer + (0x18#64) = _; rw [← BitVec.ofNat_add])
     (by
-      obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-      have privilegeAfter : (tryStepStoreAfterIncrement state).regs.get? cur_privilege =
-          some Privilege.Machine := by
-        calc
-          _ = state.regs.get? cur_privilege := by
-            simpa [tryStepStoreAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-          _ = some Privilege.Machine := configured.normal.2.1
-      have seccfgAfter : (tryStepStoreAfterIncrement state).regs.get? mseccfg = some seccfgBits := by
-        calc
-          _ = state.regs.get? mseccfg := by
-            simpa [tryStepStoreAfterIncrement] using
-              writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-          _ = some seccfgBits := seccfgRead
+      obtain ⟨_, _, _, privilegeAfter, seccfgAfter⟩ :=
+        configured.storeDecodeContext
       decode_run)
     (fun premise writes => rX_x11_run premise _
       ((writes.get x11 (by decide)).trans sourceRead))
@@ -1030,22 +878,8 @@ theorem readInputBufferBaseHighStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x10140 retired x5 0x2001a140) false := by
-  obtain ⟨seccfgBits, seccfgRead, pmmDisabled⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    exact (by
-      calc
-        _ = state.regs.get? mseccfg := by
-          simpa [tryStepControlFlowAfterIncrement] using
-            writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-        _ = some seccfgBits := seccfgRead)
+  obtain ⟨seccfgBits, seccfgRead, pmmDisabled, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   exact configuredAuipcX5Step stepNo 0x10140 state 0x2000a 0x2001a140
     0x97 0xa2 0x00 0x20 configured atPc loaded (by native_decide) (by decode_run)
     (by native_decide) (by rfl)
@@ -1058,21 +892,8 @@ theorem readInputBufferBaseLowStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x10144 retired x5 Elflings.inputBufferAddress) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   exact configuredAddiX5Step stepNo 0x10144 state 0xec0 0x2001a140
     Elflings.inputBufferAddress 0x93 0x82 0x02 0xec configured atPc sourceRead loaded
     (by native_decide) (by decode_run) (by native_decide) (by rfl)
@@ -1084,21 +905,8 @@ theorem readInputContextBaseHighStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x1014c retired x5 0x2401a14c) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   exact configuredAuipcX5Step stepNo 0x1014c state 0x2400a 0x2401a14c
     0x97 0xa2 0x00 0x24 configured atPc loaded (by native_decide) (by decode_run)
     (by native_decide) (by rfl)
@@ -1111,21 +919,8 @@ theorem readInputContextBaseLowStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x10150 retired x5 Elflings.ioContextAddress) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   exact configuredAddiX5Step stepNo 0x10150 state 0xf6c 0x2401a14c
     Elflings.ioContextAddress 0x93 0x82 0xc2 0xf6 configured atPc sourceRead loaded
     (by native_decide) (by decode_run) (by native_decide) (by rfl)
@@ -1140,21 +935,8 @@ theorem readInputLoadSizeStep (stepNo : Nat) (state : State) (inputSize : Nat)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x10154 retired x6 (BitVec.ofNat 64 inputSize)) false := by
-  obtain ⟨seccfgBits, seccfgRead, pmmDisabled⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, pmmDisabled, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   have decode : Runs (ext_decode (fetchWord 0x03 0xb3 0x02 0x00))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.LOAD (0, .Regidx 5#5, .Regidx 6#5, false, 8)) := by
@@ -1268,20 +1050,8 @@ theorem readInputStorePointerStep (stepNo : Nat) (state : State) (bufferSlot : N
       addressRun, (ofNatAlignedEight bufferSlot (by omega) aligned).1, physical, noMMIO,
       writeBytes_run_exact premise (BitVec.ofNat 64 bufferSlot).toNat
         (BitVec.ofNat 64 Elflings.inputBufferAddress)⟩
-  have privilegeAfter : (tryStepStoreAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepStoreAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepStoreAfterIncrement state).regs.get? mseccfg =
-      some mseccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepStoreAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some mseccfgBits := mseccfgRead
+  obtain ⟨_, _, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.storeDecodeContext
   have decode : Runs (ext_decode (fetchWord 0x23 0x30 0x55 0x00))
       (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
       (.STORE (0, .Regidx 5#5, .Regidx 10#5, 8)) := by
@@ -1350,20 +1120,8 @@ theorem readInputStoreSizeStep (stepNo : Nat) (state : State) (sizeSlot inputSiz
       addressRun, (ofNatAlignedEight sizeSlot (by omega) aligned).1, physical, noMMIO,
       writeBytes_run_exact premise (BitVec.ofNat 64 sizeSlot).toNat
         (BitVec.ofNat 64 inputSize)⟩
-  have privilegeAfter : (tryStepStoreAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepStoreAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepStoreAfterIncrement state).regs.get? mseccfg =
-      some mseccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepStoreAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some mseccfgBits := mseccfgRead
+  obtain ⟨_, _, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.storeDecodeContext
   have decode : Runs (ext_decode (fetchWord 0x23 0xb0 0x65 0x00))
       (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
       (.STORE (0, .Regidx 6#5, .Regidx 11#5, 8)) := by
@@ -2080,21 +1838,8 @@ theorem zkvmExitLoadContextBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x101c4 retired x5 0x2401a1c4) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   have decode : Runs (ext_decode (fetchWord 0x97 0xa2 0x00 0x24))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.UTYPE (0x2400a, .Regidx 5#5, .AUIPC)) := by
@@ -2127,21 +1872,8 @@ theorem zkvmExitFinishContextBaseStep (stepNo : Nat) (state : State)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x101c8 retired x5 0x2401a0b8) false := by
-  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
-  have privilegeAfter : (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
-      some Privilege.Machine := by
-    calc
-      _ = state.regs.get? cur_privilege := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-      _ = some Privilege.Machine := configured.normal.2.1
-  have seccfgAfter : (tryStepControlFlowAfterIncrement state).regs.get? mseccfg =
-      some seccfgBits := by
-    calc
-      _ = state.regs.get? mseccfg := by
-        simpa [tryStepControlFlowAfterIncrement] using
-          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-      _ = some seccfgBits := seccfgRead
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
   have decode : Runs (ext_decode (fetchWord 0x93 0x82 0x42 0xef))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.ITYPE (0xef4, .Regidx 5#5, .Regidx 5#5, .ADDI)) := by
@@ -2227,20 +1959,8 @@ theorem zkvmExitStoreCodeStep (stepNo : Nat) (state : State) (code : Nat)
   have decode : Runs (ext_decode (fetchWord 0x23 0xbc 0xa2 0x00))
       (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
       (.STORE (0x018, .Regidx 10#5, .Regidx 5#5, 8)) := by
-    have privilegeAfter : (tryStepStoreAfterIncrement state).regs.get? cur_privilege =
-        some Privilege.Machine := by
-      calc
-        _ = state.regs.get? cur_privilege := by
-          simpa [tryStepStoreAfterIncrement] using
-            writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
-        _ = some Privilege.Machine := configured.normal.2.1
-    have seccfgAfter : (tryStepStoreAfterIncrement state).regs.get? mseccfg =
-        some mseccfgBits := by
-      calc
-        _ = state.regs.get? mseccfg := by
-          simpa [tryStepStoreAfterIncrement] using
-            writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
-        _ = some mseccfgBits := mseccfgRead
+    obtain ⟨_, _, _, privilegeAfter, seccfgAfter⟩ :=
+      configured.storeDecodeContext
     decode_run
   simpa [afterWrite] using configuredDwordStoreStep stepNo 0x101cc state afterWrite
     0x018 (.Regidx 5#5) (.Regidx 10#5) 0x23 0xbc 0xa2 0x00 configured atPc loaded

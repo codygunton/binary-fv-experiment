@@ -37,6 +37,22 @@ theorem agree_tryStepIncrement_instructionPreserved (state : State) :
       rintro rfl
       simpa [platformPreserved] using preserved.1))
 
+/-- The two post-increment register reads consumed by `decode_run`, together with the original
+`mseccfg` mode evidence used by data-address proofs. -/
+theorem ConfiguredMachinePre.decodeContext {pcs : BitVec 64 → Prop} {state : State}
+    (configured : ConfiguredMachinePre pcs state) :
+    ∃ bits, state.regs.get? mseccfg = some bits ∧
+      pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled ∧
+      (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege =
+        some Privilege.Machine ∧
+      (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some bits := by
+  obtain ⟨bits, seccfgRead, pmmDisabled⟩ := configured.seccfgPresent
+  have agree := agree_tryStepIncrement_instructionPreserved state
+  exact ⟨bits, seccfgRead, pmmDisabled,
+    (agree cur_privilege (by simp [instructionPreserved, platformPreserved])).trans
+      configured.normal.2.1,
+    (agree mseccfg (by simp [instructionPreserved, platformPreserved])).trans seccfgRead⟩
+
 /-- Fetch, interrupt, and landing-pad premises at one configured instruction address. -/
 theorem ConfiguredMachinePre.stepContext {pcs : BitVec 64 → Prop} {state : State}
     (configured : ConfiguredMachinePre pcs state) (pc : BitVec 64)
