@@ -91,6 +91,7 @@ let
     cp ${repo}/BinaryFv/Zesu/DecodedValue/Observers.lean Observers.lean
     cp ${repo}/BinaryFv/Zesu/DecodedValue/Encoder.lean Encoder.lean
     cp ${repo}/BinaryFv/Zesu/DecodedValue/Representation.lean Representation.lean
+    cp ${repo}/BinaryFv/Zesu/DecodedValue/CodecRoundtrip.lean CodecRoundtrip.lean
     cp ${repo}/BinaryFv/Zesu/Contracts/KnownBugs.lean KnownBugs.lean
     cp ${repo}/BinaryFv/Zesu/Contracts/DecodedResultRelation.lean DecodedResultRelation.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.lean Level1Boundary.lean
@@ -99,6 +100,10 @@ let
     cp ${repo}/BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.lean Level2RuntimeLeaves.lean
     cp ${repo}/BinaryFv/Zesu/MachineExecution/MemcpyProof.lean MemcpyProof.lean
     cp ${repo}/BinaryFv/Zesu/MachineExecution/InstructionClassSteps.lean InstructionClassSteps.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/Level1DecodeInputSteps.lean Level1DecodeInputSteps.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/Level1WriteContracts.lean Level1WriteContracts.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.lean Level1WriteSuccessSteps.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Refinement.lean Level2Refinement.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.lean Level0Contract.lean
     cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
     cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
@@ -158,6 +163,7 @@ let
     lean -o compiled/BinaryFv/Zesu/DecodedValue/Observers.olean Observers.lean
     lean -o compiled/BinaryFv/Zesu/DecodedValue/Encoder.olean Encoder.lean
     lean -o compiled/BinaryFv/Zesu/DecodedValue/Representation.olean Representation.lean
+    lean -o compiled/BinaryFv/Zesu/DecodedValue/CodecRoundtrip.olean CodecRoundtrip.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/KnownBugs.olean KnownBugs.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/DecodedResultRelation.olean DecodedResultRelation.lean
     lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel1.olean GeneratedLevel1.lean
@@ -190,16 +196,20 @@ let
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.olean Level1Boundary.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.olean Level1Contracts.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.olean Level2Contracts.lean
+    lean -o compiled/BinaryFv/Zesu/MachineExecution/InstructionClassSteps.olean InstructionClassSteps.lean
     lean -o compiled/BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.olean Level2RuntimeLeaves.lean
     lean -o compiled/BinaryFv/Zesu/MachineExecution/MemcpyProof.olean MemcpyProof.lean
-    lean -o compiled/BinaryFv/Zesu/MachineExecution/InstructionClassSteps.olean InstructionClassSteps.lean
+    lean -o compiled/BinaryFv/Zesu/MachineExecution/Level1DecodeInputSteps.olean Level1DecodeInputSteps.lean
+    lean -o compiled/BinaryFv/Zesu/MachineExecution/Level1WriteContracts.olean Level1WriteContracts.lean
+    lean -o compiled/BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.olean Level1WriteSuccessSteps.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Refinement.olean Level2Refinement.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.olean Level0Contract.lean
     lean -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
     lean -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean 2>&1 | tee trust-audit.log
     python ${repo}/tools/check_root_axioms.py trust-audit.log
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
-    lean DifferentialSmoke.lean
+    lean --tstack=65536 DifferentialSmoke.lean
     touch "$out"
   '';
 in
