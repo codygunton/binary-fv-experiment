@@ -56,6 +56,11 @@ def EndpointCallFrame (before after : EndpointState) : Prop :=
   after.machine.tags = before.machine.tags ∧
   after.machine.sailOutput = before.machine.sailOutput
 
+/-- Nonarchitectural Sail interpreter fields retained while composing machine-code contracts. -/
+def EndpointMachineAuxAgree (before after : MachineState) : Prop :=
+  after.choiceState = before.choiceState ∧ after.tags = before.tags ∧
+    after.sailOutput = before.sailOutput
+
 abbrev readContextReturnPc : Nat := 0x1015c
 abbrev writeContextReturnPc : Nat := 0x101a0
 abbrev exitContextStorePc : Nat := 0x101cc

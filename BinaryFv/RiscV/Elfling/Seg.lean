@@ -140,6 +140,44 @@ The state `cur` is meant to be an *opaque* local: every combinator below conclud
 `∃ next, Seg … next …`, and the caller obtains it without ever writing down a post-state
 definition. Everything a caller can learn about it comes from the fields.
 -/
+def AuxStateAgree (base cur : State) : Prop :=
+  cur.choiceState = base.choiceState ∧ cur.tags = base.tags ∧ cur.sailOutput = base.sailOutput
+
+theorem AuxStateAgree.refl (state : State) : AuxStateAgree state state := ⟨rfl, rfl, rfl⟩
+
+theorem AuxStateAgree.trans {base middle cur : State}
+    (first : AuxStateAgree base middle) (second : AuxStateAgree middle cur) :
+    AuxStateAgree base cur :=
+  ⟨second.1.trans first.1, second.2.1.trans first.2.1, second.2.2.trans first.2.2⟩
+
+theorem AuxStateAgree.afterByteWrites (state : State) (writes : List (Nat × BitVec 8)) :
+    AuxStateAgree state (afterByteWrites state writes) := by
+  unfold BinaryFv.RiscV.afterByteWrites
+  induction writes generalizing state with
+  | nil => exact AuxStateAgree.refl state
+  | cons write writes ih =>
+      simpa only [List.foldl_cons] using
+        ih { state with mem := state.mem.insert write.1 write.2 }
+
+theorem AuxStateAgree.afterWriteBytes (state : State) (address : Nat) {width : Nat}
+    (value : BitVec (8 * width)) :
+    AuxStateAgree state (BinaryFv.RiscV.afterWriteBytes state address value) := by
+  unfold BinaryFv.RiscV.afterWriteBytes
+  exact AuxStateAgree.afterByteWrites state _
+
+theorem AuxStateAgree.storeRetirement (state : State) (pc : BitVec 64) (retired : BitVec 64)
+    (address : Nat) {width : Nat} (value : BitVec (8 * width)) :
+    AuxStateAgree state
+      (tryStepControlFlowAfterRetired
+        (BinaryFv.RiscV.afterWriteBytes
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+          address value)
+        (Sail.BitVec.addInt pc 4) retired) := by
+  exact (AuxStateAgree.refl state).trans
+    ((AuxStateAgree.afterWriteBytes
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) address value).trans
+      ⟨rfl, rfl, rfl⟩)
+
 structure Seg (own exit : BitVec 64 → Prop)
     (childSummary : FunctionInstanceId → Nat → Nat → State → State → Prop)
     (W : RegSet) (M : Region) (kv : List RegVal) (fromStep len : Nat)
@@ -152,6 +190,8 @@ structure Seg (own exit : BitVec 64 → Prop)
   writes : WritesOnlyRegs W base cur
   /-- The memory frame: nothing outside `M` was stored to. -/
   mem : WritesOnlyWithin M base cur
+  /-- Choice state, tags, and Sail output are unchanged by the represented machine steps. -/
+  aux : AuxStateAgree base cur
   /-- The retired counter is still readable, which the next step's premises need. -/
   retired : RetiredCounterPresent cur
   /-- Where the machine is now. -/
@@ -176,6 +216,7 @@ theorem nil (own exit : BitVec 64 → Prop)
   confined := ConfinedPrefix.nil
   writes := WritesOnlyRegs.refl W base
   mem := fun _ _ => rfl
+  aux := AuxStateAgree.refl base
   retired := retiredPresent
   atPc := atPc
   regs := RegsHold.nil base
@@ -223,6 +264,12 @@ theorem forget (seg : Seg own exit childSummary W M kv a n base cur pc) {kv' : L
     (sub : ∀ p ∈ kv', p ∈ kv) : Seg own exit childSummary W M kv' a n base cur pc :=
   { seg with regs := fun p hp => seg.regs p (sub p hp) }
 
+/-- Widen the register write frame before extending a segment with instructions that write more
+registers. The trace, memory frame, program counter, and recorded register values are unchanged. -/
+theorem widenWrites (seg : Seg own exit childSummary W M kv a n base cur pc) {W' : RegSet}
+    (sub : ∀ r, W r → W' r) : Seg own exit childSummary W' M kv a n base cur pc :=
+  { seg with writes := seg.writes.mono sub }
+
 /-! ### Extending a segment -/
 
 /--
@@ -243,6 +290,7 @@ theorem stepOf {V : RegSet} {kv' : List RegVal} {nextPc : BitVec 64}
     (run : ∃ retired, Runs (try_step (a + n) false) cur (after retired) false)
     (stepWrites : ∀ retired, WritesOnlyRegs V cur (after retired))
     (stepMem : ∀ retired, WritesOnlyWithin M cur (after retired))
+    (stepAux : ∀ retired, AuxStateAgree cur (after retired))
     (stepRetired : ∀ retired, RetiredCounterPresent (after retired))
     (stepPc : ∀ retired, (after retired).regs.get? PC = some nextPc)
     (learn : ∀ retired, RegsHold (after retired) kv')
@@ -255,6 +303,7 @@ theorem stepOf {V : RegSet} {kv' : List RegVal} {nextPc : BitVec 64}
       confined := seg.confined.trans (ConfinedPrefix.ownStep seg.atPc inRegion notExit run)
       writes := seg.writes.trans_same ((stepWrites retired).mono widen)
       mem := WritesOnlyWithin.trans_same seg.mem (stepMem retired)
+      aux := seg.aux.trans (stepAux retired)
       retired := stepRetired retired
       atPc := stepPc retired
       regs := (learn retired).append (seg.regs.through (stepWrites retired) keep) }⟩
@@ -344,6 +393,7 @@ theorem step (seg : Seg own exit childSummary W M kv a n base cur pc)
     (fun retired => afterRegisterWrite cur pc retired dest value) run
     (fun retired => afterRegisterWrite_writes cur pc retired dest value)
     (fun retired => writesOnlyWithin_of_mem_eq (afterRegisterWrite_mem cur pc retired dest value))
+    (fun _ => ⟨rfl, rfl, rfl⟩)
     (fun retired => afterRegisterWrite_retired_present cur pc retired dest value)
     (fun retired => advance ▸ afterRegisterWrite_pc cur pc retired dest value)
     (fun retired =>
@@ -376,6 +426,34 @@ theorem stepWitness (seg : Seg own exit childSummary W M kv a n base cur pc)
         (fun r hr => hr.elim (bookkeeping r) (fun h => h ▸ destination)))
       mem := WritesOnlyWithin.trans_same seg.mem
         (writesOnlyWithin_of_mem_eq (afterRegisterWrite_mem cur pc retired dest value))
+      aux := seg.aux.trans ⟨rfl, rfl, rfl⟩
+      retired := afterRegisterWrite_retired_present cur pc retired dest value
+      atPc := advance ▸ afterRegisterWrite_pc cur pc retired dest value
+      regs := (RegsHold.cons dest value
+        (afterRegisterWrite_destination cur pc retired dest value destNotPc.symm destNotRetired.symm)
+        (RegsHold.nil _)).append
+        (seg.regs.through (afterRegisterWrite_writes cur pc retired dest value) keep) }
+
+/-- `step` with a caller-selected retirement witness. This is the direct form for a consumer that
+also builds a trace in a second state relation from the same concrete `Runs` proof. -/
+theorem stepKnown (seg : Seg own exit childSummary W M kv a n base cur pc)
+    (inRegion : own pc) (notExit : ¬ exit pc)
+    (dest : Register) (value : RegisterType dest) (nextPc : BitVec 64) (retired : BitVec 64)
+    (run : Runs (try_step (a + n) false) cur (afterRegisterWrite cur pc retired dest value) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc)
+    (bookkeeping : ∀ r, stepBookkeeping r → W r) (destination : W dest)
+    (destNotPc : dest ≠ PC) (destNotRetired : dest ≠ minstret)
+    (keep : RegsOutside (RegSet.union stepBookkeeping (RegSet.only dest)) kv) :
+    Seg own exit childSummary W M (⟨dest, value⟩ :: kv) a (n + 1) base
+      (afterRegisterWrite cur pc retired dest value) nextPc := by
+  exact
+    { trace := seg.trace.snoc run
+      confined := seg.confined.trans (ConfinedPrefix.ownStep seg.atPc inRegion notExit run)
+      writes := seg.writes.trans_same ((afterRegisterWrite_writes cur pc retired dest value).mono
+        (fun r hr => hr.elim (bookkeeping r) (fun h => h ▸ destination)))
+      mem := WritesOnlyWithin.trans_same seg.mem
+        (writesOnlyWithin_of_mem_eq (afterRegisterWrite_mem cur pc retired dest value))
+      aux := seg.aux.trans ⟨rfl, rfl, rfl⟩
       retired := afterRegisterWrite_retired_present cur pc retired dest value
       atPc := advance ▸ afterRegisterWrite_pc cur pc retired dest value
       regs := (RegsHold.cons dest value
@@ -401,6 +479,7 @@ theorem stepJump (seg : Seg own exit childSummary W M kv a n base cur pc) (targe
       (controlFlowJumpState (tryStepControlFlowAfterIncrement cur) pc target) target retired) run
     (fun retired => jumpRetirement_writes cur pc target retired)
     (fun retired => writesOnlyWithin_of_mem_eq (jumpRetirement_mem cur pc target retired))
+    (fun _ => ⟨rfl, rfl, rfl⟩)
     (fun retired => jumpRetirement_retired_present cur pc target retired)
     (fun retired => jumpRetirement_pc cur pc target retired)
     (fun _ => RegsHold.nil _)
@@ -420,6 +499,7 @@ theorem stepFallThrough (seg : Seg own exit childSummary W M kv a n base cur pc)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc) target retired) run
     (fun retired => fallThroughRetirement_writes cur pc target retired)
     (fun retired => writesOnlyWithin_of_mem_eq (fallThroughRetirement_mem cur pc target retired))
+    (fun _ => ⟨rfl, rfl, rfl⟩)
     (fun retired => fallThroughRetirement_retired_present cur pc target retired)
     (fun retired => fallThroughRetirement_pc cur pc target retired)
     (fun _ => RegsHold.nil _) bookkeeping keep
@@ -448,6 +528,7 @@ theorem stepStore {width : Nat} (seg : Seg own exit childSummary W M kv a n base
     (fun retired other outside =>
       storeRetirement_mem_writes cur pc (Sail.BitVec.addInt pc 4) retired address value other
         (fun written => outside (inside other written.1 written.2)))
+    (fun retired => AuxStateAgree.storeRetirement cur pc retired address value)
     (fun retired => ⟨Sail.BitVec.addInt retired 1, by
       simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩)
     (fun retired => advance ▸ by
@@ -486,6 +567,7 @@ theorem stepStoreWitness {width : Nat} (seg : Seg own exit childSummary W M kv a
       mem := WritesOnlyWithin.trans_same seg.mem (fun other outside =>
         storeRetirement_mem_writes cur pc (Sail.BitVec.addInt pc 4) retired address value other
           (fun written => outside (inside other written.1 written.2)))
+      aux := seg.aux.trans (AuxStateAgree.storeRetirement cur pc retired address value)
       retired := ⟨Sail.BitVec.addInt retired 1, by
         simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
       atPc := advance ▸ by
@@ -493,6 +575,40 @@ theorem stepStoreWitness {width : Nat} (seg : Seg own exit childSummary W M kv a
           afterWriteBytes_regs, Std.ExtDHashMap.get?_insert]
       regs := seg.regs.through
         (storeRetirement_writes cur pc (Sail.BitVec.addInt pc 4) retired address value) keep }
+
+/-- `stepStore` with a caller-selected retirement witness, retaining the exact successor state. -/
+theorem stepStoreKnown {width : Nat} (seg : Seg own exit childSummary W M kv a n base cur pc)
+    (address : Nat) (value : BitVec (8 * width)) (nextPc : BitVec 64) (retired : BitVec 64)
+    (inRegion : own pc) (notExit : ¬ exit pc)
+    (run : Runs (try_step (a + n) false) cur
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc)
+          address value)
+        (Sail.BitVec.addInt pc 4) retired) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc)
+    (inside : ∀ other, address ≤ other → other < address + width → M other)
+    (bookkeeping : ∀ r, stepBookkeeping r → W r)
+    (keep : RegsOutside stepBookkeeping kv) :
+    Seg own exit childSummary W M kv a (n + 1) base
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc)
+          address value)
+        (Sail.BitVec.addInt pc 4) retired) nextPc :=
+  { trace := seg.trace.snoc run
+    confined := seg.confined.trans (ConfinedPrefix.ownStep seg.atPc inRegion notExit run)
+    writes := seg.writes.trans_same ((storeRetirement_writes cur pc (Sail.BitVec.addInt pc 4)
+      retired address value).mono bookkeeping)
+    mem := WritesOnlyWithin.trans_same seg.mem (fun other outside =>
+      storeRetirement_mem_writes cur pc (Sail.BitVec.addInt pc 4) retired address value other
+        (fun written => outside (inside other written.1 written.2)))
+    aux := seg.aux.trans (AuxStateAgree.storeRetirement cur pc retired address value)
+    retired := ⟨Sail.BitVec.addInt retired 1, by
+      simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]⟩
+    atPc := advance ▸ by
+      simp [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+        afterWriteBytes_regs, Std.ExtDHashMap.get?_insert]
+    regs := seg.regs.through
+      (storeRetirement_writes cur pc (Sail.BitVec.addInt pc 4) retired address value) keep }
 
 end Seg
 

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "audits": [
+    {
+      "id": "called-and-inline-output-writes-omitted",
+      "schemas": ["encoder-call", "inline-array-encoder"],
+      "keepAllowedStoreRegions": ["child-frame", "inline-frame"],
+      "expectedFailureContains": "stores outside its declared frame",
+      "leanDeclarations": [
+        "encoderCallMemoryRegion",
+        "EncoderCallExit",
+        "inlineEncoderFullMemoryRegion",
+        "InlineEncoderExit"
+      ]
+    },
+    {
+      "id": "optional-u64-frame-was-16",
+      "instances": ["writeSuccessOptionalU64"],
+      "parameterOverrides": {"frameSize": 16},
+      "expectedFailureContains": "stores outside its declared frame",
+      "leanDeclarations": ["WriteSuccessOptionalU64InstanceContract"]
+    },
+    {
+      "id": "byte-lists-frame-was-64",
+      "instances": ["writeSuccessByteLists"],
+      "parameterOverrides": {"frameSize": 64},
+      "expectedFailureContains": "stores outside its declared frame",
+      "leanDeclarations": ["WriteSuccessByteListsInstanceContract"]
+    }
+  ]
+}

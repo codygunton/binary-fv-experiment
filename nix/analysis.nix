@@ -110,10 +110,12 @@ let
       mkdir -p "$out/BinaryFv/Zesu/Elflings"
       PYTHONPATH=${../tools} python ${../tools/test_generate_level2_lean.py} \
         ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
-        ${zesuSszDecodeCfg}/zesu-cfg.json
+        ${zesuSszDecodeCfg}/zesu-cfg.json \
+        ${../tools/level2_contract_evidence_profiles.json}
       PYTHONPATH=${../tools} python ${../tools/generate_level2_lean.py} \
         --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
         --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --profiles ${../tools/level2_contract_evidence_profiles.json} \
         --output "$out/BinaryFv/Zesu/Elflings/GeneratedLevel2.lean"
       cmp "$out/BinaryFv/Zesu/Elflings/GeneratedLevel2.lean" \
         ${../BinaryFv/Zesu/Elflings/GeneratedLevel2.lean}
@@ -142,8 +144,8 @@ let
     python -m unittest discover -s tools -p 'test_*.py'
     gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel1Manifest}/level1-manifest.json"))["instances"]; cfg=json.load(open("${zesuSszDecodeCfg}/zesu-cfg.json")); main=next(row for row in cfg["functionInstances"] if row["kind"] == "concrete" and row["name"] == "ssz_decode_root.main"); pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | set(main["pcs"])); print(",".join("snapshot="+str(pc) for pc in pcs))')
-    ${rv64.qemuRiscv64} -plugin ./trace.so,out=minimal.trace,input=${targets.public.zesuSszDecodeSmoke}/minimal.ssz,input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
-    ${rv64.qemuRiscv64} -plugin ./trace.so,out=invalid.trace,input=${targets.public.zesuSszDecodeSmoke}/invalid.ssz,input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=minimal.trace,input=${targets.public.zesuSszDecodeSmoke}/minimal.ssz,input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,capture_window=0x14d30,capture_window_width=848,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
+    ${rv64.qemuRiscv64} -plugin ./trace.so,out=invalid.trace,input=${targets.public.zesuSszDecodeSmoke}/invalid.ssz,input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,capture_window=0x14d30,capture_window_width=848,"$snapshots" ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
     mkdir -p "$out"
     python tools/analyze.py --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
       --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json \
@@ -165,8 +167,9 @@ let
     gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel2Manifest}/level2-manifest.json"))["instances"]; pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | {pc for row in rows for pc in row["exitPcs"]}); print(",".join("snapshot="+str(pc) for pc in pcs))')
     for vector in minimal block-number chain-id-zero legacy-requests legacy-payload \
-        future-activation extra-data-33 public-key-overflow versioned-hash-overflow invalid; do
-      ${rv64.qemuRiscv64} -plugin ./trace.so,out="$vector.trace",input=${targets.public.zesuSszDecodeSmoke}/"$vector.ssz",input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,"$snapshots" \
+        future-activation extra-data-33 public-key-overflow versioned-hash-overflow \
+        one-transaction one-withdrawal invalid; do
+      ${rv64.qemuRiscv64} -plugin ./trace.so,out="$vector.trace",input=${targets.public.zesuSszDecodeSmoke}/"$vector.ssz",input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,capture_window=0x14d30,capture_window_width=848,"$snapshots" \
         ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
     done
     mkdir -p "$out"
@@ -180,6 +183,8 @@ let
       --trace extra-data-33=extra-data-33.trace \
       --trace public-key-overflow=public-key-overflow.trace \
       --trace versioned-hash-overflow=versioned-hash-overflow.trace \
+      --trace one-transaction=one-transaction.trace \
+      --trace one-withdrawal=one-withdrawal.trace \
       --trace invalid=invalid.trace \
       --output "$out/level2-evidence.json"
   '';
@@ -191,12 +196,18 @@ let
         ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
         ${zesuSszDecodeLevel2Evidence}/level2-evidence.json \
         ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json \
-        ${zesuSszDecodeCfg}/zesu-cfg.json
+        ${zesuSszDecodeCfg}/zesu-cfg.json \
+        ${../tools/level2_contract_clauses.json} \
+        ${../tools/level2_contract_evidence_profiles.json} \
+        ${../tools/level2_contract_defect_audits.json}
       PYTHONPATH=${../tools} python ${../tools/generate_level2_admission.py} \
         --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
         --evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json \
         --bindings ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json \
         --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --registry ${../tools/level2_contract_clauses.json} \
+        --profiles ${../tools/level2_contract_evidence_profiles.json} \
+        --defect-audits ${../tools/level2_contract_defect_audits.json} \
         --output "$out/level2-admission.json"
     '';
 
@@ -206,6 +217,8 @@ let
     chmod -R u+w "$out"
     cp ${zesuSszDecodeCfg}/zesu-cfg.json "$out/zesu-cfg.json"
     cp ${zesuSszDecodeCfg}/flame.json "$out/"
+    python ${../tools/build_flame_ui_data.py} --input ${zesuSszDecodeCfg}/flame.json \
+      --core "$out/flame-core.json" --details "$out/flame-details.json"
     cp ${zesuSszDecodeLevel1Manifest}/level1-manifest.json "$out/"
     cp ${zesuSszDecodeLevel2Manifest}/level2-manifest.json "$out/"
     cp ${zesuSszDecodeLevel1Evidence}/level1-evidence.json "$out/"
@@ -216,13 +229,18 @@ let
     cp ${zesuSszDecodeStatelessInputLayout}/stateless-input-layout.json "$out/"
     cp ${../tools/build_ssz_proof_map.py} build_ssz_proof_map.py
     cp ${../tools/test_ssz_proof_map.py} test_ssz_proof_map.py
-    python build_ssz_proof_map.py --cfg ${zesuSszDecodeCfg}/zesu-cfg.json --flame ${zesuSszDecodeCfg}/flame.json --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --evidence ${zesuSszDecodeLevel1Evidence}/level1-evidence.json --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json --level2-manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json --level2-evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json --level2-bindings ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json --output "$out/proof-map.json"
+    python build_ssz_proof_map.py --cfg ${zesuSszDecodeCfg}/zesu-cfg.json --flame ${zesuSszDecodeCfg}/flame.json --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --evidence ${zesuSszDecodeLevel1Evidence}/level1-evidence.json --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json --level2-manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json --level2-evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json --level2-bindings ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json --output "$out/proof-map.json" --flame-progress-output "$out/flame-progress.json"
     python test_ssz_proof_map.py ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json ${zesuSszDecodeLevel1Manifest}/level1-manifest.json ${zesuSszDecodeLevel1Evidence}/level1-evidence.json ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json ${zesuSszDecodeLevel2Manifest}/level2-manifest.json ${zesuSszDecodeLevel2Evidence}/level2-evidence.json ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json
-    grep -Fq 'PROOF_MAP?.flameProgress?.states' "$out/index.html"
+    grep -Fq "fetch('proof-map.json')" "$out/index.html"
+    grep -Fq "flame-core-full.json" "$out/index.html"
+    grep -Fq '.minFrameSize(1)' "$out/index.html"
     grep -Fq 'PROGRESS.get(meta.owner)' "$out/index.html"
     grep -Fq 'contract_consumed:' "$out/index.html"
     grep -Fq 'proof_in_progress:' "$out/index.html"
     cp ${zesuCfg}/flame.json "$out/flame-full.json"
+    python ${../tools/build_flame_ui_data.py} --input ${zesuCfg}/flame.json \
+      --core "$out/flame-core-full.json" --details "$out/flame-details-full.json"
+    PYTHONPATH=${../tools} python ${../tools/test_flame_ui_data.py}
   '';
 in
 {

@@ -50,10 +50,18 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         "ssz_decode_observation.writeSuccess",
         "ssz_decode_observation.writeFailure",
     }
-    level1_local_proofs = {}
+    level1_local_proofs = {
+        "read_input": "proved",
+        "zkvm_exit": "proved",
+        "alt_fl_alloc.get": "proved",
+        "ssz_decode_root.decodeInput": "conditionally_proven",
+        "ssz_decode_observation.writeSuccess": "conditionally_proven",
+        "ssz_decode_observation.writeFailure": "conditionally_proven",
+    }
     level2_local_proofs = ({
-        next(row["id"] for row in level2_manifest["instances"]
-             if row["qualified"] == "memcpy"): "proved_not_connected",
+        row["id"]: "proved"
+        for row in level2_manifest["instances"]
+        if row["qualified"] == "memcpy" or row["entryPc"] in {0x14E00, 0x14E7C}
     } if level2_manifest is not None else {})
     proved_level0_pcs = {
         0x14CB0, 0x14CB4, 0x14CB8, 0x14CBC, 0x14CC0, 0x14CC4, 0x14CC8,
@@ -86,19 +94,15 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             "evidenceStatus": "captured", "contractStatus": contract_status,
             "level0UseStatus": ("consumed" if row["qualified"] in consumed_level1
                                 else "pending"),
-            "proofStatus": level1_local_proofs.get(row["qualified"], "not_started"),
-            "kernelStatus": ("proved" if level1_local_proofs.get(row["qualified"]) ==
-                             "proved_not_connected" else "not_complete"),
+            "proofStatus": level1_local_proofs[row["qualified"]],
+            "kernelStatus": level1_local_proofs[row["qualified"]],
         })
         regions.append({
             "id": boundary_id, "label": row["qualified"],
-            "authoringState": ("proof_in_progress" if row["qualified"] in level1_local_proofs
-                               else "contract_consumed"),
-            "blocker": ("Local machine proof exists but level1Contracts_of_level2 is not proved."
-                        if level1_local_proofs.get(row["qualified"]) == "proved_not_connected"
-                        else "Machine proof is in progress."
-                        if level1_local_proofs.get(row["qualified"]) == "in_progress"
-                        else "Level 0 consumes this contract; its machine proof is deferred."),
+            "authoringState": level1_local_proofs[row["qualified"]],
+            "blocker": ("None: this leaf contract is proved unconditionally."
+                        if level1_local_proofs[row["qualified"]] == "proved"
+                        else "Proved conditionally from the selected Level 2 contracts."),
             "scope": "selected-child", "pcs": row["executionPcs"], "boundaryIds": [boundary_id],
             "evidence": "production entry registers, PCs, memory accesses, and exits captured",
             "preparation": {
@@ -114,12 +118,11 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         nodes.append({
             "id": node_id, "label": row["qualified"], "kind": "level1Contract",
             "column": 1,
-            "status": ("proof_in_progress" if row["qualified"] in level1_local_proofs
-                       else "contract_consumed"),
+            "status": level1_local_proofs[row["qualified"]],
             "evidenceStatus": "captured", "contractStatus": contract_status,
             "level0UseStatus": ("consumed" if row["qualified"] in consumed_level1
                                 else "pending"),
-            "proofStatus": level1_local_proofs.get(row["qualified"], "not_started"),
+            "proofStatus": level1_local_proofs[row["qualified"]],
             "boundaryId": boundary_id,
             "instructionCount": row["subtreeInstructionCount"],
             "source": source["file"],
@@ -156,8 +159,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             local_proof = level2_local_proofs.get(row["id"], "not_started")
             authoring_state = ("proof_revalidation_pending"
                                if local_proof == "proof_revalidation_pending"
-                               else "proof_in_progress"
-                               if local_proof == "proved_not_connected"
+                               else "proved"
+                               if local_proof == "proved"
                                else "proof_in_progress" if local_proof == "in_progress"
                                else "contract_specified_assumption")
             boundaries.append({
@@ -175,13 +178,15 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
                 "evidenceStatus": "captured",
                 "contractStatus": "specified",
                 "level0UseStatus": "not_applicable", "proofStatus": local_proof,
-                "kernelStatus": ("proved" if local_proof == "proved_not_connected"
+                "kernelStatus": ("proved" if local_proof == "proved"
                                  else "not_complete"),
             })
             regions.append({
                 "id": boundary_id, "label": row["qualified"],
                 "authoringState": authoring_state,
-                "blocker": ("Existing exact-byte proof must be rechecked against the regenerated program image."
+                "blocker": ("None: the exact machine contract is proved unconditionally."
+                            if local_proof == "proved"
+                            else "Existing exact-byte proof must be rechecked against the regenerated program image."
                             if local_proof == "proof_revalidation_pending"
                             else "Exact Sail proof is in progress."
                             if local_proof == "in_progress"
@@ -256,7 +261,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             "states": [
                 {"owner": main["id"], "qualified": "main", "status": "conditionally_proven"},
                 *({"owner": row["id"], "qualified": row["qualified"],
-                   "status": "contracted"} for row in manifest["instances"]),
+                   "status": level1_local_proofs[row["qualified"]]}
+                  for row in manifest["instances"]),
                 *level2_states,
             ],
         },
@@ -270,6 +276,7 @@ def main() -> int:
         parser.add_argument("--" + name, required=True, type=Path)
     for name in ("level2-manifest", "level2-evidence", "level2-bindings"):
         parser.add_argument("--" + name, type=Path)
+    parser.add_argument("--flame-progress-output", type=Path)
     args = parser.parse_args()
     documents = [json.loads(getattr(args, name).read_text())
                  for name in ("cfg", "flame", "manifest", "evidence", "bindings")]
@@ -278,6 +285,9 @@ def main() -> int:
                      for name in ("level2-manifest", "level2-evidence", "level2-bindings"))
     result = build(*documents)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    if args.flame_progress_output:
+        args.flame_progress_output.write_text(
+            json.dumps(result["flameProgress"], sort_keys=True, separators=(",", ":")) + "\n")
     return 0
 
 

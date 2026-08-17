@@ -10,6 +10,7 @@ static FILE *out;
 static GHashTable *snapshot_pcs;
 static GPtrArray *vcpu_registers;
 static uint64_t capture_write_pc;
+static uint64_t capture_window_pc, capture_window_width;
 static uint64_t input_address, context_address, terminal_pc;
 static GByteArray *input_bytes;
 
@@ -102,6 +103,20 @@ static void execute(unsigned vcpu, void *data) {
   uint64_t pc = (uint64_t)(uintptr_t)data;
   fprintf(out, "E %" PRIu64 "\n", pc);
   struct registers *regs = registers_for(vcpu);
+  if (pc == capture_window_pc) {
+    uint64_t address = 0;
+    GByteArray *bytes = g_byte_array_new();
+    if (!read_register(regs, 10, &address) ||
+        !qemu_plugin_read_memory_vaddr(address, bytes, (size_t)capture_window_width)) {
+      fprintf(out, "W %" PRIu64 " unreadable\n", pc);
+    } else {
+      fprintf(out, "W %" PRIu64 " %" PRIu64 " %" PRIu64 " ",
+              pc, address, capture_window_width);
+      for (guint i = 0; i < bytes->len; ++i) fprintf(out, "%02x", bytes->data[i]);
+      fputc('\n', out);
+    }
+    g_byte_array_free(bytes, TRUE);
+  }
   if (pc == capture_write_pc) {
     uint64_t address = 0, length = 0;
     GByteArray *bytes = g_byte_array_new();
@@ -186,6 +201,10 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_
     if (g_str_has_prefix(argv[i], "out=")) path = argv[i] + 4;
     if (g_str_has_prefix(argv[i], "capture_write="))
       capture_write_pc = g_ascii_strtoull(argv[i] + 14, NULL, 0);
+    if (g_str_has_prefix(argv[i], "capture_window="))
+      capture_window_pc = g_ascii_strtoull(argv[i] + 15, NULL, 0);
+    if (g_str_has_prefix(argv[i], "capture_window_width="))
+      capture_window_width = g_ascii_strtoull(argv[i] + 21, NULL, 0);
     if (g_str_has_prefix(argv[i], "input=")) input_path = argv[i] + 6;
     if (g_str_has_prefix(argv[i], "input_address="))
       input_address = g_ascii_strtoull(argv[i] + 14, NULL, 0);
@@ -194,6 +213,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_
     if (g_str_has_prefix(argv[i], "terminal="))
       terminal_pc = g_ascii_strtoull(argv[i] + 9, NULL, 0);
   }
+  if (capture_window_width > 64 * 1024 * 1024) return -1;
   out = path ? fopen(path, "w") : stderr;
   if (!out) return -1;
   if (input_path) {

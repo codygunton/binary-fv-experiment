@@ -41,6 +41,15 @@ theorem dataPmaAllows_of_agree {access : DataPmaAccess} {before after : State}
   exact ⟨regions, region, (platformPreserved_pmaRegions agree).trans regionsRead,
     matching, permitted⟩
 
+/-- Data PMA permission depends only on the `pma_regions` register. -/
+theorem dataPmaAllows_of_pma_regions_eq {access : DataPmaAccess} {before after : State}
+    {address : BitVec 64} {width : Nat}
+    (regions : after.regs.get? Register.pma_regions = before.regs.get? Register.pma_regions)
+    (allowed : DataPmaAllows access before address width) :
+    DataPmaAllows access after address width := by
+  rcases allowed with ⟨configuredRegions, region, regionsRead, matching, permitted⟩
+  exact ⟨configuredRegions, region, regions.trans regionsRead, matching, permitted⟩
+
 theorem loadPmaAllows_of_agree {before after : State} {address : BitVec 64} {width : Nat}
     (agree : Agree platformPreserved before after)
     (allowed : LoadPmaAllows before address width) :

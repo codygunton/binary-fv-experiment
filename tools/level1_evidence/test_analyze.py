@@ -6,7 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from analyze import make_report, parse_trace, reduce_trace, validate_decode_runs
+from analyze import (make_report, parse_trace, reduce_trace, validate_decode_runs,
+                     validate_initialized_decoded_prefixes)
 from elf_identity import load_image_sha256
 
 
@@ -27,7 +28,7 @@ class EvidenceTest(unittest.TestCase):
                 for pc in [0, 4, 8, 12, 16]
             ],
             "registers": {4: [{"available": 2 ** 32 - 1, "values": [0] * 32}]},
-            "loads": [[8, 100, 8, 7]], "stores": [],
+            "loads": [[8, 100, 8, 7, 2]], "stores": [],
         }
 
     def test_reduces_boundary(self):
@@ -38,6 +39,8 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual(row["observedExits"][0]["afterPc"], 16)
         self.assertEqual(len(row["occurrences"]), 1)
         self.assertEqual(row["occurrences"][0]["hostWrites"], [])
+        self.assertEqual(row["occurrences"][0]["memoryWrites"], [])
+        self.assertEqual(row["memoryAccessSummary"], {"loads": 1, "stores": 0})
 
     def test_pairs_each_occurrence_with_its_own_host_writes(self):
         trace = copy.deepcopy(self.trace)
@@ -50,6 +53,17 @@ class EvidenceTest(unittest.TestCase):
         row = reduce_trace(self.manifest, trace, "twice")["instances"][0]
         self.assertEqual([[write["bytes"] for write in occurrence["hostWrites"]]
                           for occurrence in row["occurrences"]], [["01"], ["02"]])
+
+    def test_pairs_each_occurrence_with_its_own_memory_accesses(self):
+        trace = copy.deepcopy(self.trace)
+        trace["loads"] = []
+        trace["stores"] = [[8, 100, 8, 1, 2]]
+        trace["executions"].extend(copy.deepcopy(trace["executions"][1:]))
+        trace["registers"][4].append(copy.deepcopy(trace["registers"][4][0]))
+        trace["stores"].append([8, 200, 8, 2, 6])
+        row = reduce_trace(self.manifest, trace, "twice")["instances"][0]
+        self.assertEqual([[access["address"] for access in occurrence["memoryWrites"]]
+                          for occurrence in row["occurrences"]], [[100], [200]])
 
     def test_missing_entry_is_not_inferred(self):
         trace = copy.deepcopy(self.trace)
@@ -105,6 +119,32 @@ class EvidenceTest(unittest.TestCase):
             self.assertEqual(parsed["terminalOutputs"], [{
                 "pc": 66000, "address": 4096, "bytes": "aabb",
             }])
+
+    def test_parser_reads_initialized_memory_window(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "trace"
+            trace.write_text("W 85296 4096 3 0102ff\n")
+            self.assertEqual(parse_trace(trace)["memoryWindows"], [{
+                "pc": 85296, "address": 4096, "bytes": "0102ff",
+            }])
+
+    def test_parser_rejects_wrong_memory_window_width(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace = Path(directory) / "trace"
+            trace.write_text("W 85296 4096 4 0102ff\n")
+            with self.assertRaisesRegex(ValueError, "malformed"):
+                parse_trace(trace)
+
+    def test_rejects_missing_initialized_decoded_prefix(self):
+        vectors = [{"label": "ok"}]
+        with self.assertRaisesRegex(ValueError, "do not match"):
+            validate_initialized_decoded_prefixes(
+                vectors, [("ok", {"executed": [0x14d30], "memoryWindows": []})])
+
+    def test_rejects_stale_decoded_prefix_capture_pc(self):
+        with self.assertRaisesRegex(ValueError, "no successful vectors"):
+            validate_initialized_decoded_prefixes(
+                [{"label": "ok"}], [("ok", {"executed": [], "memoryWindows": []})])
 
     def test_rejects_missing_exit_snapshot(self):
         trace = copy.deepcopy(self.trace)

@@ -6,6 +6,10 @@ namespace BinaryFv.Zesu.Elflings
 def level2ArtifactIdentityScope : String := "ELF PT_LOAD memory image"
 def level2ArtifactSha256 : String := "6e7dbca17f09a653268c750facbb7ecc40844173809ad2a02c8a9f67326906ce"
 def level2InstanceCount : Nat := 20
+def writeSuccessOptionalU64FrameSize : Nat := 32
+def writeSuccessByteListsFrameSize : Nat := 80
+def encoderCallAllowedStoreRegionNames : List String := ["child-frame", "output-buffer-word", "output-length-word"]
+def inlineArrayEncoderAllowedStoreRegionNames : List String := ["inline-frame", "output-buffer-word", "output-length-word"]
 
 def memcpyInstanceId : String := "fi:0:2d1"
 def memcpyEntry : Nat := 0x101d4

@@ -4,7 +4,7 @@
 composition uses the repository's confined-trace/segment interfaces instead of transparent chains of
 successor states.
 
-`Level2RuntimeLeaves.lean` proves the selected closed Linux-runtime leaves used while converting
-`Level2ContractAssumptions` into the six Level 1 contracts. Its `zkvm_exit` proof combines exact Sail
-instructions with the endpoint model's explicit host `exit` transition; this mixed `EndpointState`
-trace cannot use the Sail-only `Seg` interface.
+`Level2RuntimeLeaves.lean` proves the closed bare-metal read, allocator, `memcpy`, write-output, and
+exit regions used while converting `Level2ContractAssumptions` into the six Level 1 contracts.
+`Level1WriteSuccessSteps.lean` uses `Seg` for parent-owned instruction sequences and consumes the
+selected Level 2 encoder contracts without exposing transparent successor-state chains.

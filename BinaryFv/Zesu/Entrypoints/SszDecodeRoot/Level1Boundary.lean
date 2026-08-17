@@ -6,6 +6,9 @@ import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.HostExecution
 import BinaryFv.Zesu.MachineExecution.Level0MainSteps
 import BinaryFv.RiscV.Logic.LoadedImage
 import BinaryFv.RiscV.Model.Abi
+import BinaryFv.RiscV.Step.ConfiguredMachine
+import BinaryFv.RiscV.Platform.PhysicalAccess
+import BinaryFv.RiscV.Platform.FetchMmio
 
 /-!
 # Typed boundary for the noinline Level 1 decoder
@@ -19,6 +22,14 @@ namespace BinaryFv.Zesu
 
 open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.Specs.SSZ
+open BinaryFv.RiscV
+
+/-- The writer stack plus the two fixed bare-metal output-context words. Decoder success must remain
+valid across this complete region because `writeSuccess` writes the context before its last child. -/
+def writeSuccessMemoryRegionAt (stackPointer : Nat) : Region :=
+  Region.union (byteRange (stackPointer - 0x880) 0x880)
+    (Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
+      (byteRange (Elflings.ioContextAddress + 16) 8))
 
 structure DecodeBoundaryArgs where
   returnAddress : Nat
@@ -28,6 +39,73 @@ structure DecodeBoundaryArgs where
   stackPointer : Nat
   allocatorStateAddress : Nat
   allocatorVtableAddress : Nat
+
+structure DecodeCalleeSavedValues where
+  s0 : BitVec 64
+  s1 : BitVec 64
+  s2 : BitVec 64
+  s3 : BitVec 64
+  s4 : BitVec 64
+  s5 : BitVec 64
+  s6 : BitVec 64
+  s7 : BitVec 64
+  s8 : BitVec 64
+  s9 : BitVec 64
+  s10 : BitVec 64
+  s11 : BitVec 64
+
+def DecodeCalleeSavedAtRegisters (values : DecodeCalleeSavedValues)
+    (state : EndpointState) : Prop :=
+  state.machine.regs.get? x8 = some values.s0 ∧
+  state.machine.regs.get? x9 = some values.s1 ∧
+  state.machine.regs.get? x18 = some values.s2 ∧
+  state.machine.regs.get? x19 = some values.s3 ∧
+  state.machine.regs.get? x20 = some values.s4 ∧
+  state.machine.regs.get? x21 = some values.s5 ∧
+  state.machine.regs.get? x22 = some values.s6 ∧
+  state.machine.regs.get? x23 = some values.s7 ∧
+  state.machine.regs.get? x24 = some values.s8 ∧
+  state.machine.regs.get? x25 = some values.s9 ∧
+  state.machine.regs.get? x26 = some values.s10 ∧
+  state.machine.regs.get? x27 = some values.s11
+
+def decodeCalleeSavedRegister (register : Register) : Prop :=
+  register = x8 ∨ register = x9 ∨ register = x18 ∨ register = x19 ∨ register = x20 ∨
+    register = x21 ∨ register = x22 ∨ register = x23 ∨ register = x24 ∨ register = x25 ∨
+    register = x26 ∨ register = x27
+
+theorem DecodeCalleeSavedAtRegisters.of_agree {values : DecodeCalleeSavedValues}
+    {before after : EndpointState}
+    (agree : Agree decodeCalleeSavedRegister before.machine after.machine)
+    (saved : DecodeCalleeSavedAtRegisters values before) :
+    DecodeCalleeSavedAtRegisters values after := by
+  rcases saved with ⟨s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    first
+    | exact (agree x8 (by simp [decodeCalleeSavedRegister])).trans s0
+    | exact (agree x9 (by simp [decodeCalleeSavedRegister])).trans s1
+    | exact (agree x18 (by simp [decodeCalleeSavedRegister])).trans s2
+    | exact (agree x19 (by simp [decodeCalleeSavedRegister])).trans s3
+    | exact (agree x20 (by simp [decodeCalleeSavedRegister])).trans s4
+    | exact (agree x21 (by simp [decodeCalleeSavedRegister])).trans s5
+    | exact (agree x22 (by simp [decodeCalleeSavedRegister])).trans s6
+    | exact (agree x23 (by simp [decodeCalleeSavedRegister])).trans s7
+    | exact (agree x24 (by simp [decodeCalleeSavedRegister])).trans s8
+    | exact (agree x25 (by simp [decodeCalleeSavedRegister])).trans s9
+    | exact (agree x26 (by simp [decodeCalleeSavedRegister])).trans s10
+    | exact (agree x27 (by simp [decodeCalleeSavedRegister])).trans s11
+
+set_option genInjectivity false in
+/-- Caller-derived permissions for the concrete `decodeInput` frame below its incoming stack
+pointer. These facts enable the parent-owned prologue; they are not part of `hLevel2`. -/
+structure DecodeBoundaryMachineAccess (args : DecodeBoundaryArgs) (state : MachineState) : Prop where
+  configured : ConfiguredMachinePre EndpointMachinePc state
+  frameStore : ∀ offset width, offset + width ≤ 0xbb0 →
+    StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0xbb0 + offset)) width
+  frameNoMMIO : ∀ offset width, offset + width ≤ 0xbb0 →
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer - 0xbb0 + offset)) width
+  frameNotCode : ∀ address, args.stackPointer - 0xbb0 ≤ address →
+    address < args.stackPointer → Artifacts.programImage.readFileByte? address = none
 
 inductive DecodeBoundaryOutcome where
   | failure
@@ -57,8 +135,11 @@ def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Pr
   args.allocatorVtableAddress = Elflings.allocatorVtableAddress ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.decodeInputEntry) ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  0xbb0 ≤ args.stackPointer ∧ args.stackPointer % 16 = 0 ∧
   args.stackPointer + 0x380 < 2 ^ 64 ∧
   args.inputAddress + args.input.size ≤ 2 ^ 64 ∧
+  (args.stackPointer + 0x380 ≤ args.inputAddress ∨
+    args.inputAddress + args.input.size ≤ args.stackPointer - 0xbb0) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 (args.stackPointer + 0x20)) ∧
@@ -70,7 +151,16 @@ def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Pr
   UIntRep 8 state.machine.mem (args.stackPointer + 0x10) args.allocatorStateAddress ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x18) args.allocatorVtableAddress ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.savedReturnAddress ∧
-  BytesRep state.machine.mem args.inputAddress args.input
+  BytesRep state.machine.mem args.inputAddress args.input ∧
+  DecodeBoundaryMachineAccess args state.machine ∧
+  ∃ values, DecodeCalleeSavedAtRegisters values state
+
+theorem decodeBoundaryEntry_rejects_overlapping_input
+    (overlapsResult : args.inputAddress < args.stackPointer + 0x380)
+    (overlapsFrame : args.stackPointer - 0xbb0 < args.inputAddress + args.input.size) :
+    ¬DecodeBoundaryEntry args state := by
+  intro accepted
+  grind [DecodeBoundaryEntry]
 
 /-- The exact Sail read consumed by main's `lhu`, tied to the represented decoder status. -/
 def DecodeStatusLoadWitness (state : EndpointState) (status : Nat) : Prop :=
@@ -101,7 +191,11 @@ def DecodeBoundaryExit (args : DecodeBoundaryArgs) (outcome : DecodeBoundaryOutc
     | .success decoded =>
       UIntRep 2 state.machine.mem (args.stackPointer + 0x370) 0 ∧
         DecodeStatusLoadWitness state 0 ∧
-        StatelessInputRep state.machine.mem (args.stackPointer + 0x20) decoded
+        StatelessInputRep state.machine.mem (args.stackPointer + 0x20) decoded ∧
+        StatelessInputRepStableOutside (writeSuccessMemoryRegionAt args.stackPointer)
+          state.machine.mem (args.stackPointer + 0x20) decoded ∧
+        InitializedByteWindow state.machine.mem (args.stackPointer + 0x20) 720 ∧
+        DwordWindowRep state.machine.mem (args.stackPointer + 0x20 + 720) 16
 
 /-- The strict contract shape. The reviewed Level 1 contract will instantiate its bound and widen
 only the fixed accept/reject domains represented by `knownBugs`. -/

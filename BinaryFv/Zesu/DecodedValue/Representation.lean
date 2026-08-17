@@ -1,5 +1,7 @@
 import BinaryFv.Zesu.DecodedValue.Observers
 import BinaryFv.RiscV.Platform.StoreMemoryWrite
+import BinaryFv.RiscV.Logic.MemoryWriteFrame
+import BinaryFv.RiscV.Logic.SepLogic
 import LeanRV64DExecutable
 
 /-!
@@ -17,15 +19,77 @@ open PreSail
 private def byteAt (value index : Nat) : BitVec 8 :=
   BitVec.ofNat 8 ((value / 2 ^ (8 * index)) % 256)
 
+private theorem byteAt_zero (value : Nat) : byteAt value 0 = BitVec.ofNat 8 value := by
+  apply BitVec.eq_of_toNat_eq
+  simp [byteAt]
+
 def UIntRep (width : Nat) (mem : Std.ExtHashMap Nat (BitVec 8))
     (address value : Nat) : Prop :=
   value < 2 ^ (8 * width) ∧ address + width ≤ 2 ^ 64 ∧
     ∀ index, index < width → mem.get? (address + index) = some (byteAt value index)
 
+/-- An eight-byte little-endian memory representation determines its bounded natural value. -/
+theorem UIntRep.eight_unique {mem : Std.ExtHashMap Nat (BitVec 8)} {address a b : Nat}
+    (ha : UIntRep 8 mem address a) (hb : UIntRep 8 mem address b) : a = b := by
+  have haBound := ha.1
+  have hbBound := hb.1
+  have byte (index : Nat) (bound : index < 8) : byteAt a index = byteAt b index := by
+    rw [← Option.some_inj, ← ha.2.2 index bound, ← hb.2.2 index bound]
+  have b0 := congrArg BitVec.toNat (byte 0 (by omega))
+  have b1 := congrArg BitVec.toNat (byte 1 (by omega))
+  have b2 := congrArg BitVec.toNat (byte 2 (by omega))
+  have b3 := congrArg BitVec.toNat (byte 3 (by omega))
+  have b4 := congrArg BitVec.toNat (byte 4 (by omega))
+  have b5 := congrArg BitVec.toNat (byte 5 (by omega))
+  have b6 := congrArg BitVec.toNat (byte 6 (by omega))
+  have b7 := congrArg BitVec.toNat (byte 7 (by omega))
+  simp [byteAt] at b0 b1 b2 b3 b4 b5 b6 b7 haBound hbBound
+  have da0 := Nat.mod_add_div a 256
+  have db0 := Nat.mod_add_div b 256
+  have da1 := Nat.mod_add_div (a / 256) 256
+  have db1 := Nat.mod_add_div (b / 256) 256
+  have da2 := Nat.mod_add_div (a / 65536) 256
+  have db2 := Nat.mod_add_div (b / 65536) 256
+  have da3 := Nat.mod_add_div (a / 16777216) 256
+  have db3 := Nat.mod_add_div (b / 16777216) 256
+  have da4 := Nat.mod_add_div (a / 4294967296) 256
+  have db4 := Nat.mod_add_div (b / 4294967296) 256
+  have da5 := Nat.mod_add_div (a / 1099511627776) 256
+  have db5 := Nat.mod_add_div (b / 1099511627776) 256
+  have da6 := Nat.mod_add_div (a / 281474976710656) 256
+  have db6 := Nat.mod_add_div (b / 281474976710656) 256
+  have da7 := Nat.mod_add_div (a / 72057594037927936) 256
+  have db7 := Nat.mod_add_div (b / 72057594037927936) 256
+  omega
+
 theorem UIntRep.of_mem_eq {width address value : Nat}
     {before after : Std.ExtHashMap Nat (BitVec 8)} (rep : UIntRep width before address value)
     (memory : after = before) : UIntRep width after address value := by
   simpa [memory] using rep
+
+/-- Preserve an integer representation across writes proved disjoint from its byte window. -/
+theorem UIntRep.of_writesOnlyWithin {width address value : Nat}
+    {before after : BinaryFv.RiscV.State} {owned : BinaryFv.RiscV.Region}
+    (rep : UIntRep width before.mem address value)
+    (writes : BinaryFv.RiscV.WritesOnlyWithin owned before after)
+    (outside : ∀ index, index < width → ¬ owned (address + index)) :
+    UIntRep width after.mem address value := by
+  refine ⟨rep.1, rep.2.1, ?_⟩
+  intro index inBounds
+  rw [writes (address + index) (outside index inBounds)]
+  exact rep.2.2 index inBounds
+
+/-- Expose a `UIntRep` byte window in the Sail little-endian form consumed by dword loads. -/
+theorem UIntRep.leBytes {n address value : Nat} {mem : Std.ExtHashMap Nat (BitVec 8)}
+    (rep : UIntRep n mem address value) (index : Nat) (bound : index < n) :
+    mem.get? (address + index) =
+      some (getElem (BinaryFv.RiscV.Sep.leBytes n (BitVec.ofNat (8 * n) value)) index (by
+        simpa only [BinaryFv.RiscV.Sep.leBytes_length] using bound)) := by
+  rw [rep.2.2 index bound]
+  congr 1
+  apply BitVec.eq_of_toNat_eq
+  simp [byteAt, BinaryFv.RiscV.Sep.leBytes, Nat.shiftRight_eq_div_pow]
+  rw [Nat.mod_eq_of_lt rep.1]
 
 /-- An exact eight-byte Sail store establishes the corresponding little-endian integer
 representation. -/
@@ -56,6 +120,209 @@ def BytesRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
     ∀ index (inBounds : index < bytes.size),
       mem.get? (address + index) = some (BitVec.ofNat 8 bytes[index].toNat)
 
+/-- Any initialized eight-byte window represents one bounded little-endian natural value. -/
+theorem BytesRep.existsUIntRepEight {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat}
+    {bytes : Array UInt8} (rep : BytesRep mem address bytes) (size : bytes.size = 8) :
+    ∃ value, UIntRep 8 mem address value := by
+  let value := bytes[0].toNat + bytes[1].toNat * 256 + bytes[2].toNat * 65536 +
+    bytes[3].toNat * 16777216 + bytes[4].toNat * 4294967296 +
+    bytes[5].toNat * 1099511627776 + bytes[6].toNat * 281474976710656 +
+    bytes[7].toNat * 72057594037927936
+  refine ⟨value, ?_, ?_, ?_⟩
+  · dsimp [value]
+    have h0 := bytes[0].toNat_lt
+    have h1 := bytes[1].toNat_lt
+    have h2 := bytes[2].toNat_lt
+    have h3 := bytes[3].toNat_lt
+    have h4 := bytes[4].toNat_lt
+    have h5 := bytes[5].toNat_lt
+    have h6 := bytes[6].toNat_lt
+    have h7 := bytes[7].toNat_lt
+    omega
+  · simpa [size] using rep.1
+  · intro index bound
+    have cases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨
+        index = 5 ∨ index = 6 ∨ index = 7 := by omega
+    rcases cases with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    all_goals rw [rep.2 _ (by omega)]
+    all_goals congr 1
+    all_goals apply BitVec.eq_of_toNat_eq
+    all_goals simp [byteAt, value]
+    all_goals
+      have h0 := bytes[0].toNat_lt
+      have h1 := bytes[1].toNat_lt
+      have h2 := bytes[2].toNat_lt
+      have h3 := bytes[3].toNat_lt
+      have h4 := bytes[4].toNat_lt
+      have h5 := bytes[5].toNat_lt
+      have h6 := bytes[6].toNat_lt
+      have h7 := bytes[7].toNat_lt
+      omega
+
+theorem BytesRep.of_mem_eq {before after : Std.ExtHashMap Nat (BitVec 8)}
+    {address : Nat} {bytes : Array UInt8} (rep : BytesRep before address bytes)
+    (memEq : after = before) : BytesRep after address bytes := by
+  simpa [memEq] using rep
+
+theorem BytesRep.of_writesOnlyWithin {address : Nat} {bytes : Array UInt8}
+    {before after : BinaryFv.RiscV.State} {owned : BinaryFv.RiscV.Region}
+    (rep : BytesRep before.mem address bytes)
+    (writes : BinaryFv.RiscV.WritesOnlyWithin owned before after)
+    (outside : ∀ index, index < bytes.size → ¬ owned (address + index)) :
+    BytesRep after.mem address bytes := by
+  refine ⟨rep.1, ?_⟩
+  intro index inBounds
+  rw [writes (address + index) (outside index inBounds)]
+  exact rep.2 index inBounds
+
+/-- Pointwise relocation of one concrete byte window to another. -/
+def ByteWindowRelocation (before after : Std.ExtHashMap Nat (BitVec 8))
+    (source destination width : Nat) : Prop :=
+  ∀ index, index < width → after.get? (destination + index) = before.get? (source + index)
+
+/-- Relocate one represented little-endian integer through a pointwise byte-window relation. -/
+theorem UIntRep.rebase {before after : Std.ExtHashMap Nat (BitVec 8)}
+    {width source destination value : Nat} (rep : UIntRep width before source value)
+    (destinationFits : destination + width ≤ 2 ^ 64)
+    (relocation : ByteWindowRelocation before after source destination width) :
+    UIntRep width after destination value := by
+  refine ⟨rep.1, destinationFits, ?_⟩
+  intro index inBounds
+  rw [relocation index inBounds]
+  exact rep.2.2 index inBounds
+
+theorem ByteWindowRelocation.atOffset {before after : Std.ExtHashMap Nat (BitVec 8)}
+    {source destination total : Nat}
+    (relocation : ByteWindowRelocation before after source destination total)
+    (offset width : Nat) (bound : offset + width ≤ total) :
+    ByteWindowRelocation before after (source + offset) (destination + offset) width := by
+  intro index inBounds
+  simpa [ByteWindowRelocation, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
+    relocation (offset + index) (by omega)
+
+theorem BytesRep.rebase {before after : Std.ExtHashMap Nat (BitVec 8)}
+    {source destination : Nat} {bytes : Array UInt8}
+    (rep : BytesRep before source bytes)
+    (destinationFits : destination + bytes.size ≤ 2 ^ 64)
+    (relocation : ByteWindowRelocation before after source destination bytes.size) :
+    BytesRep after destination bytes := by
+  refine ⟨destinationFits, ?_⟩
+  intro index inBounds
+  rw [relocation index inBounds]
+  exact rep.2 index inBounds
+
+theorem ByteWindowRelocation.of_same_bytes
+    {before after : Std.ExtHashMap Nat (BitVec 8)}
+    {source destination : Nat} {bytes : Array UInt8}
+    (sourceRep : BytesRep before source bytes) (destinationRep : BytesRep after destination bytes) :
+    ByteWindowRelocation before after source destination bytes.size := by
+  intro index inBounds
+  rw [sourceRep.2 index inBounds, destinationRep.2 index inBounds]
+
+/-- Every byte in a fixed machine-memory window is initialized. The existential byte array records
+the concrete padding bytes without assigning them source-level meaning. -/
+def InitializedByteWindow (mem : Std.ExtHashMap Nat (BitVec 8)) (address width : Nat) : Prop :=
+  ∃ bytes : Array UInt8, bytes.size = width ∧ BytesRep mem address bytes
+
+theorem BytesRep.extractPrefix {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat}
+    {bytes : Array UInt8} (rep : BytesRep mem address bytes) {width : Nat}
+    (bound : width ≤ bytes.size) : BytesRep mem address (bytes.extract 0 width) := by
+  have size : (bytes.extract 0 width).size = width := by
+    rw [Array.size_extract]
+    simp [Nat.min_eq_left bound]
+  constructor
+  · rw [size]
+    exact Nat.le_trans (Nat.add_le_add_left bound address) rep.1
+  · intro index inBounds
+    rw [Array.getElem_extract]
+    simpa only [Nat.zero_add] using rep.2 index (by rw [size] at inBounds; omega)
+
+theorem BytesRep.extractRange {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat}
+    {bytes : Array UInt8} (rep : BytesRep mem address bytes) (offset width : Nat)
+    (bound : offset + width ≤ bytes.size) :
+    BytesRep mem (address + offset) (bytes.extract offset (offset + width)) := by
+  have size : (bytes.extract offset (offset + width)).size = width := by
+    rw [Array.size_extract]
+    omega
+  constructor
+  · rw [size]
+    exact Nat.le_trans (by omega) rep.1
+  · intro index inBounds
+    rw [Array.getElem_extract]
+    simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+      rep.2 (offset + index) (by rw [size] at inBounds; omega)
+
+theorem BytesRep.unique {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat}
+    {left right : Array UInt8} (leftRep : BytesRep mem address left)
+    (rightRep : BytesRep mem address right) (size : left.size = right.size) : left = right := by
+  apply Array.ext
+  · exact size
+  · intro index leftBound rightBound
+    have leftByte := leftRep.2 index leftBound
+    have rightByte := rightRep.2 index rightBound
+    rw [rightByte] at leftByte
+    apply UInt8.toNat_inj.mp
+    have same := congrArg BitVec.toNat (Option.some.inj leftByte)
+    simpa using same.symm
+
+private noncomputable def bytesOfPresentWindow (mem : Std.ExtHashMap Nat (BitVec 8))
+    (address width : Nat) (present : ∀ index, index < width → ∃ byte, mem.get? (address + index) = some byte) :
+    Array UInt8 :=
+  Array.ofFn fun index : Fin width => UInt8.ofNat (present index index.isLt).choose.toNat
+
+theorem initializedByteWindow_of_present {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {address width : Nat} (fits : address + width ≤ 2 ^ 64)
+    (present : ∀ index, index < width → ∃ byte, mem.get? (address + index) = some byte) :
+    InitializedByteWindow mem address width := by
+  let bytes := bytesOfPresentWindow mem address width present
+  have size : bytes.size = width := by simp [bytes, bytesOfPresentWindow]
+  refine ⟨bytes, size, ?_, ?_⟩
+  · simpa [size] using fits
+  intro index inBounds
+  have chosen := (present index (by simpa [bytes, bytesOfPresentWindow] using inBounds)).choose_spec
+  rw [chosen]
+  congr 2
+  apply BitVec.eq_of_toNat_eq
+  simp [bytes, bytesOfPresentWindow]
+
+private theorem memory_present_afterByteWrites (state : BinaryFv.RiscV.State)
+    (writes : List (Nat × BitVec 8)) (address : Nat)
+    (present : ∃ byte, state.mem.get? address = some byte) :
+    ∃ byte, (BinaryFv.RiscV.afterByteWrites state writes).mem.get? address = some byte := by
+  induction writes generalizing state with
+  | nil => simpa [BinaryFv.RiscV.afterByteWrites] using present
+  | cons write writes ih =>
+      apply ih
+      by_cases same : write.1 = address
+      · subst same
+        exact ⟨write.2, by simp⟩
+      · obtain ⟨byte, byteAt⟩ := present
+        refine ⟨byte, ?_⟩
+        change Std.ExtDHashMap.Const.get? (state.mem.inner.insert write.1 write.2) address =
+          some byte
+        rw [Std.ExtDHashMap.Const.get?_insert]
+        rw [if_neg (by simpa using same)]
+        exact byteAt
+
+theorem InitializedByteWindow.afterWriteBytes {memAddress width storeAddress storeWidth : Nat}
+    {state : BinaryFv.RiscV.State} {value : BitVec (8 * storeWidth)}
+    (window : InitializedByteWindow state.mem memAddress width) :
+    InitializedByteWindow
+      (BinaryFv.RiscV.afterWriteBytes state storeAddress value).mem memAddress width := by
+  obtain ⟨bytes, size, rep⟩ := window
+  apply initializedByteWindow_of_present
+  · simpa [size] using rep.1
+  · intro index inBounds
+    apply memory_present_afterByteWrites
+    exact ⟨BitVec.ofNat 8 bytes[index].toNat, rep.2 index (by simpa [size] using inBounds)⟩
+
+/-- Consecutive initialized machine words, used for optimized struct slots that Zig reads even when
+their source-level optional payload is absent. -/
+def DwordWindowRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address count : Nat) : Prop :=
+  ∃ values : Fin count → Nat,
+    ∀ index (inBounds : index < count), UIntRep 8 mem (address + index * 8)
+      (values ⟨index, inBounds⟩)
+
 def ArrayRep (stride : Nat) (elementRep : Std.ExtHashMap Nat (BitVec 8) → Nat → α → Prop)
     (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat) (values : Array α) : Prop :=
   address + values.size * stride ≤ 2 ^ 64 ∧
@@ -73,10 +340,53 @@ def ByteSliceRep (mem : Std.ExtHashMap Nat (BitVec 8)) (descriptor : Nat)
     (bytes : Array UInt8) : Prop :=
   SliceRep 1 (fun mem address byte => UIntRep 1 mem address byte.toNat) mem descriptor bytes
 
+/-- The array payload of a byte-slice representation is the corresponding contiguous byte window. -/
+theorem ArrayRep.byteSliceBytesRep {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {address : Nat} {bytes : Array UInt8}
+    (rep : ArrayRep 1 (fun mem address byte => UIntRep 1 mem address byte.toNat)
+      mem address bytes) : BytesRep mem address bytes := by
+  refine ⟨(by simpa using rep.1), ?_⟩
+  intro index inBounds
+  have byte := (rep.2 index inBounds).2.2 0 (by omega)
+  simpa [byteAt_zero] using byte
+
+/-- Relocate the two words of a slice descriptor while retaining its referenced array. -/
+theorem SliceRep.rebaseDescriptor {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {stride : Nat} {elementRep : Std.ExtHashMap Nat (BitVec 8) → Nat → α → Prop}
+    {source destination : Nat} {values : Array α}
+    (rep : SliceRep stride elementRep mem source values)
+    (destinationFits : destination + 16 ≤ 2 ^ 64)
+    (relocation : ByteWindowRelocation mem mem source destination 16) :
+    SliceRep stride elementRep mem destination values := by
+  obtain ⟨data, pointer, size, elements⟩ := rep
+  exact ⟨data,
+    pointer.rebase (by omega) (relocation.atOffset 0 8 (by omega)),
+    size.rebase (by omega) (relocation.atOffset 8 8 (by omega)), elements⟩
+
+theorem ByteSliceRep.rebaseDescriptor {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {source destination : Nat} {bytes : Array UInt8}
+    (rep : ByteSliceRep mem source bytes) (destinationFits : destination + 16 ≤ 2 ^ 64)
+    (relocation : ByteWindowRelocation mem mem source destination 16) :
+    ByteSliceRep mem destination bytes :=
+  SliceRep.rebaseDescriptor rep destinationFits relocation
+
 def OptionalUIntRep (width : Nat) (mem : Std.ExtHashMap Nat (BitVec 8))
     (address : Nat) : Option Nat → Prop
   | none => UIntRep 1 mem (address + width) 0
   | some value => UIntRep width mem address value ∧ UIntRep 1 mem (address + width) 1
+
+theorem OptionalUIntRep.rebase {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {width source destination : Nat} {value : Option Nat}
+    (rep : OptionalUIntRep width mem source value)
+    (destinationFits : destination + width + 1 ≤ 2 ^ 64)
+    (relocation : ByteWindowRelocation mem mem source destination (width + 1)) :
+    OptionalUIntRep width mem destination value := by
+  cases value with
+  | none =>
+      exact UIntRep.rebase rep (by omega) (relocation.atOffset width 1 (by omega))
+  | some value =>
+      exact ⟨UIntRep.rebase rep.1 (by omega) (relocation.atOffset 0 width (by omega)),
+        UIntRep.rebase rep.2 (by omega) (relocation.atOffset width 1 (by omega))⟩
 
 /-- Zig uses the null pointer niche for `?[]const u8`; the length word is ignored for `none`. -/
 def OptionalByteSliceRep (mem : Std.ExtHashMap Nat (BitVec 8))
@@ -156,6 +466,58 @@ def ExecutionPayloadRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
   payload.prevRandao.size = 32 ∧ BytesRep mem (address + 524) payload.prevRandao ∧
   payload.blockHash.size = 32 ∧ BytesRep mem (address + 556) payload.blockHash
 
+/-- Relocate the complete 592-byte optimized execution-payload value within one memory state.
+Slice descriptors move with the value while their referenced arrays remain at their original heap
+addresses. -/
+theorem ExecutionPayloadRep.rebase {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {source destination : Nat} {payload : ExecutionPayload}
+    (rep : ExecutionPayloadRep mem source payload)
+    (destinationFits : destination + 592 ≤ 2 ^ 64)
+    (relocation : ByteWindowRelocation mem mem source destination 592) :
+    ExecutionPayloadRep mem destination payload := by
+  rcases rep with ⟨blockNumber, gasLimit, gasUsed, timestamp, extraData, baseFee,
+    transactions, rawTransactions, withdrawals, blobGasUsed, excessBlobGas, slotNumber,
+    blockAccessList, parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize,
+    stateRoot, receiptsRootSize, receiptsRoot, logsBloomSize, logsBloom, prevRandaoSize,
+    prevRandao, blockHashSize, blockHash⟩
+  refine ⟨blockNumber.rebase (by omega) (relocation.atOffset 0 8 (by omega)),
+    gasLimit.rebase (by omega) (relocation.atOffset 8 8 (by omega)),
+    gasUsed.rebase (by omega) (relocation.atOffset 16 8 (by omega)),
+    timestamp.rebase (by omega) (relocation.atOffset 24 8 (by omega)),
+    extraData.rebaseDescriptor (by omega) (relocation.atOffset 32 16 (by omega)),
+    baseFee.rebase (by omega) (relocation.atOffset 48 8 (by omega)),
+    transactions.rebaseDescriptor (by omega) (relocation.atOffset 56 16 (by omega)),
+    rawTransactions.rebaseDescriptor (by omega) (relocation.atOffset 72 16 (by omega)),
+    withdrawals.rebaseDescriptor (by omega) (relocation.atOffset 88 16 (by omega)),
+    blobGasUsed.rebase (by omega) (relocation.atOffset 104 8 (by omega)),
+    excessBlobGas.rebase (by omega) (relocation.atOffset 112 8 (by omega)),
+    OptionalUIntRep.rebase slotNumber (by omega) (relocation.atOffset 120 9 (by omega)),
+    blockAccessList.rebaseDescriptor (by omega) (relocation.atOffset 136 16 (by omega)),
+    parentHashSize,
+    parentHash.rebase (by simpa [parentHashSize] using (by omega : destination + 152 + 32 ≤ 2 ^ 64))
+      (by simpa [parentHashSize] using relocation.atOffset 152 32 (by omega)),
+    feeRecipientSize,
+    feeRecipient.rebase
+      (by simpa [feeRecipientSize] using (by omega : destination + 184 + 20 ≤ 2 ^ 64))
+      (by simpa [feeRecipientSize] using relocation.atOffset 184 20 (by omega)),
+    stateRootSize,
+    stateRoot.rebase (by simpa [stateRootSize] using (by omega : destination + 204 + 32 ≤ 2 ^ 64))
+      (by simpa [stateRootSize] using relocation.atOffset 204 32 (by omega)),
+    receiptsRootSize,
+    receiptsRoot.rebase
+      (by simpa [receiptsRootSize] using (by omega : destination + 236 + 32 ≤ 2 ^ 64))
+      (by simpa [receiptsRootSize] using relocation.atOffset 236 32 (by omega)),
+    logsBloomSize,
+    logsBloom.rebase
+      (by simpa [logsBloomSize] using (by omega : destination + 268 + 256 ≤ 2 ^ 64))
+      (by simpa [logsBloomSize] using relocation.atOffset 268 256 (by omega)),
+    prevRandaoSize,
+    prevRandao.rebase (by simpa [prevRandaoSize] using (by omega : destination + 524 + 32 ≤ 2 ^ 64))
+      (by simpa [prevRandaoSize] using relocation.atOffset 524 32 (by omega)),
+    blockHashSize,
+    blockHash.rebase (by simpa [blockHashSize] using (by omega : destination + 556 + 32 ≤ 2 ^ 64))
+      (by simpa [blockHashSize] using relocation.atOffset 556 32 (by omega))⟩
+
 def ExecutionRequestsRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
     (requests : ExecutionRequests) : Prop :=
   ByteSliceRep mem address requests.deposits ∧
@@ -187,5 +549,268 @@ def StatelessInputRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
   SliceRep 16 ByteSliceRep mem (address + 752) decoded.witnessHeaders ∧
   ChainConfigRep mem (address + 768) decoded.chainConfig ∧
   SliceRep 16 ByteSliceRep mem (address + 832) decoded.publicKeys
+
+/-- The decoded representation remains valid after any memory change confined to `owned`. This is
+the caller-visible separation fact required when `writeSuccess` uses a stack frame below the decoded
+value while retaining heap objects reached through its slice descriptors. -/
+def StatelessInputRepStableOutside (owned : BinaryFv.RiscV.Region)
+    (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat) (decoded : ZesuDecodedResult) : Prop :=
+  ∀ after : Std.ExtHashMap Nat (BitVec 8),
+    (∀ byte, ¬ owned byte → after.get? byte = mem.get? byte) →
+      StatelessInputRep after address decoded
+
+theorem StatelessInputRepStableOutside.of_writesOnlyWithin
+    {before after : BinaryFv.RiscV.State} {owned : BinaryFv.RiscV.Region}
+    {address : Nat} {decoded : ZesuDecodedResult}
+    (stable : StatelessInputRepStableOutside owned before.mem address decoded)
+    (writes : BinaryFv.RiscV.WritesOnlyWithin owned before after) :
+    StatelessInputRep after.mem address decoded :=
+  stable after.mem writes
+
+theorem StatelessInputRepStableOutside.afterWrites
+    {before after : BinaryFv.RiscV.State} {owned : BinaryFv.RiscV.Region}
+    {address : Nat} {decoded : ZesuDecodedResult}
+    (stable : StatelessInputRepStableOutside owned before.mem address decoded)
+    (writes : BinaryFv.RiscV.WritesOnlyWithin owned before after) :
+    StatelessInputRepStableOutside owned after.mem address decoded := by
+  intro future unchanged
+  apply stable future
+  intro byte outside
+  rw [unchanged byte outside, writes byte outside]
+
+set_option genInjectivity false in
+/-- The seven contiguous execution-payload byte fields emitted directly by `writeSuccess`. -/
+structure RawPayloadFieldReps (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
+    (payload : ExecutionPayload) : Prop where
+  parentHashSize : payload.parentHash.size = 32
+  parentHash : BytesRep mem (address + 152) payload.parentHash
+  feeRecipientSize : payload.feeRecipient.size = 20
+  feeRecipient : BytesRep mem (address + 184) payload.feeRecipient
+  stateRootSize : payload.stateRoot.size = 32
+  stateRoot : BytesRep mem (address + 204) payload.stateRoot
+  receiptsRootSize : payload.receiptsRoot.size = 32
+  receiptsRoot : BytesRep mem (address + 236) payload.receiptsRoot
+  logsBloomSize : payload.logsBloom.size = 256
+  logsBloom : BytesRep mem (address + 268) payload.logsBloom
+  prevRandaoSize : payload.prevRandao.size = 32
+  prevRandao : BytesRep mem (address + 524) payload.prevRandao
+  blockHashSize : payload.blockHash.size = 32
+  blockHash : BytesRep mem (address + 556) payload.blockHash
+
+set_option genInjectivity false in
+/-- The semantic payload fields as slices of the optimized 592-byte struct prefix. This pure fact
+survives the writer's intermediate stack stores without adding memory-frame obligations. -/
+structure RawPayloadFieldBytes (bytes : Array UInt8) (payload : ExecutionPayload) : Prop where
+  parentHashSize : payload.parentHash.size = 32
+  parentHash : ∀ index, index < 32 → bytes[152 + index]? = payload.parentHash[index]?
+  feeRecipientSize : payload.feeRecipient.size = 20
+  feeRecipient : ∀ index, index < 20 → bytes[184 + index]? = payload.feeRecipient[index]?
+  stateRootSize : payload.stateRoot.size = 32
+  stateRoot : ∀ index, index < 32 → bytes[204 + index]? = payload.stateRoot[index]?
+  receiptsRootSize : payload.receiptsRoot.size = 32
+  receiptsRoot : ∀ index, index < 32 → bytes[236 + index]? = payload.receiptsRoot[index]?
+  logsBloomSize : payload.logsBloom.size = 256
+  logsBloom : ∀ index, index < 256 → bytes[268 + index]? = payload.logsBloom[index]?
+  prevRandaoSize : payload.prevRandao.size = 32
+  prevRandao : ∀ index, index < 32 → bytes[524 + index]? = payload.prevRandao[index]?
+  blockHashSize : payload.blockHash.size = 32
+  blockHash : ∀ index, index < 32 → bytes[556 + index]? = payload.blockHash[index]?
+
+theorem RawPayloadFieldBytes.extractPrefix {bytes : Array UInt8} {payload : ExecutionPayload}
+    (fields : RawPayloadFieldBytes bytes payload) (width : Nat) (bound : 588 ≤ width)
+    (fits : width ≤ bytes.size) :
+    RawPayloadFieldBytes (bytes.extract 0 width) payload := by
+  have prefixAt (offset fieldWidth index : Nat)
+      (offsetBound : offset + fieldWidth ≤ 588) (indexBound : index < fieldWidth)
+      {field : Array UInt8} (hAt : bytes[offset + index]? = field[index]?) :
+      (bytes.extract 0 width)[offset + index]? = field[index]? := by
+    rw [Array.getElem?_extract, if_pos (by omega)]
+    simpa using hAt
+  exact {
+    parentHashSize := fields.parentHashSize
+    parentHash := by
+      intro index indexBound
+      exact prefixAt 152 32 index (by omega) indexBound
+        (hAt := fields.parentHash index indexBound)
+    feeRecipientSize := fields.feeRecipientSize
+    feeRecipient := by
+      intro index indexBound
+      exact prefixAt 184 20 index (by omega) indexBound
+        (hAt := fields.feeRecipient index indexBound)
+    stateRootSize := fields.stateRootSize
+    stateRoot := by
+      intro index indexBound
+      exact prefixAt 204 32 index (by omega) indexBound
+        (hAt := fields.stateRoot index indexBound)
+    receiptsRootSize := fields.receiptsRootSize
+    receiptsRoot := by
+      intro index indexBound
+      exact prefixAt 236 32 index (by omega) indexBound
+        (hAt := fields.receiptsRoot index indexBound)
+    logsBloomSize := fields.logsBloomSize
+    logsBloom := by
+      intro index indexBound
+      exact prefixAt 268 256 index (by omega) indexBound
+        (hAt := fields.logsBloom index indexBound)
+    prevRandaoSize := fields.prevRandaoSize
+    prevRandao := by
+      intro index indexBound
+      exact prefixAt 524 32 index (by omega) indexBound
+        (hAt := fields.prevRandao index indexBound)
+    blockHashSize := fields.blockHashSize
+    blockHash := by
+      intro index indexBound
+      exact prefixAt 556 32 index (by omega) indexBound
+        (hAt := fields.blockHash index indexBound) }
+
+theorem RawPayloadFieldReps.fieldBytes {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {address : Nat} {bytes : Array UInt8} {payload : ExecutionPayload}
+    (whole : BytesRep mem address bytes) (size : 588 ≤ bytes.size)
+    (fields : RawPayloadFieldReps mem address payload) : RawPayloadFieldBytes bytes payload := by
+  have fieldEq {offset width : Nat} {field : Array UInt8}
+      (bound : offset + width ≤ bytes.size) (fieldSize : field.size = width)
+      (fieldRep : BytesRep mem (address + offset) field) :
+      bytes.extract offset (offset + width) = field :=
+    (whole.extractRange offset width bound).unique fieldRep (by
+      rw [fieldSize, Array.size_extract, Nat.min_eq_left (by omega)]
+      omega)
+  have fieldAt {offset width index : Nat} {field : Array UInt8}
+      (bound : offset + width ≤ bytes.size) (fieldSize : field.size = width)
+      (fieldRep : BytesRep mem (address + offset) field) (indexBound : index < width) :
+      bytes[offset + index]? = field[index]? := by
+    have eq := fieldEq bound fieldSize fieldRep
+    have same := congrArg (fun a : Array UInt8 => a[index]?) eq
+    change (bytes.extract offset (offset + width))[index]? = field[index]? at same
+    rw [Array.getElem?_extract, if_pos (by omega)] at same
+    simpa using same
+  exact {
+    parentHashSize := fields.parentHashSize
+    parentHash := by
+      intro index indexBound
+      exact fieldAt (offset := 152) (width := 32) (by omega) fields.parentHashSize
+        fields.parentHash indexBound
+    feeRecipientSize := fields.feeRecipientSize
+    feeRecipient := by
+      intro index indexBound
+      exact fieldAt (offset := 184) (width := 20) (by omega) fields.feeRecipientSize
+        fields.feeRecipient indexBound
+    stateRootSize := fields.stateRootSize
+    stateRoot := by
+      intro index indexBound
+      exact fieldAt (offset := 204) (width := 32) (by omega) fields.stateRootSize
+        fields.stateRoot indexBound
+    receiptsRootSize := fields.receiptsRootSize
+    receiptsRoot := by
+      intro index indexBound
+      exact fieldAt (offset := 236) (width := 32) (by omega) fields.receiptsRootSize
+        fields.receiptsRoot indexBound
+    logsBloomSize := fields.logsBloomSize
+    logsBloom := by
+      intro index indexBound
+      exact fieldAt (offset := 268) (width := 256) (by omega) fields.logsBloomSize
+        fields.logsBloom indexBound
+    prevRandaoSize := fields.prevRandaoSize
+    prevRandao := by
+      intro index indexBound
+      exact fieldAt (offset := 524) (width := 32) (by omega) fields.prevRandaoSize
+        fields.prevRandao indexBound
+    blockHashSize := fields.blockHashSize
+    blockHash := by
+      intro index indexBound
+      exact fieldAt (offset := 556) (width := 32) (by omega) fields.blockHashSize
+        fields.blockHash indexBound }
+
+theorem RawPayloadFieldBytes.fieldReps {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {address : Nat} {bytes : Array UInt8} {payload : ExecutionPayload}
+    (whole : BytesRep mem address bytes) (size : 588 ≤ bytes.size)
+    (fields : RawPayloadFieldBytes bytes payload) : RawPayloadFieldReps mem address payload := by
+  have fieldRep (offset width : Nat) (bound : offset + width ≤ bytes.size)
+      (field : Array UInt8) (fieldSize : field.size = width)
+      (fieldAt : ∀ index, index < width → bytes[offset + index]? = field[index]?) :
+      BytesRep mem (address + offset) field := by
+    refine ⟨by rw [fieldSize]; exact Nat.le_trans (by omega) whole.1, ?_⟩
+    intro index indexBound
+    have indexWidth : index < width := by omega
+    have hAt := fieldAt index indexWidth
+    have valueEq : bytes[offset + index]'(by omega) = field[index] := by
+      rw [Array.getElem?_eq_getElem (by omega), Array.getElem?_eq_getElem indexBound] at hAt
+      exact Option.some.inj hAt
+    rw [show address + offset + index = address + (offset + index) by omega,
+      whole.2 (offset + index) (by omega), valueEq]
+  exact {
+    parentHashSize := fields.parentHashSize
+    parentHash := fieldRep 152 32 (by omega) payload.parentHash fields.parentHashSize
+      fields.parentHash
+    feeRecipientSize := fields.feeRecipientSize
+    feeRecipient := fieldRep 184 20 (by omega) payload.feeRecipient fields.feeRecipientSize
+      fields.feeRecipient
+    stateRootSize := fields.stateRootSize
+    stateRoot := fieldRep 204 32 (by omega) payload.stateRoot fields.stateRootSize fields.stateRoot
+    receiptsRootSize := fields.receiptsRootSize
+    receiptsRoot := fieldRep 236 32 (by omega) payload.receiptsRoot fields.receiptsRootSize
+      fields.receiptsRoot
+    logsBloomSize := fields.logsBloomSize
+    logsBloom := fieldRep 268 256 (by omega) payload.logsBloom fields.logsBloomSize fields.logsBloom
+    prevRandaoSize := fields.prevRandaoSize
+    prevRandao := fieldRep 524 32 (by omega) payload.prevRandao fields.prevRandaoSize fields.prevRandao
+    blockHashSize := fields.blockHashSize
+    blockHash := fieldRep 556 32 (by omega) payload.blockHash fields.blockHashSize fields.blockHash }
+
+theorem RawPayloadFieldReps.of_writesOnlyWithin {before after : BinaryFv.RiscV.State}
+    {address : Nat} {payload : ExecutionPayload} {owned : BinaryFv.RiscV.Region}
+    (fields : RawPayloadFieldReps before.mem address payload)
+    (writes : BinaryFv.RiscV.WritesOnlyWithin owned before after)
+    (outside : ∀ offset width, offset + width ≤ 588 →
+      ∀ index, index < width → ¬ owned (address + offset + index)) :
+    RawPayloadFieldReps after.mem address payload := by
+  exact {
+    parentHashSize := fields.parentHashSize
+    parentHash := BytesRep.of_writesOnlyWithin fields.parentHash writes (by
+      intro index bound
+      apply outside 152 32 (by omega) index
+      rwa [fields.parentHashSize] at bound)
+    feeRecipientSize := fields.feeRecipientSize
+    feeRecipient := BytesRep.of_writesOnlyWithin fields.feeRecipient writes (by
+      intro index bound
+      apply outside 184 20 (by omega) index
+      rwa [fields.feeRecipientSize] at bound)
+    stateRootSize := fields.stateRootSize
+    stateRoot := BytesRep.of_writesOnlyWithin fields.stateRoot writes (by
+      intro index bound
+      apply outside 204 32 (by omega) index
+      rwa [fields.stateRootSize] at bound)
+    receiptsRootSize := fields.receiptsRootSize
+    receiptsRoot := BytesRep.of_writesOnlyWithin fields.receiptsRoot writes (by
+      intro index bound
+      apply outside 236 32 (by omega) index
+      rwa [fields.receiptsRootSize] at bound)
+    logsBloomSize := fields.logsBloomSize
+    logsBloom := BytesRep.of_writesOnlyWithin fields.logsBloom writes (by
+      intro index bound
+      apply outside 268 256 (by omega) index
+      rwa [fields.logsBloomSize] at bound)
+    prevRandaoSize := fields.prevRandaoSize
+    prevRandao := BytesRep.of_writesOnlyWithin fields.prevRandao writes (by
+      intro index bound
+      apply outside 524 32 (by omega) index
+      rwa [fields.prevRandaoSize] at bound)
+    blockHashSize := fields.blockHashSize
+    blockHash := BytesRep.of_writesOnlyWithin fields.blockHash writes (by
+      intro index bound
+      apply outside 556 32 (by omega) index
+      rwa [fields.blockHashSize] at bound) }
+
+theorem StatelessInputRep.rawPayloadFields {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {address : Nat} {decoded : ZesuDecodedResult}
+    (rep : StatelessInputRep mem address decoded) :
+    RawPayloadFieldReps mem address decoded.payload := by
+  rcases rep with ⟨_, payload, _⟩
+  rcases payload with
+    ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, parentHashSize, parentHash, feeRecipientSize,
+      feeRecipient, stateRootSize, stateRoot, receiptsRootSize, receiptsRoot, logsBloomSize,
+      logsBloom, prevRandaoSize, prevRandao, blockHashSize, blockHash⟩
+  exact ⟨parentHashSize, parentHash, feeRecipientSize, feeRecipient, stateRootSize, stateRoot,
+    receiptsRootSize, receiptsRoot, logsBloomSize, logsBloom, prevRandaoSize, prevRandao,
+    blockHashSize, blockHash⟩
 
 end BinaryFv.Zesu

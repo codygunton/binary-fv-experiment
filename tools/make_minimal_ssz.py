@@ -34,7 +34,8 @@ def main() -> None:
         "--mutation",
         choices=("invalid-schema", "block-number", "chain-id-zero", "legacy-requests",
                  "legacy-payload", "future-activation", "extra-data-33",
-                 "public-key-overflow", "versioned-hash-overflow"),
+                 "public-key-overflow", "versioned-hash-overflow",
+                 "one-transaction", "one-withdrawal"),
     )
     args = parser.parse_args()
     data = minimal_input()
@@ -84,6 +85,32 @@ def main() -> None:
         put_int(data, 14, 4, 664 + added)
         put_int(data, 58, 4, 584 + added)
         data[602:602] = bytes(added)
+    elif args.mutation == "one-transaction":
+        # One SSZ ByteList element containing a minimal nine-field legacy RLP transaction.
+        transaction = bytes.fromhex("c9808080808080808080")
+        encoded = (4).to_bytes(4, "little") + transaction
+        added = len(encoded)
+        for offset in (6, 10, 14):
+            put_int(data, offset, 4, int.from_bytes(data[offset:offset + 4], "little") + added)
+        for offset in (22, 58):
+            put_int(data, offset, 4, int.from_bytes(data[offset:offset + 4], "little") + added)
+        put_int(data, 570, 4, 540 + added)
+        put_int(data, 590, 4, 540 + added)
+        data[602:602] = encoded
+    elif args.mutation == "one-withdrawal":
+        # One packed 44-byte SszWithdrawal with distinct little-endian fields.
+        withdrawal = bytearray(44)
+        put_int(withdrawal, 0, 8, 1)
+        put_int(withdrawal, 8, 8, 2)
+        withdrawal[16:36] = bytes(range(1, 21))
+        put_int(withdrawal, 36, 8, 3)
+        added = len(withdrawal)
+        for offset in (6, 10, 14):
+            put_int(data, offset, 4, int.from_bytes(data[offset:offset + 4], "little") + added)
+        for offset in (22, 58):
+            put_int(data, offset, 4, int.from_bytes(data[offset:offset + 4], "little") + added)
+        put_int(data, 590, 4, 540 + added)
+        data[602:602] = withdrawal
     args.output.write_bytes(data)
 
 

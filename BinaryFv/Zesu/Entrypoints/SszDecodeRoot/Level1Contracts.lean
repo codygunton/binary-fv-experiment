@@ -1,4 +1,7 @@
 import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Level1Boundary
+import BinaryFv.RiscV.Step.ConfiguredMachine
+import BinaryFv.RiscV.Platform.PhysicalAccess
+import BinaryFv.RiscV.Platform.FetchMmio
 
 /-!
 # Level 1 contract assumptions for the SSZ endpoint
@@ -13,6 +16,42 @@ namespace BinaryFv.Zesu
 
 open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.RiscV
+
+set_option genInjectivity false in
+/-- Shared bare-metal output permissions required by every observation encoder. -/
+structure EncoderOutputMachineAccess (state : MachineState) : Prop where
+  configured : ConfiguredMachinePre EndpointMachinePc state
+  outputBufferStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
+  outputLengthStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
+  outputBufferNoMMIO :
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
+  outputLengthNoMMIO :
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
+
+namespace EncoderOutputMachineAccess
+
+/-- Regression: no encoder entry may hide a missing configured-machine premise. -/
+theorem rejects_missing_configuration
+    (missing : ¬ConfiguredMachinePre EndpointMachinePc state) :
+    ¬EncoderOutputMachineAccess state := by
+  intro access
+  exact missing access.configured
+
+/-- Regression: no encoder entry may hide denied access to the output-buffer word. -/
+theorem rejects_denied_output_store
+    (denied : ¬StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8) :
+    ¬EncoderOutputMachineAccess state := by
+  intro access
+  exact denied access.outputBufferStore
+
+end EncoderOutputMachineAccess
+
+/-- The exact two-word memory region written by the bare-metal `write_output` implementation. -/
+def writeOutputMemory : Region :=
+  Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
+    (byteRange (Elflings.ioContextAddress + 16) 8)
 
 structure ReadInputArgs where
   returnAddress : Nat
@@ -33,14 +72,31 @@ def ReadInputEntry (args : ReadInputArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.bufferSlot) ∧
   state.machine.regs.get? x11 = some (BitVec.ofNat 64 args.sizeSlot) ∧
+  args.sizeSlot = args.bufferSlot + 8 ∧ args.bufferSlot % 8 = 0 ∧
+  args.bufferSlot + 16 < 2 ^ 64 ∧
   BytesRep state.machine.mem Elflings.inputBufferAddress args.input ∧
+  UIntRep 8 state.machine.mem Elflings.ioContextAddress args.input.size ∧
   UIntRep 8 state.machine.mem args.savedFrameAddress args.savedReturnAddress ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 args.bufferSlot) 8 ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 args.sizeSlot) 8 ∧
+  LoadPmaAllows state.machine (BitVec.ofNat 64 Elflings.ioContextAddress) 8 ∧
+  StoreMMIOAddressExcluded (BitVec.ofNat 64 args.bufferSlot) 8 ∧
+  StoreMMIOAddressExcluded (BitVec.ofNat 64 args.sizeSlot) 8 ∧
+  (args.bufferSlot + 16 ≤ Elflings.inputBufferAddress ∨
+    Elflings.inputBufferAddress + args.input.size ≤ args.bufferSlot) ∧
+  (args.bufferSlot + 16 ≤ Elflings.ioContextAddress ∨
+    Elflings.ioContextAddress + 8 ≤ args.bufferSlot) ∧
+  (args.bufferSlot + 16 ≤ args.savedFrameAddress ∨
+    args.savedFrameAddress + 8 ≤ args.bufferSlot) ∧
+  (∀ address, args.bufferSlot ≤ address → address < args.bufferSlot + 16 →
+    Artifacts.programImage.readFileByte? address = none) ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   ConfiguredMachinePre EndpointMachinePc state.machine
 
 def ReadInputExit (args : ReadInputArgs) (outcome : ReadInputOutcome)
     (before after : EndpointState) : Prop :=
   after.machine.regs.get? PC = some (BitVec.ofNat 64 args.returnAddress) ∧
+  outcome.inputAddress = Elflings.inputBufferAddress ∧
   after.stdin = before.stdin ∧ after.stdinCursor = args.input.size ∧
   after.stdout = before.stdout ∧ after.exitCode = before.exitCode ∧
   UIntRep 8 after.machine.mem args.bufferSlot outcome.inputAddress ∧
@@ -82,11 +138,26 @@ def AllocatorGetEntry (args : AllocatorGetArgs) (state : EndpointState) : Prop :
   args.returnAddress ∈ Elflings.allocatorGetExitPcs ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.allocatorGetEntry) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
+  args.stackPointer % 8 = 0 ∧ args.stackPointer + 0x20 < 2 ^ 64 ∧
   UIntRep 8 state.machine.mem args.stackPointer args.inputAddress ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 8) args.input.size ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.savedReturnAddress ∧
   BytesRep state.machine.mem args.inputAddress args.input ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  LoadPmaAllows state.machine (BitVec.ofNat 64 args.stackPointer) 8 ∧
+  LoadPmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
+  LoadMMIOAddressExcluded (BitVec.ofNat 64 args.stackPointer) 8 ∧
+  LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 8)) 8 ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x10)) 8 ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x18)) 8 ∧
+  StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x10)) 8 ∧
+  StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x18)) 8 ∧
+  (args.stackPointer + 0x20 ≤ args.inputAddress ∨
+    args.inputAddress + args.input.size ≤ args.stackPointer + 0x10) ∧
+  (∀ address, args.stackPointer + 0x10 ≤ address →
+    address < args.stackPointer + 0x20 →
+    Artifacts.programImage.readFileByte? address = none) ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  ConfiguredMachinePre EndpointMachinePc state.machine
 
 def AllocatorGetExit (args : AllocatorGetArgs) (outcome : AllocatorGetOutcome)
     (before after : EndpointState) : Prop :=
@@ -97,8 +168,6 @@ def AllocatorGetExit (args : AllocatorGetArgs) (outcome : AllocatorGetOutcome)
   after.machine.regs.get? x11 = some (BitVec.ofNat 64 outcome.vtableAddress) ∧
   after.machine.regs.get? x12 = some (BitVec.ofNat 64 args.inputAddress) ∧
   after.machine.regs.get? x13 = some (BitVec.ofNat 64 args.input.size) ∧
-  after.machine.regs.get? x18 = some (BitVec.ofNat 64 args.input.size) ∧
-  after.machine.regs.get? x23 = some (BitVec.ofNat 64 args.inputAddress) ∧
   UIntRep 8 after.machine.mem args.stackPointer args.inputAddress ∧
   UIntRep 8 after.machine.mem (args.stackPointer + 8) args.input.size ∧
   UIntRep 8 after.machine.mem (args.stackPointer + 0x10) outcome.stateAddress ∧
@@ -134,14 +203,79 @@ structure WriteSuccessArgs where
   decoded : ZesuDecodedResult
   inputSize : Nat
 
+/-- Every memory region the bare-metal `writeSuccess` execution may modify: its local stack frame
+and the two fixed output-context words written by `write_output`. -/
+def writeSuccessMemoryRegion (args : WriteSuccessArgs) : Region :=
+  writeSuccessMemoryRegionAt args.stackPointer
+
+set_option genInjectivity false in
+/-- Caller-derived permissions for the 176-byte area immediately below the writer's own frame.
+Selected called encoders use this area for their local ABI frames. -/
+structure WriteSuccessChildFrameAccess (args : WriteSuccessArgs) (state : MachineState) : Prop where
+  load : ∀ offset width, offset + width ≤ 0xb0 →
+    LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0x880 + offset)) width
+  store : ∀ offset width, offset + width ≤ 0xb0 →
+    StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0x880 + offset)) width
+  loadNoMMIO : ∀ offset width, offset + width ≤ 0xb0 →
+    LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer - 0x880 + offset)) width
+  storeNoMMIO : ∀ offset width, offset + width ≤ 0xb0 →
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer - 0x880 + offset)) width
+
+namespace WriteSuccessChildFrameAccess
+
+theorem of_pma_regions_eq (access : WriteSuccessChildFrameAccess args before)
+    (pmaEq : after.regs.get? pma_regions = before.regs.get? pma_regions) :
+    WriteSuccessChildFrameAccess args after :=
+  { load := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq pmaEq (access.load offset width bound)
+    store := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq pmaEq (access.store offset width bound)
+    loadNoMMIO := access.loadNoMMIO
+    storeNoMMIO := access.storeNoMMIO }
+
+end WriteSuccessChildFrameAccess
+
+set_option genInjectivity false in
+/-- Caller-derived machine permissions for the parent-owned `writeSuccess` instructions. -/
+structure WriteSuccessMachineAccess (args : WriteSuccessArgs) (state : MachineState) : Prop where
+  configured : ConfiguredMachinePre EndpointMachinePc state
+  childFrame : WriteSuccessChildFrameAccess args state
+  frameLoad : ∀ offset width, offset + width ≤ 0x7d0 →
+    LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + offset)) width
+  frameStore : ∀ offset width, offset + width ≤ 0x7d0 →
+    StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + offset)) width
+  frameNoMMIO : ∀ offset width, offset + width ≤ 0x7d0 →
+    StoreMMIOAddressExcluded
+      (BitVec.ofNat 64 (args.stackPointer - 0x7d0 + offset)) width
+  decodedLoad : ∀ offset width, offset + width ≤ 0x380 →
+    LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  decodedNoMMIO : ∀ offset width, offset + width ≤ 0x380 →
+    LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  outputBufferStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
+  outputLengthStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
+  writerRegionBeforeOutputContext :
+    args.stackPointer + 0x380 ≤ Elflings.ioContextAddress
+  frameNotCode : ∀ address, args.stackPointer - 0x880 ≤ address →
+    address < args.stackPointer → Artifacts.programImage.readFileByte? address = none
+
 def WriteSuccessEntry (args : WriteSuccessArgs) (state : EndpointState) : Prop :=
-  args.returnAddress ∈ Elflings.writeSuccessExitPcs ∧ 0x7d0 ≤ args.stackPointer ∧
+  args.returnAddress ∈ Elflings.writeSuccessExitPcs ∧ 0x880 ≤ args.stackPointer ∧
+  args.stackPointer % 16 = 0 ∧ args.stackPointer < 2 ^ 64 ∧
+  args.decodedAddress = args.stackPointer + 0x20 ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.writeSuccessEntry) ∧
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
   state.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.decodedAddress) ∧
   StatelessInputRep state.machine.mem args.decodedAddress args.decoded ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  InitializedByteWindow state.machine.mem args.decodedAddress 720 ∧
+  DwordWindowRep state.machine.mem (args.decodedAddress + 720) 16 ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  (∃ values, DecodeCalleeSavedAtRegisters values state) ∧
+  WriteSuccessMachineAccess args state.machine ∧
+  StatelessInputRepStableOutside (writeSuccessMemoryRegion args)
+    state.machine.mem args.decodedAddress args.decoded
 
 def WriteSuccessExit (args : WriteSuccessArgs) (bytes : Array UInt8)
     (before after : EndpointState) : Prop :=
@@ -150,7 +284,7 @@ def WriteSuccessExit (args : WriteSuccessArgs) (bytes : Array UInt8)
   after.stdout = before.stdout ++ bytes ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.exitCode = before.exitCode ∧
-  WritesOnlyWithin (byteRange (args.stackPointer - 0x7d0) 0x7d0)
+  WritesOnlyWithin (writeSuccessMemoryRegion args)
     before.machine after.machine ∧
   EndpointCallFrame before after
 
@@ -174,7 +308,8 @@ def WriteFailureEntry (args : WriteFailureArgs) (state : EndpointState) : Prop :
   args.returnAddress ∈ Elflings.writeFailureExitPcs ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.writeFailureEntry) ∧
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  EncoderOutputMachineAccess state.machine
 
 def WriteFailureExit (args : WriteFailureArgs) (bytes : Array UInt8)
     (before after : EndpointState) : Prop :=
@@ -182,7 +317,8 @@ def WriteFailureExit (args : WriteFailureArgs) (bytes : Array UInt8)
   decodeZesuObservation bytes = some .failure ∧
   after.stdout = before.stdout ++ bytes ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
-  after.exitCode = before.exitCode ∧ after.machine.mem = before.machine.mem ∧
+  after.exitCode = before.exitCode ∧
+  WritesOnlyWithin writeOutputMemory before.machine after.machine ∧
   EndpointCallFrame before after
 
 def writeFailureContract (stepBound : WriteFailureArgs → Nat) :
@@ -204,6 +340,7 @@ structure ZkvmExitArgs where
 def ZkvmExitEntry (args : ZkvmExitArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.zkvmExitEntry) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.code) ∧
+  StorePmaAllows state.machine (BitVec.ofNat 64 (Elflings.ioContextAddress + 24)) 8 ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   ConfiguredMachinePre EndpointMachinePc state.machine
 
@@ -212,7 +349,8 @@ def ZkvmExitPost (args : ZkvmExitArgs) (_outcome : Unit)
   after.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.zkvmExitTerminalPc) ∧
   after.exitCode = some args.code ∧ after.stdin = before.stdin ∧
   after.stdinCursor = before.stdinCursor ∧ after.stdout = before.stdout ∧
-  after.machine.mem = before.machine.mem
+  WritesOnlyWithin (byteRange (Elflings.ioContextAddress + 24) 8)
+    before.machine after.machine
 
 def zkvmExitContract (stepBound : ZkvmExitArgs → Nat) :
     RelationalMachineContract EndpointState ZkvmExitArgs Unit :=

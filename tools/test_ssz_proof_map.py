@@ -69,16 +69,29 @@ class ProofMapTest(unittest.TestCase):
         main = next(row for row in self.documents[0]["functionInstances"]
                     if row["kind"] == "concrete" and row["entryPc"] == 0x14cb0)
         self.assertEqual(progress[main["id"]], "conditionally_proven")
+        self.assertEqual({progress[row["id"]] for row in self.documents[2]["instances"]
+                          if row["qualified"] in {"read_input", "zkvm_exit", "alt_fl_alloc.get"}},
+                         {"proved"})
+        self.assertEqual({progress[row["id"]] for row in self.documents[2]["instances"]
+                          if row["qualified"] not in {"read_input", "zkvm_exit", "alt_fl_alloc.get"}},
+                         {"conditionally_proven"})
         memcpy = next(row for row in self.documents[5]["instances"]
                       if row["qualified"] == "memcpy")
-        self.assertEqual(progress[memcpy["id"]], "proof_in_progress")
+        self.assertEqual(progress[memcpy["id"]], "proved")
+        proved_encoder_entries = {0x14E00, 0x14E7C}
         self.assertEqual({progress[row["id"]] for row in self.documents[5]["instances"]
-                          if row["id"] != memcpy["id"]},
+                          if row["entryPc"] in proved_encoder_entries}, {"proved"})
+        self.assertEqual({row["entryPc"] for row in self.documents[5]["instances"]
+                          if progress[row["id"]] == "proved" and row["qualified"] != "memcpy"},
+                         proved_encoder_entries)
+        self.assertEqual({progress[row["id"]] for row in self.documents[5]["instances"]
+                          if row["id"] != memcpy["id"]
+                          and row["entryPc"] not in proved_encoder_entries},
                          {"contract_specified_assumption"})
         read_input = next(row for row in level1_boundaries if row["qualified"] == "read_input")
         zkvm_exit = next(row for row in level1_boundaries if row["qualified"] == "zkvm_exit")
-        self.assertEqual(read_input["proofStatus"], "not_started")
-        self.assertEqual(zkvm_exit["proofStatus"], "not_started")
+        self.assertEqual(read_input["proofStatus"], "proved")
+        self.assertEqual(zkvm_exit["proofStatus"], "proved")
         self.assertEqual(result["targetModel"]["status"], "valid_bare_metal")
         self.assertEqual(len(progress), 27)
 
