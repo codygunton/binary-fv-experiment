@@ -28,12 +28,6 @@ open BinaryFv.RiscV
 open PreSail LeanRV64DExecutable.Functions Register
 open MemoryAccessType mem_payload page_based_mem_type
 
-/-- Derive the post-increment machine reads used by one concrete `decode_run`. -/
-macro "configured_decode " configured:term : tactic =>
-  `(tactic|
-    (obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ := ($configured).decodeContext
-     decode_run))
-
 /-- The exact generated Level 0 instruction addresses. -/
 def mainGluePcs (pc : BitVec 64) : Prop := pcInRanges Elflings.mainGluePcRanges pc
 
@@ -398,16 +392,7 @@ private theorem main_li_zero_step (stepNo : Nat) (state : State) (pc : Nat)
   have decode : Runs (ext_decode (fetchWord 0x13 0x05 0x00 0x00))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.ITYPE (0, .Regidx 0#5, .Regidx 10#5, .ADDI)) := by
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
   have zeroRead : Runs (rX_bits (.Regidx 0#5))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)) 0 :=
@@ -638,16 +623,7 @@ theorem main_input_buffer_address_step (stepNo : Nat) (state : State)
         (0x00 : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.ITYPE (0, stackPointer, .Regidx 10#5, .ADDI)) := by
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
   have execute : Runs (execute (.ITYPE (0, stackPointer, .Regidx 10#5, .ADDI)))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc)
       { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cbc with
@@ -692,16 +668,7 @@ theorem main_input_size_slot_address_step (stepNo : Nat) (state : State)
         (0x00 : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.ITYPE (8, stackPointer, .Regidx 11#5, .ADDI)) := by
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
   have execute : Runs (execute (.ITYPE (8, stackPointer, .Regidx 11#5, .ADDI)))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc0)
       { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc0 with
@@ -745,16 +712,7 @@ theorem main_read_input_call_base_step (stepNo : Nat) (state : State)
         (0xff : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.UTYPE (0xffffb#20, .Regidx 1#5, .AUIPC)) := by
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
   have pcRead : Runs (readReg PC)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc4)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cc4) 0x14cc4 := by
@@ -809,16 +767,7 @@ theorem main_read_input_call_step (stepNo : Nat) (state : State)
         (0x47 : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JALR (0x47c, .Regidx 1#5, .Regidx 1#5)) := by
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
   have target : Sail.BitVec.update
       ((0xfcc4 : BitVec 64) + sign_extend (m := 64) (0x47c : BitVec 12)) 0 0#1 = 0x10140 := by
     native_decide
@@ -890,16 +839,7 @@ theorem main_decode_result_address_step (stepNo : Nat) (state : State)
         (0x02 : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.ITYPE (0x20, stackPointer, .Regidx 10#5, .ADDI)) := by
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
   have execute : Runs (execute (.ITYPE (0x20, stackPointer, .Regidx 10#5, .ADDI)))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cec)
       { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cec with
@@ -946,16 +886,7 @@ theorem main_decode_allocator_address_step (stepNo : Nat) (state : State)
         (0x01 : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.ITYPE (0x10, stackPointer, .Regidx 11#5, .ADDI)) := by
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
   have execute : Runs (execute (.ITYPE (0x10, stackPointer, .Regidx 11#5, .ADDI)))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cf0)
       { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cf0 with
@@ -1001,16 +932,7 @@ theorem main_decode_call_base_step (stepNo : Nat) (state : State)
         (0xff : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.UTYPE (0xffffd#20, .Regidx 1#5, .AUIPC)) := by
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
   have pcRead : Runs (readReg PC)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cf4)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14cf4) 0x14cf4 := by
@@ -1065,16 +987,7 @@ theorem main_decode_call_step (stepNo : Nat) (state : State)
         (0x47 : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JALR (0x474, .Regidx 1#5, .Regidx 1#5)) := by
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
   have target : Sail.BitVec.update
       ((0x11cf4 : BitVec 64) + sign_extend (m := 64) (0x474 : BitVec 12)) 0 0#1 = 0x12168 := by
     native_decide
@@ -1154,16 +1067,7 @@ private theorem main_decode_status_branch_decode (state : State)
       (0x00 : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.BTYPE (0x01c, .Regidx 0#5, .Regidx 10#5, .BNE)) := by
-  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-    configured.decodeContext
-  unfold Runs
-  rw [extDecode_eq]
-  simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-    PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-    instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-    MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-  rfl
+  configured_decode configured
 
 /-- Production `0x14d00: bnez a0,0x14d1c`, on the successful zero-status route. -/
 theorem main_decode_status_success_step (stepNo : Nat) (state : State)
@@ -1267,16 +1171,7 @@ theorem main_success_result_address_step (stepNo : Nat) (state : State)
         (0x02 : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.ITYPE (0x20, stackPointer, .Regidx 10#5, .ADDI)) := by
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
   have execute : Runs (execute (.ITYPE (0x20, stackPointer, .Regidx 10#5, .ADDI)))
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d04)
       { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x14d04 with
@@ -1342,16 +1237,7 @@ theorem main_write_success_call_step (stepNo : Nat) (state : State)
         (0x02 : BitVec 8)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JALR (0x028, .Regidx 1#5, .Regidx 1#5)) := by
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
   have target : Sail.BitVec.update
       ((0x14d08 : BitVec 64) + sign_extend (m := 64) (0x028 : BitVec 12)) 0 0#1 = 0x14d30 := by
     native_decide
@@ -1427,32 +1313,14 @@ private theorem main_auipc_neg5_decode (state : State)
     Runs (ext_decode (fetchWord 0x97 0xb0 0xff 0xff))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.UTYPE (0xffffb, .Regidx 1#5, .AUIPC)) := by
-  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-    configured.decodeContext
-  unfold Runs
-  rw [extDecode_eq]
-  simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-    PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-    instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-    MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-  rfl
+  configured_decode configured
 
 private theorem main_auipc_plus1_decode (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state) :
     Runs (ext_decode (fetchWord 0x97 0x10 0x00 0x00))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.UTYPE (1, .Regidx 1#5, .AUIPC)) := by
-  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-    configured.decodeContext
-  unfold Runs
-  rw [extDecode_eq]
-  simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-    PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-    EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-    instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-    MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-  rfl
+  configured_decode configured
 
 /-- Production `0x14d14: auipc ra,-5`, forming the successful `zkvm_exit` call base. -/
 theorem main_success_exit_call_base_step (stepNo : Nat) (state : State)
@@ -1509,16 +1377,7 @@ private theorem main_jalr_decode (state : State)
       (.JALR (imm, .Regidx 1#5, .Regidx 1#5)) := by
   rcases decoded with decoded | decoded | decoded | decoded <;> subst imm <;> rw [decoded]
   all_goals
-    obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl
+    configured_decode configured
 
 /-- Production `0x14d18: jalr ra,0x4b0(ra)`, entering `zkvm_exit` at `0x101c4`. -/
 theorem main_success_exit_call_step (stepNo : Nat) (state : State)

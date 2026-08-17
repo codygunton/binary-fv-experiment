@@ -569,10 +569,7 @@ theorem allocatorStateBaseLowStep (stepNo : Nat) (state : State)
   exact configuredRegisterWriteStep stepNo 0x14cdc state x10
     (BitVec.ofNat 64 0x2401a0b0)
     (.ITYPE (0x3e4, .Regidx 10#5, .Regidx 10#5, .ADDI)) 0x13 0x05 0x45 0x3e
-    configured atPc loaded (by
-      obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-        configured.decodeContext
-      decode_run) execute (base := by rfl)
+    configured atPc loaded (by configured_decode configured) execute (base := by rfl)
 
 /-- Production `0x14ce0: addi a1, a1, -1320`. -/
 theorem allocatorVtableBaseLowStep (stepNo : Nat) (state : State)
@@ -598,10 +595,7 @@ theorem allocatorVtableBaseLowStep (stepNo : Nat) (state : State)
   exact configuredRegisterWriteStep stepNo 0x14ce0 state x11
     (BitVec.ofNat 64 Elflings.allocatorVtableAddress)
     (.ITYPE (0xad8, .Regidx 11#5, .Regidx 11#5, .ADDI)) 0x93 0x85 0x85 0xad
-    configured atPc loaded (by
-      obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
-        configured.decodeContext
-      decode_run) execute (base := by rfl)
+    configured atPc loaded (by configured_decode configured) execute (base := by rfl)
 
 private theorem allocatorLoadAtX2Step (stepNo pc offset : Nat) (state : State)
     (stackPointer value : Nat) (imm : BitVec 12) (rd : regidx) (destination : Register)
