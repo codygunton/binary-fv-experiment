@@ -27,23 +27,32 @@ Proof cost scales with the RISC-V covered, so lines per instruction is the numbe
 |---|---|
 | `BinaryFv/Zesu` total | 33,644 lines |
 | `BinaryFv/Zesu/MachineExecution` | **24,719 code lines** in 683 declarations |
-| distinct instruction addresses named | **488** |
-| **rate** | **51 lines per instruction** |
-| the whole 4435-instruction endpoint at that rate | **≈226,000 lines** |
+| hex literals in the corpus | 489 |
+| of those, **real instruction addresses** in the endpoint image | **296** |
+| instructions in the endpoint image | **7,222** |
+| **coverage** | **4.1%** |
+| **rate** | **83.5 lines per instruction** |
+| the whole endpoint at that rate | **≈603,000 lines** |
 | `Level1WriteSuccessSteps.lean` alone | 17,243 lines |
 
-The rate was 33 lines per instruction on the pre-merge branch and is now 51. That is not a
-regression in quality — the newer code proves harder things — but it does mean the extrapolation
-moved from ≈146,000 lines to ≈226,000.
+Only 296 of the 489 hex literals are instruction addresses; the rest are immediates, region bounds and
+encoding bytes. *An earlier version of this table reported "488 addresses", a 51-line rate, a
+4,435-instruction endpoint and a ≈226,000-line extrapolation. All four were wrong: the address count
+was unjoined literals, and the instruction count came from a different build artifact. See the strategy
+record §6.*
 
-**Composition is 79.5% of the corpus.** Classifying each declaration by how many distinct addresses
-it names:
+**Composition is 69.4% of the corpus.** Classifying each declaration by how many **real instruction
+addresses** it names:
 
 | bucket | declarations | lines | share |
 |---|---|---|---|
-| names no address (generic) | 208 | 2,823 | 11.3% |
-| names one address | 90 | 2,276 | 9.1% |
-| **names two or more (composition)** | **384** | **19,776** | **79.5%** |
+| names no address (generic support) | 266 | 4,815 | 19.4% |
+| names one address | 85 | 2,799 | 11.3% |
+| **names two or more (composition)** | **282** | **17,261** | **69.4%** |
+
+*(Was 79.5% when every hex literal counted as an address. Composition is still the dominant bucket and
+still the one a pattern lemma reduces, but 266 declarations rather than 208 name no instruction at all,
+so the generic-support share is nearly twice what was reported.)*
 
 ## 2. The proof text repeats as heavily as the binary
 
@@ -144,8 +153,15 @@ cost, because somebody must find the right idiom among the entries. Stop at 8.
 The remaining coverage below n = 8 is not worth one lemma per pattern. Reaching it needs a different
 mechanism, and §5 names one.
 
-**The proof text is more fragmented than the binary.** The same cascade on the instruction stream
-reaches 74.2% with 149 patterns; here it takes 907 patterns to reach 56.4%.
+**The proof text is more fragmented than the binary**, re-measured on the correct artifact. The same
+cascade on the instruction stream of the endpoint image reaches **45.3% with 76 lemmas** at a floor of
+n ≥ 8, and **94.7% with 310 lemmas** down to n = 2. The proof text needs 196 lemmas for 33.4% at the
+same n ≥ 8 floor, and 907 for 56.4% at n = 2 — roughly **three times the lemmas for two thirds the
+coverage**.
+
+*(The superseded figure was "74.2% with 149 patterns", computed on the relocatable object. 74.2% does
+recur on the endpoint image, but at a floor of n ≥ 4 and 191 lemmas — the same percentage by
+coincidence, not the same result.)*
 
 ## 3. Where a lemma exists to be extracted
 
@@ -421,6 +437,11 @@ line-count ranking recommends.
   the lever which removes them works.** See §4, Opportunity 1.
 - **Repetition is measured; quantification is not.** §5 states the bias. The cascade cannot rank a
   restructuring, because after the restructuring there is no text left to match.
+- **Every share here is measured against the 24,719 existing lines, which is the wrong
+  denominator.** Coverage is 4.1%, so the corpus is 4% of the work. The strategy record §9 recasts each
+  lever as a cut in the *rate* and applies it to the 578,391 lines not yet written. On that basis the
+  two independent levers project ≈417,000 lines against a 603,110 baseline — about 30%, not an order of
+  magnitude.
 - **Elaboration time is not measured here.** It is a CI cost, reported separately in
   `motif-lemma-measurements.md`, and it moves opposite to line count: an `autoParam` removes lines
   without removing the work the kernel does.
