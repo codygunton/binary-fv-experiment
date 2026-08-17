@@ -4401,8 +4401,7 @@ theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract 
   obtain ⟨r0, run0⟩ := constantPrefixAddressHighStep fromStep before.machine
     access.configured atPc loaded
   obtain ⟨s1, seg1⟩ := seg0.step
-    (by unfold constantPrefixParentPc; exact
-      ⟨(0x14e00, 0x14e14), by simp, by omega, by omega⟩)
+    (by native_decide)
     (by decide) x10 0x17e00 0x14e04 ⟨r0, run0⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
@@ -4415,8 +4414,7 @@ theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract 
     (seg1.reg x10 0x17e00 (by simp)) loaded1
   have seg1' := seg1.forget (kv' := []) (by simp)
   obtain ⟨s2, seg2⟩ := seg1'.step
-    (by unfold constantPrefixParentPc; exact
-      ⟨(0x14e00, 0x14e14), by simp, by omega, by omega⟩)
+    (by native_decide)
     (by decide) x10 0x179c5 0x14e08 ⟨r1, run1⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
@@ -4427,8 +4425,7 @@ theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract 
     simpa [seg2.memEq (by simp)] using loaded
   obtain ⟨r2, run2⟩ := constantPrefixLengthStep (fromStep + 2) s2 cfg2 seg2.atPc loaded2
   obtain ⟨s3, seg3⟩ := seg2.step
-    (by unfold constantPrefixParentPc; exact
-      ⟨(0x14e00, 0x14e14), by simp, by omega, by omega⟩)
+    (by native_decide)
     (by decide) x11 6 0x14e0c ⟨r2, run2⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inr rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
@@ -4439,8 +4436,7 @@ theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract 
     simpa [seg3.memEq (by simp)] using loaded
   obtain ⟨r3, run3⟩ := constantPrefixCallBaseStep (fromStep + 3) s3 cfg3 seg3.atPc loaded3
   obtain ⟨s4, seg4⟩ := seg3.step
-    (by unfold constantPrefixParentPc; exact
-      ⟨(0x14e00, 0x14e14), by simp, by omega, by omega⟩)
+    (by native_decide)
     (by decide) x1 0xfe0c 0x14e10 ⟨r3, run3⟩
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
@@ -4474,8 +4470,7 @@ theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract 
   have callPrefix : ConfinedPrefix constantPrefixParentPc (fun pc => pc = 0x10190)
       (fun _ _ _ _ _ => False) (fromStep + 4) 1 s4 callMachine :=
     ConfinedPrefix.ownStep seg4.atPc
-      (by unfold constantPrefixParentPc; exact
-        ⟨(0x14e00, 0x14e14), by simp, by omega, by omega⟩)
+      (by native_decide)
       (by decide) callRun
   have parentMachineTrace := seg4.confined.trans callPrefix 0 callMachine
     (.exitAt _ _ 0x10190 callAtPc rfl)
