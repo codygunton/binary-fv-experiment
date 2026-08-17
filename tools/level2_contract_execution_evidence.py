@@ -28,6 +28,8 @@ def _inside(region: dict, address: int, width: int) -> bool:
 def evaluate_instance(name: str, schema: str, occurrences: list[dict], profiles: dict) -> dict:
     profile = profiles["schemas"][schema]
     parameters = profiles.get("instances", {}).get(name, {})
+    preserved_registers = parameters.get(
+        "preservedIntegerRegisters", profile["preservedIntegerRegisters"])
     constants = profiles["constants"]
     if not occurrences:
         raise ValueError(f"{name} has no complete entry-to-exit occurrence")
@@ -48,7 +50,7 @@ def evaluate_instance(name: str, schema: str, occurrences: list[dict], profiles:
         if frame_size is not None and frame_size > before[2]:
             raise ValueError(f"{name} occurrence {number} child frame underflows")
 
-        changed_preserved = [register for register in profile["preservedIntegerRegisters"]
+        changed_preserved = [register for register in preserved_registers
                              if before[register] != after[register]]
         if changed_preserved:
             raise ValueError(
@@ -90,7 +92,7 @@ def evaluate_instance(name: str, schema: str, occurrences: list[dict], profiles:
             "afterPc": occurrence["afterPc"],
             "executedInstructionCount": occurrence["executedInstructionCount"],
             "storeCount": len(stores),
-            "preservedIntegerRegisters": profile["preservedIntegerRegisters"],
+            "preservedIntegerRegisters": preserved_registers,
             "allowedStoreRegions": regions,
             "sourceRegion": source,
             "entryStackAlignment": alignment,

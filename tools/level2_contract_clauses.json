@@ -64,7 +64,7 @@
       ]
     },
     "constant-encoder": {
-      "contractDeclaration": "ConstantEncoderInstanceContract",
+      "contractDeclaration": "ConstantEncoderInstanceContract / WriteFailureRecordInstanceContract",
       "instanceNames": ["writeSuccessRawLine131", "writeFailureRawLine127"],
       "level3RepresentativeProof": null,
       "clauses": [

@@ -25,8 +25,12 @@ theorem writeFailureInstanceContract_of_level2
   obtain ⟨bound, implements⟩ := child
   refine ⟨bound, ?_⟩
   intro args fromStep before entry
+  have returnEq : args.returnAddress = 0x14d24 := by
+    simpa [Elflings.writeFailureExitPcs] using entry.1
   obtain ⟨count, after, unit, positive, bounded, trace, childExitPc, _allows, exit⟩ :=
-    implements () fromStep before ⟨entry.2.1, entry.2.2.2⟩
+    implements () fromStep before
+      ⟨⟨entry.2.1, entry.2.2.2.1, entry.2.2.2.2⟩,
+        by simpa [returnEq] using entry.2.2.1⟩
   have trace' := trace.weaken (fun pc inside => writeFailureChildRegion_in_parent inside)
   refine ⟨count, after, failureRecordBytes, positive, bounded, trace', ?_, ?_, ?_⟩
   · rcases childExitPc with ⟨pc, atPc, listed⟩
@@ -36,9 +40,7 @@ theorem writeFailureInstanceContract_of_level2
         Elflings.writeFailureExitPcs] using listed⟩
   · change decodeZesuObservation failureRecordBytes = some .failure
     rfl
-  · rcases exit with ⟨exitAt, stdout, stdin, cursor, exitCode, mem, frame⟩
-    have returnEq : args.returnAddress = 0x14d24 := by
-      simpa [Elflings.writeFailureExitPcs] using entry.1
+  · rcases exit with ⟨⟨exitAt, stdout, stdin, cursor, exitCode, mem, _inlineFrame⟩, frame⟩
     refine ⟨?_, by rfl, stdout, stdin, cursor, exitCode, mem, frame⟩
     rw [returnEq]
     exact exitAt

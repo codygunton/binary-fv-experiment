@@ -1,4 +1,7 @@
 import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Level1Boundary
+import BinaryFv.RiscV.Step.ConfiguredMachine
+import BinaryFv.RiscV.Platform.PhysicalAccess
+import BinaryFv.RiscV.Platform.FetchMmio
 
 /-!
 # Level 1 contract assumptions for the SSZ endpoint
@@ -13,6 +16,42 @@ namespace BinaryFv.Zesu
 
 open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.RiscV
+
+set_option genInjectivity false in
+/-- Shared bare-metal output permissions required by every observation encoder. -/
+structure EncoderOutputMachineAccess (state : MachineState) : Prop where
+  configured : ConfiguredMachinePre EndpointMachinePc state
+  outputBufferStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
+  outputLengthStore :
+    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
+  outputBufferNoMMIO :
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
+  outputLengthNoMMIO :
+    StoreMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
+
+namespace EncoderOutputMachineAccess
+
+/-- Regression: no encoder entry may hide a missing configured-machine premise. -/
+theorem rejects_missing_configuration
+    (missing : ¬ConfiguredMachinePre EndpointMachinePc state) :
+    ¬EncoderOutputMachineAccess state := by
+  intro access
+  exact missing access.configured
+
+/-- Regression: no encoder entry may hide denied access to the output-buffer word. -/
+theorem rejects_denied_output_store
+    (denied : ¬StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8) :
+    ¬EncoderOutputMachineAccess state := by
+  intro access
+  exact denied access.outputBufferStore
+
+end EncoderOutputMachineAccess
+
+/-- The exact two-word memory region written by the bare-metal `write_output` implementation. -/
+def writeOutputMemory : Region :=
+  Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
+    (byteRange (Elflings.ioContextAddress + 16) 8)
 
 structure ReadInputArgs where
   returnAddress : Nat
@@ -269,7 +308,8 @@ def WriteFailureEntry (args : WriteFailureArgs) (state : EndpointState) : Prop :
   args.returnAddress ∈ Elflings.writeFailureExitPcs ∧
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.writeFailureEntry) ∧
   state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.returnAddress) ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  EncoderOutputMachineAccess state.machine
 
 def WriteFailureExit (args : WriteFailureArgs) (bytes : Array UInt8)
     (before after : EndpointState) : Prop :=
@@ -277,7 +317,8 @@ def WriteFailureExit (args : WriteFailureArgs) (bytes : Array UInt8)
   decodeZesuObservation bytes = some .failure ∧
   after.stdout = before.stdout ++ bytes ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
-  after.exitCode = before.exitCode ∧ after.machine.mem = before.machine.mem ∧
+  after.exitCode = before.exitCode ∧
+  WritesOnlyWithin writeOutputMemory before.machine after.machine ∧
   EndpointCallFrame before after
 
 def writeFailureContract (stepBound : WriteFailureArgs → Nat) :

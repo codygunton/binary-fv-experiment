@@ -67,6 +67,14 @@ class ContractExecutionEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed preserved registers"):
             evaluate_instance("writeSuccessInt", "encoder-call", [sample], PROFILES)
 
+    def test_failure_tail_call_requires_preserved_return_register(self):
+        sample = occurrence()
+        sample["memoryWrites"] = sample["memoryWrites"][1:]
+        sample["afterRegisters"]["values"][1] += 1
+        with self.assertRaisesRegex(ValueError, "changed preserved registers"):
+            evaluate_instance(
+                "writeFailureRawLine127", "constant-encoder", [sample], PROFILES)
+
     def test_rejects_store_outside_frame(self):
         sample = occurrence()
         sample["memoryWrites"].append(

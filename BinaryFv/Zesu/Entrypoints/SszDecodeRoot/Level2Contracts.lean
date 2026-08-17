@@ -152,42 +152,6 @@ structure RawEncoderArgs where
   sourceAddress : Nat
   bytes : Array UInt8
 
-set_option genInjectivity false in
-/-- Shared bare-metal output permissions required by every observation encoder. -/
-structure EncoderOutputMachineAccess (state : MachineState) : Prop where
-  configured : ConfiguredMachinePre EndpointMachinePc state
-  outputBufferStore :
-    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
-  outputLengthStore :
-    StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
-  outputBufferNoMMIO :
-    StoreMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
-  outputLengthNoMMIO :
-    StoreMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.ioContextAddress + 16)) 8
-
-namespace EncoderOutputMachineAccess
-
-/-- Regression: no encoder entry may hide a missing configured-machine premise. -/
-theorem rejects_missing_configuration
-    (missing : ¬ConfiguredMachinePre EndpointMachinePc state) :
-    ¬EncoderOutputMachineAccess state := by
-  intro access
-  exact missing access.configured
-
-/-- Regression: no encoder entry may hide denied access to the output-buffer word. -/
-theorem rejects_denied_output_store
-    (denied : ¬StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8) :
-    ¬EncoderOutputMachineAccess state := by
-  intro access
-  exact denied access.outputBufferStore
-
-end EncoderOutputMachineAccess
-
-/-- The exact two-word memory region written by the bare-metal `write_output` implementation. -/
-def writeOutputMemory : Region :=
-  Region.union (byteRange (Elflings.ioContextAddress + 8) 8)
-    (byteRange (Elflings.ioContextAddress + 16) 8)
-
 /-- Registers preserved by an encoder fragment inlined into `writeSuccess`. Such a fragment may
 overwrite the link register for its `write_output` call, so this is deliberately not an ABI frame. -/
 def encoderInlinePreserved (register : Register) : Prop :=
@@ -303,10 +267,28 @@ abbrev WriteSuccessPrefixInstanceContract : Prop :=
     Elflings.writeSuccessRawLine131ExecutionPcRanges
     Elflings.writeSuccessRawLine131ExitPcs 0x14e14 successPrefixBytes
 
-abbrev WriteFailureRecordInstanceContract : Prop :=
-  ConstantEncoderInstanceContract Elflings.writeFailureRawLine127Entry
-    Elflings.writeFailureRawLine127ExecutionPcRanges
-    Elflings.writeFailureRawLine127ExitPcs 0x14d24 failureRecordBytes
+def WriteFailureRecordEntry (_args : Unit) (state : EndpointState) : Prop :=
+  ConstantEncoderEntry Elflings.writeFailureRawLine127Entry () state ∧
+  state.machine.regs.get? x1 = some (BitVec.ofNat 64 0x14d24)
+
+def WriteFailureRecordExit (_args _outcome : Unit) (before after : EndpointState) : Prop :=
+  ConstantEncoderExit 0x14d24 failureRecordBytes () () before after ∧
+  EndpointCallFrame before after
+
+def writeFailureRecordContract (stepBound : Nat) :
+    RelationalMachineContract EndpointState Unit Unit :=
+  { allows := fun _ _ => True
+    entry := WriteFailureRecordEntry
+    exit := WriteFailureRecordExit
+    stepBound := fun _ => stepBound }
+
+/-- The constant failure writer is a tail call, so unlike the inlined success prefix it preserves
+the caller's link register and full ABI call frame. -/
+def WriteFailureRecordInstanceContract : Prop :=
+  ∃ stepBound : Nat,
+    (writeFailureRecordContract stepBound).Implements EndpointStep EndpointPc
+      (pcInRanges Elflings.writeFailureRawLine127ExecutionPcRanges)
+      (pcInList Elflings.writeFailureRawLine127ExitPcs)
 
 abbrev WriteSuccessParentHashInstanceContract : Prop :=
   RawEncoderInstanceContract Elflings.writeSuccessRawLine135Entry 32
@@ -793,8 +775,8 @@ abbrev WriteSuccessHashesInstanceContract : Prop :=
       (fun state address => state.machine.regs.get? x9 = some (BitVec.ofNat 64 address)) 32
       (fun mem address hash => hash.size = 32 ∧ BytesRep mem address hash))
 
-/-- The exact unresolved contracts selected at UI Level 2. Linux read/exit and the shared `memcpy`
-are omitted because `level1Contracts_of_level2` must discharge those three leaves unconditionally. -/
+/-- The exact unresolved contracts selected at UI Level 2. The bare-metal read/exit leaves and the
+shared `memcpy` are omitted because `level1Contracts_of_level2` discharges them unconditionally. -/
 structure Level2ContractAssumptions : Prop where
   sszDecode : SszDecodeLevel2InstanceContract
   writeSuccessPrefix : WriteSuccessPrefixInstanceContract

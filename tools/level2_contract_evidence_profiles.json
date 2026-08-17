@@ -69,6 +69,9 @@
     "writeSuccessOptionalU64": {"frameSize": 32},
     "writeSuccessByteLists": {"frameSize": 80},
     "writeSuccessBytes": {"frameSize": 48},
-    "writeSuccessInt": {"frameSize": 16}
+    "writeSuccessInt": {"frameSize": 16},
+    "writeFailureRawLine127": {
+      "preservedIntegerRegisters": [1, 2, 8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]
+    }
   }
 }

@@ -2395,8 +2395,27 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
       have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
         simpa [callMachine, callLinkState, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, controlFlowJumpState, tryStepControlFlowAfterIncrement] using code1
+      have callWrites :=
+        callRetirement_writes machine1 0x14d20 0x161c0 retired1 x1 0x14d24
+      have callConfigured : ConfiguredMachinePre EndpointMachinePc callMachine :=
+        ConfiguredMachinePre.afterCall 0x14d20 0x161c0 0x14d24 retired1 configured1
+      have callDataAccess : MainDataAccess args callMachine :=
+        (dataAccess.of_pma_regions_eq
+          ((afterRegisterWrite_writes state.machine 0x14d1c retired0 x1 0x15d1c).get pma_regions
+            (by decide))).of_pma_regions_eq (callWrites.get pma_regions (by decide))
+      have outputAccess : EncoderOutputMachineAccess callMachine :=
+        { configured := callConfigured
+          outputBufferStore := callDataAccess.outputBufferStore
+          outputLengthStore := callDataAccess.outputLengthStore
+          outputBufferNoMMIO :=
+            data_mmio_address_excluded_of_after_layout _ _ (by decide) (by native_decide)
+              (by native_decide)
+          outputLengthNoMMIO :=
+            data_mmio_address_excluded_of_after_layout _ _ (by decide) (by native_decide)
+              (by native_decide) }
       have failureEntry : WriteFailureEntry { returnAddress := 0x14d24 } callState := by
-        refine ⟨(by show 0x14d24 ∈ Elflings.writeFailureExitPcs; native_decide), ?_, ?_, callCode⟩
+        refine ⟨(by show 0x14d24 ∈ Elflings.writeFailureExitPcs; native_decide), ?_, ?_,
+          callCode, outputAccess⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.writeFailureEntry]
         · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
@@ -2415,15 +2434,10 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
       have writtenTrace : ConfinedTrace EndpointStep EndpointPc MainExecutionPc fromStep
           (used + 2 + failureCount) before written := by
         simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using callTrace.append wideFailure
-      have writtenConfigured := ConfiguredMachinePre.of_endpointCallFrame
-        (ConfiguredMachinePre.afterCall 0x14d20 0x161c0 0x14d24 retired1 configured1) callFrame
+      have writtenConfigured := ConfiguredMachinePre.of_endpointCallFrame callConfigured callFrame
       have writtenCode := callFrame.2.2.1
       have writtenDataAccess : MainDataAccess args written.machine :=
-        (dataAccess.of_pma_regions_eq
-          ((afterRegisterWrite_writes state.machine 0x14d1c retired0 x1 0x15d1c).get pma_regions
-            (by decide))).of_pma_regions_eq
-          ((callRetirement_writes machine1 0x14d20 0x161c0 retired1 x1 0x14d24).get pma_regions
-            (by decide)) |>.of_pma_regions_eq
+        callDataAccess.of_pma_regions_eq
           (callFrame.1 pma_regions (by simp [abiCalleePreserved]))
       have writtenStdoutEq : written.stdout = bytes := by
         calc
