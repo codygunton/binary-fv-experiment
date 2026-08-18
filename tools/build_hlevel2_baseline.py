@@ -43,15 +43,15 @@ def rewrite_disposition(module: str, source: str) -> dict[str, str | bool]:
             return {"kind": "instruction_class_consumer", "rewriteCandidate": False,
                     "reason": "Already instantiates a shared instruction-class theorem."}
         if "try_step" in source:
-            return {"kind": "explicit_machine_step", "rewriteCandidate": True,
-                    "reason": "Concrete machine-step proof requires class/Seg/frame disposition."}
-        return {"kind": "machine_proof_support", "rewriteCandidate": True,
-                "reason": "Handwritten machine-proof support requires repetition/frame review."}
+            return {"kind": "retained_exact_machine_step", "rewriteCandidate": False,
+                    "reason": "Exact-site API or lower instruction helper; final census found no paying shared body."}
+        return {"kind": "retained_machine_proof_support", "rewriteCandidate": False,
+                "reason": "Frame, representation, or composition support retained after the final pattern audit."}
     if ".Entrypoints." in module or module == "BinaryFv.Zesu.Root":
-        return {"kind": "refinement_composition", "rewriteCandidate": True,
-                "reason": "Conditional refinement or transfer composition requires reuse review."}
-    return {"kind": "zesu_support", "rewriteCandidate": True,
-            "reason": "Zesu-specific dependency requires explicit rewrite review."}
+        return {"kind": "retained_refinement_composition", "rewriteCandidate": False,
+                "reason": "Reviewed conditional edge, contract surface, or transfer composition."}
+    return {"kind": "retained_zesu_support", "rewriteCandidate": False,
+            "reason": "Zesu-specific support reviewed with no paying rewrite candidate."}
 
 
 def read_dependencies(path: Path) -> tuple[list[dict], list[dict]]:

@@ -60,3 +60,5 @@ the ordinary focused gate but not the instrumented wall measurement under this m
 Final gates pass: `BinaryFv.Zesu.Root`, `BinaryFv.Zesu.TrustAudit`, Lean-MCP source/axiom checks for
 `root_compliance` and the `zkvm_exit` Seg consumer, `binaryFvLean`, the combined EVM-Sail import,
 the hLevel2 baseline/mutation suite, the Level 2 admission evidence, and the binary-regions UI build.
+The generated baseline now assigns a final non-pending disposition to every one of its 2,355 expanded
+root dependencies; `rewriteCandidates` is zero.

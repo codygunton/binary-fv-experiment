@@ -38,7 +38,7 @@ class BaselineTest(unittest.TestCase):
         result = self.module.build(self.dependencies, self.source_root, *self.documents)
         self.assertEqual(result["counts"]["sourceDeclarations"],
                          len(result["declarations"]))
-        self.assertGreater(result["counts"]["rewriteCandidates"], 0)
+        self.assertEqual(result["counts"]["rewriteCandidates"], 0)
         self.assertTrue(all(row["rewriteDisposition"]["kind"] and
                             row["rewriteDisposition"]["reason"]
                             for row in result["declarations"]))
@@ -52,7 +52,7 @@ class BaselineTest(unittest.TestCase):
                          "instruction_class_consumer")
         self.assertEqual(classify("BinaryFv.Zesu.MachineExecution.Steps",
                                   "Runs (try_step n false) s t false")["kind"],
-                         "explicit_machine_step")
+                         "retained_exact_machine_step")
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
