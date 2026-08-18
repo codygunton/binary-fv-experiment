@@ -138,6 +138,57 @@ class ProofStream:
     def __len__(self) -> int:
         return len(self.lines)
 
+    @classmethod
+    def from_manifest(cls, source_root: pathlib.Path, manifest: pathlib.Path) -> "ProofStream":
+        """Build the proof corpus from exact declaration ranges reachable from the root theorem."""
+        database = json.loads(manifest.read_text())
+        stream = cls.__new__(cls)
+        stream.lines, stream.owner, stream.file, stream.segments = [], [], [], []
+        seen: set[tuple[str, int, int]] = set()
+        claimed_lines: dict[str, set[int]] = collections.defaultdict(set)
+        for row in sorted(database["declarations"],
+                          key=lambda value: (
+                              value["module"],
+                              not value.get("recoveredFromPrivateSource", False),
+                              value["name"].startswith("_private."),
+                              value["startLine"], value["endLine"])):
+            key = row["module"], row["startLine"], row["endLine"]
+            if key in seen or not row["startLine"]:
+                continue
+            seen.add(key)
+            path = source_root / (row["module"].replace(".", "/") + ".lean")
+            if not path.exists():
+                continue
+            segment: list[int] = []
+            depth = 0
+            lines = path.read_text().splitlines()
+            for line_number, raw in enumerate(
+                    lines[row["startLine"] - 1 : row["endLine"]], row["startLine"]):
+                if line_number in claimed_lines[row["module"]]:
+                    continue
+                claimed_lines[row["module"]].add(line_number)
+                stripped = raw.strip()
+                if depth:
+                    if "-/" in stripped:
+                        depth -= 1
+                    continue
+                if stripped.startswith("/-"):
+                    if "-/" not in stripped:
+                        depth += 1
+                    continue
+                if not stripped or stripped.startswith("--") or SKIP.match(raw):
+                    continue
+                stream.lines.append(raw)
+                stream.owner.append(row["name"])
+                stream.file.append(path.stem)
+                segment.append(len(stream.lines) - 1)
+            if segment:
+                stream.segments.append(segment)
+        stream.levels = {
+            level: [normalise(line, level) for line in stream.lines] for level in LEVELS
+        }
+        return stream
+
 
 def windows(stream: ProofStream, length: int) -> list[list[int]]:
     """Every run of `length` consecutive items inside one declaration."""
@@ -255,8 +306,11 @@ def planted_control(stream: ProofStream, level: str, length: int, copies: int,
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("paths", nargs="+", type=pathlib.Path,
+    parser.add_argument("paths", nargs="*", type=pathlib.Path,
                         help="Lean files or directories to analyse")
+    parser.add_argument("--manifest", type=pathlib.Path,
+                        help="exact root-dependency manifest instead of whole files")
+    parser.add_argument("--source-root", type=pathlib.Path, default=pathlib.Path("."))
     parser.add_argument("--lengths", default="2,3,4,5,6,8,10,12,16")
     parser.add_argument("--level", default="L2_locals", choices=LEVELS)
     parser.add_argument("--all-levels", action="store_true")
@@ -265,14 +319,23 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
 
     files: list[pathlib.Path] = []
-    for path in arguments.paths:
-        files.extend(sorted(path.rglob("*.lean")) if path.is_dir() else [path])
-    stream = ProofStream(files)
+    if arguments.manifest:
+        if arguments.paths:
+            parser.error("paths and --manifest are mutually exclusive")
+        stream = ProofStream.from_manifest(arguments.source_root, arguments.manifest)
+        file_count = len(set(stream.file))
+    else:
+        if not arguments.paths:
+            parser.error("provide paths or --manifest")
+        for path in arguments.paths:
+            files.extend(sorted(path.rglob("*.lean")) if path.is_dir() else [path])
+        stream = ProofStream(files)
+        file_count = len(files)
     lengths = [int(value) for value in arguments.lengths.split(",")]
 
     result = {
         "corpus": {
-            "files": len(files),
+            "files": file_count,
             "lines": len(stream),
             "declarations": len(stream.segments),
             "owners": len(set(stream.owner)),
@@ -281,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
         "controls": {},
         "seed": arguments.seed,
     }
-    print(f"{len(files)} files, {len(stream)} code lines, {len(stream.segments)} declarations")
+    print(f"{file_count} files, {len(stream)} code lines, {len(stream.segments)} declarations")
     for level in (LEVELS if arguments.all_levels else [arguments.level]):
         rows = census(stream, level, lengths)
         result["levels"][level] = rows

@@ -459,11 +459,12 @@ their own tokens, segmentation, and admissibility rules, but candidate placement
 
 ```bash
 # the census, all four levels, with both controls
-python3 tools/analyze_patterns.py lean BinaryFv/Zesu/MachineExecution \
-  --all-levels --out-json out/lean.json
+python3 tools/analyze_patterns.py lean --manifest result-hlevel2-baseline/hlevel2-baseline.json \
+  --source-root . --all-levels --out-json out/lean.json
 
 # regression: the machine-code instrument must be byte-identical
-python3 tools/analyze_patterns.py machine --cfg result-zesu-ssz-decode-cfg/zesu-cfg.json \
+python3 tools/analyze_patterns.py machine --cfg result/zesu-cfg.json \
+  --proof-manifest result-hlevel2-baseline/hlevel2-baseline.json \
   --out-json out/dash.json --out-html out/dash.html
 ```
 
@@ -521,3 +522,37 @@ This branch also carries copies of `docs/research/zesu-ssz-endpoint-motifs.md` a
 on this project — the n-gram study branch, the `read_input` proof, and this report's own tooling —
 were one `git gc` from permanent loss while their commit messages said they were kept. Only a ref
 keeps anything.
+
+## 9. Repaired `root_compliance hLevel2` corpus
+
+The repaired dependency manifest contains 2,982 kernel declarations, 4,077 source declarations
+after private-source recovery, and 33,753 distinct non-comment source lines in 1,799 declaration
+ranges. Overlapping private anchors are counted once. The machine analysis is separately restricted
+to the manifest's 157 directly discharged instruction PCs.
+
+The class-level machine covering produces ten candidates. Each has an exact disposition:
+
+| length | starts | disposition |
+|---:|---|---|
+| 13 | `0x1216c`, `0x14d34` | The two save prologues already compose through `Seg`; the 26 repeated site statements now come from two quantified commands. |
+| 4 | `0x14d6c`, `0x14e14` | Different writer phases with different live registers and transfers; their steps already use instruction-class APIs. |
+| 3 | `0x10140`, `0x10190`, `0x101c4` | Different bare-metal host functions; their final stores have different endpoint semantics and are separate proved leaves. |
+| 3 | `0x14eb8`, `0x15668`, `0x1571c` | Different frame words and callees; load and call class APIs already cover the common mechanism. |
+| 3 | `0x14cb0`, `0x14ce0` | Call setup in different parents; the common instruction mechanisms are already class theorems. |
+| 3 | `0x14cbc`, `0x14cec` | Level 0 setup sequences whose shared ADDI/AUIPC mechanisms are already class theorems. |
+| 2 | nine load/call starts | Different semantic calls; load and JALR classes are already shared. |
+| 2 | five load/store starts | Different host and writer memory relations; load/store classes are already shared. |
+| 2 | four setup/call starts | Different callees and live bindings; ADDI/JALR classes are already shared. |
+| 2 | three double-load starts | Different typed frame fields; the load class is already shared. |
+
+No additional contiguous motif pays: the repeated instruction mechanisms in these rows are already
+factored, while their semantic register, memory, frame, or callee facts must remain explicit. A
+four-site `MemcpyProof` register-write wrapper added 25 lines and was reverted. The retained
+exact-site and return-address factoring removes 22 lines and improves direct elaboration from 11
+seconds to 9.
+
+The proposed `FunctionInstanceContract` transfer is not testable on an existing proved hLevel2 run.
+Current leaves, including `memcpyInstanceContract`, are `RelationalMachineContract EndpointState`;
+`FunctionInstanceContract` and `ScopedTrace` operate on raw RISC-V `State`. Adapting one changes the
+fixed contract surface rather than compressing its proof. A generic theorem with no concrete
+consumer was tested and removed; this transfer belongs with a future contract migration.

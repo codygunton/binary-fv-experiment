@@ -42,12 +42,13 @@ def groups(
 
 def greedy_cover(
     candidates: dict[Hashable, list[list[int]]],
-    claimed: set[int] | None = None,
+    claimed=None,
     minimum_uses: int = 2,
-) -> tuple[list[tuple[Hashable, list[list[int]]]], set[int]]:
+):
     """Repeatedly place the candidate with most disjoint currently-unclaimed windows."""
 
-    covered = set() if claimed is None else set(claimed)
+    covered = set() if claimed is None else claimed
+    set_backed = isinstance(covered, set)
     placements: list[tuple[Hashable, list[list[int]]]] = []
     while True:
         best: tuple[Hashable, list[list[int]]] | None = None
@@ -55,7 +56,9 @@ def greedy_cover(
             chosen: list[list[int]] = []
             limit = -1
             for window in windows:
-                if window[0] <= limit or any(index in covered for index in window):
+                overlap = (not covered.isdisjoint(window) if set_backed else
+                           bool(covered[window].any()))
+                if window[0] <= limit or overlap:
                     continue
                 chosen.append(window)
                 limit = window[-1]
@@ -65,6 +68,9 @@ def greedy_cover(
             break
         candidate_key, chosen = best
         for window in chosen:
-            covered.update(window)
+            if set_backed:
+                covered.update(window)
+            else:
+                covered[window] = True
         placements.append((candidate_key, chosen))
     return placements, covered

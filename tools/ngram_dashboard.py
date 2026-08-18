@@ -106,7 +106,7 @@ def build_starts(segments: list[list[int]], n: int) -> list[list[int]]:
 
 def cascade(
     level, policy, segments, streams, frame, order_of, owner, is_transfer, total, minimum_uses=2,
-    preclaimed=None,
+    preclaimed=None, placements_out=None, site_label=lambda index: index,
 ) -> pl.DataFrame:
     """Largest-n-first covering. At each n, repeatedly take the repeated n-gram with the most
     disjoint occurrences among still-uncovered instructions. Drop to n-1 when none repeats."""
@@ -133,7 +133,7 @@ def cascade(
         placed = 0
         top = (0, "—")
         placed_candidates, claimed = greedy_cover(
-            precomputed[n], set(np.flatnonzero(covered)), minimum_uses
+            precomputed[n], covered, minimum_uses,
         )
         for _, chosen in placed_candidates:
             for w in chosen:
@@ -144,7 +144,14 @@ def cascade(
             placed += len(chosen)
             saved += len(chosen) * (n - 1)
             lemmas += 1
-        assert set(np.flatnonzero(covered)) == claimed
+            if placements_out is not None:
+                placements_out.append({
+                    "length": n,
+                    "pattern": describe(level, chosen[0], streams),
+                    "starts": [site_label(window[0]) for window in chosen],
+                    "owners": sorted({str(owner[window[0]]) for window in chosen}),
+                })
+        assert claimed is covered
         if here:
             rows.append(
                 {
@@ -241,9 +248,15 @@ def instance_bodies(cfg, instructions, streams, total):
         )
     inside = {j for group in repeated.values() for row in group
               for pc in row["pcs"] if (j := index_of.get(pc)) is not None}
+    body_columns = ["name", "instances", "sizes", "byteShapes", "registerShapes",
+                    "opcodeShapes", "classShapes", "instructions"]
+    pick_columns = ["name", "length", "sites", "instructions", "share", "transfers",
+                    "segLemmaPossible", "body"]
     return (
-        pl.DataFrame(rows).sort("instructions", descending=True),
-        pl.DataFrame(picks).sort("instructions", descending=True),
+        (pl.DataFrame(rows).sort("instructions", descending=True) if rows else
+         pl.DataFrame({column: [] for column in body_columns})),
+        (pl.DataFrame(picks).sort("instructions", descending=True) if picks else
+         pl.DataFrame({column: [] for column in pick_columns})),
         claimed,
         len(inside) / total,
     )
@@ -745,11 +758,27 @@ draw();
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cfg", type=pathlib.Path, required=True)
+    parser.add_argument("--proof-manifest", type=pathlib.Path,
+                        help="restrict motifs to directly discharged PCs in this proof manifest")
     parser.add_argument("--out-json", type=pathlib.Path)
     parser.add_argument("--out-html", type=pathlib.Path)
     arguments = parser.parse_args(argv)
 
     instructions, database = load_zesu_cfg(arguments.cfg)
+    if arguments.proof_manifest:
+        manifest = json.loads(arguments.proof_manifest.read_text())
+        selected = set(manifest["coverage"]["directlyDischargedStepPcs"])
+        available = {instruction.address for instruction in instructions}
+        if missing := selected - available:
+            parser.error(f"proof manifest contains PCs absent from CFG: {sorted(missing)}")
+        instructions = [instruction for instruction in instructions
+                        if instruction.address in selected]
+        database["instructions"] = [
+            {"address": row["address"],
+             "successors": [pc for pc in row["successors"] if pc in selected]}
+            for row in database["instructions"] if row["address"] in selected
+        ]
+        database["summary"]["instructionCount"] = len(instructions)
     segments = segment(instructions, database)
     streams = token_levels(instructions)
     total = len(instructions)
@@ -777,8 +806,11 @@ def main(argv: list[str] | None = None) -> int:
     bodies_frame, picks_frame, body_mask, inside_share = instance_bodies(
         cfg, instructions, streams, total
     )
+    motif_candidates = []
     ngram_only = cascade("L5_class", "lemma", segments, streams, frame, order_of, owner,
-                         is_transfer, total).sort("n").row(0, named=True)
+                         is_transfer, total, placements_out=motif_candidates,
+                         site_label=lambda index: instructions[index].address
+                         ).sort("n").row(0, named=True)
     together_lemmas, together_cover = cover_with(
         "L5_class", "lemma", segments, streams, frame, order_of, owner, is_transfer, total,
         body_mask,
@@ -822,6 +854,8 @@ def main(argv: list[str] | None = None) -> int:
         "strategies": strategies,
         "insideRepeatedInstance": inside_share,
     }
+    if arguments.proof_manifest:
+        data["motifCandidates"] = motif_candidates
 
     if arguments.out_json:
         arguments.out_json.parent.mkdir(parents=True, exist_ok=True)

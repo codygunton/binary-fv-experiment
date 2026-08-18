@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 
 import pathlib
+import json
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from pattern_cover import TokenStream, greedy_cover, groups
+from ngram_lean import ProofStream
 
 
 class PatternCoverTest(unittest.TestCase):
@@ -25,6 +28,33 @@ class PatternCoverTest(unittest.TestCase):
         stream = TokenStream("abab", [list(range(4))], [0, 0, 1, 1])
         grouped = groups(stream, 2, admissible=lambda w: len({stream.owners[i] for i in w}) == 1)
         self.assertEqual(sum(map(len, grouped.values())), 2)
+
+    def test_proof_stream_uses_only_manifest_ranges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            source = root / "A.lean"
+            source.write_text("theorem kept : True := by\n  trivial\ntheorem omitted : True := by\n  trivial\n")
+            manifest = root / "manifest.json"
+            manifest.write_text(json.dumps({"declarations": [{
+                "module": "A", "name": "A.kept", "startLine": 1, "endLine": 2
+            }]}))
+            stream = ProofStream.from_manifest(root, manifest)
+            self.assertEqual(stream.owner, ["A.kept", "A.kept"])
+            self.assertNotIn("omitted", "\n".join(stream.lines))
+
+    def test_overlapping_manifest_ranges_count_source_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "A.lean").write_text("theorem kept : True := by\n  trivial\n")
+            manifest = root / "manifest.json"
+            manifest.write_text(json.dumps({"declarations": [
+                {"module": "A", "name": "_private.A.0.kept", "startLine": 1, "endLine": 2},
+                {"module": "A", "name": "A.kept", "startLine": 1, "endLine": 2,
+                 "recoveredFromPrivateSource": True},
+            ]}))
+            stream = ProofStream.from_manifest(root, manifest)
+            self.assertEqual(len(stream.lines), 2)
+            self.assertEqual(stream.owner, ["A.kept", "A.kept"])
 
 
 if __name__ == "__main__":
