@@ -2,6 +2,7 @@
 let
   checks = {
     inherit (packages) binaryFvLean binaryFvEvmSailCombinedImport evmSailLeanExtraction zesuRv64Object
+      zesuHlevel2ProofBaseline
       zesuSszDecodeRv64Object zesuSszDecodeRv64Elf zesuSszDecodeSmoke
       zesuSszDecodeBareMetalRetargetCheck zesuSszDecodeLevel1Evidence zesuCfgUi;
     zesuSszDecodeSourceProbe = packages.zesuSszDecodeSourceProbe;

@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Level1Contracts
+import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.HostExecution
 import BinaryFv.RiscV.Instruction.RegisterRuns
 import BinaryFv.RiscV.Instruction.Execute.DataAddress
 import BinaryFv.RiscV.Step.FallThrough
@@ -23,6 +23,31 @@ namespace BinaryFv.Zesu.MachineExecution
 open BinaryFv.Binary BinaryFv.RiscV
 open PreSail LeanRV64DExecutable.Functions Register
 open MemoryAccessType mem_payload page_based_mem_type
+
+/-- Artifact-only facts shared by concrete instruction proofs. Bundling them makes one native
+decision check the instruction bytes, PC classification, and fall-through arithmetic together. -/
+abbrev ExactInstructionSite (pc : Nat) (byte0 byte1 byte2 byte3 : UInt8) : Prop :=
+  pc < 2 ^ 64 ∧ Artifacts.programImage.readFileByte? pc = some byte0 ∧
+  Artifacts.programImage.readFileByte? (pc + 1) = some byte1 ∧
+  Artifacts.programImage.readFileByte? (pc + 2) = some byte2 ∧
+  Artifacts.programImage.readFileByte? (pc + 3) = some byte3 ∧
+  Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = BitVec.ofNat 64 (pc + 4)
+
+namespace ExactInstructionSite
+
+theorem pcFits (h : ExactInstructionSite pc byte0 byte1 byte2 byte3) : pc < 2 ^ 64 := h.1
+theorem read0 (h : ExactInstructionSite pc byte0 byte1 byte2 byte3) :
+    Artifacts.programImage.readFileByte? pc = some byte0 := h.2.1
+theorem read1 (h : ExactInstructionSite pc byte0 byte1 byte2 byte3) :
+    Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := h.2.2.1
+theorem read2 (h : ExactInstructionSite pc byte0 byte1 byte2 byte3) :
+    Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := h.2.2.2.1
+theorem read3 (h : ExactInstructionSite pc byte0 byte1 byte2 byte3) :
+    Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := h.2.2.2.2.1
+theorem advance (h : ExactInstructionSite pc byte0 byte1 byte2 byte3) :
+    Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = BitVec.ofNat 64 (pc + 4) := h.2.2.2.2.2
+
+end ExactInstructionSite
 
 private theorem configuredOfNatAlignedEight (address : Nat) (fits : address < 2 ^ 64)
     (aligned : address % 8 = 0) :

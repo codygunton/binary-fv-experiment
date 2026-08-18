@@ -12,15 +12,23 @@ namespace BinaryFv.RiscV.Elfling
 open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.Binary BinaryFv.Binary.Elfling BinaryFv.RiscV
 
-/-- Prove literal membership in a generated function's ranges, or literal nonmembership in its exits. -/
-macro "owned_pc" : tactic =>
-  `(tactic|
-    first
-    | (apply functionInstanceExecutionPcs_iff_ranges.mpr
-       apply RegionPcs.iff_inRanges.mpr
-       native_decide)
-    | (simp only [functionInstanceExitPred, FunctionInstance.isExit] <;> native_decide)
-    | fail "owned_pc: goal is not a decidable generated execution-range or exit predicate")
+/-- Prove literal membership in generated ranges or nonmembership in exits. Target-specific wrapper
+definitions may be listed explicitly, as in `owned_pc [parentOwnedPc]`. -/
+syntax "owned_pc" (" [" ident ("," ident)? "]")? : tactic
+
+macro_rules
+  | `(tactic| owned_pc [$wrapper:ident, $membership:ident]) =>
+      `(tactic| (unfold $wrapper $membership; native_decide))
+  | `(tactic| owned_pc [$definition:ident]) =>
+      `(tactic| (unfold $definition; native_decide))
+  | `(tactic| owned_pc) =>
+      `(tactic|
+        first
+        | (apply functionInstanceExecutionPcs_iff_ranges.mpr
+           apply RegionPcs.iff_inRanges.mpr
+           native_decide)
+        | (simp only [functionInstanceExitPred, FunctionInstance.isExit] <;> native_decide)
+        | fail "owned_pc: goal is not a decidable generated execution-range or exit predicate")
 
 namespace ConfinedPrefix
 

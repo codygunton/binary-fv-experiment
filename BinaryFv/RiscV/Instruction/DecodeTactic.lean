@@ -27,4 +27,18 @@ macro "decode_run" : tactic =>
        MonadState.get, MonadStateOf.get, *]
      rfl))
 
+/-- Derive the configured post-increment reads and run one concrete decode. -/
+macro "configured_decode " configured:term : tactic =>
+  `(tactic|
+    (obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+        ($configured).decodeRunsContext
+     decode_run))
+
+/-- Derive the configured post-increment reads for a concrete store decode. -/
+macro "configured_store_decode " configured:term : tactic =>
+  `(tactic|
+    (obtain ⟨seccfgBits, privilegeAfter, seccfgAfter⟩ :=
+        ($configured).storeDecodeRunsContext
+     decode_run))
+
 end BinaryFv.RiscV

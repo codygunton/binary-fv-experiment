@@ -398,16 +398,16 @@ function renderProofMap(){
   const authoringPcs=proofAuthoringPcs();
   const visibleRegions=PROOF_MAP.authoringRegions.filter(region=>
     PROOF_FILTER==='all'||region.authoringState===PROOF_FILTER);
-  const stat=(label,value,color)=>`<div class="proof-stat"><small>${esc(label)}</small><b>${value}/${total}</b>
-    <div class="meter"><i style="width:${value/total*100}%;background:${color}"></i></div></div>`;
+  const stat=(label,value,denominator,color)=>`<div class="proof-stat"><small>${esc(label)}</small><b>${value}/${denominator}</b>
+    <div class="meter"><i style="width:${value/denominator*100}%;background:${color}"></i></div></div>`;
   const regions=visibleRegions.map(region=>`<div class="author-card ${esc(region.authoringState)}"
       data-region="${esc(region.id)}"><b>${esc(region.label)}</b>
       <small>${esc(region.authoringState)} · ${(region.pcs||[]).length||region.boundaryInstructionCount||0} instructions</small>
       <div>${esc(region.blocker)}</div></div>`).join('');
   $('#proof-map').innerHTML=`<div class="proof-summary">
-      ${stat('kernel-linked local PCs',coverage.localPcCount,'#a8e6b8')}
-      ${stat('connected into selected level',coverage.level1PcCount??0,'#ffe39a')}
-      ${stat('reachable from root_compliance',coverage.rootPcCount,'#ffe39a')}</div>
+      ${stat('directly discharged PCs',coverage.directPcCount,coverage.boundaryRegionPcCount,'#a8e6b8')}
+      ${stat('proved boundary region',coverage.boundaryRegionPcCount,coverage.endpointPcCount,'#7fcf92')}
+      ${stat('conditional contract region',coverage.conditionalContractPcCount,coverage.endpointPcCount,'#ffe39a')}</div>
     <div class="trust-legend"><span><i style="background:#a8e6b8"></i>formal local</span>
       <span><i style="background:#f3aaaa"></i>production ELF only</span>
       <span><i style="background:#ffe39a"></i>authoring suggestion</span>

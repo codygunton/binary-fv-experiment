@@ -10,10 +10,12 @@ from pathlib import Path
 
 def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict,
           level2_manifest: dict | None = None, level2_evidence: dict | None = None,
-          level2_bindings: dict | None = None) -> dict:
+          level2_bindings: dict | None = None, baseline: dict | None = None) -> dict:
     if any(cfg["artifact"] != document["artifact"]
            for document in (manifest, evidence, bindings)):
         raise ValueError("CFG, manifest, evidence, and boundary-binding artifact identities differ")
+    if baseline is not None and cfg["artifact"] != baseline["artifact"]:
+        raise ValueError("CFG and hLevel2 baseline artifact identities differ")
     root = flame["tree"]
     root_display_id = root["name"].rsplit("[fn:", 1)[1].rstrip("]")
     root_entry = int(root_display_id, 16)
@@ -234,6 +236,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         {"source": "conversion", "target": "root", "kind": "dependency"},
     ])
 
+    direct_pcs = set(baseline["coverage"]["directlyDischargedStepPcs"] if baseline else [])
     instructions = []
     for pc in sorted(set(main["pcs"]) | selected_extent):
         row = instruction_by_pc[pc]
@@ -241,7 +244,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             "pc": pc, "mnemonic": row["mnemonic"], "operands": row["operands"],
             "successors": block_by_pc[pc]["successors"], "reads": [], "writes": [], "memory": [],
             "owner": "main", "sourceFile": block_by_pc[pc]["sourceFile"],
-            "sourceLine": block_by_pc[pc]["sourceLine"], "formalManifests": [],
+            "sourceLine": block_by_pc[pc]["sourceLine"],
+            "formalManifests": (["hlevel2-direct"] if pc in direct_pcs else []),
             "artifactState": "same-elf",
         })
     return {
@@ -251,9 +255,18 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             "reason": "ELF uses the fixed memory context and contains no ecall instruction",
         },
         "artifact": cfg["artifact"], "instructions": instructions, "blocks": [],
-        "boundaries": boundaries, "manifests": [],
-        "formalCoverage": {"localPcCount": len(proved_level0_pcs),
-                           "level1PcCount": 0, "rootPcCount": 0},
+        "boundaries": boundaries, "manifests": ([{
+            "id": "hlevel2-direct", "connection": "root",
+            "description": "Exact-PC source declarations in the root_compliance dependency slice",
+        }] if baseline else []),
+        "formalCoverage": {
+            "directPcCount": len(direct_pcs),
+            "boundaryRegionPcCount": (baseline["counts"]["boundaryRegionUniquePcs"]
+                                      if baseline else len(proved_level0_pcs)),
+            "conditionalContractPcCount": (baseline["counts"]["conditionalContractUniquePcs"]
+                                           if baseline else 0),
+            "endpointPcCount": flame["uniqueProgramTotal"],
+        },
         "compilerProvenance": {"state": "same-ELF DWARF"},
         "phases": [{"id": "level0-glue", "label": "main parent-owned glue", "pcs": glue_pcs}],
         "authoringRegions": regions,
@@ -276,6 +289,7 @@ def main() -> int:
         parser.add_argument("--" + name, required=True, type=Path)
     for name in ("level2-manifest", "level2-evidence", "level2-bindings"):
         parser.add_argument("--" + name, type=Path)
+    parser.add_argument("--hlevel2-baseline", type=Path)
     parser.add_argument("--flame-progress-output", type=Path)
     args = parser.parse_args()
     documents = [json.loads(getattr(args, name).read_text())
@@ -283,7 +297,8 @@ def main() -> int:
     documents.extend(json.loads(getattr(args, name.replace("-", "_")).read_text())
                      if getattr(args, name.replace("-", "_")) else None
                      for name in ("level2-manifest", "level2-evidence", "level2-bindings"))
-    result = build(*documents)
+    result = build(*documents, baseline=(json.loads(args.hlevel2_baseline.read_text())
+                                         if args.hlevel2_baseline else None))
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     if args.flame_progress_output:
         args.flame_progress_output.write_text(

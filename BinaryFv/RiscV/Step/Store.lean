@@ -2,6 +2,7 @@ import BinaryFv.RiscV.Step.Hart
 import BinaryFv.RiscV.Step.TryStep
 import BinaryFv.RiscV.Step.Postlude
 import BinaryFv.RiscV.Step.LandingPad
+import BinaryFv.RiscV.Step.ConfiguredMachine
 import BinaryFv.RiscV.Platform.Fetch
 import BinaryFv.RiscV.Platform.FetchMemory
 import BinaryFv.RiscV.Instruction.Execute.Store
@@ -23,6 +24,35 @@ def coreStoreNextState (state : State) (pc : BitVec 64) : State :=
 
 def tryStepStoreAfterIncrement (state : State) : State :=
   { state with regs := state.regs.insert minstret_increment true }
+
+/-- The post-increment register reads consumed by `decode_run` on the store-specific step path. -/
+theorem ConfiguredMachinePre.storeDecodeContext {pcs : BitVec 64 → Prop} {state : State}
+    (configured : ConfiguredMachinePre pcs state) :
+    ∃ bits, state.regs.get? mseccfg = some bits ∧
+      pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled ∧
+      (tryStepStoreAfterIncrement state).regs.get? cur_privilege = some Privilege.Machine ∧
+      (tryStepStoreAfterIncrement state).regs.get? mseccfg = some bits := by
+  obtain ⟨bits, seccfgRead, pmmDisabled⟩ := configured.seccfgPresent
+  refine ⟨bits, seccfgRead, pmmDisabled, ?_, ?_⟩
+  · calc
+      _ = state.regs.get? cur_privilege := by
+        simpa [tryStepStoreAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+      _ = some Privilege.Machine := configured.normal.2.1
+  · calc
+      _ = state.regs.get? mseccfg := by
+        simpa [tryStepStoreAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment mseccfg true (by decide)
+      _ = some bits := seccfgRead
+
+/-- The minimal configured context consumed by a store-path `decode_run`. -/
+theorem ConfiguredMachinePre.storeDecodeRunsContext {pcs : BitVec 64 → Prop} {state : State}
+    (configured : ConfiguredMachinePre pcs state) :
+    ∃ bits,
+      (tryStepStoreAfterIncrement state).regs.get? cur_privilege = some Privilege.Machine ∧
+      (tryStepStoreAfterIncrement state).regs.get? mseccfg = some bits := by
+  obtain ⟨bits, _, _, privilegeAfter, seccfgAfter⟩ := configured.storeDecodeContext
+  exact ⟨bits, privilegeAfter, seccfgAfter⟩
 
 def tryStepStoreAfterTick (afterWrite : State) (pc : BitVec 64) : State :=
   { afterWrite with regs := afterWrite.regs.insert PC (Sail.BitVec.addInt pc 4) }

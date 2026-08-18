@@ -1,4 +1,5 @@
-{ binaryFvLean, evmSail, evmSailCompiler, leanSail, pkgs, repo, zesuSszDecodeSmoke }:
+{ binaryFvLean, evmSail, evmSailCompiler, leanSail, pkgs, repo, zesuSszDecodeSmoke
+, zesuSszDecodeCfg, zesuSszDecodeLevel1Manifest, zesuSszDecodeLevel2Manifest, zesuCfgUi }:
 let
   customSail = pkgs.ocamlPackages.sail.overrideAttrs (_old: {
     pname = "sail-evm-sail";
@@ -86,6 +87,7 @@ let
     mkdir -p compiled/BinaryFv/RiscV/Elfling
     mkdir -p compiled/BinaryFv/RiscV/Instruction
     mkdir -p compiled/BinaryFv/Binary
+    mkdir -p compiled/BinaryFv/ProofProgress
     export LEAN_PATH=$PWD/compiled:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
     cp ${repo}/BinaryFv/Specs/SSZ/Decode.lean Decode.lean
     cp ${repo}/BinaryFv/Zesu/DecodedValue/Observers.lean Observers.lean
@@ -127,6 +129,7 @@ let
     cp ${repo}/BinaryFv/RiscV/Elfling/Contract.lean ElflingContract.lean
     cp ${repo}/BinaryFv/RiscV/Elfling/ProgramGeometry.lean ProgramGeometry.lean
     cp ${repo}/BinaryFv/RiscV/Elfling/SequentialSplice.lean SequentialSplice.lean
+    cp ${repo}/BinaryFv/ProofProgress/OwnedPc.lean OwnedPc.lean
     cp ${repo}/BinaryFv/RiscV/Elfling/Seg.lean Seg.lean
     cp ${repo}/BinaryFv/RiscV/Instruction/Execute/Load.lean Load.lean
     cp ${repo}/BinaryFv/RiscV/Instruction/Execute/StoreByte.lean StoreByte.lean
@@ -191,6 +194,7 @@ let
     lean -o compiled/BinaryFv/RiscV/Elfling/Contract.olean ElflingContract.lean
     lean -o compiled/BinaryFv/RiscV/Elfling/ProgramGeometry.olean ProgramGeometry.lean
     lean -o compiled/BinaryFv/RiscV/Elfling/SequentialSplice.olean SequentialSplice.lean
+    lean -o compiled/BinaryFv/ProofProgress/OwnedPc.olean OwnedPc.lean
     lean -o compiled/BinaryFv/RiscV/Elfling/Seg.olean Seg.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/HostExecution.olean HostExecution.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.olean Level1Boundary.lean
@@ -210,7 +214,50 @@ let
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
     lean --tstack=65536 DifferentialSmoke.lean
-    touch "$out"
+    lean ${repo}/tools/RootProofDependencies.lean > root-dependencies.tsv
+    mkdir -p "$out"
+    cp root-dependencies.tsv "$out/"
+  '';
+
+  hlevel2Baseline = pkgs.runCommand "zesu-hlevel2-proof-baseline" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    mkdir -p "$out"
+    python ${repo}/tools/build_hlevel2_baseline.py \
+      --dependencies ${combinedImport}/root-dependencies.tsv \
+      --source-root ${repo} \
+      --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+      --flame ${zesuSszDecodeCfg}/flame.json \
+      --level1 ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
+      --level2 ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+      --output "$out/hlevel2-baseline.json"
+    python ${repo}/tools/test_hlevel2_baseline.py \
+      ${combinedImport}/root-dependencies.tsv ${repo} \
+      ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json \
+      ${zesuSszDecodeLevel1Manifest}/level1-manifest.json \
+      ${zesuSszDecodeLevel2Manifest}/level2-manifest.json
+  '';
+
+  hlevel2Ui = pkgs.runCommand "zesu-rv64-cfg-ui-hlevel2" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    cp -R ${zesuCfgUi} "$out"
+    chmod -R u+w "$out"
+    cp ${hlevel2Baseline}/hlevel2-baseline.json "$out/"
+    python ${repo}/tools/build_ssz_proof_map.py \
+      --cfg "$out/zesu-cfg.json" --flame "$out/flame.json" \
+      --manifest "$out/level1-manifest.json" --evidence "$out/level1-evidence.json" \
+      --bindings "$out/level1-boundary-bindings.json" \
+      --level2-manifest "$out/level2-manifest.json" \
+      --level2-evidence "$out/level2-evidence.json" \
+      --level2-bindings "$out/level2-boundary-bindings.json" \
+      --hlevel2-baseline "$out/hlevel2-baseline.json" \
+      --output "$out/proof-map.json" --flame-progress-output "$out/flame-progress.json"
+    python ${repo}/tools/test_ssz_proof_map.py \
+      "$out/zesu-cfg.json" "$out/flame.json" "$out/level1-manifest.json" \
+      "$out/level1-evidence.json" "$out/level1-boundary-bindings.json" \
+      "$out/level2-manifest.json" "$out/level2-evidence.json" \
+      "$out/level2-boundary-bindings.json" "$out/hlevel2-baseline.json"
   '';
 in
 {
@@ -218,5 +265,7 @@ in
     evmSailCompiler = customSail;
     evmSailLeanExtraction = leanExtraction;
     binaryFvEvmSailCombinedImport = combinedImport;
+    zesuHlevel2ProofBaseline = hlevel2Baseline;
+    zesuCfgUi = hlevel2Ui;
   };
 }
