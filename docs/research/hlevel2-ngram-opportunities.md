@@ -525,10 +525,11 @@ keeps anything.
 
 ## 9. Repaired `root_compliance hLevel2` corpus
 
-The repaired dependency manifest contains 2,982 kernel declarations, 4,077 source declarations
-after private-source recovery, and 33,753 distinct non-comment source lines in 1,799 declaration
-ranges. Overlapping private anchors are counted once. The machine analysis is separately restricted
-to the manifest's 157 directly discharged instruction PCs.
+The repaired dependency manifest contains 2,982 kernel declarations, 4,077 source declarations,
+33,854 non-comment source lines before overlap removal, and 1,799 exact declaration ranges. The
+proof-pattern stream counts 33,745 distinct lines after overlapping private anchors are counted
+once. The machine analysis is separately restricted to the manifest's 157 directly discharged
+instruction PCs.
 
 The class-level machine covering produces ten candidates. Each has an exact disposition:
 
@@ -556,3 +557,8 @@ Current leaves, including `memcpyInstanceContract`, are `RelationalMachineContra
 `FunctionInstanceContract` and `ScopedTrace` operate on raw RISC-V `State`. Adapting one changes the
 fixed contract surface rather than compressing its proof. A generic theorem with no concrete
 consumer was tested and removed; this transfer belongs with a future contract migration.
+
+After these dispositions, the authoritative manifest reports zero unreviewed rewrite candidates.
+This is not the earlier coarse zero: the repaired closure includes all 225 `MemcpyProof`
+declarations, and the gate distinguishes seven audited machine modules from an unknown machine
+module, which remains an error-producing candidate.

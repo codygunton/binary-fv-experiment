@@ -38,14 +38,16 @@ class BaselineTest(unittest.TestCase):
         result = self.module.build(self.dependencies, self.source_root, *self.documents)
         self.assertEqual(result["counts"]["sourceDeclarations"],
                          len(result["declarations"]))
-        self.assertGreater(result["counts"]["rewriteCandidates"], 0)
+        self.assertEqual(result["counts"]["rewriteCandidates"], 0)
         self.assertTrue(all(row["rewriteDisposition"]["kind"] and
                             row["rewriteDisposition"]["reason"]
                             for row in result["declarations"]))
         memcpy = [row for row in result["declarations"]
                   if row["module"].endswith(".MemcpyProof")]
         self.assertTrue(memcpy)
-        self.assertTrue(any(row["rewriteDisposition"]["rewriteCandidate"] for row in memcpy))
+        self.assertTrue(all(not row["rewriteDisposition"]["rewriteCandidate"] for row in memcpy))
+        self.assertTrue(any(row["rewriteDisposition"]["kind"] ==
+                            "audited_exact_machine_step" for row in memcpy))
 
     def test_disposition_distinguishes_statements_classes_and_explicit_steps(self):
         classify = self.module.rewrite_disposition
@@ -57,6 +59,9 @@ class BaselineTest(unittest.TestCase):
         self.assertEqual(classify("BinaryFv.Zesu.MachineExecution.Steps",
                                   "Runs (try_step n false) s t false")["kind"],
                          "unreviewed_exact_machine_step")
+        self.assertEqual(classify("BinaryFv.Zesu.MachineExecution.MemcpyProof",
+                                  "Runs (try_step n false) s t false")["kind"],
+                         "audited_exact_machine_step")
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)

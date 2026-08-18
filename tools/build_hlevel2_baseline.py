@@ -19,6 +19,22 @@ DECLARATION = re.compile(
     r"^(?:private\s+)?(?:theorem|def|abbrev|structure|class|inductive)\s+([A-Za-z_][A-Za-z0-9_']*)",
     re.MULTILINE)
 EXACT_PC = re.compile(r"/--(?:(?!-/).)*?`0x([0-9a-fA-F]+):", re.DOTALL)
+AUDITED_MACHINE_MODULES = {
+    "BinaryFv.Zesu.MachineExecution.InstructionClassSteps":
+        "Defines the shared instruction-class APIs used by the fixed slice.",
+    "BinaryFv.Zesu.MachineExecution.Level0MainSteps":
+        "Audited for configured contexts, instruction classes, Seg, and manifest motifs.",
+    "BinaryFv.Zesu.MachineExecution.Level1DecodeInputSteps":
+        "Audited save schema, configured contexts, ownership checks, Seg, and motifs.",
+    "BinaryFv.Zesu.MachineExecution.Level1WriteContracts":
+        "Contract-support declarations are fixed statements or typed frame definitions.",
+    "BinaryFv.Zesu.MachineExecution.Level1WriteSuccessSteps":
+        "Audited save schema, configured contexts, ownership checks, Seg, and motifs.",
+    "BinaryFv.Zesu.MachineExecution.Level2RuntimeLeaves":
+        "Audited instruction classes and Seg; endpoint-step bridges are explicitly retained.",
+    "BinaryFv.Zesu.MachineExecution.MemcpyProof":
+        "Audited exact sites, return facts, runtime induction, and a rejected four-site motif.",
+}
 
 
 def rewrite_disposition(module: str, source: str) -> dict[str, str | bool]:
@@ -45,6 +61,11 @@ def rewrite_disposition(module: str, source: str) -> dict[str, str | bool]:
                 "configuredJStep")):
             return {"kind": "instruction_class_consumer", "rewriteCandidate": False,
                     "reason": "Already instantiates a shared instruction-class theorem."}
+        if module in AUDITED_MACHINE_MODULES:
+            kind = ("audited_exact_machine_step" if "try_step" in source
+                    else "audited_machine_proof_support")
+            return {"kind": kind, "rewriteCandidate": False,
+                    "reason": AUDITED_MACHINE_MODULES[module]}
         if "try_step" in source:
             return {"kind": "unreviewed_exact_machine_step", "rewriteCandidate": True,
                     "reason": "Exact machine step requires the repaired motif and class-API audit."}
