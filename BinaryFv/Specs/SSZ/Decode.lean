@@ -97,6 +97,40 @@ def SailDecode (input : Array UInt8) (decoded : SailDecoded) : Prop :=
     ((sailDecodeAction input.size).run initial).run default =
       .ok (decoded, finalHost) finalSailState
 
+/-- Compute the pinned EVM-Sail decoder and discard its final interpreter states. -/
+def decode (input : Array UInt8) : Option SailDecoded :=
+  let initial := { Evm.initialHostState with inputBytes := modelBytes input }
+  match ((sailDecodeAction input.size).run initial).run default with
+  | .ok (decoded, _) _ => some decoded
+  | .error _ _ => none
+
+theorem decode_eq_some_iff (input : Array UInt8) (decoded : SailDecoded) :
+    decode input = some decoded ↔ SailDecode input decoded := by
+  let initial := { Evm.initialHostState with inputBytes := modelBytes input }
+  let result := ((sailDecodeAction input.size).run initial).run default
+  change (match result with | .ok (value, _) _ => some value | .error _ _ => none) =
+    some decoded ↔ ∃ finalHost finalSailState, result = .ok (decoded, finalHost) finalSailState
+  cases h : result with
+  | ok value state =>
+      rcases value with ⟨value, host⟩
+      simp_all
+  | error error state => simp_all
+
+theorem decode_eq_none_iff (input : Array UInt8) :
+    decode input = none ↔ ¬∃ decoded, SailDecode input decoded := by
+  cases h : decode input with
+  | none =>
+      simp only [true_iff]
+      rintro ⟨decoded, decodedRun⟩
+      have : decode input = some decoded := (decode_eq_some_iff input decoded).2 decodedRun
+      simp_all
+  | some decoded =>
+      constructor
+      · intro impossible
+        cases impossible
+      · intro noDecode
+        exact False.elim (noDecode ⟨decoded, (decode_eq_some_iff input decoded).1 h⟩)
+
 /-- The four-byte Ere length prefix is transport framing, not a semantic exception. -/
 def stripErePrefix (input : Array UInt8) : Option (Array UInt8) := do
   if input.size < 4 then none else
