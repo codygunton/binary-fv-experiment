@@ -48,6 +48,7 @@ from ngram_motifs import (  # noqa: E402
     segment,
     token_levels,
 )
+from pattern_cover import TokenStream, greedy_cover
 
 TRANSFER_CLASSES = {"BTYPE", "JAL", "JALR"}
 
@@ -99,7 +100,8 @@ def admissible(indices: list[int], policy: str, owner, is_transfer) -> bool:
 
 
 def build_starts(segments: list[list[int]], n: int) -> list[list[int]]:
-    return [s[i : i + n] for s in segments for i in range(len(s) - n + 1)]
+    total = max((index for segment in segments for index in segment), default=-1) + 1
+    return TokenStream([None] * total, segments, [None] * total).windows(n)
 
 
 def cascade(
@@ -115,10 +117,10 @@ def cascade(
         if not windows:
             continue
         keys = window_keys(level, n, [w[0] for w in windows], streams, frame, order_of)
-        groups: dict[object, list[list[int]]] = collections.defaultdict(list)
+        grouped: dict[object, list[list[int]]] = collections.defaultdict(list)
         for key, w in zip(keys, windows):
-            groups[key].append(w)
-        kept = {k: v for k, v in groups.items() if len(v) >= minimum_uses}
+            grouped[key].append(w)
+        kept = {k: v for k, v in grouped.items() if len(v) >= minimum_uses}
         if kept:
             precomputed[n] = kept
 
@@ -130,23 +132,10 @@ def cascade(
         here = 0
         placed = 0
         top = (0, "—")
-        while True:
-            best = None
-            best_size = 0
-            for key, places in precomputed[n].items():
-                chosen = []
-                limit = -1
-                for w in places:
-                    if w[0] <= limit or covered[w].any():
-                        continue
-                    chosen.append(w)
-                    limit = w[-1]
-                if len(chosen) > best_size:
-                    best_size = len(chosen)
-                    best = (key, chosen)
-            if best is None or best_size < minimum_uses:
-                break
-            _, chosen = best
+        placed_candidates, claimed = greedy_cover(
+            precomputed[n], set(np.flatnonzero(covered)), minimum_uses
+        )
+        for _, chosen in placed_candidates:
             for w in chosen:
                 covered[w] = True
             if len(chosen) > top[0]:
@@ -155,6 +144,7 @@ def cascade(
             placed += len(chosen)
             saved += len(chosen) * (n - 1)
             lemmas += 1
+        assert set(np.flatnonzero(covered)) == claimed
         if here:
             rows.append(
                 {
@@ -752,12 +742,12 @@ draw();
 # --------------------------------------------------------------------------------------
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cfg", type=pathlib.Path, required=True)
     parser.add_argument("--out-json", type=pathlib.Path)
     parser.add_argument("--out-html", type=pathlib.Path)
-    arguments = parser.parse_args()
+    arguments = parser.parse_args(argv)
 
     instructions, database = load_zesu_cfg(arguments.cfg)
     segments = segment(instructions, database)

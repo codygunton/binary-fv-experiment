@@ -453,19 +453,17 @@ line-count ranking recommends.
 `tools/ngram_lean.py` supplies the four target-specific concerns — item, segment, levels, owner —
 and imports `maximal_repeats`, `non_overlapping` and `smallest_period` from `tools/ngram_motifs.py`.
 
-**Deviation from the plan, recorded:** the plan called for a shared `TokenStream` record that both
-the machine-code adapters and the proof-text adapter build. What exists is a `ProofStream` with
-those four fields plus imports of the leaf functions. The covering in `census` is a re-implementation
-rather than a reuse of the dashboard's cascade. The upside is that `ngram_motifs.py` was not touched
-at all, which makes the regression check trivially true; the downside is that the two coverings are
-now separate code and could drift. **Unify them before either is changed again.**
+`tools/pattern_cover.py` supplies the shared `TokenStream`, window grouping, and greedy disjoint
+covering used by both the machine-code dashboard and proof-text census. Their adapters still define
+their own tokens, segmentation, and admissibility rules, but candidate placement cannot drift.
 
 ```bash
 # the census, all four levels, with both controls
-python3 tools/ngram_lean.py BinaryFv/Zesu/MachineExecution --all-levels --out-json out/lean.json
+python3 tools/analyze_patterns.py lean BinaryFv/Zesu/MachineExecution \
+  --all-levels --out-json out/lean.json
 
 # regression: the machine-code instrument must be byte-identical
-python3 tools/ngram_dashboard.py --cfg result-zesu-ssz-decode-cfg/zesu-cfg.json \
+python3 tools/analyze_patterns.py machine --cfg result-zesu-ssz-decode-cfg/zesu-cfg.json \
   --out-json out/dash.json --out-html out/dash.html
 ```
 

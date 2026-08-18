@@ -57,6 +57,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from ngram_motifs import maximal_repeats, non_overlapping, smallest_period  # noqa: E402
+from pattern_cover import TokenStream, greedy_cover, groups  # noqa: E402
 
 DECLARATION = re.compile(
     r"^\s*(?:@\[[^\]]*\]\s*)*(?:private\s+|protected\s+|noncomputable\s+|partial\s+)*"
@@ -140,11 +141,7 @@ class ProofStream:
 
 def windows(stream: ProofStream, length: int) -> list[list[int]]:
     """Every run of `length` consecutive items inside one declaration."""
-    return [
-        segment[offset : offset + length]
-        for segment in stream.segments
-        for offset in range(len(segment) - length + 1)
-    ]
+    return TokenStream(stream.lines, stream.segments, stream.owner).windows(length)
 
 
 def census(stream: ProofStream, level: str, lengths: list[int]) -> list[dict]:
@@ -157,24 +154,17 @@ def census(stream: ProofStream, level: str, lengths: list[int]) -> list[dict]:
     tokens = stream.levels[level]
     rows = []
     for length in lengths:
-        groups: dict[tuple, list[list[int]]] = collections.defaultdict(list)
-        for window in windows(stream, length):
-            groups[tuple(tokens[index] for index in window)].append(window)
-        repeated = {key: value for key, value in groups.items() if len(value) >= 2}
-        covered: set[int] = set()
-        placements = 0
-        for _, places in sorted(repeated.items(), key=lambda item: -len(item[1]) * length):
-            for window in places:
-                if covered.isdisjoint(window):
-                    covered.update(window)
-                    placements += 1
-        best = max((len(v) for v in groups.values()), default=0)
+        grouped = groups(TokenStream(tokens, stream.segments, stream.owner), length)
+        repeated = {key: value for key, value in grouped.items() if len(value) >= 2}
+        placed, covered = greedy_cover(repeated)
+        placements = sum(len(windows) for _, windows in placed)
+        best = max((len(v) for v in grouped.values()), default=0)
         rows.append(
             {
                 "level": level,
                 "n": length,
-                "windows": sum(len(v) for v in groups.values()),
-                "distinct": len(groups),
+                "windows": sum(len(v) for v in grouped.values()),
+                "distinct": len(grouped),
                 "repeated": len(repeated),
                 "best": best,
                 "placements": placements,
@@ -263,7 +253,7 @@ def planted_control(stream: ProofStream, level: str, length: int, copies: int,
             "recoveredExactly": len(found) == len(hosts)}
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="+", type=pathlib.Path,
                         help="Lean files or directories to analyse")
@@ -272,7 +262,7 @@ def main() -> int:
     parser.add_argument("--all-levels", action="store_true")
     parser.add_argument("--seed", type=int, default=20260817)
     parser.add_argument("--out-json", type=pathlib.Path)
-    arguments = parser.parse_args()
+    arguments = parser.parse_args(argv)
 
     files: list[pathlib.Path] = []
     for path in arguments.paths:
