@@ -2,6 +2,7 @@ import BinaryFv.Zesu.MachineExecution.Level1DecodeInputSteps
 import BinaryFv.Zesu.MachineExecution.Level2RuntimeLeaves
 import BinaryFv.Zesu.MachineExecution.MemcpyProof
 import BinaryFv.Zesu.DecodedValue.CodecRoundtrip
+import BinaryFv.ProofProgress.OwnedPc
 
 /-!
 # Parent-owned `writeSuccess` steps
@@ -19,9 +20,9 @@ open PreSail LeanRV64DExecutable.Functions Register
 def writeSuccessParentPc (pc : BitVec 64) : Prop :=
   pcInRanges Elflings.writeSuccessOwnedPcRanges pc
 
-/-- Check a literal parent-owned PC against the generated `writeSuccess` range table. -/
+/-- Writer-local spelling of the shared checked region tactic. -/
 local macro "write_success_pc" : tactic =>
-  `(tactic| (unfold writeSuccessParentPc pcInRanges; native_decide))
+  `(tactic| owned_pc [writeSuccessParentPc, pcInRanges])
 
 def writeSuccessInitialExitPc (pc : BitVec 64) : Prop := pc = 0x101d4 ∨ pc = 0x14e00
 

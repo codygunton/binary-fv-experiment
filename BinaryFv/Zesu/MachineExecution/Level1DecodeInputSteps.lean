@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Level2Contracts
 import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
+import BinaryFv.ProofProgress.OwnedPc
 import BinaryFv.RiscV.Instruction.DecodeTactic
 import BinaryFv.RiscV.Elfling.Seg
 
@@ -347,7 +348,7 @@ theorem decodeInputAllocateSaveArea (fromStep : Nat) (args : DecodeInlineArgs)
     (base := by rfl)
   exact seg0.step (by
       exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩)
-    (by unfold DecodeInlineInitialExecutionPc pcInRanges; native_decide) x2
+    (by owned_pc [DecodeInlineInitialExecutionPc, pcInRanges]) x2
     (BitVec.ofNat 64 (args.boundary.stackPointer - 0x7f0)) 0x1216c ⟨retired, run⟩
     (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping) (Or.inr (Or.inl rfl))
     (by decide) (by decide) (by
@@ -1039,7 +1040,7 @@ theorem decodeInputFinishPrologue {fromStep : Nat} {args : DecodeInlineArgs}
     (base := by rfl)
   obtain ⟨retired1, state1, state1Eq, seg1⟩ := seg0.stepWitness
     (by exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩)
-    (by unfold DecodeInlineInitialExecutionPc pcInRanges; native_decide) x2
+    (by owned_pc [DecodeInlineInitialExecutionPc, pcInRanges]) x2
     (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) 0x121a4 ⟨retired0, run0⟩
     (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping) (Or.inr (Or.inl rfl))
     (by decide) (by decide) (by simp [RegsOutside])
@@ -1056,7 +1057,7 @@ theorem decodeInputFinishPrologue {fromStep : Nat} {args : DecodeInlineArgs}
     (BitVec.ofNat 64 args.boundary.inputAddress) configured1 seg1.atPc inputAt1 code1
   obtain ⟨retired2', state2, state2Eq, seg2⟩ := seg1.stepWitness
     (by exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩)
-    (by unfold DecodeInlineInitialExecutionPc pcInRanges; native_decide) x18
+    (by owned_pc [DecodeInlineInitialExecutionPc, pcInRanges]) x18
     (BitVec.ofNat 64 args.boundary.inputAddress) 0x121a8 ⟨retired2, run2⟩
     (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
     (Or.inr (Or.inr (Or.inr (Or.inl rfl)))) (by decide) (by decide)
@@ -1075,7 +1076,7 @@ theorem decodeInputFinishPrologue {fromStep : Nat} {args : DecodeInlineArgs}
     (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) configured2 seg2.atPc resultAt2 code2
   obtain ⟨retired3', final, finalEq, finalSeg⟩ := seg2.stepWitness
     (by exact ⟨(0x12168, 0x121ac), by native_decide, by native_decide, by native_decide⟩)
-    (by unfold DecodeInlineInitialExecutionPc pcInRanges; native_decide) x8
+    (by owned_pc [DecodeInlineInitialExecutionPc, pcInRanges]) x8
     (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) 0x121ac ⟨retired3, run3⟩
     (by native_decide) (fun _ bookkeeping => Or.inl bookkeeping)
     (Or.inr (Or.inr (Or.inl rfl))) (by decide) (by decide)
@@ -1178,8 +1179,8 @@ theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
   obtain ⟨retired0, run0⟩ := decodeInputBindErrorS6Step fromStep before.machine status
     frame.configured atPc statusAt frame.code
   obtain ⟨middle, seg1⟩ := seg0'.step
-    (by unfold decodeInputParentPc pcInRanges; native_decide)
-    (by unfold DecodeInlineInitialExecutionPc pcInRanges; native_decide)
+    (by owned_pc [decodeInputParentPc, pcInRanges])
+    (by owned_pc [DecodeInlineInitialExecutionPc, pcInRanges])
     x22 status 0x14cac ⟨retired0, run0⟩ (by decide)
     (fun _ bookkeeping => Or.inl bookkeeping) (by simp [decodeInputParentWrites])
     (by decide) (by decide) (by exact of_decide_eq_true rfl)
@@ -1198,8 +1199,8 @@ theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
     0x1fd660 0x6f 0xd0 0x0f 0xe6 configured1 seg1.atPc code1 decode1
     (by native_decide) (by native_decide) (by native_decide) (base := by rfl)
   obtain ⟨final, seg2⟩ := seg1.stepJump 0x1230c
-    (by unfold decodeInputParentPc pcInRanges; native_decide)
-    (by unfold DecodeInlineInitialExecutionPc pcInRanges; native_decide)
+    (by owned_pc [decodeInputParentPc, pcInRanges])
+    (by owned_pc [DecodeInlineInitialExecutionPc, pcInRanges])
     ⟨retired1, run1⟩ (fun _ bookkeeping => Or.inl bookkeeping)
     (by exact of_decide_eq_true rfl)
   have endTrace : ScopedTrace decodeInputParentPc DecodeInlineInitialExecutionPc

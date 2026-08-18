@@ -1103,6 +1103,8 @@ theorem main_stack_allocate_step (stepNo : Nat) (state : State) (stackValue : Bi
         (0xc8 : BitVec 8)))
       (tryStepStackAddiAfterIncrement state) (tryStepStackAddiAfterIncrement state)
       (.ITYPE (BitVec.ofNat 12 0xc80, stackPointer, stackPointer, .ADDI)) := by
+    -- `configured_decode` targets `tryStepControlFlowAfterIncrement`; this instruction uses the
+    -- stack-allocation wrapper state, so these two register transports are genuinely distinct.
     obtain ⟨seccfgBits, _, _, privilegeAfter0, seccfgAfter0⟩ :=
       configured.decodeContext
     have privilegeAfter : (tryStepStackAddiAfterIncrement state).regs.get? cur_privilege =
@@ -1153,16 +1155,7 @@ theorem writeSuccessMemcpyCallStep (stepNo : Nat) (state : State)
         (callLinkState (tryStepControlFlowAfterIncrement state) 0x14d7c 0x101d4 x1 0x14d80)
         0x101d4 retired) false := by
   exact configuredJalrCallStep stepNo state 0x14d7c 0xfd78 0x45c 0x101d4 0x14d80
-    0xe7 0x80 0xc0 0x45 configured atPc baseRead loaded (decode := by
-    obtain ⟨seccfgBits, _, _, privilegeAfter, seccfgAfter⟩ :=
-      configured.decodeContext
-    unfold Runs
-    rw [extDecode_eq]
-    simp only [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
-      PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, Functor.map, EStateM.bind,
-      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
-      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
-      MonadState.get, MonadStateOf.get, privilegeAfter, seccfgAfter, *]
-    rfl)
+    0xe7 0x80 0xc0 0x45 configured atPc baseRead loaded
+    (decode := by configured_decode configured)
 
 end BinaryFv.Zesu
