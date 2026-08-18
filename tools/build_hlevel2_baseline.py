@@ -18,6 +18,42 @@ DECLARATION = re.compile(
 EXACT_PC = re.compile(r"/--(?:(?!-/).)*?`0x([0-9a-fA-F]+):", re.DOTALL)
 
 
+def rewrite_disposition(module: str, source: str) -> dict[str, str | bool]:
+    """Classify every root dependency by its role in this fixed rewrite experiment."""
+    if not module.startswith("BinaryFv.Zesu"):
+        return {"kind": "existing_generic_library", "rewriteCandidate": False,
+                "reason": "Shared Binary/RISC-V proof API; consumers are audited instead."}
+    if ".Specs." in module or ".Contracts." in module:
+        return {"kind": "preserved_statement", "rewriteCandidate": False,
+                "reason": "Specification or contract statement; theorem types may not change."}
+    if ".Artifacts." in module or ".Elflings." in module:
+        return {"kind": "generated_evidence", "rewriteCandidate": False,
+                "reason": "Pinned or generated artifact evidence, not handwritten proof text."}
+    if ".DecodedValue." in module:
+        return {"kind": "semantic_bridge", "rewriteCandidate": False,
+                "reason": "Decoded-value semantics are preserved by the experiment."}
+    if ".MachineExecution." in module:
+        if "Seg." in source or "Seg " in source:
+            return {"kind": "seg_composition", "rewriteCandidate": False,
+                    "reason": "Already uses existential Seg composition."}
+        if any(name in source for name in (
+                "configuredRegisterWriteStep", "configuredAuipcStep", "configuredJalrCallStep",
+                "configuredDwordStoreStep", "configuredDwordLoadStep", "configuredRetStep",
+                "configuredJStep")):
+            return {"kind": "instruction_class_consumer", "rewriteCandidate": False,
+                    "reason": "Already instantiates a shared instruction-class theorem."}
+        if "try_step" in source:
+            return {"kind": "explicit_machine_step", "rewriteCandidate": True,
+                    "reason": "Concrete machine-step proof requires class/Seg/frame disposition."}
+        return {"kind": "machine_proof_support", "rewriteCandidate": True,
+                "reason": "Handwritten machine-proof support requires repetition/frame review."}
+    if ".Entrypoints." in module or module == "BinaryFv.Zesu.Root":
+        return {"kind": "refinement_composition", "rewriteCandidate": True,
+                "reason": "Conditional refinement or transfer composition requires reuse review."}
+    return {"kind": "zesu_support", "rewriteCandidate": True,
+            "reason": "Zesu-specific dependency requires explicit rewrite review."}
+
+
 def read_dependencies(path: Path) -> tuple[list[dict], list[dict]]:
     declarations, edges = [], []
     for line in path.read_text().splitlines():
@@ -127,6 +163,12 @@ def build(dependency_path: Path, source_root: Path, cfg: dict, flame: dict,
     declarations, edges = read_dependencies(dependency_path)
     kernel_source_declarations = len(declarations)
     declarations = expand_private_sources(source_root, declarations)
+    for declaration in declarations:
+        path = module_path(source_root, declaration["module"])
+        lines = path.read_text().splitlines() if path.exists() else []
+        source = "\n".join(lines[max(0, declaration["startLine"] - 1):
+                                  declaration["endLine"]])
+        declaration["rewriteDisposition"] = rewrite_disposition(declaration["module"], source)
     root_entry = int(flame["tree"]["name"].rsplit("[fn:", 1)[1].rstrip("]"), 16)
     main = next(row for row in cfg["functionInstances"]
                 if row["kind"] == "concrete" and row["entryPc"] == root_entry)
@@ -194,6 +236,8 @@ def build(dependency_path: Path, source_root: Path, cfg: dict, flame: dict,
             "kernelSourceDeclarations": kernel_source_declarations,
             "dependencyEdges": len(edges),
             "sourceDeclarations": len(declarations),
+            "rewriteCandidates": sum(
+                row["rewriteDisposition"]["rewriteCandidate"] for row in declarations),
             "nonCommentLeanLoc": non_comment_loc,
             "level0DirectRegionPcs": len(direct_regions["level0Parent"]),
             "conditionalLevel1DirectRegionPcs": len(direct_regions["conditionalLevel1Parent"]),

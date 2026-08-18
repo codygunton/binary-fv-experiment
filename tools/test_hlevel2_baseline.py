@@ -34,6 +34,26 @@ class BaselineTest(unittest.TestCase):
         self.assertEqual(len(result["coverage"]["directlyDischargedStepPcs"]), 157)
         self.assertEqual(result["counts"]["conditionalContractUniquePcs"], 6668)
 
+    def test_every_dependency_has_a_rewrite_disposition(self):
+        result = self.module.build(self.dependencies, self.source_root, *self.documents)
+        self.assertEqual(result["counts"]["sourceDeclarations"],
+                         len(result["declarations"]))
+        self.assertGreater(result["counts"]["rewriteCandidates"], 0)
+        self.assertTrue(all(row["rewriteDisposition"]["kind"] and
+                            row["rewriteDisposition"]["reason"]
+                            for row in result["declarations"]))
+
+    def test_disposition_distinguishes_statements_classes_and_explicit_steps(self):
+        classify = self.module.rewrite_disposition
+        self.assertEqual(classify("BinaryFv.Zesu.Contracts.Machine", "structure C")["kind"],
+                         "preserved_statement")
+        self.assertEqual(classify("BinaryFv.Zesu.MachineExecution.Steps",
+                                  "exact configuredRetStep")["kind"],
+                         "instruction_class_consumer")
+        self.assertEqual(classify("BinaryFv.Zesu.MachineExecution.Steps",
+                                  "Runs (try_step n false) s t false")["kind"],
+                         "explicit_machine_step")
+
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
         documents[3]["artifact"]["sha256"] = "forged"
