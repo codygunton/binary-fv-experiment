@@ -75,7 +75,7 @@ class GenerateLevel1LeanTests(unittest.TestCase):
     def test_rejects_artifact_mismatch(self):
         manifest, cfg = fixture()
         cfg["artifact"]["sha256"] = "cd" * 32
-        with self.assertRaisesRegex(ValueError, "different ELFs"):
+        with self.assertRaisesRegex(ValueError, "different load images"):
             generate(manifest, cfg)
 
     def test_rejects_non_word_level0_instruction(self):
