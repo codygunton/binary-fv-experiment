@@ -12,6 +12,9 @@ PROVED_LEVEL2_ENTRIES = {0x14E00, 0x14E7C}
 PROVED_LEVEL2_NAMES = {"memcpy"}
 PROVED_LEVEL1_NAMES = {"read_input", "zkvm_exit", "alt_fl_alloc.get"}
 EXPECTED_DIRECT_PC_COUNT = 157
+REQUIRED_PROOF_DEPENDENCIES = {
+    "BinaryFv.Zesu.MachineExecution.memcpyInstanceContract",
+}
 DECLARATION = re.compile(
     r"^(?:private\s+)?(?:theorem|def|abbrev|structure|class|inductive)\s+([A-Za-z_][A-Za-z0-9_']*)",
     re.MULTILINE)
@@ -43,10 +46,10 @@ def rewrite_disposition(module: str, source: str) -> dict[str, str | bool]:
             return {"kind": "instruction_class_consumer", "rewriteCandidate": False,
                     "reason": "Already instantiates a shared instruction-class theorem."}
         if "try_step" in source:
-            return {"kind": "retained_exact_machine_step", "rewriteCandidate": False,
-                    "reason": "Exact-site API or lower instruction helper; final census found no paying shared body."}
-        return {"kind": "retained_machine_proof_support", "rewriteCandidate": False,
-                "reason": "Frame, representation, or composition support retained after the final pattern audit."}
+            return {"kind": "unreviewed_exact_machine_step", "rewriteCandidate": True,
+                    "reason": "Exact machine step requires the repaired motif and class-API audit."}
+        return {"kind": "unreviewed_machine_proof_support", "rewriteCandidate": True,
+                "reason": "Machine proof support requires the repaired frame and proof-pattern audit."}
     if ".Entrypoints." in module or module == "BinaryFv.Zesu.Root":
         return {"kind": "retained_refinement_composition", "rewriteCandidate": False,
                 "reason": "Reviewed conditional edge, contract surface, or transfer composition."}
@@ -71,6 +74,8 @@ def read_dependencies(path: Path) -> tuple[list[dict], list[dict]]:
     names = {row["name"] for row in declarations}
     if "BinaryFv.Zesu.root_compliance" not in names:
         raise ValueError("dependency graph does not contain root_compliance")
+    if missing := REQUIRED_PROOF_DEPENDENCIES - names:
+        raise ValueError(f"dependency graph omits required proof dependencies: {sorted(missing)}")
     if any(edge["declaration"] not in names or edge["dependency"] not in names
            for edge in edges):
         raise ValueError("dependency edge escapes the declaration closure")

@@ -38,10 +38,14 @@ class BaselineTest(unittest.TestCase):
         result = self.module.build(self.dependencies, self.source_root, *self.documents)
         self.assertEqual(result["counts"]["sourceDeclarations"],
                          len(result["declarations"]))
-        self.assertEqual(result["counts"]["rewriteCandidates"], 0)
+        self.assertGreater(result["counts"]["rewriteCandidates"], 0)
         self.assertTrue(all(row["rewriteDisposition"]["kind"] and
                             row["rewriteDisposition"]["reason"]
                             for row in result["declarations"]))
+        memcpy = [row for row in result["declarations"]
+                  if row["module"].endswith(".MemcpyProof")]
+        self.assertTrue(memcpy)
+        self.assertTrue(any(row["rewriteDisposition"]["rewriteCandidate"] for row in memcpy))
 
     def test_disposition_distinguishes_statements_classes_and_explicit_steps(self):
         classify = self.module.rewrite_disposition
@@ -52,7 +56,7 @@ class BaselineTest(unittest.TestCase):
                          "instruction_class_consumer")
         self.assertEqual(classify("BinaryFv.Zesu.MachineExecution.Steps",
                                   "Runs (try_step n false) s t false")["kind"],
-                         "retained_exact_machine_step")
+                         "unreviewed_exact_machine_step")
 
     def test_rejects_artifact_mismatch(self):
         documents = copy.deepcopy(self.documents)
@@ -70,11 +74,24 @@ class BaselineTest(unittest.TestCase):
         lines = self.dependencies.read_text().splitlines()
         root = next(line for line in lines if line.startswith(
             "declaration\tBinaryFv.Zesu.root_compliance\t"))
+        memcpy = next(line for line in lines if line.startswith(
+            "declaration\tBinaryFv.Zesu.MachineExecution.memcpyInstanceContract\t"))
+        escaping = next(line for line in lines if line.startswith("edge\t") and
+                        "BinaryFv.Zesu.root_compliance" not in line and
+                        "BinaryFv.Zesu.MachineExecution.memcpyInstanceContract" not in line)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "dependencies.tsv"
-            path.write_text(root + "\n" + next(
-                line for line in lines if line.startswith("edge\t")) + "\n")
+            path.write_text(root + "\n" + memcpy + "\n" + escaping + "\n")
             with self.assertRaisesRegex(ValueError, "escapes the declaration closure"):
+                self.module.read_dependencies(path)
+
+    def test_rejects_private_anchor_hiding_memcpy_proof(self):
+        lines = [line for line in self.dependencies.read_text().splitlines()
+                 if "BinaryFv.Zesu.MachineExecution.memcpyInstanceContract" not in line]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "dependencies.tsv"
+            path.write_text("\n".join(lines) + "\n")
+            with self.assertRaisesRegex(ValueError, "omits required proof dependencies"):
                 self.module.read_dependencies(path)
 
     def test_rejects_omitted_and_forged_direct_pcs(self):

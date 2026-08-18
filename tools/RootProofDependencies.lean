@@ -12,9 +12,6 @@ private def sourceDeclaration (env : Environment) (name : Name) : Bool :=
     (env.getModuleIdxFor? name |>.any fun index =>
       env.header.moduleNames[index]!.toString.startsWith "BinaryFv.")
 
-private def publicDeclaration (env : Environment) (name : Name) : Bool :=
-  sourceDeclaration env name && name.toString.startsWith "BinaryFv."
-
 private partial def visit (env : Environment) (todo : List Name)
     (seen : NameSet := {}) (reported : NameSet := {})
     (edges : Array (Name × Name) := #[]) : NameSet × Array (Name × Name) :=
@@ -31,7 +28,7 @@ private partial def visit (env : Environment) (todo : List Name)
         let reported := dependencies.foldl (fun names dependency => names.insert dependency)
           (reported.insert name)
         let edges := dependencies.foldl (fun edges dependency => edges.push (name, dependency)) edges
-        visit env (dependencies.filter (publicDeclaration env) ++ rest) seen reported edges
+        visit env (dependencies ++ rest) seen reported edges
 
 private def emit : IO Unit := do
   let env ← importModules #[{ module := `BinaryFv.Zesu.Root }] {}
