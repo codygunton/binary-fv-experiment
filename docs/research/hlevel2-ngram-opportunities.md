@@ -562,3 +562,15 @@ After these dispositions, the authoritative manifest reports zero unreviewed rew
 This is not the earlier coarse zero: the repaired closure includes all 225 `MemcpyProof`
 declarations, and the gate distinguishes seven audited machine modules from an unknown machine
 module, which remains an error-producing candidate.
+
+Across the ten Lean files changed by the experiment, non-comment source falls from 25,155 to
+22,229 lines: 2,926 lines, or 11.6%. Matching the repaired manifest's declaration names against the
+same files on `origin/main` gives a root-slice reduction of 2,878 lines (36,260 to 33,382 among
+name-resolved declarations); opaque generated names omitted by that comparison are missing on both
+sides. The authoritative final manifest independently counts 33,854 non-comment lines before
+overlapping private ranges are removed. Final focused builds measure `MemcpyProof` at 8.7 seconds,
+Level 0 at 20 seconds, decode-input at 21 seconds, runtime leaves at 32 seconds, and the writer at
+226.14 seconds direct. A same-machine, same-olean comparison against the pre-remediation commit
+`d93a65b3` measured 226.92 seconds (186.63 seconds user) versus 226.14 seconds (187.34 seconds user),
+so the 781-line save/memcpy remediation is flat within measurement noise and satisfies the retention
+rule. The independent instrumented writer measurements are likewise comparable at about 234 seconds.
