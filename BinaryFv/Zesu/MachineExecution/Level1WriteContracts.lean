@@ -22,8 +22,10 @@ private theorem writeFailureChildRegion_in_parent {pc : BitVec 64}
 /-- `writeFailure` is exactly its selected constant-record child instance. -/
 theorem writeFailureInstanceContract_of_level2
     (child : WriteFailureRecordInstanceContract) : WriteFailureInstanceContract := by
-  obtain ⟨bound, implements⟩ := child
-  refine ⟨bound, ?_⟩
+  obtain ⟨bound, cap, implements⟩ := child
+  refine ⟨bound, (by
+    simp [level1ContractFuel, level2ContractFuel] at ⊢ cap
+    omega), ?_⟩
   intro args fromStep before entry
   have returnEq : args.returnAddress = 0x14d24 := by
     simpa [Elflings.writeFailureExitPcs] using entry.1

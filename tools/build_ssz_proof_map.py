@@ -229,7 +229,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         {"id": "conversion", "label": "exportedContracts_of_level1", "kind": "conversion",
          "column": 2, "status": "proved", "proofStatus": "proved"},
         {"id": "root", "label": "root_compliance", "kind": "parent", "column": 3,
-         "status": "conditionally_proven", "proofStatus": "conditionally_proven"},
+         "status": "conditionally_proven", "proofStatus": "conditionally_proven",
+         "description": "Canonical equality between the executed Zesu binary and EVM-Sail decode"},
     ])
     edges.extend([
         {"source": "glue", "target": "conversion", "kind": "dependency"},

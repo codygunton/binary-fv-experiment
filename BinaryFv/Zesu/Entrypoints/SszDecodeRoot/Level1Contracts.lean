@@ -117,6 +117,7 @@ def readInputContract (stepBound : ReadInputArgs → Nat) :
 
 def ReadInputInstanceContract : Prop :=
   ∃ stepBound : Nat → Nat,
+    (∀ inputSize, inputSize ≤ maxSszInputSize → stepBound inputSize < level1ContractFuel) ∧
     (readInputContract (fun args => stepBound args.input.size)).Implements EndpointStep EndpointPc
     (pcInRanges Elflings.readInputExecutionPcRanges)
     (pcInList Elflings.readInputExitPcs)
@@ -190,6 +191,7 @@ def allocatorGetContract (stepBound : AllocatorGetArgs → Nat) :
 
 def AllocatorGetInstanceContract : Prop :=
   ∃ stepBound : Nat → Nat,
+    (∀ inputSize, inputSize ≤ maxSszInputSize → stepBound inputSize < level1ContractFuel) ∧
     (allocatorGetContract (fun args => stepBound args.input.size)).Implements EndpointStep EndpointPc
     (pcInRanges Elflings.allocatorGetExecutionPcRanges)
     (pcInList Elflings.allocatorGetExitPcs)
@@ -297,6 +299,7 @@ def writeSuccessContract (stepBound : WriteSuccessArgs → Nat) :
 
 def WriteSuccessInstanceContract : Prop :=
   ∃ stepBound : Nat → Nat,
+    (∀ inputSize, inputSize ≤ maxSszInputSize → stepBound inputSize < level1ContractFuel) ∧
     (writeSuccessContract (fun args => stepBound args.inputSize)).Implements EndpointStep EndpointPc
     (pcInRanges Elflings.writeSuccessExecutionPcRanges)
     (pcInList Elflings.writeSuccessExitPcs)
@@ -330,6 +333,7 @@ def writeFailureContract (stepBound : WriteFailureArgs → Nat) :
 
 def WriteFailureInstanceContract : Prop :=
   ∃ stepBound : Nat,
+    stepBound < level1ContractFuel ∧
     (writeFailureContract (fun _ => stepBound)).Implements EndpointStep EndpointPc
     (pcInRanges Elflings.writeFailureExecutionPcRanges)
     (pcInList Elflings.writeFailureExitPcs)
@@ -360,10 +364,17 @@ def zkvmExitContract (stepBound : ZkvmExitArgs → Nat) :
     exit := ZkvmExitPost
     stepBound }
 
+/-- The exit function's three executed instructions; the terminal self-loop is an exit PC, not a
+step of the contract trace. -/
+def ZkvmExitExecutionPc (pc : BitVec 64) : Prop :=
+  pcInRanges Elflings.zkvmExitExecutionPcRanges pc ∧
+    pc ≠ BitVec.ofNat 64 Elflings.zkvmExitTerminalPc
+
 def ZkvmExitInstanceContract : Prop :=
   ∃ stepBound : Nat,
+    stepBound < level1ContractFuel ∧
     (zkvmExitContract (fun _ => stepBound)).Implements EndpointStep EndpointPc
-    (pcInRanges Elflings.zkvmExitExecutionPcRanges)
+    ZkvmExitExecutionPc
     (pcInList Elflings.zkvmExitExitPcs)
 
 /-- The sole proof-progress argument of the initial conditional compliance theorem. -/

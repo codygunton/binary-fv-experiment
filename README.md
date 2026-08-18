@@ -7,7 +7,8 @@ the Lean extraction of pinned [EVM-Sail](deps/evm-sail). Nix pins and builds bot
 The previous locally grafted Zesu decoder, Etheorem/SizzLean specification, and target-specific
 proofs were removed during the upstream pivot. Their complete history and proof-authoring tooling are
 preserved on `archive/zesu-grafted-decoder-level4`; an all-ref recovery bundle is documented in
-`STATUS.md`. No compliance theorem is currently claimed for the authentic upstream binary.
+`STATUS.md`. The current `root_compliance hLevel2` theorem executes the authentic linked binary and
+compares its canonical outcome with the pinned EVM-Sail decoder.
 
 ## Build
 
@@ -20,9 +21,8 @@ nix flake check
 ```
 
 `deps/` makes the exact sources browsable; Nix independently fetches the same revisions and is the
-authoritative build. Upstream Zesu currently exposes a relocatable zkVM RV64 object rather than a
-standalone executable. Building the linked verification ELF and its ABI adapter is the next target
-integration step.
+authoritative build. The proof target links upstream Zesu's relocatable zkVM RV64 object to the
+verified bare-metal entry, memory-context, and terminal ABI used by the endpoint runner.
 
 ## Layout
 
@@ -34,9 +34,9 @@ integration step.
 - `docs/research/evm-sail-ssz-feasibility.md`: extraction assessment and candidate divergences.
 - `docs/research/grafted-zesu-deletion-audit.md`: per-subsystem recovery and deletion rationale.
 
-The future public theorem will compare the authentic Zesu binary with the extracted EVM-Sail
-decoder, with a typed `hKnownBugs` only for exact, tested divergences. Until the target adapter and
-comparison relation exist, this repository intentionally exposes no replacement `root_compliance`.
+The public theorem normalizes exactly the seven reviewed Zesu divergences before asserting equality.
+`hLevel2` contains only the 17 outstanding Level 2 function-instance contracts; the endpoint
+initialization, RISC-V execution, parent glue, and discharged leaves are proved in Lean.
 
 ## Trust boundary
 

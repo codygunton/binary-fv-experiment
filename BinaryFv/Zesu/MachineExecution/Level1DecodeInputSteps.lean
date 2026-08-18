@@ -1263,9 +1263,14 @@ private theorem initialRegion_in_decodeRegion {pc : BitVec 64}
 /-- Resolve the Level-1 `decodeInput` contract from the exact Level-2 initial and resume contracts. -/
 theorem decodeInstanceContract_of_level2
     (hLevel2 : SszDecodeLevel2InstanceContract) : DecodeInstanceContractModuloKnownBugs := by
-  obtain ⟨initialBound, initialImpl⟩ := hLevel2.initial
-  obtain ⟨resumeBound, resumeImpl⟩ := hLevel2.resume
-  refine ⟨fun inputSize => 19 + initialBound inputSize + resumeBound inputSize, ?_⟩
+  obtain ⟨initialBound, _initialCap, initialImpl⟩ := hLevel2.initial
+  obtain ⟨resumeBound, _resumeCap, resumeImpl⟩ := hLevel2.resume
+  refine ⟨fun inputSize => 19 + initialBound inputSize + resumeBound inputSize, ?_, ?_⟩
+  · intro inputSize inputSizeBound
+    have initialCap := _initialCap inputSize inputSizeBound
+    have resumeCap := _resumeCap inputSize inputSizeBound
+    simp [level1ContractFuel, level2ContractFuel] at ⊢ initialCap resumeCap
+    omega
   intro boundary fromStep origin boundaryEntry
   let inline : DecodeInlineArgs := { boundary, origin }
   obtain ⟨childMachine, prefixTrace, childEntry⟩ :=

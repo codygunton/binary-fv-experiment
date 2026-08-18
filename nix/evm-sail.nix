@@ -107,6 +107,9 @@ let
     cp ${repo}/BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.lean Level1WriteSuccessSteps.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Refinement.lean Level2Refinement.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.lean Level0Contract.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Executable.lean Executable.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/ExecutableCorrectness.lean ExecutableCorrectness.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/InitialState.lean InitialState.lean
     cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
     cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
     cp ${repo}/BinaryFv/Zesu/Elflings/GeneratedLevel1.lean GeneratedLevel1.lean
@@ -208,6 +211,9 @@ let
     lean -o compiled/BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.olean Level1WriteSuccessSteps.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Refinement.olean Level2Refinement.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.olean Level0Contract.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Executable.olean Executable.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/ExecutableCorrectness.olean ExecutableCorrectness.lean
+    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/InitialState.olean InitialState.lean
     lean -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
     lean -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean 2>&1 | tee trust-audit.log
     python ${repo}/tools/check_root_axioms.py trust-audit.log

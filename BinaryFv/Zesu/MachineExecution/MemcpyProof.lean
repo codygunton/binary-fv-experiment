@@ -1967,7 +1967,10 @@ private theorem memcpyReturnUpdate {returnAddress : Nat}
 
 /-- The production `memcpy` instance, discharged by induction over its runtime byte count. -/
 theorem memcpyInstanceContract : MemcpyInstanceContract := by
-  refine ⟨fun size => size * 7 + 3, ?_⟩
+  refine ⟨fun size => size * 7 + 3, ?_, ?_⟩
+  · intro inputSize inputBound
+    simp [level2ContractFuel, maxSszInputSize] at ⊢ inputBound
+    omega
   intro args fromStep before entry
   rcases entry with ⟨returnListed, sizeFits, destinationFits, sourceFits, disjoint,
     atEntry, returnRegister, destinationRegister, sourceRegister, sizeRegister,

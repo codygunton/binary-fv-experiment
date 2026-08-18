@@ -227,7 +227,7 @@ theorem loadFilledBytes_establishes (base count : Nat) (value : UInt8) (s0 : Sta
       (List.range' 0 count 1) s0 (range'_map_add_nodup base count)
   have hrun' : Runs (loadFilledBytes base count value) s0 s () := by
     show Runs (forIn [:count] PUnit.unit _ >>= fun _ => pure PUnit.unit) s0 s ()
-    rw [Std.Range.forIn_eq_forIn_range']
+    rw [Std.Legacy.Range.forIn_eq_forIn_range']
     exact Runs.bind (by simpa using hrun) (by show (pure PUnit.unit : SailM Unit).run s = .ok () s; rfl)
   refine ⟨s, hrun', hregs, ?_, ?_⟩
   · intro a ha
@@ -280,13 +280,13 @@ theorem loadBytes_establishes (base : Nat) (bytes : ByteArray) (s0 : State) :
     let _ ← writeByte (base + index) (BitVec.ofNat 8 (bytes[index]!).toNat)
     pure (ForInStep.yield PUnit.unit)
   have hrange : (List.range' [:bytes.size].start [:bytes.size].size [:bytes.size].step)
-      = List.range' 0 bytes.size 1 := by simp [Std.Range.size]
+      = List.range' 0 bytes.size 1 := by simp [Std.Legacy.Range.size]
   -- the loop of loadBytes (a `forIn'`) equals `forIn (range' 0 size 1) () g`
   have hA : (forIn' [:bytes.size] PUnit.unit (fun index _ r => do
         let _ ← writeByte (base + index) (BitVec.ofNat 8 bytes[index].toNat)
         pure (ForInStep.yield PUnit.unit)))
       = forIn (List.range' 0 bytes.size 1) PUnit.unit g := by
-    rw [Std.Range.forIn'_eq_forIn'_range',
+    rw [Std.Legacy.Range.forIn'_eq_forIn'_range',
       List.forIn'_congr hrange rfl (g := fun a _ b => g a b) ?_]
     · exact forIn'_eq_forIn_ignore _ _ g
     · intro a hmem b

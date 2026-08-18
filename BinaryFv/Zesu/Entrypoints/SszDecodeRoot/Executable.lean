@@ -15,10 +15,6 @@ def writeMemoryBytes (address : Nat) : List UInt8 → SailM Unit
       let _ ← PreSail.writeByte address (BitVec.ofNat 8 byte.toNat)
       writeMemoryBytes (address + 1) bytes
 
-def writeNat64LE (address value : Nat) : SailM Unit :=
-  writeMemoryBytes address ((List.range 8).map fun index =>
-    UInt8.ofNat ((value / 256 ^ index) % 256))
-
 def canonicalStackPointer : Nat := Elflings.inputBufferAddress - 0x1000
 
 /-- Readable, writable, executable platform region containing the linked image, endpoint stack,
@@ -28,19 +24,72 @@ def endpointPmaRegion : PMA_Region :=
     attributes := { (default : PMA) with executable := true, readable := true, writable := true },
     include_in_device_tree := false }
 
-def initializeEndpointMachine (input : Array UInt8) : SailM Unit := do
-  initializeModel
-  enableMExtension
-  writeReg pma_regions [endpointPmaRegion]
+def endpointConfiguredMachine : State :=
+  let regs := initialState.regs
+  let regs := regs.insert hart_state (HartState.HART_ACTIVE ())
+  let regs := regs.insert cur_privilege Privilege.Machine
+  let regs := regs.insert satp (0 : BitVec 64)
+  let regs := regs.insert mideleg (0 : BitVec 64)
+  let regs := regs.insert mie (0 : BitVec 64)
+  let regs := regs.insert mip (0 : BitVec 64)
+  let regs := regs.insert pmpcfg_n (default : Vector (BitVec 8) 64)
+  let regs := regs.insert pmpaddr_n (default : Vector (BitVec 64) 64)
+  let regs := regs.insert mcountinhibit (0 : BitVec 32)
+  let regs := regs.insert minstretcfg (0 : BitVec 64)
+  let regs := regs.insert elp (landing_pad_bits_backwards landing_pad_expectation.NO_LP_EXPECTED)
+  let regs := regs.insert misa (BitVec.ofNat 64 (2 ^ 12))
+  let regs := regs.insert minstret (0 : BitVec 64)
+  let regs := regs.insert mstatus (0 : BitVec 64)
+  let regs := regs.insert mseccfg (0 : BitVec 64)
+  let regs := regs.insert sig_meip (0 : BitVec 1)
+  let regs := regs.insert htif_tohost_base none
+  let regs := regs.insert pma_regions [endpointPmaRegion]
+  let regs := regs.insert x8 (0 : BitVec 64)
+  let regs := regs.insert x9 (0 : BitVec 64)
+  let regs := regs.insert x18 (0 : BitVec 64)
+  let regs := regs.insert x19 (0 : BitVec 64)
+  let regs := regs.insert x20 (0 : BitVec 64)
+  let regs := regs.insert x21 (0 : BitVec 64)
+  let regs := regs.insert x22 (0 : BitVec 64)
+  let regs := regs.insert x23 (0 : BitVec 64)
+  let regs := regs.insert x24 (0 : BitVec 64)
+  let regs := regs.insert x25 (0 : BitVec 64)
+  let regs := regs.insert x26 (0 : BitVec 64)
+  let regs := regs.insert x27 (0 : BitVec 64)
+  { initialState with regs }
+
+def initializeEndpointBaseMachine : SailM Unit :=
   loadFileBackedImage Artifacts.programImage
+
+def stateOfResult {ε α : Type} (result : EStateM.Result ε State α) : State :=
+  match result with | .ok _ state | .error _ state => state
+
+theorem stateOfResult_eq_of_runs {action : SailM Unit} {start finish : State}
+    (run : Runs action start finish ()) : stateOfResult (action.run start) = finish := by
+  rw [run]
+  rfl
+
+def endpointProgramMemory : Std.ExtHashMap Nat (BitVec 8) :=
+  (stateOfResult (initializeEndpointBaseMachine.run endpointConfiguredMachine)).mem
+
+theorem endpointProgramMemory_eq_of_runs {finish : State}
+    (run : Runs initializeEndpointBaseMachine endpointConfiguredMachine finish ()) :
+    endpointProgramMemory = finish.mem := by
+  unfold endpointProgramMemory
+  exact congrArg (fun state : State => state.mem) (stateOfResult_eq_of_runs run)
+
+def endpointBaseMachine : State :=
+  { endpointConfiguredMachine with mem := endpointProgramMemory }
+
+def initializeEndpointInput (input : Array UInt8) : SailM Unit := do
   writeMemoryBytes Elflings.inputBufferAddress input.toList
-  writeNat64LE Elflings.ioContextAddress input.size
+  let _ ← PreSail.writeBytes (n := 8) Elflings.ioContextAddress (BitVec.ofNat 64 input.size)
   writeReg PC (BitVec.ofNat 64 Elflings.mainEntry)
   writeReg x1 (0 : BitVec 64)
   writeReg x2 (BitVec.ofNat 64 (canonicalStackPointer + 0x380))
 
 def initialEndpointState (input : Array UInt8) : EndpointState :=
-  let machine := match (initializeEndpointMachine input).run initialState with
+  let machine := match (initializeEndpointInput input).run endpointBaseMachine with
     | .ok _ state | .error _ state => state
   { machine, stdin := input, stdinCursor := 0, stdout := #[], exitCode := none }
 

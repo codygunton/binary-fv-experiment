@@ -1358,7 +1358,7 @@ private theorem allocatorLoadedOfSeg {args : AllocatorGetArgs} {kv a n base cur 
 
 /-- The exact eight parent-owned instructions implement the allocator-get Level 1 contract. -/
 theorem allocatorGetInstanceContract : AllocatorGetInstanceContract := by
-  refine ⟨fun _ => 8, ?_⟩
+  refine ⟨fun _ => 8, (by intro _ _; simp [level1ContractFuel]), ?_⟩
   intro args fromStep before entry
   have entryCopy := entry
   rcases entry with ⟨returnPc, atPc, stackRead, aligned, fits, pointerRep, sizeRep, savedRep,
@@ -1545,7 +1545,7 @@ theorem allocatorGetInstanceContract : AllocatorGetInstanceContract := by
 
 /-- The seven ordinary instructions plus the observed return implement bare-metal `read_input`. -/
 theorem readInputInstanceContract : ReadInputInstanceContract := by
-  refine ⟨fun _ => 8, ?_⟩
+  refine ⟨fun _ => 8, (by intro _ _; simp [level1ContractFuel]), ?_⟩
   intro args fromStep before entry
   have entryCopy := entry
   rcases entry with ⟨returnPc, inputBound, stdin, cursor, atPc, link, bufferReg, sizeReg,
@@ -1983,7 +1983,7 @@ private theorem platformPreserved_disjoint_zkvmExitWrites :
 private theorem zkvmExitLoadedOfSeg {fromStep count : Nat} {base after : State}
     {kv : List RegVal} {pc : BitVec 64}
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully base.mem)
-    (seg : Seg (pcInRanges Elflings.zkvmExitExecutionPcRanges)
+    (seg : Seg ZkvmExitExecutionPc
       (pcInList Elflings.zkvmExitExitPcs) (fun _ _ _ _ _ => False)
       zkvmExitWrites (fun _ => False) kv fromStep count base after pc) :
     Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
@@ -1991,9 +1991,10 @@ private theorem zkvmExitLoadedOfSeg {fromStep count : Nat} {base after : State}
 
 private theorem zkvmExitPcInside (pc : BitVec 64)
     (literal : pc = 0x101c4 ∨ pc = 0x101c8 ∨ pc = 0x101cc) :
-    pcInRanges Elflings.zkvmExitExecutionPcRanges pc := by
+    ZkvmExitExecutionPc pc := by
   rcases literal with rfl | rfl | rfl <;>
-    exact ⟨(0x101c4, 0x101d4), by native_decide, by native_decide, by native_decide⟩
+    exact ⟨⟨(0x101c4, 0x101d4), by native_decide, by native_decide, by native_decide⟩,
+      by native_decide⟩
 
 private theorem zkvmExitPcNotExit (pc : BitVec 64)
     (literal : pc = 0x101c4 ∨ pc = 0x101c8 ∨ pc = 0x101cc) :
@@ -2009,7 +2010,7 @@ private theorem zkvmExitPcNotObserved (pc : BitVec 64)
 private theorem zkvmExitConfinedSailStep (stepNo : Nat) (before : EndpointState)
     (after : State) (pc : BitVec 64) (literal : pc = 0x101c4 ∨ pc = 0x101c8)
     (atPc : EndpointPc before = some pc) (step : MachineStep stepNo before.machine after) :
-    ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.zkvmExitExecutionPcRanges)
+    ConfinedTrace EndpointStep EndpointPc ZkvmExitExecutionPc
       stepNo 1 before { before with machine := after } := by
   apply ConfinedTrace.step stepNo 0 pc before { before with machine := after }
     { before with machine := after }
@@ -2023,7 +2024,7 @@ private theorem zkvmExitConfinedSailStep (stepNo : Nat) (before : EndpointState)
 
 private theorem zkvmExitConfinedStoreStep (stepNo : Nat) (before after : EndpointState)
     (step : BareMetalExitStep stepNo before after) :
-    ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.zkvmExitExecutionPcRanges)
+    ConfinedTrace EndpointStep EndpointPc ZkvmExitExecutionPc
       stepNo 1 before after := by
   rcases step with ⟨code, atPc, codeRead, codeFits, machineStep, stdin, cursor, stdout, exitCode,
     terminal⟩
@@ -2036,11 +2037,11 @@ private theorem zkvmExitConfinedStoreStep (stepNo : Nat) (before after : Endpoin
 
 /-- The bare-metal `zkvm_exit` function implements its Level 1 contract unconditionally. -/
 theorem zkvmExitInstanceContract : ZkvmExitInstanceContract := by
-  refine ⟨3, ?_⟩
+  refine ⟨3, (by simp [level1ContractFuel]), ?_⟩
   intro args fromStep before entry
   rcases entry with ⟨atPc, codeRead, codeFits, pma, loaded, configured⟩
   obtain ⟨retired0, retiredRead0⟩ := configured.retiredCounter
-  have seg0 := Seg.nil (pcInRanges Elflings.zkvmExitExecutionPcRanges)
+  have seg0 := Seg.nil ZkvmExitExecutionPc
     (pcInList Elflings.zkvmExitExitPcs) zkvmExitWrites (fun _ => False) fromStep
     (childSummary := fun _ _ _ _ _ => False) ⟨retired0, retiredRead0⟩ atPc
   have seg0 := seg0.know x10 (BitVec.ofNat 64 args.code) codeRead
@@ -2098,10 +2099,10 @@ theorem zkvmExitInstanceContract : ZkvmExitInstanceContract := by
     exact ⟨args.code, seg2.atPc, code2, codeFits, run3, rfl, rfl, rfl, rfl, finalPc⟩
   have trace3 := zkvmExitConfinedStoreStep (fromStep + 2) state2Endpoint after exitStep
   have trace12 : ConfinedTrace EndpointStep EndpointPc
-      (pcInRanges Elflings.zkvmExitExecutionPcRanges) fromStep 2 before state2Endpoint := by
+      ZkvmExitExecutionPc fromStep 2 before state2Endpoint := by
     simpa [state1Endpoint, state2Endpoint] using trace1.append trace2
   have trace : ConfinedTrace EndpointStep EndpointPc
-      (pcInRanges Elflings.zkvmExitExecutionPcRanges) fromStep 3 before after := by
+      ZkvmExitExecutionPc fromStep 3 before after := by
     simpa [state2Endpoint] using trace12.append trace3
   refine ⟨3, after, (), by decide, ?_, trace, ?_, trivial, ?_⟩
   · exact Nat.le_refl 3

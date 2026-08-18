@@ -223,6 +223,11 @@ def DecodeExitPc (pc : BitVec 64) : Prop :=
 
 theorem decodeInputExitPc_14cfc : 0x14cfc ∈ Elflings.decodeInputExitPcs := by native_decide
 
+/-- Conservative uniform cap for every resolved Level 1 function contract. -/
+def level1ContractFuel : Nat := 2 ^ 160
+
+def maxSszInputSize : Nat := 64 * 1024 * 1024
+
 /-- The exact strict implementation obligation at the generated production boundary. -/
 abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : Prop :=
   (strictDecodeContract stepBound).Implements EndpointStep EndpointPc DecodeExecutionPc DecodeExitPc
@@ -231,6 +236,7 @@ abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : P
 compatibility semantics. The bound is implementation evidence, not caller-selected contract data. -/
 def DecodeInstanceContractModuloKnownBugs : Prop :=
   ∃ stepBound : Nat → Nat,
+    (∀ inputSize, inputSize ≤ maxSszInputSize → stepBound inputSize < level1ContractFuel) ∧
     (decodeContractModuloKnownBugs (fun args => stepBound args.input.size)).Implements
       EndpointStep EndpointPc DecodeExecutionPc DecodeExitPc
 

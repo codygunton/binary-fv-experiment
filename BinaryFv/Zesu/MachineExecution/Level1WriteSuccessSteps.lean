@@ -3745,7 +3745,7 @@ private theorem liftConstantPrefixTrace {exit : BitVec 64 → Prop} (template : 
 
 /-- The exact static six-byte success prefix reaches its declared exit without assumptions. -/
 theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract := by
-  refine ⟨10, ?_⟩
+  refine ⟨10, (by simp [level2ContractFuel]), ?_⟩
   intro _ fromStep before entry
   rcases entry with ⟨atPc, loaded, access⟩
   have seg0 := Seg.nil constantPrefixParentPc (fun pc => pc = 0x10190)
@@ -4010,7 +4010,7 @@ private theorem prevRandaoCallStep (stepNo : Nat) (state : State)
 
 /-- The 32-byte raw `prev_randao` encoder reaches its declared exit without assumptions. -/
 theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceContract := by
-  refine ⟨fun _ => 8, ?_⟩
+  refine ⟨fun _ => 8, (by intro _; simp [level2ContractFuel]), ?_⟩
   intro args fromStep before entry
   rcases entry with ⟨atPc, source, size, bytes, outside, loaded, access⟩
   have seg0 := (Seg.nil prevRandaoRawParentPc (fun pc => pc = 0x10190)
@@ -15285,6 +15285,16 @@ private theorem stepBound_le_max {bound : Nat → Nat} {index limit : Nat}
         exact Nat.le_max_left _ _
       · exact Nat.le_trans (ih (by omega)) (Nat.le_max_right _ _)
 
+private theorem stepBoundMax_lt {bound : Nat → Nat} {cap : Nat}
+    (capPositive : 0 < cap) (bounded : ∀ index, bound index < cap) :
+    ∀ limit, stepBoundMax bound limit < cap := by
+  intro limit
+  induction limit with
+  | zero => simpa [stepBoundMax] using capPositive
+  | succ limit ih =>
+      rw [stepBoundMax]
+      exact Nat.max_lt.mpr ⟨bounded limit, ih⟩
+
 private noncomputable def writeSuccessPhaseBound
     (h : Level2ContractAssumptions) (inputSize : Nat) : Nat :=
   1000 + inputSize * 7 +
@@ -15308,6 +15318,46 @@ private noncomputable def writeSuccessPhaseBound
       InlineEncoderInstanceContract.stepBound h.writeSuccessTransactions inputSize +
       InlineEncoderInstanceContract.stepBound h.writeSuccessWithdrawals inputSize +
       InlineEncoderInstanceContract.stepBound h.writeSuccessHashes inputSize)
+
+private theorem writeSuccessBound_lt_level1Fuel (h : Level2ContractAssumptions)
+    (inputSize : Nat) (inputBound : inputSize ≤ maxSszInputSize) :
+    5 * writeSuccessPhaseBound h inputSize + 15 < level1ContractFuel := by
+  have memcpy720 := MemcpyInstanceContract.bounded memcpyInstanceContract 720 (by
+    simp [maxSszInputSize])
+  have memcpy592 := MemcpyInstanceContract.bounded memcpyInstanceContract 592 (by
+    simp [maxSszInputSize])
+  have prefixBound := ConstantEncoderInstanceContract.bounded writeSuccessPrefixInstanceContract
+  have parentHash := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessParentHash) (2 ^ 64)
+  have feeRecipient := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessFeeRecipient) (2 ^ 64)
+  have stateRoot := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessStateRoot) (2 ^ 64)
+  have receiptsRoot := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessReceiptsRoot) (2 ^ 64)
+  have logsBloom := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessLogsBloom) (2 ^ 64)
+  have prevRandao := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel])
+    (RawEncoderInstanceContract.bounded writeSuccessPrevRandaoInstanceContract) (2 ^ 64)
+  have blockHash := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessBlockHash) (2 ^ 64)
+  have parentBeacon := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel])
+    (RawEncoderInstanceContract.bounded h.writeSuccessParentBeaconRoot) (2 ^ 64)
+  have boolean := EncoderCallInstanceContract.bounded h.writeSuccessBoolean inputSize inputBound
+  have optional := EncoderCallInstanceContract.bounded h.writeSuccessOptionalU64 inputSize inputBound
+  have byteLists := EncoderCallInstanceContract.bounded h.writeSuccessByteLists inputSize inputBound
+  have bytes := EncoderCallInstanceContract.bounded h.writeSuccessBytes inputSize inputBound
+  have int := EncoderCallInstanceContract.bounded h.writeSuccessInt inputSize inputBound
+  have transactions := InlineEncoderInstanceContract.bounded
+    h.writeSuccessTransactions inputSize inputBound
+  have withdrawals := InlineEncoderInstanceContract.bounded
+    h.writeSuccessWithdrawals inputSize inputBound
+  have hashes := InlineEncoderInstanceContract.bounded h.writeSuccessHashes inputSize inputBound
+  unfold writeSuccessPhaseBound
+  simp only [level1ContractFuel, level2ContractFuel, maxSszInputSize] at *
+  omega
 
 set_option genInjectivity false in
 private structure WriteSuccessEarlyHandoff (fromStep used : Nat) (args : WriteSuccessArgs)
@@ -16019,7 +16069,8 @@ contract. The remaining proof packages the completed machine handoff with the co
 aggregate endpoint call frame, and input-indexed step bound. -/
 theorem writeSuccessInstanceContract_of_level2
     (hLevel2 : Level2ContractAssumptions) : WriteSuccessInstanceContract := by
-  refine ⟨fun inputSize => 5 * writeSuccessPhaseBound hLevel2 inputSize + 15, ?_⟩
+  refine ⟨fun inputSize => 5 * writeSuccessPhaseBound hLevel2 inputSize + 15,
+    writeSuccessBound_lt_level1Fuel hLevel2, ?_⟩
   intro args fromStep before entry
   have entryCopy := entry
   obtain ⟨used, after, handoff, bounded⟩ :=
