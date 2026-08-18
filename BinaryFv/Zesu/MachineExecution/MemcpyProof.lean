@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.Artifacts.Image
 import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Level2Contracts
+import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.RiscV.Instruction.Decode
 import BinaryFv.RiscV.Instruction.DecodeTactic
 import BinaryFv.RiscV.Instruction.RegisterRuns
@@ -99,63 +100,40 @@ theorem bTypeTaken_bne_run (s : State) (a5v a2v : BitVec 64)
 private theorem memcpy_fetch (state : State) (image : ProgramImage) (address : Nat)
     (byte0 byte1 byte2 byte3 : UInt8) (imageEq : image = Artifacts.programImage)
     (loaded : image.fileBytesLoadedFaithfully state.mem)
-    (addressFits : address < 2 ^ 64 := by decide)
-    (read0 : Artifacts.programImage.readFileByte? address = some byte0 := by native_decide)
-    (read1 : Artifacts.programImage.readFileByte? (address + 1) = some byte1 := by native_decide)
-    (read2 : Artifacts.programImage.readFileByte? (address + 2) = some byte2 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (address + 3) = some byte3 := by native_decide) :
+    (site : ExactInstructionSite address byte0 byte1 byte2 byte3 := by
+      unfold ExactInstructionSite
+      native_decide) :
     FetchBytesAt state (BitVec.ofNat 64 address)
       (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
       (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat) := by
-  exact fetchBytesAt_of_file_bytes image state address addressFits loaded
-    byte0 byte1 byte2 byte3 (by simpa [imageEq] using read0)
-    (by simpa [imageEq] using read1) (by simpa [imageEq] using read2)
-    (by simpa [imageEq] using read3)
+  exact fetchBytesAt_of_file_bytes image state address site.pcFits loaded
+    byte0 byte1 byte2 byte3 (by simpa [imageEq] using site.read0)
+    (by simpa [imageEq] using site.read1) (by simpa [imageEq] using site.read2)
+    (by simpa [imageEq] using site.read3)
 
-private theorem fetchBytesAt_101d4 (state : State) (image : ProgramImage)
-    (imageEq : image = Artifacts.programImage) (loaded : image.fileBytesLoadedFaithfully state.mem) :
-    FetchBytesAt state (BitVec.ofNat 64 0x101d4) 0x93#8 0x07#8 0x00#8 0x00#8 :=
-  memcpy_fetch state image 0x101d4 0x93 0x07 0x00 0x00 imageEq loaded
+/-- Generate a named fetch theorem from one exact instruction site in the pinned endpoint image. -/
+syntax declModifiers "memcpy_fetch_site " ident " (" term ", " term ", " term ", " term ", "
+  term ")" : command
 
-private theorem fetchBytesAt_101d8 (state : State) (image : ProgramImage)
-    (imageEq : image = Artifacts.programImage) (loaded : image.fileBytesLoadedFaithfully state.mem) :
-    FetchBytesAt state (BitVec.ofNat 64 0x101d8) 0x63#8 0x94#8 0xc7#8 0x00#8 :=
-  memcpy_fetch state image 0x101d8 0x63 0x94 0xc7 0x00 imageEq loaded
+macro_rules
+  | `($mods:declModifiers memcpy_fetch_site $name:ident ($pc, $byte0, $byte1, $byte2, $byte3)) =>
+    `($mods:declModifiers theorem $name (state : State) (image : ProgramImage)
+        (imageEq : image = Artifacts.programImage)
+        (loaded : image.fileBytesLoadedFaithfully state.mem) :
+        FetchBytesAt state (BitVec.ofNat 64 $pc)
+          (BitVec.ofNat 8 $byte0) (BitVec.ofNat 8 $byte1)
+          (BitVec.ofNat 8 $byte2) (BitVec.ofNat 8 $byte3) :=
+      memcpy_fetch state image $pc $byte0 $byte1 $byte2 $byte3 imageEq loaded)
 
-private theorem fetchBytesAt_101dc (state : State) (image : ProgramImage)
-    (imageEq : image = Artifacts.programImage) (loaded : image.fileBytesLoadedFaithfully state.mem) :
-    FetchBytesAt state (BitVec.ofNat 64 0x101dc) 0x67#8 0x80#8 0x00#8 0x00#8 :=
-  memcpy_fetch state image 0x101dc 0x67 0x80 0x00 0x00 imageEq loaded
-
-private theorem fetchBytesAt_101e0 (state : State) (image : ProgramImage)
-    (imageEq : image = Artifacts.programImage) (loaded : image.fileBytesLoadedFaithfully state.mem) :
-    FetchBytesAt state (BitVec.ofNat 64 0x101e0) 0xb3#8 0x86#8 0xf5#8 0x00#8 :=
-  memcpy_fetch state image 0x101e0 0xb3 0x86 0xf5 0x00 imageEq loaded
-
-private theorem fetchBytesAt_101e4 (state : State) (image : ProgramImage)
-    (imageEq : image = Artifacts.programImage) (loaded : image.fileBytesLoadedFaithfully state.mem) :
-    FetchBytesAt state (BitVec.ofNat 64 0x101e4) 0x83#8 0xc6#8 0x06#8 0x00#8 :=
-  memcpy_fetch state image 0x101e4 0x83 0xc6 0x06 0x00 imageEq loaded
-
-private theorem fetchBytesAt_101e8 (state : State) (image : ProgramImage)
-    (imageEq : image = Artifacts.programImage) (loaded : image.fileBytesLoadedFaithfully state.mem) :
-    FetchBytesAt state (BitVec.ofNat 64 0x101e8) 0x33#8 0x07#8 0xf5#8 0x00#8 :=
-  memcpy_fetch state image 0x101e8 0x33 0x07 0xf5 0x00 imageEq loaded
-
-private theorem fetchBytesAt_101ec (state : State) (image : ProgramImage)
-    (imageEq : image = Artifacts.programImage) (loaded : image.fileBytesLoadedFaithfully state.mem) :
-    FetchBytesAt state (BitVec.ofNat 64 0x101ec) 0x93#8 0x87#8 0x17#8 0x00#8 :=
-  memcpy_fetch state image 0x101ec 0x93 0x87 0x17 0x00 imageEq loaded
-
-private theorem fetchBytesAt_101f0 (state : State) (image : ProgramImage)
-    (imageEq : image = Artifacts.programImage) (loaded : image.fileBytesLoadedFaithfully state.mem) :
-    FetchBytesAt state (BitVec.ofNat 64 0x101f0) 0x23#8 0x00#8 0xd7#8 0x00#8 :=
-  memcpy_fetch state image 0x101f0 0x23 0x00 0xd7 0x00 imageEq loaded
-
-private theorem fetchBytesAt_101f4 (state : State) (image : ProgramImage)
-    (imageEq : image = Artifacts.programImage) (loaded : image.fileBytesLoadedFaithfully state.mem) :
-    FetchBytesAt state (BitVec.ofNat 64 0x101f4) 0x6f#8 0xf0#8 0x5f#8 0xfe#8 :=
-  memcpy_fetch state image 0x101f4 0x6f 0xf0 0x5f 0xfe imageEq loaded
+private memcpy_fetch_site fetchBytesAt_101d4 (0x101d4, 0x93, 0x07, 0x00, 0x00)
+private memcpy_fetch_site fetchBytesAt_101d8 (0x101d8, 0x63, 0x94, 0xc7, 0x00)
+private memcpy_fetch_site fetchBytesAt_101dc (0x101dc, 0x67, 0x80, 0x00, 0x00)
+private memcpy_fetch_site fetchBytesAt_101e0 (0x101e0, 0xb3, 0x86, 0xf5, 0x00)
+private memcpy_fetch_site fetchBytesAt_101e4 (0x101e4, 0x83, 0xc6, 0x06, 0x00)
+private memcpy_fetch_site fetchBytesAt_101e8 (0x101e8, 0x33, 0x07, 0xf5, 0x00)
+private memcpy_fetch_site fetchBytesAt_101ec (0x101ec, 0x93, 0x87, 0x17, 0x00)
+private memcpy_fetch_site fetchBytesAt_101f0 (0x101f0, 0x23, 0x00, 0xd7, 0x00)
+private memcpy_fetch_site fetchBytesAt_101f4 (0x101f4, 0x6f, 0xf0, 0x5f, 0xfe)
 
 /-! ## Shared platform / counter bundles
 
@@ -1950,31 +1928,31 @@ theorem memcpyAbstractDataAccess_of_entry (args : MemcpyArgs) (state : EndpointS
         (BitVec.ofNat 64 args.destination + BitVec.ofNat 64 index) 1
         (destinationAddress.symm ▸ access.destinationNotMMIO index indexLtSize) htifDisabled
 
-private theorem memcpyReturnAligned {returnAddress : Nat}
+private theorem memcpyReturnFacts {returnAddress : Nat}
     (listed : returnAddress ∈ Elflings.memcpyExitPcs) :
-    Sail.BitVec.access (BitVec.ofNat 64 returnAddress) 1 = 0#1 := by
+    Sail.BitVec.access (BitVec.ofNat 64 returnAddress) 1 = 0#1 ∧
+      returnAddress < 2 ^ 64 ∧
+      Sail.BitVec.update (BitVec.ofNat 64 returnAddress) 0 0#1 =
+        BitVec.ofNat 64 returnAddress := by
   simp [Elflings.memcpyExitPcs] at listed
   rcases listed with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
       rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
       rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
   all_goals native_decide
 
+private theorem memcpyReturnAligned {returnAddress : Nat}
+    (listed : returnAddress ∈ Elflings.memcpyExitPcs) :
+    Sail.BitVec.access (BitVec.ofNat 64 returnAddress) 1 = 0#1 :=
+  (memcpyReturnFacts listed).1
+
 private theorem memcpyReturnFits {returnAddress : Nat}
-    (listed : returnAddress ∈ Elflings.memcpyExitPcs) : returnAddress < 2 ^ 64 := by
-  simp [Elflings.memcpyExitPcs] at listed
-  rcases listed with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  all_goals native_decide
+    (listed : returnAddress ∈ Elflings.memcpyExitPcs) : returnAddress < 2 ^ 64 :=
+  (memcpyReturnFacts listed).2.1
 
 private theorem memcpyReturnUpdate {returnAddress : Nat}
     (listed : returnAddress ∈ Elflings.memcpyExitPcs) :
-    Sail.BitVec.update (BitVec.ofNat 64 returnAddress) 0 0#1 = BitVec.ofNat 64 returnAddress := by
-  simp [Elflings.memcpyExitPcs] at listed
-  rcases listed with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  all_goals native_decide
+    Sail.BitVec.update (BitVec.ofNat 64 returnAddress) 0 0#1 = BitVec.ofNat 64 returnAddress :=
+  (memcpyReturnFacts listed).2.2
 
 /-- The production `memcpy` instance, discharged by induction over its runtime byte count. -/
 theorem memcpyInstanceContract : MemcpyInstanceContract := by
