@@ -31,7 +31,8 @@ abbrev ExactInstructionSite (pc : Nat) (byte0 byte1 byte2 byte3 : UInt8) : Prop 
   Artifacts.programImage.readFileByte? (pc + 1) = some byte1 ∧
   Artifacts.programImage.readFileByte? (pc + 2) = some byte2 ∧
   Artifacts.programImage.readFileByte? (pc + 3) = some byte3 ∧
-  Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = BitVec.ofNat 64 (pc + 4)
+  Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = BitVec.ofNat 64 (pc + 4) ∧
+  pc % 4 = 0
 
 namespace ExactInstructionSite
 
@@ -45,7 +46,9 @@ theorem read2 (h : ExactInstructionSite pc byte0 byte1 byte2 byte3) :
 theorem read3 (h : ExactInstructionSite pc byte0 byte1 byte2 byte3) :
     Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := h.2.2.2.2.1
 theorem advance (h : ExactInstructionSite pc byte0 byte1 byte2 byte3) :
-    Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = BitVec.ofNat 64 (pc + 4) := h.2.2.2.2.2
+    Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = BitVec.ofNat 64 (pc + 4) := h.2.2.2.2.2.1
+theorem pcAligned (h : ExactInstructionSite pc byte0 byte1 byte2 byte3) : pc % 4 = 0 :=
+  h.2.2.2.2.2.2
 
 end ExactInstructionSite
 
@@ -114,6 +117,7 @@ theorem configuredRegisterWriteStep (stepNo pc : Nat) (state : State)
           (BitVec.ofNat 64 pc)).regs.insert destination value }
       (.Retire_Success ()))
     (pcFits : pc < 2 ^ 64 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide)
     (destinationNotNextPc : destination ≠ nextPC := by decide)
     (destinationNotHart : destination ≠ hart_state := by decide)
     (destinationNotIncrement : destination ≠ minstret_increment := by decide)
@@ -127,7 +131,8 @@ theorem configuredRegisterWriteStep (stepNo pc : Nat) (state : State)
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination value) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc trivial
+    configured.stepContext (BitVec.ofNat 64 pc) atPc ⟨by simpa using pcAligned, ⟨byte0, by
+      simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt pcFits] using read0⟩⟩
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -187,6 +192,7 @@ theorem configuredDwordLoadStep (stepNo pc : Nat) (state : State)
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.LOAD (imm, rs1, rd, false, 8)))
     (pcFits : pc < 2 ^ 64 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide)
     (destinationNotNextPc : destination ≠ nextPC := by decide)
     (destinationNotHart : destination ≠ hart_state := by decide)
     (destinationNotIncrement : destination ≠ minstret_increment := by decide)
@@ -242,7 +248,8 @@ theorem configuredDwordLoadStep (stepNo pc : Nat) (state : State)
       (writeRun premise)
   exact configuredRegisterWriteStep stepNo pc state destination result
     (.LOAD (imm, rs1, rd, false, 8)) byte0 byte1 byte2 byte3 configured atPc loaded decode execute
-    (pcFits := pcFits) (base := base) (destinationNotNextPc := destinationNotNextPc)
+    (pcFits := pcFits) (pcAligned := pcAligned) (base := base)
+    (destinationNotNextPc := destinationNotNextPc)
     (destinationNotHart := destinationNotHart) (destinationNotIncrement := destinationNotIncrement)
     (destinationNotRetired := destinationNotRetired) (read0 := read0) (read1 := read1)
     (read2 := read2) (read3 := read3)
@@ -260,6 +267,7 @@ theorem configuredDwordStoreStep (stepNo pc : Nat) (state afterWrite : State)
       (.STORE (imm, rs2, rs1, 8)))
     (access : ConfiguredDwordStoreAccess state afterWrite (BitVec.ofNat 64 pc) imm rs1 rs2)
     (pcFits : pc < 2 ^ 64 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide)
     (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by native_decide)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
@@ -269,7 +277,8 @@ theorem configuredDwordStoreStep (stepNo pc : Nat) (state afterWrite : State)
       (tryStepStoreAfterRetired afterWrite (BitVec.ofNat 64 pc) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noFetchMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc trivial
+    configured.stepContext (BitVec.ofNat 64 pc) atPc ⟨by simpa using pcAligned, ⟨byte0, by
+      simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt pcFits] using read0⟩⟩
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepStoreAfterIncrement state).mem := by
     simpa [tryStepStoreAfterIncrement] using loaded
@@ -305,6 +314,7 @@ theorem configuredJStep (stepNo pc target : Nat) (state : State) (imm : BitVec 2
     (aligned1 : Sail.BitVec.access
       (BitVec.ofNat 64 pc + sign_extend (m := 64) imm) 1 = 0#1)
     (pcFits : pc < 2 ^ 64 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide)
     (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by native_decide)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
@@ -317,7 +327,8 @@ theorem configuredJStep (stepNo pc target : Nat) (state : State) (imm : BitVec 2
         (BitVec.ofNat 64 target) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc trivial
+    configured.stepContext (BitVec.ofNat 64 pc) atPc ⟨by simpa using pcAligned, ⟨byte0, by
+      simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt pcFits] using read0⟩⟩
   rcases platform with ⟨misaBits, mstatusBits, pcRead, misaRead, mstatusRead, privilegeAfter,
     pcLow0, pcLow1, alignedVirt, alignedPhys, pmpDisabled, pmaAllowed⟩
   have platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state)
@@ -368,6 +379,7 @@ theorem configuredRetStep (stepNo pc : Nat) (state : State) (returnAddress : Bit
     (targetAligned : Sail.BitVec.access returnAddress 1 = 0#1)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
     (pcFits : pc < 2 ^ 64 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide)
     (read0 : Artifacts.programImage.readFileByte? pc = some 0x67 := by native_decide)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some 0x80 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some 0x00 := by native_decide)
@@ -379,7 +391,8 @@ theorem configuredRetStep (stepNo pc : Nat) (state : State) (returnAddress : Bit
         (Sail.BitVec.update returnAddress 0 0#1) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc trivial
+    configured.stepContext (BitVec.ofNat 64 pc) atPc ⟨by simpa using pcAligned, ⟨0x67, by
+      simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt pcFits] using read0⟩⟩
   rcases platform with ⟨misaBits, mstatusBits, pcRead, misaRead, mstatusRead, privilegeAfter,
     pcLow0, pcLow1, alignedVirt, alignedPhys, pmpDisabled, pmaAllowed⟩
   have platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state)

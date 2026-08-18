@@ -2302,7 +2302,7 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
           ((afterRegisterWrite_writes machine1 0x14d14 retired1 x1 0xfd14).get pma_regions
             (by decide)) |>.of_pma_regions_eq (callWrites.get pma_regions (by decide))
       have exitEntry : ZkvmExitEntry { code := 0 } callState := by
-        refine ⟨?_, ?_, callDataAccess.exitCodeStore, callCode, callConfigured⟩
+        refine ⟨?_, ?_, by native_decide, callDataAccess.exitCodeStore, callCode, callConfigured⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.zkvmExitEntry]
         · exact (callWrites.get x10 (by decide)).trans zero2
@@ -2528,7 +2528,7 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
               (by decide))).of_pma_regions_eq
             ((afterRegisterWrite_writes machine3 0x14d28 retired3 x1 0xfd28).get pma_regions
               (by decide)) |>.of_pma_regions_eq (exitWrites.get pma_regions (by decide))
-        refine ⟨?_, (exitWrites.get x10 (by decide)).trans zero4,
+        refine ⟨?_, (exitWrites.get x10 (by decide)).trans zero4, by native_decide,
           exitDataAccess.exitCodeStore, exitCodeLoaded, exitConfigured⟩
         simp [exitState, exitMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.zkvmExitEntry]

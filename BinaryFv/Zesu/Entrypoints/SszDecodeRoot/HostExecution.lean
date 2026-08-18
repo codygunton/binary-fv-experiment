@@ -27,12 +27,22 @@ structure EndpointState where
   stdout : Array UInt8
   exitCode : Option Nat
 
+@[ext] theorem EndpointState.ext {left right : EndpointState}
+    (machine : left.machine = right.machine) (stdin : left.stdin = right.stdin)
+    (stdinCursor : left.stdinCursor = right.stdinCursor) (stdout : left.stdout = right.stdout)
+    (exitCode : left.exitCode = right.exitCode) : left = right := by
+  cases left
+  cases right
+  simp_all
+
 def EndpointPc (state : EndpointState) : Option (BitVec 64) :=
   MachinePc state.machine
 
-/-- The linked Linux process may execute any mapped endpoint instruction selected at a later proof
-depth. Concrete instruction theorems still prove exact ownership separately. -/
-def EndpointMachinePc (_pc : BitVec 64) : Prop := True
+/-- Aligned file-backed addresses of the linked endpoint. Function contracts narrow this set to
+their generated execution ranges; the machine configuration must not quantify over impossible
+unaligned or non-image program counters. -/
+def EndpointMachinePc (pc : BitVec 64) : Prop :=
+  pc.toNat % 4 = 0 ∧ ∃ byte, Artifacts.programImage.readFileByte? pc.toNat = some byte
 
 /-- Registers preserved by a returning RV64 ABI call, including the machine-platform registers used
 by the parent instruction proofs. -/
@@ -84,6 +94,7 @@ def BareMetalWriteStep (stepNo : Nat) (before after : EndpointState) : Prop :=
     before.machine.regs.get? PC = some (BitVec.ofNat 64 writeContextReturnPc) ∧
     before.machine.regs.get? x10 = some (BitVec.ofNat 64 buffer) ∧
     before.machine.regs.get? x11 = some (BitVec.ofNat 64 count) ∧
+    buffer < 2 ^ 64 ∧ count < 2 ^ 64 ∧
     chunk.size = count ∧ BytesRep before.machine.mem buffer chunk ∧
     MachineStep stepNo before.machine after.machine ∧
     after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
@@ -93,6 +104,7 @@ def BareMetalExitStep (stepNo : Nat) (before after : EndpointState) : Prop :=
   ∃ code,
     before.machine.regs.get? PC = some (BitVec.ofNat 64 exitContextStorePc) ∧
     before.machine.regs.get? x10 = some (BitVec.ofNat 64 code) ∧
+    code < 2 ^ 64 ∧
     MachineStep stepNo before.machine after.machine ∧
     after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
     after.stdout = before.stdout ∧ after.exitCode = some code ∧

@@ -52,7 +52,8 @@ private theorem configuredAuipcX5Step (stepNo pc : Nat) (state : State)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x5 result) false := by
   let premise := coreControlFlowNextState
@@ -70,7 +71,7 @@ private theorem configuredAuipcX5Step (stepNo pc : Nat) (state : State)
   exact configuredRegisterWriteStep stepNo pc state x5 result
     (.UTYPE (immediate, .Regidx 5#5, .AUIPC)) byte0 byte1 byte2 byte3 configured atPc loaded
     decode execute (pcFits := pcFits) (base := base) (read0 := read0) (read1 := read1)
-    (read2 := read2) (read3 := read3)
+    (read2 := read2) (read3 := read3) (pcAligned := pcAligned)
 
 private theorem configuredAddiX5Step (stepNo pc : Nat) (state : State)
     (immediate : BitVec 12) (source result : BitVec 64)
@@ -89,7 +90,8 @@ private theorem configuredAddiX5Step (stepNo pc : Nat) (state : State)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x5 result) false := by
   let premise := coreControlFlowNextState
@@ -106,7 +108,7 @@ private theorem configuredAddiX5Step (stepNo pc : Nat) (state : State)
     (.ITYPE (immediate, .Regidx 5#5, .Regidx 5#5, .ADDI)) byte0 byte1 byte2 byte3
     configured atPc loaded decode execute (pcFits := pcFits) (base := base)
     (read0 := read0) (read1 := read1)
-    (read2 := read2) (read3 := read3)
+    (read2 := read2) (read3 := read3) (pcAligned := pcAligned)
 
 /-- Production `0x10190: auipc t0, 0x2400a`. -/
 theorem writeOutputContextBaseHighStep (stepNo : Nat) (state : State)
@@ -164,7 +166,8 @@ private theorem writeOutputStoreStep (stepNo pc offset : Nat) (state : State)
     (read0 : Artifacts.programImage.readFileByte? pc = some 0x23 := by native_decide)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some 0x00 := by native_decide) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some 0x00 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepStoreAfterRetired
         (afterWriteBytes (width := 8)
@@ -216,7 +219,7 @@ private theorem writeOutputStoreStep (stepNo pc offset : Nat) (state : State)
   simpa [afterWrite] using configuredDwordStoreStep stepNo pc state afterWrite
     (BitVec.ofNat 12 offset) (.Regidx 5#5) sourceIndex 0x23 byte1 byte2 0x00 configured atPc
     loaded decode access (pcFits := pcFits) (base := by rfl) (read0 := read0) (read1 := read1)
-    (read2 := read2) (read3 := read3)
+    (read2 := read2) (read3 := read3) (pcAligned := pcAligned)
 
 /-- Production `0x10198: sd a0, 8(t0)`. -/
 theorem writeOutputStoreBufferStep (stepNo : Nat) (state : State) (buffer : Nat)
@@ -390,6 +393,7 @@ theorem writeOutputHandoff (fromStep buffer : Nat) (bytes : Array UInt8)
     (link : before.machine.regs.get? x1 = some returnAddress)
     (bufferRead : before.machine.regs.get? x10 = some (BitVec.ofNat 64 buffer))
     (countRead : before.machine.regs.get? x11 = some (BitVec.ofNat 64 bytes.size))
+    (bufferFits : buffer < 2 ^ 64) (countFits : bytes.size < 2 ^ 64)
     (bytesRep : BytesRep before.machine.mem buffer bytes)
     (bufferOutside : ∀ index, index < bytes.size → ¬ writeOutputMemory (buffer + index))
     (bufferPma : StorePmaAllows before.machine
@@ -463,7 +467,7 @@ theorem writeOutputHandoff (fromStep buffer : Nat) (bytes : Array UInt8)
   have prefixTrace := liftWriteOutputPrefix before machinePrefix
   have finalStep : EndpointStep (fromStep + 4) beforeReturn after := .write
     ⟨buffer, bytes.size, bytes, seg4.atPc, seg4.reg x10 _ (by simp), seg4.reg x11 _ (by simp),
-      rfl, bytes4, run5, rfl, rfl, rfl, rfl⟩
+      bufferFits, countFits, rfl, bytes4, run5, rfl, rfl, rfl, rfl⟩
   have finalTrace : ConfinedTrace EndpointStep EndpointPc
       writeOutputTracePc (fromStep + 4) 1 beforeReturn after := by
     refine ConfinedTrace.step _ 0 0x101a0 beforeReturn after after seg4.atPc ?_ finalStep (.refl _ _)
@@ -628,7 +632,8 @@ private theorem allocatorLoadAtX2Step (stepNo pc offset : Nat) (state : State)
     (destinationNotNextPc : destination ≠ nextPC)
     (destinationNotHart : destination ≠ hart_state)
     (destinationNotIncrement : destination ≠ minstret_increment)
-    (destinationNotRetired : destination ≠ minstret) :
+    (destinationNotRetired : destination ≠ minstret)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination result) false := by
   let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
@@ -682,6 +687,7 @@ private theorem allocatorLoadAtX2Step (stepNo pc offset : Nat) (state : State)
       (destinationNotIncrement := destinationNotIncrement)
       (destinationNotRetired := destinationNotRetired)
       (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+      (pcAligned := pcAligned)
 
 /-- Production `0x14cd4: ld a3, 8(sp)`. -/
 theorem allocatorLoadInputSizeStep (stepNo : Nat) (state : State)
@@ -760,7 +766,8 @@ private theorem allocatorStoreAtX2Step (stepNo pc offset : Nat) (state : State)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepStoreAfterRetired
         (afterWriteBytes (width := 8)
@@ -806,7 +813,7 @@ private theorem allocatorStoreAtX2Step (stepNo pc offset : Nat) (state : State)
   simpa [afterWrite] using configuredDwordStoreStep stepNo pc state afterWrite imm
     (.Regidx 2#5) rs2 byte0 byte1 byte2 byte3 configured atPc loaded decode access
     (pcFits := pcFits) (base := base) (read0 := read0) (read1 := read1)
-    (read2 := read2) (read3 := read3)
+    (read2 := read2) (read3 := read3) (pcAligned := pcAligned)
 
 /-- Production `0x14ce4: sd a0, 16(sp)`. -/
 theorem allocatorStoreStateStep (stepNo : Nat) (state : State) (stackPointer : Nat)
@@ -2018,18 +2025,20 @@ private theorem zkvmExitConfinedStoreStep (stepNo : Nat) (before after : Endpoin
     (step : BareMetalExitStep stepNo before after) :
     ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.zkvmExitExecutionPcRanges)
       stepNo 1 before after := by
-  rcases step with ⟨code, atPc, codeRead, machineStep, stdin, cursor, stdout, exitCode, terminal⟩
+  rcases step with ⟨code, atPc, codeRead, codeFits, machineStep, stdin, cursor, stdout, exitCode,
+    terminal⟩
   apply ConfinedTrace.step stepNo 0 0x101cc before after after
   · exact atPc
   · exact zkvmExitPcInside 0x101cc (Or.inr (Or.inr rfl))
-  · exact .exit ⟨code, atPc, codeRead, machineStep, stdin, cursor, stdout, exitCode, terminal⟩
+  · exact .exit ⟨code, atPc, codeRead, codeFits, machineStep, stdin, cursor, stdout, exitCode,
+      terminal⟩
   · exact .refl (stepNo + 1) _
 
 /-- The bare-metal `zkvm_exit` function implements its Level 1 contract unconditionally. -/
 theorem zkvmExitInstanceContract : ZkvmExitInstanceContract := by
   refine ⟨3, ?_⟩
   intro args fromStep before entry
-  rcases entry with ⟨atPc, codeRead, pma, loaded, configured⟩
+  rcases entry with ⟨atPc, codeRead, codeFits, pma, loaded, configured⟩
   obtain ⟨retired0, retiredRead0⟩ := configured.retiredCounter
   have seg0 := Seg.nil (pcInRanges Elflings.zkvmExitExecutionPcRanges)
     (pcInList Elflings.zkvmExitExitPcs) zkvmExitWrites (fun _ => False) fromStep
@@ -2086,7 +2095,7 @@ theorem zkvmExitInstanceContract : ZkvmExitInstanceContract := by
     rw [dif_pos (by decide : (PC == PC) = true)]
     rfl
   have exitStep : BareMetalExitStep (fromStep + 2) state2Endpoint after := by
-    exact ⟨args.code, seg2.atPc, code2, run3, rfl, rfl, rfl, rfl, finalPc⟩
+    exact ⟨args.code, seg2.atPc, code2, codeFits, run3, rfl, rfl, rfl, rfl, finalPc⟩
   have trace3 := zkvmExitConfinedStoreStep (fromStep + 2) state2Endpoint after exitStep
   have trace12 : ConfinedTrace EndpointStep EndpointPc
       (pcInRanges Elflings.zkvmExitExecutionPcRanges) fromStep 2 before state2Endpoint := by

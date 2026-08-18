@@ -340,6 +340,7 @@ structure ZkvmExitArgs where
 def ZkvmExitEntry (args : ZkvmExitArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 Elflings.zkvmExitEntry) ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.code) ∧
+  args.code < 2 ^ 64 ∧
   StorePmaAllows state.machine (BitVec.ofNat 64 (Elflings.ioContextAddress + 24)) 8 ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
   ConfiguredMachinePre EndpointMachinePc state.machine
