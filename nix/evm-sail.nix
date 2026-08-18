@@ -87,6 +87,7 @@ let
     mkdir -p compiled/BinaryFv/RiscV/Elfling
     mkdir -p compiled/BinaryFv/RiscV/Instruction
     mkdir -p compiled/BinaryFv/Binary
+    mkdir -p compiled/BinaryFv/ProofProgress
     export LEAN_PATH=$PWD/compiled:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
     cp ${repo}/BinaryFv/Specs/SSZ/Decode.lean Decode.lean
     cp ${repo}/BinaryFv/Zesu/DecodedValue/Observers.lean Observers.lean
@@ -128,6 +129,7 @@ let
     cp ${repo}/BinaryFv/RiscV/Elfling/Contract.lean ElflingContract.lean
     cp ${repo}/BinaryFv/RiscV/Elfling/ProgramGeometry.lean ProgramGeometry.lean
     cp ${repo}/BinaryFv/RiscV/Elfling/SequentialSplice.lean SequentialSplice.lean
+    cp ${repo}/BinaryFv/ProofProgress/OwnedPc.lean OwnedPc.lean
     cp ${repo}/BinaryFv/RiscV/Elfling/Seg.lean Seg.lean
     cp ${repo}/BinaryFv/RiscV/Instruction/Execute/Load.lean Load.lean
     cp ${repo}/BinaryFv/RiscV/Instruction/Execute/StoreByte.lean StoreByte.lean
@@ -192,6 +194,7 @@ let
     lean -o compiled/BinaryFv/RiscV/Elfling/Contract.olean ElflingContract.lean
     lean -o compiled/BinaryFv/RiscV/Elfling/ProgramGeometry.olean ProgramGeometry.lean
     lean -o compiled/BinaryFv/RiscV/Elfling/SequentialSplice.olean SequentialSplice.lean
+    lean -o compiled/BinaryFv/ProofProgress/OwnedPc.olean OwnedPc.lean
     lean -o compiled/BinaryFv/RiscV/Elfling/Seg.olean Seg.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/HostExecution.olean HostExecution.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.olean Level1Boundary.lean
