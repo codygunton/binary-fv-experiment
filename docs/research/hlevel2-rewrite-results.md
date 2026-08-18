@@ -56,3 +56,7 @@ The writer's profiler-instrumented wall time was 234.01s and 234.55s in two fina
 uninstrumented source check was 209.21s. The corresponding final CPU times were 213.58s, 211.94s, and
 188.16s. The profiler overhead is therefore reported rather than hidden; the retained proof improves
 the ordinary focused gate but not the instrumented wall measurement under this machine load.
+
+Final gates pass: `BinaryFv.Zesu.Root`, `BinaryFv.Zesu.TrustAudit`, Lean-MCP source/axiom checks for
+`root_compliance` and the `zkvm_exit` Seg consumer, `binaryFvLean`, the combined EVM-Sail import,
+the hLevel2 baseline/mutation suite, the Level 2 admission evidence, and the binary-regions UI build.
