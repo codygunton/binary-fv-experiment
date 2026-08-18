@@ -1205,663 +1205,222 @@ theorem writeSuccessSaveS0 {fromStep : Nat} {args : WriteSuccessArgs}
 
 
 /-- Exact save at `0x14d3c: sd s1,1976(sp)`. -/
-theorem writeSuccessSaveS1 {fromStep : Nat} {args : WriteSuccessArgs}
-    {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
-    (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
-      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-      (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-        writeSuccessIncomingRegs args values)
-      fromStep 3 state.machine cur 0x14d3c)
-    (words : SavedWordReps cur
-      [(args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)])
-    (configured : ConfiguredMachinePre EndpointMachinePc cur) :
-    ∃ nextState,
-      Seg writeSuccessParentPc writeSuccessInitialExitPc
-        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-          writeSuccessIncomingRegs args values)
-        fromStep 4 state.machine nextState 0x14d40 ∧
-      SavedWordReps nextState
-        [(args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
-      ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
-    0x14d3c 0x7b8 values.s1 0x7b8 (.Regidx 9#5) 0x23 0x3c 0x91 0x7a
-  · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
-  · intro premise writes
-    exact rX_x9_run premise values.s1
-      ((writes.get x9 (by decide)).trans
-        (seg.reg x9 values.s1 (by simp [writeSuccessIncomingRegs])))
-  · intro word member
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-    rcases member with rfl | rfl <;> omega
-  · native_decide
-  · omega
-  · rfl
-  · write_success_pc
-  · unfold writeSuccessInitialExitPc; native_decide
-  · intro configured'
-    write_success_store_decode configured'
-  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7b8#64 = _
-    rw [← BitVec.ofNat_add]
-  · exact of_decide_eq_true rfl
-  · rfl
+syntax declModifiers "write_success_save_site " ident " (" ident ", " ident ", " term ", " term
+  ", " term ", " term ", " term ", " ident ", " term ", " term ", " term ", " term ", " term
+  ", " term ", " term ", " term ")" " where " tacticSeq : command
+
+macro_rules
+  | `($mods:declModifiers write_success_save_site $name:ident
+      ($args:ident, $values:ident, $stepIn, $stepOut, $storePc, $nextPc, $offset, $field:ident,
+        $register, $rs2,
+        $readRun, $byte0, $byte1, $byte2, $byte3, $prior) where $belowWords:tacticSeq) =>
+    `($mods:declModifiers theorem $name {fromStep : Nat} {$args : WriteSuccessArgs}
+        {state : EndpointState} {$values : DecodeCalleeSavedValues} {cur : State}
+        (entry : WriteSuccessEntry $args state)
+        (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
+          (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory $args)
+          (⟨x2, BitVec.ofNat 64 (($args).stackPointer - 0x7d0)⟩ ::
+            writeSuccessIncomingRegs $args $values)
+          fromStep $stepIn state.machine cur $storePc)
+        (words : SavedWordReps cur $prior)
+        (configured : ConfiguredMachinePre EndpointMachinePc cur) :
+        ∃ nextState,
+          Seg writeSuccessParentPc writeSuccessInitialExitPc
+            (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory $args)
+            (⟨x2, BitVec.ofNat 64 (($args).stackPointer - 0x7d0)⟩ ::
+              writeSuccessIncomingRegs $args $values)
+            fromStep $stepOut state.machine nextState $nextPc ∧
+          SavedWordReps nextState
+            ((($args).stackPointer - 0x7d0 + $offset, (($values).$field).toNat) :: $prior) ∧
+          ConfiguredMachinePre EndpointMachinePc nextState := by
+      rcases entry with
+        ⟨_, lower, _aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
+      apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
+        $storePc $offset (($values).$field) $offset $rs2 $byte0 $byte1 $byte2 $byte3
+      · exact seg.reg x2 (BitVec.ofNat 64 (($args).stackPointer - 0x7d0)) (by simp)
+      · intro premise writes
+        exact $readRun premise (($values).$field)
+          ((writes.get $register (by decide)).trans
+            (seg.reg $register (($values).$field) (by simp [writeSuccessIncomingRegs])))
+      · exact (by $belowWords)
+      · native_decide
+      · omega
+      · rfl
+      · write_success_pc
+      · unfold writeSuccessInitialExitPc; native_decide
+      · intro configured'
+        write_success_store_decode configured'
+      · change BitVec.ofNat 64 (($args).stackPointer - 0x7d0) +
+          BitVec.ofNat (n := 64) $offset = _
+        rw [← BitVec.ofNat_add]
+      · exact of_decide_eq_true rfl
+      · rfl)
+
+/-- Exact save at `0x14d3c: sd s1,1976(sp)`. -/
+write_success_save_site writeSuccessSaveS1
+  (args, values, 3, 4, 0x14d3c, 0x14d40, 0x7b8, s1, x9, (.Regidx 9#5), rX_x9_run,
+    0x23, 0x3c, 0x91, 0x7a,
+    [(args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c8, (BitVec.ofNat 64 args.returnAddress).toNat)]) where
+  intro word member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl <;> omega
 
 
 /-- Exact save at `0x14d40: sd s2,1968(sp)`. -/
-theorem writeSuccessSaveS2 {fromStep : Nat} {args : WriteSuccessArgs}
-    {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
-    (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
-      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-      (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-        writeSuccessIncomingRegs args values)
-      fromStep 4 state.machine cur 0x14d40)
-    (words : SavedWordReps cur
-      [(args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)])
-    (configured : ConfiguredMachinePre EndpointMachinePc cur) :
-    ∃ nextState,
-      Seg writeSuccessParentPc writeSuccessInitialExitPc
-        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-          writeSuccessIncomingRegs args values)
-        fromStep 5 state.machine nextState 0x14d44 ∧
-      SavedWordReps nextState
-        [(args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
-      ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
-    0x14d40 0x7b0 values.s2 0x7b0 (.Regidx 18#5) 0x23 0x38 0x21 0x7b
-  · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
-  · intro premise writes
-    exact rX_x18_run premise values.s2
-      ((writes.get x18 (by decide)).trans
-        (seg.reg x18 values.s2 (by simp [writeSuccessIncomingRegs])))
-  · intro word member
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-    rcases member with rfl | rfl | rfl <;> omega
-  · native_decide
-  · omega
-  · rfl
-  · write_success_pc
-  · unfold writeSuccessInitialExitPc; native_decide
-  · intro configured'
-    write_success_store_decode configured'
-  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7b0#64 = _
-    rw [← BitVec.ofNat_add]
-  · exact of_decide_eq_true rfl
-  · rfl
-
+write_success_save_site writeSuccessSaveS2
+  (args, values, 4, 5, 0x14d40, 0x14d44, 0x7b0, s2, x18, (.Regidx 18#5), rX_x18_run,
+    0x23, 0x38, 0x21, 0x7b,
+    [(args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c8, (BitVec.ofNat 64 args.returnAddress).toNat)]) where
+  intro word member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl <;> omega
 
 /-- Exact save at `0x14d44: sd s3,1960(sp)`. -/
-theorem writeSuccessSaveS3 {fromStep : Nat} {args : WriteSuccessArgs}
-    {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
-    (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
-      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-      (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-        writeSuccessIncomingRegs args values)
-      fromStep 5 state.machine cur 0x14d44)
-    (words : SavedWordReps cur
-      [(args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)])
-    (configured : ConfiguredMachinePre EndpointMachinePc cur) :
-    ∃ nextState,
-      Seg writeSuccessParentPc writeSuccessInitialExitPc
-        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-          writeSuccessIncomingRegs args values)
-        fromStep 6 state.machine nextState 0x14d48 ∧
-      SavedWordReps nextState
-        [(args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
-      ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
-    0x14d44 0x7a8 values.s3 0x7a8 (.Regidx 19#5) 0x23 0x34 0x31 0x7b
-  · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
-  · intro premise writes
-    exact rX_x19_run premise values.s3
-      ((writes.get x19 (by decide)).trans
-        (seg.reg x19 values.s3 (by simp [writeSuccessIncomingRegs])))
-  · intro word member
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-    rcases member with rfl | rfl | rfl | rfl <;> omega
-  · native_decide
-  · omega
-  · rfl
-  · write_success_pc
-  · unfold writeSuccessInitialExitPc; native_decide
-  · intro configured'
-    write_success_store_decode configured'
-  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7a8#64 = _
-    rw [← BitVec.ofNat_add]
-  · exact of_decide_eq_true rfl
-  · rfl
-
+write_success_save_site writeSuccessSaveS3
+  (args, values, 5, 6, 0x14d44, 0x14d48, 0x7a8, s3, x19, (.Regidx 19#5), rX_x19_run,
+    0x23, 0x34, 0x31, 0x7b,
+    [(args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c8, (BitVec.ofNat 64 args.returnAddress).toNat)]) where
+  intro word member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl <;> omega
 
 /-- Exact save at `0x14d48: sd s4,1952(sp)`. -/
-theorem writeSuccessSaveS4 {fromStep : Nat} {args : WriteSuccessArgs}
-    {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
-    (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
-      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-      (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-        writeSuccessIncomingRegs args values)
-      fromStep 6 state.machine cur 0x14d48)
-    (words : SavedWordReps cur
-      [(args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)])
-    (configured : ConfiguredMachinePre EndpointMachinePc cur) :
-    ∃ nextState,
-      Seg writeSuccessParentPc writeSuccessInitialExitPc
-        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-          writeSuccessIncomingRegs args values)
-        fromStep 7 state.machine nextState 0x14d4c ∧
-      SavedWordReps nextState
-        [(args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
-      ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
-    0x14d48 0x7a0 values.s4 0x7a0 (.Regidx 20#5) 0x23 0x30 0x41 0x7b
-  · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
-  · intro premise writes
-    exact rX_x20_run premise values.s4
-      ((writes.get x20 (by decide)).trans
-        (seg.reg x20 values.s4 (by simp [writeSuccessIncomingRegs])))
-  · intro word member
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-    rcases member with rfl | rfl | rfl | rfl | rfl <;> omega
-  · native_decide
-  · omega
-  · rfl
-  · write_success_pc
-  · unfold writeSuccessInitialExitPc; native_decide
-  · intro configured'
-    write_success_store_decode configured'
-  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x7a0#64 = _
-    rw [← BitVec.ofNat_add]
-  · exact of_decide_eq_true rfl
-  · rfl
-
+write_success_save_site writeSuccessSaveS4
+  (args, values, 6, 7, 0x14d48, 0x14d4c, 0x7a0, s4, x20, (.Regidx 20#5), rX_x20_run,
+    0x23, 0x30, 0x41, 0x7b,
+    [(args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c8, (BitVec.ofNat 64 args.returnAddress).toNat)]) where
+  intro word member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl <;> omega
 
 /-- Exact save at `0x14d4c: sd s5,1944(sp)`. -/
-theorem writeSuccessSaveS5 {fromStep : Nat} {args : WriteSuccessArgs}
-    {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
-    (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
-      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-      (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-        writeSuccessIncomingRegs args values)
-      fromStep 7 state.machine cur 0x14d4c)
-    (words : SavedWordReps cur
-      [(args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)])
-    (configured : ConfiguredMachinePre EndpointMachinePc cur) :
-    ∃ nextState,
-      Seg writeSuccessParentPc writeSuccessInitialExitPc
-        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-          writeSuccessIncomingRegs args values)
-        fromStep 8 state.machine nextState 0x14d50 ∧
-      SavedWordReps nextState
-        [(args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
-      ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
-    0x14d4c 0x798 values.s5 0x798 (.Regidx 21#5) 0x23 0x3c 0x51 0x79
-  · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
-  · intro premise writes
-    exact rX_x21_run premise values.s5
-      ((writes.get x21 (by decide)).trans
-        (seg.reg x21 values.s5 (by simp [writeSuccessIncomingRegs])))
-  · intro word member
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-    rcases member with rfl | rfl | rfl | rfl | rfl | rfl <;> omega
-  · native_decide
-  · omega
-  · rfl
-  · write_success_pc
-  · unfold writeSuccessInitialExitPc; native_decide
-  · intro configured'
-    write_success_store_decode configured'
-  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x798#64 = _
-    rw [← BitVec.ofNat_add]
-  · exact of_decide_eq_true rfl
-  · rfl
-
+write_success_save_site writeSuccessSaveS5
+  (args, values, 7, 8, 0x14d4c, 0x14d50, 0x798, s5, x21, (.Regidx 21#5), rX_x21_run,
+    0x23, 0x3c, 0x51, 0x79,
+    [(args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c8, (BitVec.ofNat 64 args.returnAddress).toNat)]) where
+  intro word member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl <;> omega
 
 /-- Exact save at `0x14d50: sd s6,1936(sp)`. -/
-theorem writeSuccessSaveS6 {fromStep : Nat} {args : WriteSuccessArgs}
-    {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
-    (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
-      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-      (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-        writeSuccessIncomingRegs args values)
-      fromStep 8 state.machine cur 0x14d50)
-    (words : SavedWordReps cur
-      [(args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)])
-    (configured : ConfiguredMachinePre EndpointMachinePc cur) :
-    ∃ nextState,
-      Seg writeSuccessParentPc writeSuccessInitialExitPc
-        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-          writeSuccessIncomingRegs args values)
-        fromStep 9 state.machine nextState 0x14d54 ∧
-      SavedWordReps nextState
-        [(args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
-         (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
-      ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
-    0x14d50 0x790 values.s6 0x790 (.Regidx 22#5) 0x23 0x38 0x61 0x79
-  · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
-  · intro premise writes
-    exact rX_x22_run premise values.s6
-      ((writes.get x22 (by decide)).trans
-        (seg.reg x22 values.s6 (by simp [writeSuccessIncomingRegs])))
-  · intro word member
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-    rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
-  · native_decide
-  · omega
-  · rfl
-  · write_success_pc
-  · unfold writeSuccessInitialExitPc; native_decide
-  · intro configured'
-    write_success_store_decode configured'
-  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x790#64 = _
-    rw [← BitVec.ofNat_add]
-  · exact of_decide_eq_true rfl
-  · rfl
-
+write_success_save_site writeSuccessSaveS6
+  (args, values, 8, 9, 0x14d50, 0x14d54, 0x790, s6, x22, (.Regidx 22#5), rX_x22_run,
+    0x23, 0x38, 0x61, 0x79,
+    [(args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c8, (BitVec.ofNat 64 args.returnAddress).toNat)]) where
+  intro word member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
 
 /-- Exact save at `0x14d54: sd s7,1928(sp)`. -/
-theorem writeSuccessSaveS7 {fromStep : Nat} {args : WriteSuccessArgs}
-    {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
-    (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
-      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-      (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-        writeSuccessIncomingRegs args values)
-      fromStep 9 state.machine cur 0x14d54)
-    (words : SavedWordReps cur
-      [(args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
-         (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)])
-    (configured : ConfiguredMachinePre EndpointMachinePc cur) :
-    ∃ nextState,
-      Seg writeSuccessParentPc writeSuccessInitialExitPc
-        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-          writeSuccessIncomingRegs args values)
-        fromStep 10 state.machine nextState 0x14d58 ∧
-      SavedWordReps nextState
-        [(args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
-         (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
-         (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
-      ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
-    0x14d54 0x788 values.s7 0x788 (.Regidx 23#5) 0x23 0x34 0x71 0x79
-  · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
-  · intro premise writes
-    exact rX_x23_run premise values.s7
-      ((writes.get x23 (by decide)).trans
-        (seg.reg x23 values.s7 (by simp [writeSuccessIncomingRegs])))
-  · intro word member
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-    rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
-  · native_decide
-  · omega
-  · rfl
-  · write_success_pc
-  · unfold writeSuccessInitialExitPc; native_decide
-  · intro configured'
-    write_success_store_decode configured'
-  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x788#64 = _
-    rw [← BitVec.ofNat_add]
-  · exact of_decide_eq_true rfl
-  · rfl
-
+write_success_save_site writeSuccessSaveS7
+  (args, values, 9, 10, 0x14d54, 0x14d58, 0x788, s7, x23, (.Regidx 23#5), rX_x23_run,
+    0x23, 0x34, 0x71, 0x79,
+    [(args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
+     (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c8, (BitVec.ofNat 64 args.returnAddress).toNat)]) where
+  intro word member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
 
 /-- Exact save at `0x14d58: sd s8,1920(sp)`. -/
-theorem writeSuccessSaveS8 {fromStep : Nat} {args : WriteSuccessArgs}
-    {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
-    (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
-      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-      (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-        writeSuccessIncomingRegs args values)
-      fromStep 10 state.machine cur 0x14d58)
-    (words : SavedWordReps cur
-      [(args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
-         (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
-         (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)])
-    (configured : ConfiguredMachinePre EndpointMachinePc cur) :
-    ∃ nextState,
-      Seg writeSuccessParentPc writeSuccessInitialExitPc
-        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-          writeSuccessIncomingRegs args values)
-        fromStep 11 state.machine nextState 0x14d5c ∧
-      SavedWordReps nextState
-        [(args.stackPointer - 0x7d0 + 0x780, values.s8.toNat),
-         (args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
-         (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
-         (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
-      ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
-    0x14d58 0x780 values.s8 0x780 (.Regidx 24#5) 0x23 0x30 0x81 0x79
-  · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
-  · intro premise writes
-    exact rX_x24_run premise values.s8
-      ((writes.get x24 (by decide)).trans
-        (seg.reg x24 values.s8 (by simp [writeSuccessIncomingRegs])))
-  · intro word member
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-    rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
-  · native_decide
-  · omega
-  · rfl
-  · write_success_pc
-  · unfold writeSuccessInitialExitPc; native_decide
-  · intro configured'
-    write_success_store_decode configured'
-  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x780#64 = _
-    rw [← BitVec.ofNat_add]
-  · exact of_decide_eq_true rfl
-  · rfl
-
+write_success_save_site writeSuccessSaveS8
+  (args, values, 10, 11, 0x14d58, 0x14d5c, 0x780, s8, x24, (.Regidx 24#5), rX_x24_run,
+    0x23, 0x30, 0x81, 0x79,
+    [(args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
+     (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
+     (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c8, (BitVec.ofNat 64 args.returnAddress).toNat)]) where
+  intro word member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
 
 /-- Exact save at `0x14d5c: sd s9,1912(sp)`. -/
-theorem writeSuccessSaveS9 {fromStep : Nat} {args : WriteSuccessArgs}
-    {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
-    (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
-      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-      (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-        writeSuccessIncomingRegs args values)
-      fromStep 11 state.machine cur 0x14d5c)
-    (words : SavedWordReps cur
-      [(args.stackPointer - 0x7d0 + 0x780, values.s8.toNat),
-         (args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
-         (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
-         (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)])
-    (configured : ConfiguredMachinePre EndpointMachinePc cur) :
-    ∃ nextState,
-      Seg writeSuccessParentPc writeSuccessInitialExitPc
-        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-          writeSuccessIncomingRegs args values)
-        fromStep 12 state.machine nextState 0x14d60 ∧
-      SavedWordReps nextState
-        [(args.stackPointer - 0x7d0 + 0x778, values.s9.toNat),
-         (args.stackPointer - 0x7d0 + 0x780, values.s8.toNat),
-         (args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
-         (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
-         (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
-      ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
-    0x14d5c 0x778 values.s9 0x778 (.Regidx 25#5) 0x23 0x3c 0x91 0x77
-  · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
-  · intro premise writes
-    exact rX_x25_run premise values.s9
-      ((writes.get x25 (by decide)).trans
-        (seg.reg x25 values.s9 (by simp [writeSuccessIncomingRegs])))
-  · intro word member
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-    rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
-  · native_decide
-  · omega
-  · rfl
-  · write_success_pc
-  · unfold writeSuccessInitialExitPc; native_decide
-  · intro configured'
-    write_success_store_decode configured'
-  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x778#64 = _
-    rw [← BitVec.ofNat_add]
-  · exact of_decide_eq_true rfl
-  · rfl
-
+write_success_save_site writeSuccessSaveS9
+  (args, values, 11, 12, 0x14d5c, 0x14d60, 0x778, s9, x25, (.Regidx 25#5), rX_x25_run,
+    0x23, 0x3c, 0x91, 0x77,
+    [(args.stackPointer - 0x7d0 + 0x780, values.s8.toNat),
+     (args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
+     (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
+     (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c8, (BitVec.ofNat 64 args.returnAddress).toNat)]) where
+  intro word member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
 
 /-- Exact save at `0x14d60: sd s10,1904(sp)`. -/
-theorem writeSuccessSaveS10 {fromStep : Nat} {args : WriteSuccessArgs}
-    {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
-    (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
-      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-      (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-        writeSuccessIncomingRegs args values)
-      fromStep 12 state.machine cur 0x14d60)
-    (words : SavedWordReps cur
-      [(args.stackPointer - 0x7d0 + 0x778, values.s9.toNat),
-         (args.stackPointer - 0x7d0 + 0x780, values.s8.toNat),
-         (args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
-         (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
-         (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)])
-    (configured : ConfiguredMachinePre EndpointMachinePc cur) :
-    ∃ nextState,
-      Seg writeSuccessParentPc writeSuccessInitialExitPc
-        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-          writeSuccessIncomingRegs args values)
-        fromStep 13 state.machine nextState 0x14d64 ∧
-      SavedWordReps nextState
-        [(args.stackPointer - 0x7d0 + 0x770, values.s10.toNat),
-         (args.stackPointer - 0x7d0 + 0x778, values.s9.toNat),
-         (args.stackPointer - 0x7d0 + 0x780, values.s8.toNat),
-         (args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
-         (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
-         (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
-      ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
-    0x14d60 0x770 values.s10 0x770 (.Regidx 26#5) 0x23 0x38 0xa1 0x77
-  · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
-  · intro premise writes
-    exact rX_x26_run premise values.s10
-      ((writes.get x26 (by decide)).trans
-        (seg.reg x26 values.s10 (by simp [writeSuccessIncomingRegs])))
-  · intro word member
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-    rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
-  · native_decide
-  · omega
-  · rfl
-  · write_success_pc
-  · unfold writeSuccessInitialExitPc; native_decide
-  · intro configured'
-    write_success_store_decode configured'
-  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x770#64 = _
-    rw [← BitVec.ofNat_add]
-  · exact of_decide_eq_true rfl
-  · rfl
-
+write_success_save_site writeSuccessSaveS10
+  (args, values, 12, 13, 0x14d60, 0x14d64, 0x770, s10, x26, (.Regidx 26#5), rX_x26_run,
+    0x23, 0x38, 0xa1, 0x77,
+    [(args.stackPointer - 0x7d0 + 0x778, values.s9.toNat),
+     (args.stackPointer - 0x7d0 + 0x780, values.s8.toNat),
+     (args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
+     (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
+     (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c8, (BitVec.ofNat 64 args.returnAddress).toNat)]) where
+  intro word member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
 
 /-- Exact save at `0x14d64: sd s11,1896(sp)`. -/
-theorem writeSuccessSaveS11 {fromStep : Nat} {args : WriteSuccessArgs}
-    {state : EndpointState} {values : DecodeCalleeSavedValues} {cur : State}
-    (entry : WriteSuccessEntry args state)
-    (seg : Seg writeSuccessParentPc writeSuccessInitialExitPc
-      (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-      (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-        writeSuccessIncomingRegs args values)
-      fromStep 13 state.machine cur 0x14d64)
-    (words : SavedWordReps cur
-      [(args.stackPointer - 0x7d0 + 0x770, values.s10.toNat),
-         (args.stackPointer - 0x7d0 + 0x778, values.s9.toNat),
-         (args.stackPointer - 0x7d0 + 0x780, values.s8.toNat),
-         (args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
-         (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
-         (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)])
-    (configured : ConfiguredMachinePre EndpointMachinePc cur) :
-    ∃ nextState,
-      Seg writeSuccessParentPc writeSuccessInitialExitPc
-        (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
-        (⟨x2, BitVec.ofNat 64 (args.stackPointer - 0x7d0)⟩ ::
-          writeSuccessIncomingRegs args values)
-        fromStep 14 state.machine nextState 0x14d68 ∧
-      SavedWordReps nextState
-        [(args.stackPointer - 0x7d0 + 0x768, values.s11.toNat),
-         (args.stackPointer - 0x7d0 + 0x770, values.s10.toNat),
-         (args.stackPointer - 0x7d0 + 0x778, values.s9.toNat),
-         (args.stackPointer - 0x7d0 + 0x780, values.s8.toNat),
-         (args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
-         (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
-         (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
-         (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
-         (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
-         (args.stackPointer - 0x7d0 + 0x7c8,
-          (BitVec.ofNat 64 args.returnAddress).toNat)] ∧
-      ConfiguredMachinePre EndpointMachinePc nextState := by
-  rcases entry with ⟨_, lower, aligned, fits, _, _, _, _, _, _, _, _, loaded, _, access, _stable⟩
-  apply writeSuccessSaveStepAtSite seg access configured loaded lower fits _ words
-    0x14d64 0x768 values.s11 0x768 (.Regidx 27#5) 0x23 0x34 0xb1 0x77
-  · exact seg.reg x2 (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) (by simp)
-  · intro premise writes
-    exact rX_x27_run premise values.s11
-      ((writes.get x27 (by decide)).trans
-        (seg.reg x27 values.s11 (by simp [writeSuccessIncomingRegs])))
-  · intro word member
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
-    rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
-  · native_decide
-  · omega
-  · rfl
-  · write_success_pc
-  · unfold writeSuccessInitialExitPc; native_decide
-  · intro configured'
-    write_success_store_decode configured'
-  · change BitVec.ofNat 64 (args.stackPointer - 0x7d0) + 0x768#64 = _
-    rw [← BitVec.ofNat_add]
-  · exact of_decide_eq_true rfl
-  · rfl
+write_success_save_site writeSuccessSaveS11
+  (args, values, 13, 14, 0x14d64, 0x14d68, 0x768, s11, x27, (.Regidx 27#5), rX_x27_run,
+    0x23, 0x34, 0xb1, 0x77,
+    [(args.stackPointer - 0x7d0 + 0x770, values.s10.toNat),
+     (args.stackPointer - 0x7d0 + 0x778, values.s9.toNat),
+     (args.stackPointer - 0x7d0 + 0x780, values.s8.toNat),
+     (args.stackPointer - 0x7d0 + 0x788, values.s7.toNat),
+     (args.stackPointer - 0x7d0 + 0x790, values.s6.toNat),
+     (args.stackPointer - 0x7d0 + 0x798, values.s5.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a0, values.s4.toNat),
+     (args.stackPointer - 0x7d0 + 0x7a8, values.s3.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b0, values.s2.toNat),
+     (args.stackPointer - 0x7d0 + 0x7b8, values.s1.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c0, values.s0.toNat),
+     (args.stackPointer - 0x7d0 + 0x7c8, (BitVec.ofNat 64 args.returnAddress).toNat)]) where
+  intro word member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega
 
 
 def writeSuccessSavedWords (args : WriteSuccessArgs) (values : DecodeCalleeSavedValues) :
