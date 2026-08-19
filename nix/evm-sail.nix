@@ -221,61 +221,13 @@ let
       --replace-fail '@MINIMAL@' '${zesuSszDecodeSmoke}/minimal.ssz' \
       --replace-fail '@TRANSACTION@' '${zesuSszDecodeSmoke}/one-transaction.ssz' \
       --replace-fail '@WITHDRAWAL@' '${zesuSszDecodeSmoke}/one-withdrawal.ssz'
-    lean -o compiled/BinaryFv/Specs/SSZ/Decode.olean Decode.lean
-    lean -o compiled/BinaryFv/Zesu/DecodedValue/Observers.olean Observers.lean
-    lean -o compiled/BinaryFv/Zesu/DecodedValue/Encoder.olean Encoder.lean
-    lean -o compiled/BinaryFv/Zesu/DecodedValue/Representation.olean Representation.lean
-    lean -o compiled/BinaryFv/Zesu/DecodedValue/CodecRoundtrip.olean CodecRoundtrip.lean
-    lean -o compiled/BinaryFv/Zesu/Contracts/KnownBugs.olean KnownBugs.lean
-    lean -o compiled/BinaryFv/Zesu/Contracts/DecodedResultRelation.olean DecodedResultRelation.lean
-    lean -o compiled/BinaryFv/Zesu/Contracts/CanonicalOutcome.olean CanonicalOutcome.lean
-    lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel1.olean GeneratedLevel1.lean
-    lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel2.olean GeneratedLevel2.lean
-    lean -o compiled/BinaryFv/Zesu/Contracts/Machine.olean Machine.lean
-    lean -o compiled/BinaryFv/Binary/Address.olean BinaryAddress.lean
-    lean -o compiled/BinaryFv/RiscV/Model/Address.olean RiscVAddress.lean
-    lean -o compiled/BinaryFv/RiscV/Model/State.olean RiscVState.lean
-    lean -o compiled/BinaryFv/RiscV/Logic/LoadedImage.olean LoadedImage.lean
-    lean -o compiled/BinaryFv/RiscV/Logic/MemoryWriteFrame.olean MemoryWriteFrame.lean
-    lean -o compiled/BinaryFv/RiscV/Logic/RegisterAgree.olean RegisterAgree.lean
-    lean -o compiled/BinaryFv/RiscV/Logic/SepLogic.olean SepLogic.lean
-    lean -o compiled/BinaryFv/RiscV/Logic/Trace.olean Trace.lean
-    lean -o compiled/BinaryFv/RiscV/Instruction/Execute/Load.olean Load.lean
-    lean -o compiled/BinaryFv/RiscV/Instruction/Execute/StoreByte.olean StoreByte.lean
-    lean -o compiled/BinaryFv/RiscV/Instruction/Execute/Memory.olean Memory.lean
-    lean -o compiled/BinaryFv/RiscV/Logic/LoopInduction.olean LoopInduction.lean
-    lean -o compiled/BinaryFv/RiscV/Logic/BlockStep.olean BlockStep.lean
-    lean -o compiled/BinaryFv/RiscV/Logic/MemFrame.olean MemFrame.lean
-    lean -o compiled/BinaryFv/RiscV/Logic/SentinelTrace.olean SentinelTrace.lean
-    lean -o compiled/BinaryFv/RiscV/Instruction/DecodeTactic.olean DecodeTactic.lean
-    lean -o compiled/BinaryFv/RiscV/Execution/ImageLoad.olean ImageLoad.lean
-    lean -o compiled/BinaryFv/RiscV/Execution/MemoryIo.olean MemoryIo.lean
-    lean -o compiled/BinaryFv/RiscV/Proof/ImageLoadCorrectness.olean ImageLoadCorrectness.lean
-    lean -o compiled/BinaryFv/RiscV/Step/RegisterWrite.olean RegisterWrite.lean
-    lean -o compiled/BinaryFv/RiscV/Elfling/FunctionTrace.olean FunctionTrace.lean
-    lean -o compiled/BinaryFv/RiscV/Elfling/Boundary.olean Boundary.lean
-    lean -o compiled/BinaryFv/RiscV/Elfling/Contract.olean ElflingContract.lean
-    lean -o compiled/BinaryFv/RiscV/Elfling/ProgramGeometry.olean ProgramGeometry.lean
-    lean -o compiled/BinaryFv/RiscV/Elfling/SequentialSplice.olean SequentialSplice.lean
-    lean -o compiled/BinaryFv/ProofProgress/OwnedPc.olean OwnedPc.lean
-    lean -o compiled/BinaryFv/RiscV/Elfling/Seg.olean Seg.lean
-    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/HostExecution.olean HostExecution.lean
-    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.olean Level1Boundary.lean
-    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.olean Level1Contracts.lean
-    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.olean Level2Contracts.lean
-    lean -o compiled/BinaryFv/Zesu/MachineExecution/InstructionClassSteps.olean InstructionClassSteps.lean
-    lean -o compiled/BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.olean Level2RuntimeLeaves.lean
-    lean -o compiled/BinaryFv/Zesu/MachineExecution/MemcpyProof.olean MemcpyProof.lean
-    lean -o compiled/BinaryFv/Zesu/MachineExecution/Level1DecodeInputSteps.olean Level1DecodeInputSteps.lean
-    lean -o compiled/BinaryFv/Zesu/MachineExecution/Level1WriteContracts.olean Level1WriteContracts.lean
-    lean -o compiled/BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.olean Level1WriteSuccessSteps.lean
-    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Refinement.olean Level2Refinement.lean
-    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.olean Level0Contract.lean
-    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Executable.olean Executable.lean
-    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/ExecutableCorrectness.olean ExecutableCorrectness.lean
-    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/InitialState.olean InitialState.lean
-    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
-    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean 2>&1 | tee trust-audit.log
+    cp ${repo}/tools/combined_lean_modules.tsv lean-modules.tsv
+    lean_jobs="''${NIX_BUILD_CORES:-1}"
+    if [ "$lean_jobs" -lt 1 ]; then lean_jobs=1; fi
+    python ${repo}/tools/test_parallel_lean_build.py
+    python ${repo}/tools/parallel_lean_build.py lean-modules.tsv \
+      --jobs "$lean_jobs" --source-root ${repo}
+    cat lean-build-logs/BinaryFv.Zesu.TrustAudit.log | tee trust-audit.log
     python ${repo}/tools/check_root_axioms.py trust-audit.log
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
