@@ -59,7 +59,7 @@ class ParallelLeanBuildTest(unittest.TestCase):
             )
             recorder = root / "recording-lean"
             recorder.write_text(
-                "#!/usr/bin/env python3\n"
+                f"#!{sys.executable}\n"
                 "import pathlib, sys, time\n"
                 "output = pathlib.Path(sys.argv[sys.argv.index('-o') + 1])\n"
                 "source = pathlib.Path(sys.argv[-1])\n"
@@ -89,7 +89,7 @@ class ParallelLeanBuildTest(unittest.TestCase):
             )
             recorder = root / "failing-lean"
             recorder.write_text(
-                "#!/usr/bin/env python3\n"
+                f"#!{sys.executable}\n"
                 "import pathlib, sys, time\n"
                 "source = pathlib.Path(sys.argv[-1])\n"
                 "if source.stem == 'A': sys.exit(2)\n"
