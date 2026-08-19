@@ -73,6 +73,8 @@ def normalize_source(source: str) -> str:
         return "deps/zesu/" + source.split(marker, 1)[1]
     if source.startswith("/build/source/"):
         return "deps/zesu/" + source.removeprefix("/build/source/")
+    if source.startswith("/tmp/nix-build-") and "/source/" in source:
+        return "deps/zesu/" + source.split("/source/", 1)[1]
     runtime_marker = "-source/runtime/"
     if runtime_marker in source:
         return "runtime/" + source.split(runtime_marker, 1)[1]
