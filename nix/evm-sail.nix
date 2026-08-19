@@ -173,7 +173,9 @@ let
       --replace-fail '@HASHES_INPUT@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.ssz' \
       --replace-fail '@HASHES_SUCCESS@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.out'
     substituteInPlace EndpointExecutionSmoke.lean \
-      --replace-fail '@INPUT@' '${zesuSszDecodeSmoke}/minimal.ssz'
+      --replace-fail '@MINIMAL@' '${zesuSszDecodeSmoke}/minimal.ssz' \
+      --replace-fail '@TRANSACTION@' '${zesuSszDecodeSmoke}/one-transaction.ssz' \
+      --replace-fail '@WITHDRAWAL@' '${zesuSszDecodeSmoke}/one-withdrawal.ssz'
     lean -o compiled/BinaryFv/Specs/SSZ/Decode.olean Decode.lean
     lean -o compiled/BinaryFv/Zesu/DecodedValue/Observers.olean Observers.lean
     lean -o compiled/BinaryFv/Zesu/DecodedValue/Encoder.olean Encoder.lean

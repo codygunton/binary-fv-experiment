@@ -374,26 +374,50 @@ theorem decodedResultRel_iff_canonical_eq (source : Array UInt8) (zesu : ZesuDec
   simp only [List.map_id]
   grind
 
-/-- The only successful-result normalization currently admitted: Zesu maps an encoded chain id of
-zero to one, while EVM-Sail retains zero. Other `KnownBug` cases concern accept/reject domains. -/
+private def readU32LEAt (input : Array UInt8) (offset : Nat) : Option Nat := do
+  let byte0 ← input[offset]?
+  let byte1 ← input[offset + 1]?
+  let byte2 ← input[offset + 2]?
+  let byte3 ← input[offset + 3]?
+  pure (byte0.toNat + 256 * byte1.toNat + 65536 * byte2.toNat +
+    16777216 * byte3.toNat)
+
+private def readU64LEAt (input : Array UInt8) (offset : Nat) : Option Nat := do
+  let low ← readU32LEAt input offset
+  let high ← readU32LEAt input (offset + 4)
+  pure (low + 2 ^ 32 * high)
+
+private def semanticPayload (source : Array UInt8) : Array UInt8 :=
+  (stripErePrefix source).getD source
+
+/-- The chain id encoded in Zesu's reviewed outer SSZ layout. -/
+def encodedChainId (source : Array UInt8) : Option Nat := do
+  let payload := semanticPayload source
+  let chainConfigOffset ← readU32LEAt payload 10
+  readU64LEAt payload (2 + chainConfigOffset)
+
+/-- The only successful-result normalization currently admitted: for an input encoding chain id
+zero, Zesu returns one while EVM-Sail retains zero. Other `KnownBug` cases concern domains. -/
 def decodedResultRelModuloKnownBugs (source : Array UInt8) (zesu : ZesuDecodedResult)
     (sail : SailDecoded) : Prop :=
   decodedResultRelExceptChainId source zesu sail ∧
-  (zesu.chainConfig.chainId = sail.input.chain_config.chain_id ∨
-    (sail.input.chain_config.chain_id = 0 ∧ zesu.chainConfig.chainId = 1))
+  ((zesu.chainConfig.chainId = sail.input.chain_config.chain_id ∧
+      encodedChainId source ≠ some 0) ∨
+    (encodedChainId source = some 0 ∧ sail.input.chain_config.chain_id = 0 ∧
+      zesu.chainConfig.chainId = 1))
 
-/-- Canonicalize the one reviewed successful-result divergence on either decoder's own value. -/
-def CanonicalDecodedResult.normalizeKnownBugs
+/-- Apply Zesu's reviewed zero-to-one chain-id correction only when the input encoded zero. -/
+def CanonicalDecodedResult.normalizeZesuKnownBugs (source : Array UInt8)
     (decoded : CanonicalDecodedResult) : CanonicalDecodedResult :=
-  { decoded with chainId := if decoded.chainId = 1 then 0 else decoded.chainId }
+  { decoded with chainId := if encodedChainId source = some 0 then 0 else decoded.chainId }
 
 theorem normalized_eq_of_decodedResultRelModuloKnownBugs
     (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded) :
     decodedResultRelModuloKnownBugs source zesu sail →
-      (CanonicalDecodedResult.ofZesu zesu).normalizeKnownBugs =
-        (CanonicalDecodedResult.ofEvmSail source sail).normalizeKnownBugs := by
+      (CanonicalDecodedResult.ofZesu zesu).normalizeZesuKnownBugs source =
+        CanonicalDecodedResult.ofEvmSail source sail := by
   simp only [decodedResultRelModuloKnownBugs, decodedResultRelExceptChainId,
-    CanonicalDecodedResult.normalizeKnownBugs, CanonicalDecodedResult.ofZesu,
+    CanonicalDecodedResult.normalizeZesuKnownBugs, CanonicalDecodedResult.ofZesu,
     CanonicalDecodedResult.ofEvmSail, CanonicalDecodedResult.mk.injEq]
   rw [payloadRel_iff_canonical_eq]
   rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
@@ -409,16 +433,24 @@ theorem normalized_eq_of_decodedResultRelModuloKnownBugs
   simp only [List.map_id]
   grind
 
-private def readU32LEAt (input : Array UInt8) (offset : Nat) : Option Nat := do
-  let byte0 ← input[offset]?
-  let byte1 ← input[offset + 1]?
-  let byte2 ← input[offset + 2]?
-  let byte3 ← input[offset + 3]?
-  pure (byte0.toNat + 256 * byte1.toNat + 65536 * byte2.toNat +
-    16777216 * byte3.toNat)
+/-- The directional normalization never admits the unreviewed Zesu-zero/EVM-Sail-one mismatch. -/
+theorem zero_one_not_decodedResultRelModuloKnownBugs
+    (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded)
+    (zesuZero : zesu.chainConfig.chainId = 0)
+    (sailOne : sail.input.chain_config.chain_id = 1) :
+    ¬decodedResultRelModuloKnownBugs source zesu sail := by
+  intro related
+  rcases related.2 with ⟨equal, _notZero⟩ | ⟨_encodedZero, _sailZero, zesuOne⟩
+  · simp [zesuZero, sailOne] at equal
+  · simp [zesuZero] at zesuOne
 
-private def semanticPayload (source : Array UInt8) : Array UInt8 :=
-  (stripErePrefix source).getD source
+theorem normalizeZesuKnownBugs_zero_ne_one (source : Array UInt8)
+    (zesu sail : CanonicalDecodedResult) (zesuZero : zesu.chainId = 0)
+    (sailOne : sail.chainId = 1) :
+    zesu.normalizeZesuKnownBugs source ≠ sail := by
+  intro equal
+  have chainEqual := congrArg CanonicalDecodedResult.chainId equal
+  simp [CanonicalDecodedResult.normalizeZesuKnownBugs, zesuZero, sailOne] at chainEqual
 
 /-- The request-table arity encoded by Zesu's reviewed v0.4.1 outer layout. -/
 def encodedRequestTypeCount (source : Array UInt8) : Option Nat := do

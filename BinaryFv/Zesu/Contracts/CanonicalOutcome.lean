@@ -29,7 +29,7 @@ inductive CanonicalOutcome where
 def CanonicalOutcome.ofEvmSail (input : Array UInt8) : CanonicalOutcome :=
   match decode input with
   | none => .rejected
-  | some sail => .decoded (CanonicalDecodedResult.ofEvmSail input sail).normalizeKnownBugs
+  | some sail => .decoded (CanonicalDecodedResult.ofEvmSail input sail)
 
 def reviewedDomainDivergence (input : Array UInt8) (decoded : ZesuDecodedResult) : Bool :=
   knownBugs.any fun bug => decide (KnownBugApplies input decoded bug)
@@ -51,7 +51,7 @@ def CanonicalOutcome.ofZesuKnownBugs (input : Array UInt8)
   | .rejected => .rejected
   | .decoded zesu =>
       if reviewedDomainDivergence input zesu then .rejected
-      else .decoded (CanonicalDecodedResult.ofZesu zesu).normalizeKnownBugs
+      else .decoded ((CanonicalDecodedResult.ofZesu zesu).normalizeZesuKnownBugs input)
 
 def ZesuDecodeOutcome.AllowedModuloKnownBugs (input : Array UInt8) : ZesuDecodeOutcome → Prop
   | .rejected => ¬∃ decoded, SailDecode input decoded

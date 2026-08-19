@@ -2,10 +2,13 @@ import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Executable
 
 open BinaryFv.Zesu
 
-def endpointExecutionSmoke (path : System.FilePath) : IO Unit := do
+private def endpointExecutionSmoke (path : System.FilePath) : IO Unit := do
   let input := (← IO.FS.readBinFile path).data
   match RiscvSpec.execute zesuSszBinary input with
   | .decoded _ => pure ()
-  | outcome => throw (IO.userError s!"minimal endpoint execution failed: {repr outcome}")
+  | outcome => throw (IO.userError s!"endpoint execution failed for {path}: {repr outcome}")
 
-#eval endpointExecutionSmoke "@INPUT@"
+def endpointExecutionSmokeMain (paths : List String) : IO Unit :=
+  paths.forM endpointExecutionSmoke
+
+#eval endpointExecutionSmokeMain ["@MINIMAL@", "@TRANSACTION@", "@WITHDRAWAL@"]

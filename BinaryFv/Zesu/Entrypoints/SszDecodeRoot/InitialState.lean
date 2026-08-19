@@ -65,6 +65,10 @@ theorem endpointAllocatorZeroFill_valid :
     Artifacts.programImage.containsZeroFillRange endpointAllocatorZeroFill = true := by
   native_decide
 
+theorem endpointStaticZeroFill_valid :
+    Artifacts.programImage.containsZeroFillRange endpointStaticZeroFill = true := by
+  native_decide
+
 theorem endpointResultZeroFill_valid :
     Artifacts.programImage.containsZeroFillRange endpointResultZeroFill = true := by
   native_decide
@@ -281,11 +285,16 @@ def canonicalMainArgs (input : Array UInt8) : MainArgs :=
 theorem initialEndpointState_mainEntry (input : Array UInt8)
     (inputBound : input.size ≤ 64 * 1024 * 1024) :
     MainEntry (canonicalMainArgs input) (initialEndpointState input) := by
+  let staticSegment : LoadSegment :=
+    { virtualAddress := endpointStaticZeroFill.start, initialBytes := .empty,
+      memorySize := endpointStaticZeroFill.size, flags := 0 }
+  obtain ⟨staticState, staticRun, staticRegs, staticLow, _staticHigh, _staticWindow⟩ :=
+    loadSegmentPrefix_establishes staticSegment endpointStaticZeroFill.size endpointBaseMachine
   let zeroSegment : LoadSegment :=
     { virtualAddress := endpointAllocatorZeroFill.start, initialBytes := .empty,
       memorySize := endpointAllocatorZeroFill.size, flags := 0 }
   obtain ⟨zeroState, zeroRun, zeroRegs, zeroLow, zeroHigh, _zeroWindow⟩ :=
-    loadSegmentPrefix_establishes zeroSegment endpointAllocatorZeroFill.size endpointBaseMachine
+    loadSegmentPrefix_establishes zeroSegment endpointAllocatorZeroFill.size staticState
   let resultSegment : LoadSegment :=
     { virtualAddress := endpointResultZeroFill.start, initialBytes := .empty,
       memorySize := endpointResultZeroFill.size, flags := 0 }
@@ -312,10 +321,11 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
   have stackRun : Runs (writeReg x2 (BitVec.ofNat 64 (canonicalStackPointer + 0x380)))
       returnState finalMachine () := by
     exact writeReg_run returnState x2 (BitVec.ofNat 64 (canonicalStackPointer + 0x380))
-  have zeroListRun : Runs (loadZeroFillRanges [endpointAllocatorZeroFill, endpointResultZeroFill])
+  have zeroListRun : Runs (loadZeroFillRanges
+      [endpointStaticZeroFill, endpointAllocatorZeroFill, endpointResultZeroFill])
       endpointBaseMachine resultState () := by
     unfold loadZeroFillRanges
-    exact Runs.bind zeroRun (Runs.bind resultRun rfl)
+    exact Runs.bind staticRun (Runs.bind zeroRun (Runs.bind resultRun rfl))
   have initializeRun : Runs (initializeEndpointInput input) endpointBaseMachine finalMachine () := by
     unfold initializeEndpointInput
     exact Runs.bind zeroListRun (Runs.bind inputRun
@@ -368,9 +378,17 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
       have := segmentBound segment member
       change address < 0x2401a000
       omega)]
+    rw [staticLow address (by
+      obtain ⟨segment, member, _lower, upper⟩ :=
+        Artifacts.programImage.readFileByte?_mem_segment read
+      have segmentBound : ∀ segment ∈ Artifacts.programImage.segments.toList,
+          segment.initialEndAddress ≤ 0x2000000 := by native_decide
+      have := segmentBound segment member
+      change address < 0x1a000
+      omega)]
     exact endpointBaseCode address byte read
   have inputRegsBase : inputState.regs = endpointBaseMachine.regs :=
-    inputRegs.trans (resultRegs.trans zeroRegs)
+    inputRegs.trans (resultRegs.trans (zeroRegs.trans staticRegs))
   have code : Artifacts.programImage.fileBytesLoadedFaithfully finalMachine.mem := by
     simpa [finalMachine, returnState, pcState, contextState] using
       fileBytesLoadedFaithfully_afterWriteBytes Artifacts.programImage inputState

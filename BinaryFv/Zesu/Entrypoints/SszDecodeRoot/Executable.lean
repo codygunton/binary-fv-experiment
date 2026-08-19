@@ -58,15 +58,18 @@ def endpointPmaRegion : PMA_Region :=
   let regs := regs.insert x27 (0 : BitVec 64)
   { initialState with regs }
 
-/-- The endpoint's allocator bookkeeping is the only BSS window read before it is written. The
-64-MiB input buffer is populated separately, and allocated heap bytes are written before use. -/
+/-- Static Zig runtime state read before its first explicit write. -/
+def endpointStaticZeroFill : BinaryFv.Binary.AddressRange :=
+  { start := 0x1a000, size := 0x1000 }
+
+/-- The endpoint allocator's high bookkeeping window. -/
 def endpointAllocatorZeroFill : BinaryFv.Binary.AddressRange :=
   { start := 0x2401a000, size := 0xb8 }
 
-/-- The upper allocator page contains the fixed decoded-result object. Zig reads zero-valued optional
-fields from this BSS-backed object before every byte has received an explicit store. -/
+/-- The upper allocator pages contain decoded-result objects. Zig reads zero-valued optional fields
+from these BSS-backed objects before every byte has received an explicit store. -/
 def endpointResultZeroFill : BinaryFv.Binary.AddressRange :=
-  { start := 0x20018000, size := 0x2000 }
+  { start := 0x20016000, size := 0x4000 }
 
 def initializeEndpointBaseMachine : SailM Unit := do
   loadFileBackedImage Artifacts.programImage
@@ -92,7 +95,7 @@ def endpointBaseMachine : State :=
   { endpointConfiguredMachine with mem := endpointProgramMemory }
 
 def initializeEndpointInput (input : Array UInt8) : SailM Unit := do
-  loadZeroFillRanges [endpointAllocatorZeroFill, endpointResultZeroFill]
+  loadZeroFillRanges [endpointStaticZeroFill, endpointAllocatorZeroFill, endpointResultZeroFill]
   writeMemoryBytes Elflings.inputBufferAddress input.toList
   let _ ← PreSail.writeBytes (n := 8) Elflings.ioContextAddress (BitVec.ofNat 64 input.size)
   writeReg PC (BitVec.ofNat 64 Elflings.mainEntry)
