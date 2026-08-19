@@ -31,8 +31,8 @@ let
     '';
   };
 
-  leanExtraction = pkgs.stdenvNoCC.mkDerivation {
-    pname = "evm-sail-lean-extraction";
+  regeneratedLeanExtraction = pkgs.stdenvNoCC.mkDerivation {
+    pname = "evm-sail-lean-regenerated";
     version = "d0e4aabd";
     src = evmSail;
 
@@ -74,6 +74,51 @@ let
       cp -R . "$out/"
     '';
   };
+
+  leanExtraction = pkgs.stdenvNoCC.mkDerivation {
+    pname = "evm-sail-lean-extraction";
+    version = "d0e4aabd";
+    src = ../generated/evm-sail-lean;
+
+    nativeBuildInputs = [ lean429 pkgs.git ];
+    dontConfigure = true;
+
+    buildPhase = ''
+      runHook preBuild
+      export HOME="$TMPDIR/home"
+      mkdir -p "$HOME" .lake/packages/Sail
+      cp -R ${leanSail}/. .lake/packages/Sail/
+      chmod -R u+w .lake
+      ${lean429}/bin/lake build
+      ${lean429}/bin/lake env lean ${../tests/evm-sail/DecodeSmoke.lean}
+      test -s Evm/Lib/Ssz/StatelessInput.lean
+      grep -q '^def decode_stateless_input_ref ' Evm/Lib/Ssz/StatelessInput.lean
+      grep -q '^def decode_stateless_input ' Evm/Lib/Ssz/StatelessInput.lean
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      mkdir -p "$out"
+      cp -R . "$out/"
+    '';
+  };
+
+  evmSailLeanRegenerationCheck = pkgs.runCommand "evm-sail-lean-regeneration-check" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    python ${repo}/tools/compare_generated_tree.py \
+      --normalize-sail-existentials \
+      ${repo}/generated/evm-sail-lean ${regeneratedLeanExtraction}
+    touch "$out"
+  '';
+
+  generatedSailSnapshotTests = pkgs.runCommand "generated-sail-snapshot-tests" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    cd ${repo}/tools
+    python -m unittest test_compare_generated_tree.py
+    touch "$out"
+  '';
 
   combinedImport = pkgs.runCommand "binary-fv-evm-sail-combined-import" {
     nativeBuildInputs = [ lean429 pkgs.python3 ];
@@ -285,6 +330,7 @@ in
 {
   public = {
     evmSailCompiler = customSail;
+    inherit evmSailLeanRegenerationCheck generatedSailSnapshotTests;
     evmSailLeanExtraction = leanExtraction;
     binaryFvEvmSailCombinedImport = combinedImport;
     zesuHlevel2ProofBaseline = hlevel2Baseline;
