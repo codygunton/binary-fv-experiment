@@ -96,6 +96,7 @@ let
     cp ${repo}/BinaryFv/Zesu/DecodedValue/CodecRoundtrip.lean CodecRoundtrip.lean
     cp ${repo}/BinaryFv/Zesu/Contracts/KnownBugs.lean KnownBugs.lean
     cp ${repo}/BinaryFv/Zesu/Contracts/DecodedResultRelation.lean DecodedResultRelation.lean
+    cp ${repo}/BinaryFv/Zesu/Contracts/CanonicalOutcome.lean CanonicalOutcome.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.lean Level1Boundary.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.lean Level1Contracts.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.lean Level2Contracts.lean
@@ -172,6 +173,7 @@ let
     lean -o compiled/BinaryFv/Zesu/DecodedValue/CodecRoundtrip.olean CodecRoundtrip.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/KnownBugs.olean KnownBugs.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/DecodedResultRelation.olean DecodedResultRelation.lean
+    lean -o compiled/BinaryFv/Zesu/Contracts/CanonicalOutcome.olean CanonicalOutcome.lean
     lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel1.olean GeneratedLevel1.lean
     lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel2.olean GeneratedLevel2.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/Machine.olean Machine.lean
