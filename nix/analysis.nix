@@ -29,7 +29,7 @@ let
         --object ${artifact}/${filename} --output "$out/zesu-cfg.json" \
         --flame "$out/flame.json" --proof-map "$out/proof-map.json"
       python ${../tools/test_zesu_cfg.py} "$out/zesu-cfg.json"
-      PYTHONPATH=${../tools} python -m unittest ${../tools/test_source_path_normalization.py}
+      PYTHONPATH=${../tools} python ${../tools/test_source_path_normalization.py}
       mkdir "$TMPDIR/repeated"
       PYTHONPATH=${../tools} python ${../tools/generate_zesu_cfg.py} \
         --object ${artifact}/${filename} --output "$TMPDIR/repeated/zesu-cfg.json" \
