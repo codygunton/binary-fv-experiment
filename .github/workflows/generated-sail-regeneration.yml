@@ -1,0 +1,48 @@
+name: Regenerate Sail Lean snapshots
+
+on:
+  schedule:
+    - cron: "23 4 * * 0"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - generated/evm-sail-lean/**
+      - generated/sail-riscv-lean/**
+      - flake.nix
+      - flake.lock
+      - nix/evm-sail.nix
+      - nix/proof.nix
+      - tools/compare_generated_tree.py
+      - tools/test_compare_generated_tree.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: generated-sail-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evm-sail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: sandbox = true
+      - run: nix build -L .#evmSailLeanRegenerationCheck
+
+  sail-riscv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: sandbox = true
+      - run: nix build -L .#sailRiscvLeanRegenerationCheck
