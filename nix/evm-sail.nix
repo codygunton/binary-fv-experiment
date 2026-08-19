@@ -221,11 +221,11 @@ let
     lean -o compiled/BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.olean Level1WriteSuccessSteps.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Refinement.olean Level2Refinement.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.olean Level0Contract.lean
-    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Executable.olean Executable.lean
-    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/ExecutableCorrectness.olean ExecutableCorrectness.lean
-    lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/InitialState.olean InitialState.lean
-    lean -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
-    lean -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean 2>&1 | tee trust-audit.log
+    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Executable.olean Executable.lean
+    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/ExecutableCorrectness.olean ExecutableCorrectness.lean
+    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/InitialState.olean InitialState.lean
+    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
+    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean 2>&1 | tee trust-audit.log
     python ${repo}/tools/check_root_axioms.py trust-audit.log
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
