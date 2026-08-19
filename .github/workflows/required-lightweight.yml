@@ -18,5 +18,7 @@ jobs:
         with:
           submodules: true
       - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: sandbox = true
       - name: Run required checks with bounded parallelism
         run: nix flake check --print-build-logs --max-jobs 2 --cores 0
