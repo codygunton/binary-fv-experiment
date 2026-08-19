@@ -114,7 +114,7 @@ private theorem endpointBaseRegions : endpointBaseMachine.regs.get? pma_regions 
   simp [endpointBaseMachine, endpointConfiguredMachine, Std.ExtDHashMap.get?_insert]
 
 private theorem endpointBaseRegs : endpointBaseMachine.regs = endpointConfiguredMachine.regs := by
-  rfl
+  simp only [endpointBaseMachine]
 
 private theorem endpointPmaMatches {address : BitVec 64} {width : Nat}
     (fits : address.toNat + width ≤ 0x40000000) :

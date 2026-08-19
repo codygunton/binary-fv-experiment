@@ -24,7 +24,7 @@ def endpointPmaRegion : PMA_Region :=
     attributes := { (default : PMA) with executable := true, readable := true, writable := true },
     include_in_device_tree := false }
 
-def endpointConfiguredMachine : State :=
+@[irreducible] def endpointConfiguredMachine : State :=
   let regs := initialState.regs
   let regs := regs.insert hart_state (HartState.HART_ACTIVE ())
   let regs := regs.insert cur_privilege Privilege.Machine
