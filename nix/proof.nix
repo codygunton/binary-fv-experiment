@@ -27,7 +27,7 @@ let
     hash = "sha256-0e3QHntg1kFAVVL6pQ9HH8zW8sxW0pYK2xG6ed3j6Qc=";
   };
 
-  sailRiscvGenerated = pkgs.stdenv.mkDerivation {
+  sailRiscvRegeneratedRaw = pkgs.stdenv.mkDerivation {
     pname = "sail-riscv-lean-rv64";
     version = "0.12";
     src = sailRiscv;
@@ -55,8 +55,8 @@ let
     installPhase = ''cp -r model/Lean_RV64D_executable "$out"'';
   };
 
-  sailRiscvLean = pkgs.runCommand "sail-riscv-lean-rv64-4.29" { } ''
-    cp -R ${sailRiscvGenerated} "$out"
+  sailRiscvRegenerated = pkgs.runCommand "sail-riscv-lean-rv64-regenerated" { } ''
+    cp -R ${sailRiscvRegeneratedRaw} "$out"
     chmod -R u+w "$out"
     rm -rf "$out/LeanRV64DExecutable/Sail"
     mkdir "$out/Sail"
@@ -69,6 +69,18 @@ let
         '(parse_hex_bits n (String.drop str 1).toString)' \
       --replace-fail '(valid_hex_bits n (String.drop str 1))' \
         '(valid_hex_bits n (String.drop str 1).toString)'
+  '';
+
+  sailRiscvLean = pkgs.runCommand "sail-riscv-lean-rv64-4.29" { } ''
+    cp -R ${repo}/generated/sail-riscv-lean "$out"
+  '';
+
+  sailRiscvLeanRegenerationCheck = pkgs.runCommand "sail-riscv-lean-regeneration-check" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    python ${repo}/tools/compare_generated_tree.py \
+      ${repo}/generated/sail-riscv-lean ${sailRiscvRegenerated}
+    touch "$out"
   '';
 
   zesuSszDecodeProgramImageLean = pkgs.runCommand "zesu-ssz-decode-program-image-lean" {
@@ -116,7 +128,7 @@ let
 in
 {
   public = {
-    inherit binaryFvLean sailRiscvLean;
+    inherit binaryFvLean sailRiscvLean sailRiscvLeanRegenerationCheck;
     binary-fv-lean = binaryFvLean;
     sail-riscv-lean = sailRiscvLean;
   };

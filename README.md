@@ -14,7 +14,7 @@ compares its canonical outcome with the pinned EVM-Sail decoder.
 
 ```sh
 git submodule update --init
-nix build -L .#evmSailLeanExtraction  # regenerate, compile, and smoke-test EVM-Sail Lean
+nix build -L .#evmSailLeanExtraction  # compile and smoke-test the reviewed EVM-Sail Lean snapshot
 nix build -L .#zesuRv64Object         # authentic upstream Zesu RV64 object
 nix build -L .#binaryFvLean           # reusable BinaryFv/RISC-V Lean library
 nix flake check
@@ -40,7 +40,8 @@ initialization, RISC-V execution, parent glue, and discharged leaves are proved 
 
 ## Trust boundary
 
-Generated Lean is rebuilt from pinned Sail sources and compiled; `tests/evm-sail/DecodeSmoke.lean`
-also executes one accepted input and one schema mutation. This establishes an executable candidate
+Normal checks compile the reviewed generated Lean snapshots. Weekly checks regenerate both snapshots
+from pinned Sail sources and reject each source difference. `tests/evm-sail/DecodeSmoke.lean` also
+executes one accepted input and one schema mutation. This establishes an executable candidate
 specification, not Zesu compliance. ELF facts, empirical traces, source mappings, and retrieval
 suggestions remain evidence or authoring aids until connected by Lean proofs.

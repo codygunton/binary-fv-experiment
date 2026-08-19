@@ -22,8 +22,7 @@ and executable region-access definitions.
 - lean-sail `79b4d08505af29d88b3918f32d29840fae1fa191`
   and Lean 4.29.0.
 
-`nix build .#evmSailLeanExtraction` regenerates the model from
-`sail/evm.sail_project`, builds all 76 generated Lean modules, and runs
+`nix build .#evmSailLeanExtraction` builds all 76 reviewed generated Lean modules and runs
 `tests/evm-sail/DecodeSmoke.lean`. The smoke test executes the extracted
 decoder on a minimal 666-byte Amsterdam envelope and on a schema-byte mutation;
 the first succeeds and the mutation fails.
@@ -31,8 +30,8 @@ the first succeeds and the mutation fails.
 The regenerated source differs from EVM-Sail's checked-in extraction only in
 one compiler-generated existential-name sequence in
 `Evm/Lib/Ssz/StatelessInput.lean`; declarations and executable behavior are
-unchanged. Nix regeneration, rather than the checked-in generated tree, is the
-proof input.
+unchanged. `nix build .#evmSailLeanRegenerationCheck` regenerates the model from
+`sail/evm.sail_project` and requires exact agreement with the reviewed snapshot.
 
 ## Lean specification surface
 

@@ -1,8 +1,8 @@
 # Nix build system
 
 - `targets.nix` builds authentic upstream Zesu's relocatable RV64 object.
-- `evm-sail.nix` regenerates, compiles, and smoke-tests the pinned Sail Lean extraction.
-- `proof.nix` builds the reusable BinaryFv/RISC-V Lean library.
+- `evm-sail.nix` compiles the reviewed EVM-Sail Lean snapshot and defines its regeneration check.
+- `proof.nix` builds the reviewed Sail RISC-V Lean snapshot and the reusable BinaryFv Lean library.
 - `analysis.nix` exposes object statistics and disassembly.
 - `checks.nix` defines the flake checks and applications.
 
