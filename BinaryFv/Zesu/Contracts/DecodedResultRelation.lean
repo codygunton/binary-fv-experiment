@@ -15,13 +15,24 @@ private def listMatches (relation : α → β → Bool) : List α → List β �
   | left :: lefts, right :: rights => relation left right && listMatches relation lefts rights
   | _, _ => false
 
+private theorem listMatches_eq_true_iff_map_eq (relation : α → β → Bool)
+    (leftMap : α → γ) (rightMap : β → γ)
+    (related : ∀ left right, relation left right = true ↔ leftMap left = rightMap right) :
+    ∀ left right, listMatches relation left right = true ↔
+      left.map leftMap = right.map rightMap
+  | [], [] => by simp [listMatches]
+  | [], _ :: _ => by simp [listMatches]
+  | _ :: _, [] => by simp [listMatches]
+  | left :: lefts, right :: rights => by
+      simp [listMatches, related, listMatches_eq_true_iff_map_eq relation leftMap rightMap related]
+
 private def arrayRel (relation : α → β → Bool) (left : Array α) (right : Array β) : Prop :=
   listMatches relation left.toList right.toList = true
 
-private def sailBytes (bytes : Array Evm.Defs.byte) : Array UInt8 :=
+def sailBytes (bytes : Array Evm.Defs.byte) : Array UInt8 :=
   bytes.map fun byte => UInt8.ofNat byte.toNat
 
-private def littleEndianNat : List UInt8 → Nat
+def littleEndianNat : List UInt8 → Nat
   | [] => 0
   | byte :: rest => byte.toNat + 256 * littleEndianNat rest
 
@@ -31,6 +42,197 @@ private def txTypeCode : Evm.Defs.TxType → Nat
   | .FeeMarketTx => 2
   | .BlobTx => 3
   | .SetCodeTx => 4
+
+structure CanonicalTransaction where
+  txType : Nat
+  chainId : Option Nat
+  nonce : Nat
+  gasLimit : Nat
+  recipient : Option (Array UInt8)
+  value : Nat
+  data : Array UInt8
+  gasPrice : Nat
+  maxFeePerBlobGas : Nat
+  v : Nat
+  r : Nat
+  s : Nat
+  deriving BEq, DecidableEq, Repr
+
+structure CanonicalWithdrawal where
+  index : Nat
+  validatorIndex : Nat
+  address : Array UInt8
+  amount : Nat
+  deriving BEq, DecidableEq, Repr
+
+structure CanonicalPayload where
+  parentHash : Array UInt8
+  feeRecipient : Array UInt8
+  stateRoot : Array UInt8
+  receiptsRoot : Array UInt8
+  logsBloom : Array UInt8
+  prevRandao : Nat
+  blockNumber : Nat
+  gasLimit : Nat
+  gasUsed : Nat
+  timestamp : Nat
+  extraData : Array UInt8
+  baseFeePerGas : Nat
+  blockHash : Array UInt8
+  transactions : List CanonicalTransaction
+  rawTransactions : List (Array UInt8)
+  withdrawals : List CanonicalWithdrawal
+  blobGasUsed : Nat
+  excessBlobGas : Nat
+  slotNumber : Option Nat
+  blockAccessList : Array UInt8
+  deriving BEq, DecidableEq, Repr
+
+/-- The fields decoded by both Zesu and EVM-Sail. Fields outside this structure are not part of the
+reviewed common-output relation. -/
+structure CanonicalDecodedResult where
+  payload : CanonicalPayload
+  parentBeaconBlockRoot : Array UInt8
+  versionedHashes : List (Array UInt8)
+  deposits : Array UInt8
+  withdrawalRequests : Array UInt8
+  consolidations : Array UInt8
+  builderDeposits : Array UInt8
+  builderExits : Array UInt8
+  witnessNodes : List (Array UInt8)
+  witnessCodes : List (Array UInt8)
+  witnessHeaders : List (Array UInt8)
+  publicKeys : List (Array UInt8)
+  chainId : Nat
+  deriving BEq, DecidableEq, Repr
+
+def canonicalTransactionOfZesu (transaction : Transaction) : CanonicalTransaction := {
+  txType := transaction.txType
+  chainId := transaction.chainId
+  nonce := transaction.nonce
+  gasLimit := transaction.gasLimit
+  recipient := transaction.recipient
+  value := transaction.value
+  data := transaction.data
+  gasPrice := transaction.gasPrice
+  maxFeePerBlobGas := transaction.maxFeePerBlobGas
+  v := transaction.v
+  r := transaction.r
+  s := transaction.s
+}
+
+def canonicalTransactionOfSail (source : Array UInt8) :
+    Evm.Defs.Transaction → CanonicalTransaction
+  | ⟨_, fields⟩ => {
+      txType := txTypeCode fields.tx_type
+      chainId := some fields.chain_id
+      nonce := fields.nonce
+      gasLimit := fields.gas_limit
+      recipient := if fields.is_create then none else some (sailBytes fields.recipient.toArray)
+      value := fields.value
+      data := sailSliceBytes source fields.input_src
+      gasPrice := fields.max_fee
+      maxFeePerBlobGas := fields.max_blob_fee
+      v := fields.sig_v
+      r := fields.sig_r
+      s := fields.sig_s
+    }
+
+def canonicalWithdrawalOfZesu (withdrawal : Withdrawal) : CanonicalWithdrawal := {
+  index := withdrawal.index
+  validatorIndex := withdrawal.validatorIndex
+  address := withdrawal.address
+  amount := withdrawal.amount
+}
+
+def canonicalWithdrawalOfSail (withdrawal : Evm.Defs.Withdrawal) : CanonicalWithdrawal := {
+  index := withdrawal.index
+  validatorIndex := withdrawal.validator_index
+  address := sailBytes withdrawal.address.toArray
+  amount := withdrawal.amount
+}
+
+def canonicalPayloadOfZesu (payload : ExecutionPayload) : CanonicalPayload := {
+  parentHash := payload.parentHash
+  feeRecipient := payload.feeRecipient
+  stateRoot := payload.stateRoot
+  receiptsRoot := payload.receiptsRoot
+  logsBloom := payload.logsBloom
+  prevRandao := littleEndianNat payload.prevRandao.toList
+  blockNumber := payload.blockNumber
+  gasLimit := payload.gasLimit
+  gasUsed := payload.gasUsed
+  timestamp := payload.timestamp
+  extraData := payload.extraData
+  baseFeePerGas := payload.baseFeePerGas
+  blockHash := payload.blockHash
+  transactions := payload.transactions.toList.map canonicalTransactionOfZesu
+  rawTransactions := payload.rawTransactions.toList
+  withdrawals := payload.withdrawals.toList.map canonicalWithdrawalOfZesu
+  blobGasUsed := payload.blobGasUsed
+  excessBlobGas := payload.excessBlobGas
+  slotNumber := payload.slotNumber
+  blockAccessList := payload.blockAccessList
+}
+
+def canonicalPayloadOfSail (source : Array UInt8) (decoded : SailDecoded) : CanonicalPayload :=
+  let payload := decoded.input.payload
+  let header := payload.block'.header
+  {
+    parentHash := sailBytes header.parent_hash.toArray
+    feeRecipient := sailBytes header.fee_recipient.toArray
+    stateRoot := sailBytes header.state_root.toArray
+    receiptsRoot := sailBytes header.receipts_root.toArray
+    logsBloom := sailSliceBytes source header.logs_bloom
+    prevRandao := header.prev_randao
+    blockNumber := header.number
+    gasLimit := header.gas_limit
+    gasUsed := header.gas_used
+    timestamp := header.timestamp
+    extraData := sailSliceBytes source header.extra_data
+    baseFeePerGas := header.base_fee
+    blockHash := sailBytes payload.expected_block_hash.toArray
+    transactions := decoded.transactions.toList.map (canonicalTransactionOfSail source)
+    rawTransactions := decoded.rawTransactions.toList.map (sailSliceBytes source)
+    withdrawals := decoded.withdrawals.toList.map canonicalWithdrawalOfSail
+    blobGasUsed := header.blob_gas_used
+    excessBlobGas := header.excess_blob_gas
+    slotNumber := some header.slot_number
+    blockAccessList := sailSliceBytes source decoded.inputRef.block_access_list
+  }
+
+def CanonicalDecodedResult.ofZesu (decoded : ZesuDecodedResult) : CanonicalDecodedResult := {
+  payload := canonicalPayloadOfZesu decoded.payload
+  parentBeaconBlockRoot := decoded.parentBeaconBlockRoot
+  versionedHashes := decoded.versionedHashes.toList
+  deposits := decoded.executionRequests.deposits
+  withdrawalRequests := decoded.executionRequests.withdrawals
+  consolidations := decoded.executionRequests.consolidations
+  builderDeposits := decoded.executionRequests.builderDeposits
+  builderExits := decoded.executionRequests.builderExits
+  witnessNodes := decoded.witnessNodes.toList
+  witnessCodes := decoded.witnessCodes.toList
+  witnessHeaders := decoded.witnessHeaders.toList
+  publicKeys := decoded.publicKeys.toList
+  chainId := decoded.chainConfig.chainId
+}
+
+def CanonicalDecodedResult.ofEvmSail (source : Array UInt8)
+    (decoded : SailDecoded) : CanonicalDecodedResult := {
+  payload := canonicalPayloadOfSail source decoded
+  parentBeaconBlockRoot := sailBytes decoded.input.payload.block'.header.parent_beacon_block_root.toArray
+  versionedHashes := decoded.versionedHashes.toList.map (sailSliceBytes source)
+  deposits := sailSliceBytes source decoded.inputRef.deposits
+  withdrawalRequests := sailSliceBytes source decoded.inputRef.withdrawal_requests
+  consolidations := sailSliceBytes source decoded.inputRef.consolidation_requests
+  builderDeposits := sailSliceBytes source decoded.inputRef.builder_deposit_requests
+  builderExits := sailSliceBytes source decoded.inputRef.builder_exit_requests
+  witnessNodes := decoded.witnessNodes.toList.map (sailSliceBytes source)
+  witnessCodes := decoded.witnessCodes.toList.map (sailSliceBytes source)
+  witnessHeaders := decoded.witnessHeaders.toList.map (sailSliceBytes source)
+  publicKeys := decoded.publicKeys.toList.map (sailSliceBytes source)
+  chainId := decoded.input.chain_config.chain_id
+}
 
 private def recipientMatches (transaction : Transaction)
     (fields : Evm.Defs.TransactionFields limit) : Bool :=
@@ -62,6 +264,32 @@ private def withdrawalMatches (withdrawal : Withdrawal) (reference : Evm.Defs.Wi
   withdrawal.address == sailBytes reference.address.toArray &&
   withdrawal.amount == reference.amount
 
+private theorem transactionMatches_eq_true_iff (source : Array UInt8)
+    (transaction : Transaction) (reference : Evm.Defs.Transaction) :
+    transactionMatches source transaction reference = true ↔
+      canonicalTransactionOfZesu transaction = canonicalTransactionOfSail source reference := by
+  cases reference
+  simp [transactionMatches, canonicalTransactionOfZesu, canonicalTransactionOfSail,
+    recipientMatches] <;> grind
+
+private theorem withdrawalMatches_eq_true_iff (withdrawal : Withdrawal)
+    (reference : Evm.Defs.Withdrawal) :
+    withdrawalMatches withdrawal reference = true ↔
+      canonicalWithdrawalOfZesu withdrawal = canonicalWithdrawalOfSail reference := by
+  simp [withdrawalMatches, canonicalWithdrawalOfZesu, canonicalWithdrawalOfSail] <;> grind
+
+private theorem bytesMatch_eq_true_iff (source : Array UInt8) (bytes : Array UInt8)
+    (slice : Evm.Defs.StatelessInputSlice) :
+    (bytes == sailSliceBytes source slice) = true ↔ bytes = sailSliceBytes source slice := by
+  simp
+
+private theorem arrayRel_iff_map_eq (relation : α → β → Bool)
+    (leftMap : α → γ) (rightMap : β → γ)
+    (related : ∀ left right, relation left right = true ↔ leftMap left = rightMap right)
+    (left : Array α) (right : Array β) :
+    arrayRel relation left right ↔ left.toList.map leftMap = right.toList.map rightMap := by
+  exact listMatches_eq_true_iff_map_eq relation leftMap rightMap related left.toList right.toList
+
 private def payloadRel (source : Array UInt8) (zesu : ExecutionPayload)
     (sail : SailDecoded) : Prop :=
   let payload := sail.input.payload
@@ -88,6 +316,20 @@ private def payloadRel (source : Array UInt8) (zesu : ExecutionPayload)
   zesu.slotNumber = some header.slot_number ∧
   zesu.blockAccessList = sailSliceBytes source sail.inputRef.block_access_list
 
+private theorem payloadRel_iff_canonical_eq (source : Array UInt8)
+    (zesu : ExecutionPayload) (sail : SailDecoded) :
+    payloadRel source zesu sail ↔
+      canonicalPayloadOfZesu zesu = canonicalPayloadOfSail source sail := by
+  simp only [payloadRel, canonicalPayloadOfZesu, canonicalPayloadOfSail,
+    CanonicalPayload.mk.injEq]
+  rw [arrayRel_iff_map_eq (transactionMatches source) canonicalTransactionOfZesu
+      (canonicalTransactionOfSail source) (transactionMatches_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq withdrawalMatches canonicalWithdrawalOfZesu
+      canonicalWithdrawalOfSail withdrawalMatches_eq_true_iff]
+  simp only [List.map_id]
+
 /-- Exact common output relation before applying any reviewed `KnownBug` clause.
 Witness elements are compared only as byte strings; no RLP/MPT interpretation is claimed. -/
 private def decodedResultRelExceptChainId (source : Array UInt8) (zesu : ZesuDecodedResult)
@@ -112,13 +354,25 @@ def decodedResultRel (source : Array UInt8) (zesu : ZesuDecodedResult)
   decodedResultRelExceptChainId source zesu sail ∧
   zesu.chainConfig.chainId = sail.input.chain_config.chain_id
 
-/-- The only successful-result normalization currently admitted: Zesu maps an encoded chain id of
-zero to one, while EVM-Sail retains zero. Other `KnownBug` cases concern accept/reject domains. -/
-def decodedResultRelModuloKnownBugs (source : Array UInt8) (zesu : ZesuDecodedResult)
-    (sail : SailDecoded) : Prop :=
-  decodedResultRelExceptChainId source zesu sail ∧
-  (zesu.chainConfig.chainId = sail.input.chain_config.chain_id ∨
-    (sail.input.chain_config.chain_id = 0 ∧ zesu.chainConfig.chainId = 1))
+theorem decodedResultRel_iff_canonical_eq (source : Array UInt8) (zesu : ZesuDecodedResult)
+    (sail : SailDecoded) :
+    decodedResultRel source zesu sail ↔
+      CanonicalDecodedResult.ofZesu zesu = CanonicalDecodedResult.ofEvmSail source sail := by
+  simp only [decodedResultRel, decodedResultRelExceptChainId, CanonicalDecodedResult.ofZesu,
+    CanonicalDecodedResult.ofEvmSail, CanonicalDecodedResult.mk.injEq]
+  rw [payloadRel_iff_canonical_eq]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  simp only [List.map_id]
+  grind
 
 private def readU32LEAt (input : Array UInt8) (offset : Nat) : Option Nat := do
   let byte0 ← input[offset]?
@@ -128,8 +382,93 @@ private def readU32LEAt (input : Array UInt8) (offset : Nat) : Option Nat := do
   pure (byte0.toNat + 256 * byte1.toNat + 65536 * byte2.toNat +
     16777216 * byte3.toNat)
 
+private def readU64LEAt (input : Array UInt8) (offset : Nat) : Option Nat := do
+  let low ← readU32LEAt input offset
+  let high ← readU32LEAt input (offset + 4)
+  pure (low + 2 ^ 32 * high)
+
 private def semanticPayload (source : Array UInt8) : Array UInt8 :=
   (stripErePrefix source).getD source
+
+/-- The chain id encoded in Zesu's reviewed outer SSZ layout. -/
+def encodedChainId (source : Array UInt8) : Option Nat := do
+  let payload := semanticPayload source
+  let chainConfigOffset ← readU32LEAt payload 10
+  readU64LEAt payload (2 + chainConfigOffset)
+
+/-- The only successful-result normalization currently admitted: for an input encoding chain id
+zero, Zesu returns one while EVM-Sail retains zero. Other `KnownBug` cases concern domains. -/
+def decodedResultRelModuloKnownBugs (source : Array UInt8) (zesu : ZesuDecodedResult)
+    (sail : SailDecoded) : Prop :=
+  decodedResultRelExceptChainId source zesu sail ∧
+  encodedChainId source = some sail.input.chain_config.chain_id ∧
+  (zesu.chainConfig.chainId = sail.input.chain_config.chain_id ∨
+    (sail.input.chain_config.chain_id = 0 ∧ zesu.chainConfig.chainId = 1))
+
+/-- Apply Zesu's reviewed zero-to-one chain-id correction only when the input encoded zero. -/
+def CanonicalDecodedResult.normalizeZesuKnownBugs (source : Array UInt8)
+    (decoded : CanonicalDecodedResult) : CanonicalDecodedResult :=
+  { decoded with chainId :=
+      if encodedChainId source = some 0 ∧ decoded.chainId = 1 then 0 else decoded.chainId }
+
+theorem normalized_eq_of_decodedResultRelModuloKnownBugs
+    (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded) :
+    decodedResultRelModuloKnownBugs source zesu sail →
+      (CanonicalDecodedResult.ofZesu zesu).normalizeZesuKnownBugs source =
+        CanonicalDecodedResult.ofEvmSail source sail := by
+  simp only [decodedResultRelModuloKnownBugs, decodedResultRelExceptChainId,
+    CanonicalDecodedResult.normalizeZesuKnownBugs, CanonicalDecodedResult.ofZesu,
+    CanonicalDecodedResult.ofEvmSail, CanonicalDecodedResult.mk.injEq]
+  rw [payloadRel_iff_canonical_eq]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  simp only [List.map_id]
+  grind
+
+/-- The directional normalization never admits the unreviewed Zesu-zero/EVM-Sail-one mismatch. -/
+theorem zero_one_not_decodedResultRelModuloKnownBugs
+    (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded)
+    (zesuZero : zesu.chainConfig.chainId = 0)
+    (sailOne : sail.input.chain_config.chain_id = 1) :
+    ¬decodedResultRelModuloKnownBugs source zesu sail := by
+  intro related
+  rcases related.2.2 with equal | ⟨_sailZero, zesuOne⟩
+  · simp [zesuZero, sailOne] at equal
+  · simp [zesuZero] at zesuOne
+
+theorem normalizeZesuKnownBugs_zero_ne_one (source : Array UInt8)
+    (zesu sail : CanonicalDecodedResult) (zesuZero : zesu.chainId = 0)
+    (sailOne : sail.chainId = 1) :
+    zesu.normalizeZesuKnownBugs source ≠ sail := by
+  intro equal
+  have chainEqual := congrArg CanonicalDecodedResult.chainId equal
+  simp [CanonicalDecodedResult.normalizeZesuKnownBugs, zesuZero, sailOne] at chainEqual
+
+theorem normalizeZesuKnownBugs_two_ne_zero (source : Array UInt8)
+    (zesu sail : CanonicalDecodedResult) (zesuTwo : zesu.chainId = 2)
+    (sailZero : sail.chainId = 0) :
+    zesu.normalizeZesuKnownBugs source ≠ sail := by
+  intro equal
+  have chainEqual := congrArg CanonicalDecodedResult.chainId equal
+  simp [CanonicalDecodedResult.normalizeZesuKnownBugs, zesuTwo, sailZero] at chainEqual
+
+theorem two_zero_not_decodedResultRelModuloKnownBugs
+    (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded)
+    (zesuTwo : zesu.chainConfig.chainId = 2)
+    (sailZero : sail.input.chain_config.chain_id = 0) :
+    ¬decodedResultRelModuloKnownBugs source zesu sail := by
+  intro related
+  rcases related.2.2 with equal | ⟨_sailZero, zesuOne⟩
+  · simp [zesuTwo, sailZero] at equal
+  · simp [zesuTwo] at zesuOne
 
 /-- The request-table arity encoded by Zesu's reviewed v0.4.1 outer layout. -/
 def encodedRequestTypeCount (source : Array UInt8) : Option Nat := do
@@ -163,6 +502,11 @@ instance (source : Array UInt8) (zesu : ZesuDecodedResult) (bug : KnownBug) :
     Decidable (KnownBugApplies source zesu bug) := by
   cases bug <;> simp only [KnownBugApplies] <;> try infer_instance
   cases zesu.chainConfig.activationBlock <;> infer_instance
+
+/-- None of the six reviewed accept/reject-domain divergences applies to this decoded value. -/
+def AvoidsReviewedDomainDivergences (source : Array UInt8)
+    (zesu : ZesuDecodedResult) : Prop :=
+  ∀ bug ∈ knownBugs, ¬KnownBugApplies source zesu bug
 
 instance (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded) :
     Decidable (decodedResultRel source zesu sail) := by

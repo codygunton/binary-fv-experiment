@@ -1,4 +1,4 @@
-import BinaryFv.Zesu.Contracts.DecodedResultRelation
+import BinaryFv.Zesu.Contracts.CanonicalOutcome
 import BinaryFv.Zesu.DecodedValue.Encoder
 
 open BinaryFv.Specs.SSZ BinaryFv.Zesu
@@ -35,6 +35,9 @@ def differentialSmokeMain (arguments : List String) : IO Unit := do
   for bug in knownBugs do
     if KnownBugApplies input zesu bug then
       throw (IO.userError s!"ordinary fixture matched compatibility domain: {repr bug}")
+  unless CanonicalOutcome.ofZesuKnownBugs input (.decoded zesu) =
+      CanonicalOutcome.ofEvmSail input do
+    throw (IO.userError "independent canonical outcomes differ on the ordinary fixture")
   let changed ← readSuccess changedPath
   if decodedResultRel input changed sail then
     throw (IO.userError "common-result checker accepted a mutated block number")
@@ -45,12 +48,18 @@ def differentialSmokeMain (arguments : List String) : IO Unit := do
     throw (IO.userError "exact relation hid the zero-chain-id divergence")
   unless decodedResultRelModuloKnownBugs zeroInput zeroZesu zeroSail do
     throw (IO.userError "fixed zero-chain-id clause did not admit its exact divergence")
+  unless CanonicalOutcome.ofZesuKnownBugs zeroInput (.decoded zeroZesu) =
+      CanonicalOutcome.ofEvmSail zeroInput do
+    throw (IO.userError "independent canonical outcomes differ after chain-id normalization")
   let legacyInput := (← IO.FS.readBinFile legacyInputPath).data
   let legacyZesu ← readSuccess legacyObservationPath
   unless (tryRunSail legacyInput).isNone do
     throw (IO.userError "EVM-Sail accepted the legacy three-request table")
   unless KnownBugApplies legacyInput legacyZesu .legacyRequestTableArity do
     throw (IO.userError "legacy request fixture missed its fixed domain classifier")
+  unless CanonicalOutcome.ofZesuKnownBugs legacyInput (.decoded legacyZesu) =
+      CanonicalOutcome.ofEvmSail legacyInput do
+    throw (IO.userError "independent canonical outcomes differ on the legacy domain")
 
 private def assertAcceptanceDivergence (bug : KnownBug)
     (inputPath observationPath : System.FilePath) : IO Unit := do

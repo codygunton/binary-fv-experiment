@@ -84,6 +84,8 @@ let
     mkdir -p compiled/BinaryFv/Zesu/{Contracts,DecodedValue,Elflings,Entrypoints/SszDecodeRoot}
     mkdir -p compiled/BinaryFv/RiscV/Logic
     mkdir -p compiled/BinaryFv/RiscV/Model
+    mkdir -p compiled/BinaryFv/RiscV/Execution
+    mkdir -p compiled/BinaryFv/RiscV/Proof
     mkdir -p compiled/BinaryFv/RiscV/Elfling
     mkdir -p compiled/BinaryFv/RiscV/Instruction
     mkdir -p compiled/BinaryFv/Binary
@@ -96,6 +98,7 @@ let
     cp ${repo}/BinaryFv/Zesu/DecodedValue/CodecRoundtrip.lean CodecRoundtrip.lean
     cp ${repo}/BinaryFv/Zesu/Contracts/KnownBugs.lean KnownBugs.lean
     cp ${repo}/BinaryFv/Zesu/Contracts/DecodedResultRelation.lean DecodedResultRelation.lean
+    cp ${repo}/BinaryFv/Zesu/Contracts/CanonicalOutcome.lean CanonicalOutcome.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Boundary.lean Level1Boundary.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level1Contracts.lean Level1Contracts.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Contracts.lean Level2Contracts.lean
@@ -107,6 +110,9 @@ let
     cp ${repo}/BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.lean Level1WriteSuccessSteps.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Refinement.lean Level2Refinement.lean
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.lean Level0Contract.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Executable.lean Executable.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/ExecutableCorrectness.lean ExecutableCorrectness.lean
+    cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/InitialState.lean InitialState.lean
     cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
     cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
     cp ${repo}/BinaryFv/Zesu/Elflings/GeneratedLevel1.lean GeneratedLevel1.lean
@@ -123,6 +129,9 @@ let
     cp ${repo}/BinaryFv/RiscV/Logic/MemFrame.lean MemFrame.lean
     cp ${repo}/BinaryFv/RiscV/Logic/SentinelTrace.lean SentinelTrace.lean
     cp ${repo}/BinaryFv/RiscV/Instruction/DecodeTactic.lean DecodeTactic.lean
+    cp ${repo}/BinaryFv/RiscV/Execution/ImageLoad.lean ImageLoad.lean
+    cp ${repo}/BinaryFv/RiscV/Execution/MemoryIo.lean MemoryIo.lean
+    cp ${repo}/BinaryFv/RiscV/Proof/ImageLoadCorrectness.lean ImageLoadCorrectness.lean
     cp ${repo}/BinaryFv/RiscV/Step/RegisterWrite.lean RegisterWrite.lean
     cp ${repo}/BinaryFv/RiscV/Elfling/FunctionTrace.lean FunctionTrace.lean
     cp ${repo}/BinaryFv/RiscV/Elfling/Boundary.lean Boundary.lean
@@ -140,6 +149,7 @@ let
     cp ${repo}/tests/evm-sail/CombinedImportSmoke.lean CombinedImportSmoke.lean
     cp ${repo}/tests/evm-sail/ObservationSmoke.lean ObservationSmoke.lean
     cp ${repo}/tests/evm-sail/DifferentialSmoke.lean DifferentialSmoke.lean
+    cp ${repo}/tests/evm-sail/EndpointExecutionSmoke.lean EndpointExecutionSmoke.lean
     substituteInPlace ObservationSmoke.lean \
       --replace-fail '@SUCCESS@' '${zesuSszDecodeSmoke}/success.out' \
       --replace-fail '@FAILURE@' '${zesuSszDecodeSmoke}/rejected.out' \
@@ -162,6 +172,10 @@ let
       --replace-fail '@KEYS_SUCCESS@' '${zesuSszDecodeSmoke}/public-key-overflow.out' \
       --replace-fail '@HASHES_INPUT@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.ssz' \
       --replace-fail '@HASHES_SUCCESS@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.out'
+    substituteInPlace EndpointExecutionSmoke.lean \
+      --replace-fail '@MINIMAL@' '${zesuSszDecodeSmoke}/minimal.ssz' \
+      --replace-fail '@TRANSACTION@' '${zesuSszDecodeSmoke}/one-transaction.ssz' \
+      --replace-fail '@WITHDRAWAL@' '${zesuSszDecodeSmoke}/one-withdrawal.ssz'
     lean -o compiled/BinaryFv/Specs/SSZ/Decode.olean Decode.lean
     lean -o compiled/BinaryFv/Zesu/DecodedValue/Observers.olean Observers.lean
     lean -o compiled/BinaryFv/Zesu/DecodedValue/Encoder.olean Encoder.lean
@@ -169,6 +183,7 @@ let
     lean -o compiled/BinaryFv/Zesu/DecodedValue/CodecRoundtrip.olean CodecRoundtrip.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/KnownBugs.olean KnownBugs.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/DecodedResultRelation.olean DecodedResultRelation.lean
+    lean -o compiled/BinaryFv/Zesu/Contracts/CanonicalOutcome.olean CanonicalOutcome.lean
     lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel1.olean GeneratedLevel1.lean
     lean -o compiled/BinaryFv/Zesu/Elflings/GeneratedLevel2.olean GeneratedLevel2.lean
     lean -o compiled/BinaryFv/Zesu/Contracts/Machine.olean Machine.lean
@@ -188,6 +203,9 @@ let
     lean -o compiled/BinaryFv/RiscV/Logic/MemFrame.olean MemFrame.lean
     lean -o compiled/BinaryFv/RiscV/Logic/SentinelTrace.olean SentinelTrace.lean
     lean -o compiled/BinaryFv/RiscV/Instruction/DecodeTactic.olean DecodeTactic.lean
+    lean -o compiled/BinaryFv/RiscV/Execution/ImageLoad.olean ImageLoad.lean
+    lean -o compiled/BinaryFv/RiscV/Execution/MemoryIo.olean MemoryIo.lean
+    lean -o compiled/BinaryFv/RiscV/Proof/ImageLoadCorrectness.olean ImageLoadCorrectness.lean
     lean -o compiled/BinaryFv/RiscV/Step/RegisterWrite.olean RegisterWrite.lean
     lean -o compiled/BinaryFv/RiscV/Elfling/FunctionTrace.olean FunctionTrace.lean
     lean -o compiled/BinaryFv/RiscV/Elfling/Boundary.olean Boundary.lean
@@ -208,12 +226,16 @@ let
     lean -o compiled/BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.olean Level1WriteSuccessSteps.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level2Refinement.olean Level2Refinement.lean
     lean -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Level0Contract.olean Level0Contract.lean
-    lean -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
-    lean -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean 2>&1 | tee trust-audit.log
+    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/Executable.olean Executable.lean
+    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/ExecutableCorrectness.olean ExecutableCorrectness.lean
+    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/InitialState.olean InitialState.lean
+    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/Root.olean ZesuRoot.lean
+    lean --tstack=4000000 -o compiled/BinaryFv/Zesu/TrustAudit.olean TrustAudit.lean 2>&1 | tee trust-audit.log
     python ${repo}/tools/check_root_axioms.py trust-audit.log
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
     lean --tstack=65536 DifferentialSmoke.lean
+    lean --tstack=4000000 EndpointExecutionSmoke.lean
     lean ${repo}/tools/RootProofDependencies.lean > root-dependencies.tsv
     mkdir -p "$out"
     cp root-dependencies.tsv "$out/"

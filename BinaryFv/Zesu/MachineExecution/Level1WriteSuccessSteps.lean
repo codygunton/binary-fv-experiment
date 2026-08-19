@@ -525,7 +525,8 @@ private theorem writeSuccessDecodedDwordLoadStep (stepNo pc offset value : Nat)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination result) false := by
   have pma : LoadPmaAllows state (BitVec.ofNat 64 (args.decodedAddress + offset)) 8 := by
@@ -543,6 +544,7 @@ private theorem writeSuccessDecodedDwordLoadStep (stepNo pc offset value : Nat)
     (destinationNotIncrement := destinationNotIncrement)
     (destinationNotRetired := destinationNotRetired)
     (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+    (pcAligned := pcAligned)
 
 /-- Exact first decoded-tail load, `0x14d80: ld a0,720(s0)`. -/
 private theorem writeSuccessLoadDecoded720 (stepNo value : Nat) (args : WriteSuccessArgs)
@@ -908,7 +910,8 @@ theorem writeSuccessSaveStepExact {args : WriteSuccessArgs} {base : State}
     (read1 : Artifacts.programImage.readFileByte? (storePc + 1) = some byte1)
     (read2 : Artifacts.programImage.readFileByte? (storePc + 2) = some byte2)
     (read3 : Artifacts.programImage.readFileByte? (storePc + 3) = some byte3)
-    (advance : Sail.BitVec.addInt (BitVec.ofNat 64 storePc) 4 = BitVec.ofNat 64 (storePc + 4)) :
+    (advance : Sail.BitVec.addInt (BitVec.ofNat 64 storePc) 4 = BitVec.ofNat 64 (storePc + 4))
+    (pcAligned : storePc % 4 = 0 := by native_decide) :
     ∃ next,
       Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
@@ -935,7 +938,7 @@ theorem writeSuccessSaveStepExact {args : WriteSuccessArgs} {base : State}
     (args.stackPointer - 0x7d0) source imm rs2 byte0 byte1 byte2 byte3 configured seg.atPc
     stackRead pma noMMIO aligned fits code addressEq (decodeOfConfigured configured) dataRun
     (pcFits := pcFits) (base := baseEncoding) (read0 := read0) (read1 := read1)
-    (read2 := read2) (read3 := read3)
+    (read2 := read2) (read3 := read3) (pcAligned := pcAligned)
   obtain ⟨retired', next, nextEq, nextSeg⟩ := seg.stepStoreWitness
     (width := 8) (args.stackPointer - 0x7d0 + offset) source
     (BitVec.ofNat 64 (storePc + 4))
@@ -1015,7 +1018,8 @@ theorem writeSuccessSaveStep {args : WriteSuccessArgs} {base : State}
     (read1 : Artifacts.programImage.readFileByte? (storePc + 1) = some byte1)
     (read2 : Artifacts.programImage.readFileByte? (storePc + 2) = some byte2)
     (read3 : Artifacts.programImage.readFileByte? (storePc + 3) = some byte3)
-    (advance : Sail.BitVec.addInt (BitVec.ofNat 64 storePc) 4 = BitVec.ofNat 64 (storePc + 4)) :
+    (advance : Sail.BitVec.addInt (BitVec.ofNat 64 storePc) 4 = BitVec.ofNat 64 (storePc + 4))
+    (pcAligned : storePc % 4 = 0 := by native_decide) :
     ∃ next,
       Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessPrologueWrites (writeSuccessFrameMemory args)
@@ -1027,7 +1031,7 @@ theorem writeSuccessSaveStep {args : WriteSuccessArgs} {base : State}
     writeSuccessSaveStepExact seg access configured loaded stackLower stackFits words wordsRep
       storePc offset source imm rs2 byte0 byte1 byte2 byte3 stackRead dataRun belowWords
       frameBound aligned pcEq inRegion notExit decodeOfConfigured addressEq keep pcFits baseEncoding
-      read0 read1 read2 read3 advance
+      read0 read1 read2 read3 advance (pcAligned := pcAligned)
   exact ⟨next, nextSeg, nextWords, nextConfigured⟩
 
 /-- The writer save interface with byte and PC facts checked as one artifact-only premise. -/
@@ -1076,7 +1080,7 @@ private theorem writeSuccessSaveStepAtSite {args : WriteSuccessArgs} {base : Sta
   writeSuccessSaveStep seg access configured loaded stackLower stackFits words wordsRep storePc
     offset source imm rs2 byte0 byte1 byte2 byte3 stackRead dataRun belowWords frameBound aligned
     pcEq inRegion notExit decodeOfConfigured addressEq keep site.pcFits baseEncoding site.read0
-    site.read1 site.read2 site.read3 site.advance
+    site.read1 site.read2 site.read3 site.advance (pcAligned := site.pcAligned)
 
 private theorem initializedByteWindow_of_writeSuccessStore
     {cur next : State} {memAddress width storePc storeAddress : Nat}
@@ -1600,7 +1604,8 @@ private theorem writeSuccessAddiX10FromSpStep (stepNo pc offset : Nat) (imm : Bi
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x10
         (BitVec.ofNat 64 (stackPointer + offset))) false := by
@@ -1621,6 +1626,7 @@ private theorem writeSuccessAddiX10FromSpStep (stepNo pc offset : Nat) (imm : Bi
     (.ITYPE (imm, .Regidx 2#5, .Regidx 10#5, .ADDI)) byte0 byte1 byte2 byte3
     configured atPc loaded decode execute (pcFits := pcFits) (base := base)
     (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+    (pcAligned := pcAligned)
 
 private theorem writeSuccessAddiX11FromSpStep (stepNo pc offset : Nat) (imm : BitVec 12)
     (byte0 byte1 byte2 byte3 : UInt8) (state : State) (stackPointer : Nat)
@@ -1639,7 +1645,8 @@ private theorem writeSuccessAddiX11FromSpStep (stepNo pc offset : Nat) (imm : Bi
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x11
         (BitVec.ofNat 64 (stackPointer + offset))) false := by
@@ -1660,6 +1667,7 @@ private theorem writeSuccessAddiX11FromSpStep (stepNo pc offset : Nat) (imm : Bi
     (.ITYPE (imm, .Regidx 2#5, .Regidx 11#5, .ADDI)) byte0 byte1 byte2 byte3
     configured atPc loaded decode execute (pcFits := pcFits) (base := base)
     (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+    (pcAligned := pcAligned)
 
 private theorem writeSuccessAddiX12FromZeroStep (stepNo pc value : Nat) (imm : BitVec 12)
     (byte0 byte1 byte2 byte3 : UInt8) (state : State)
@@ -1676,7 +1684,8 @@ private theorem writeSuccessAddiX12FromZeroStep (stepNo pc value : Nat) (imm : B
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x12
         (BitVec.ofNat 64 value)) false := by
@@ -1693,6 +1702,7 @@ private theorem writeSuccessAddiX12FromZeroStep (stepNo pc value : Nat) (imm : B
     (.ITYPE (imm, .Regidx 0#5, .Regidx 12#5, .ADDI)) byte0 byte1 byte2 byte3
     configured atPc loaded decode execute (pcFits := pcFits) (base := base)
     (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+    (pcAligned := pcAligned)
 
 private theorem writeSuccessAddiX11FromZeroStep (stepNo pc value : Nat) (imm : BitVec 12)
     (byte0 byte1 byte2 byte3 : UInt8) (state : State)
@@ -1709,7 +1719,8 @@ private theorem writeSuccessAddiX11FromZeroStep (stepNo pc value : Nat) (imm : B
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x11
         (BitVec.ofNat 64 value)) false := by
@@ -1726,6 +1737,7 @@ private theorem writeSuccessAddiX11FromZeroStep (stepNo pc value : Nat) (imm : B
     (.ITYPE (imm, .Regidx 0#5, .Regidx 11#5, .ADDI)) byte0 byte1 byte2 byte3
     configured atPc loaded decode execute (pcFits := pcFits) (base := base)
     (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+    (pcAligned := pcAligned)
 
 /-- Complete the writer ABI prologue at the first parent-owned payload setup instruction. -/
 theorem writeSuccessPrologueHandoff (fromStep : Nat) (args : WriteSuccessArgs)
@@ -2495,7 +2507,9 @@ private theorem writeSuccessTailPairStep {a n : Nat} {base cur : State} {bytes :
     (storeBelowSaved : storeOffset + 8 ≤ 0x748)
     (loadAdvance : Sail.BitVec.addInt (BitVec.ofNat 64 loadPc) 4 = BitVec.ofNat 64 storePc)
     (storeAdvance : Sail.BitVec.addInt (BitVec.ofNat 64 storePc) 4 =
-      BitVec.ofNat 64 (storePc + 4)) :
+      BitVec.ofNat 64 (storePc + 4))
+    (loadPcAligned : loadPc % 4 = 0 := by native_decide)
+    (storePcAligned : storePc % 4 = 0 := by native_decide) :
     ∃ next,
       Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessParentWrites (writeSuccessFrameMemory args)
@@ -2536,7 +2550,7 @@ private theorem writeSuccessTailPairStep {a n : Nat} {base cur : State} {bytes :
     (fun premise => wX_x10_run premise (BitVec.ofNat 64 (tailValues ⟨index, inBounds⟩)))
     loadDecode (by decide) (by decide) (by decide) (by decide)
     (pcFits := loadPcFits) (base := loadBase) (read0 := loadRead0) (read1 := loadRead1)
-    (read2 := loadRead2) (read3 := loadRead3)
+    (read2 := loadRead2) (read3 := loadRead3) (pcAligned := loadPcAligned)
   obtain ⟨retired0', loadedState, loadedEq, seg1⟩ := seg0.stepWitness
     loadInRegion loadNotExit x10
     (BitVec.ofNat 64 (tailValues ⟨index, inBounds⟩)) (BitVec.ofNat 64 storePc)
@@ -2573,6 +2587,7 @@ private theorem writeSuccessTailPairStep {a n : Nat} {base cur : State} {bytes :
     storeBound storeAligned rfl storeInRegion storeNotExit (storeDecode loadedState)
     storeAddressEq (by simp [kv, RegsOutside, stepBookkeeping])
     storePcFits storeBase storeRead0 storeRead1 storeRead2 storeRead3 storeAdvance
+    (pcAligned := storePcAligned)
   have tailNext : ∀ i (bound : i < 16),
       UIntRep 8 next.mem (args.decodedAddress + 720 + i * 8) (tailValues ⟨i, bound⟩) := by
     intro i bound
@@ -2983,7 +2998,8 @@ private theorem writeSuccessTailLoadStep {a n : Nat} {base cur : State} {kv : Li
     (destinationNotPc : destination ≠ PC) (destinationNotRetired : destination ≠ minstret)
     (keep : RegsOutside (RegSet.union stepBookkeeping (RegSet.only destination)) kv)
     (loadAdvance : Sail.BitVec.addInt (BitVec.ofNat 64 loadPc) 4 =
-      BitVec.ofNat 64 (loadPc + 4)) :
+      BitVec.ofNat 64 (loadPc + 4))
+    (loadPcAligned : loadPc % 4 = 0 := by native_decide) :
     ∃ next,
       Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessParentWrites (writeSuccessFrameMemory args)
@@ -3014,7 +3030,7 @@ private theorem writeSuccessTailLoadStep {a n : Nat} {base cur : State} {kv : Li
     (by rw [decodedEq, loadOffsetEq]; omega) codeCur loadAddressEq writeRun loadDecode
     destinationNotNextPc destinationNotHart destinationNotIncrement destinationNotRetired
     (pcFits := loadPcFits) (base := loadBase) (read0 := loadRead0) (read1 := loadRead1)
-    (read2 := loadRead2) (read3 := loadRead3)
+    (read2 := loadRead2) (read3 := loadRead3) (pcAligned := loadPcAligned)
   obtain ⟨retired', next, nextEq, nextSeg⟩ := seg.stepWitness loadInRegion loadNotExit
     destination result
     (BitVec.ofNat 64 (loadPc + 4)) ⟨retired, run⟩ loadAdvance
@@ -3223,7 +3239,8 @@ private theorem writeSuccessTailStoreStep {a n : Nat} {base cur : State} {kv : L
     (storeBase : BaseInstructionEncoding (BitVec.ofNat 8 store0.toNat))
     (keep : RegsOutside stepBookkeeping kv)
     (storeAdvance : Sail.BitVec.addInt (BitVec.ofNat 64 storePc) 4 =
-      BitVec.ofNat 64 (storePc + 4)) :
+      BitVec.ofNat 64 (storePc + 4))
+    (storePcAligned : storePc % 4 = 0 := by native_decide) :
     ∃ next,
       Seg writeSuccessParentPc writeSuccessInitialExitPc
         (fun _ _ _ _ _ => False) writeSuccessParentWrites (writeSuccessFrameMemory args)
@@ -3250,7 +3267,7 @@ private theorem writeSuccessTailStoreStep {a n : Nat} {base cur : State} {kv : L
         rfl | rfl | rfl <;> omega)
     storeBound storeAligned rfl storeInRegion storeNotExit (storeDecode cur)
     storeAddressEq keep storePcFits storeBase storeRead0 storeRead1 storeRead2 storeRead3
-    storeAdvance
+    storeAdvance (pcAligned := storePcAligned)
   have tailNext : ∀ i (bound : i < 16),
       UIntRep 8 next.mem (args.decodedAddress + 720 + i * 8) (tailValues ⟨i, bound⟩) := by
     intro i bound
@@ -3728,7 +3745,7 @@ private theorem liftConstantPrefixTrace {exit : BitVec 64 → Prop} (template : 
 
 /-- The exact static six-byte success prefix reaches its declared exit without assumptions. -/
 theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract := by
-  refine ⟨10, ?_⟩
+  refine ⟨10, (by simp [level2ContractFuel]), ?_⟩
   intro _ fromStep before entry
   rcases entry with ⟨atPc, loaded, access⟩
   have seg0 := Seg.nil constantPrefixParentPc (fun pc => pc = 0x10190)
@@ -3850,6 +3867,7 @@ theorem writeSuccessPrefixInstanceContract : WriteSuccessPrefixInstanceContract 
         exact (callWrites.get x10 (by decide)).trans (seg4.reg x10 0x179c5 (by simp)))
     (by change callMachine.regs.get? x11 = some 6
         exact (callWrites.get x11 (by decide)).trans (seg4.reg x11 6 (by simp)))
+    (by decide) (by decide)
     (by simpa [callState] using staticRep) outside
     (dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputBufferStore)
     (dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputLengthStore)
@@ -3992,7 +4010,7 @@ private theorem prevRandaoCallStep (stepNo : Nat) (state : State)
 
 /-- The 32-byte raw `prev_randao` encoder reaches its declared exit without assumptions. -/
 theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceContract := by
-  refine ⟨fun _ => 8, ?_⟩
+  refine ⟨fun _ => 8, (by intro _; simp [level2ContractFuel]), ?_⟩
   intro args fromStep before entry
   rcases entry with ⟨atPc, source, size, bytes, outside, loaded, access⟩
   have seg0 := (Seg.nil prevRandaoRawParentPc (fun pc => pc = 0x10190)
@@ -4069,6 +4087,8 @@ theorem writeSuccessPrevRandaoInstanceContract : WriteSuccessPrevRandaoInstanceC
     (by change callMachine.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size)
         rw [size]
         exact (callWrites.get x11 (by decide)).trans (seg2.reg x11 32 (by simp)))
+    (by have bound := bytes.1; rw [size] at bound; omega)
+    (by rw [size]; decide)
     (by simpa [callState, callMemEq] using bytes) outside
     (dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputBufferStore)
     (dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputLengthStore)
@@ -4410,12 +4430,14 @@ private theorem writeSuccessPayloadFieldSourceStep (stepNo pc offset : Nat)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x10
         (BitVec.ofNat 64 (stackPointer + offset))) false := by
   apply writeSuccessAddiX10FromSpStep stepNo pc offset imm byte0 byte1 byte2 byte3
     state stackPointer configured atPc stack loaded resultEq decode pcFits base read0 read1 read2 read3
+    (pcAligned := pcAligned)
 
 private theorem writeSuccessFeeRecipientSourceStep (stepNo : Nat) (state : State)
     (stackPointer : Nat) (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -6111,7 +6133,8 @@ private theorem writeSuccessFrameDwordLoadStep (stepNo pc offset value : Nat)
     (destinationNotNextPc : destination ≠ nextPC := by decide)
     (destinationNotHart : destination ≠ hart_state := by decide)
     (destinationNotIncrement : destination ≠ minstret_increment := by decide)
-    (destinationNotRetired : destination ≠ minstret := by decide) :
+    (destinationNotRetired : destination ≠ minstret := by decide)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination result) false := by
   exact configuredDwordLoadStep stepNo pc state imm (.Regidx 2#5) rd destination
@@ -6124,6 +6147,7 @@ private theorem writeSuccessFrameDwordLoadStep (stepNo pc offset value : Nat)
     (destinationNotIncrement := destinationNotIncrement)
     (destinationNotRetired := destinationNotRetired) (base := base)
     (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+    (pcAligned := pcAligned)
 
 /-- Execute one parent-owned dword store into the writer frame. -/
 private theorem writeSuccessFrameDwordStoreRegStep (stepNo pc offset value : Nat)
@@ -6151,7 +6175,8 @@ private theorem writeSuccessFrameDwordStoreRegStep (stepNo pc offset value : Nat
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
     (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
     (sourceRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
-      Runs (rX_bits rs2) premise premise (BitVec.ofNat 64 value)) :
+      Runs (rX_bits rs2) premise premise (BitVec.ofNat 64 value))
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepStoreAfterRetired
         (afterWriteBytes (width := 8)
@@ -6164,7 +6189,7 @@ private theorem writeSuccessFrameDwordStoreRegStep (stepNo pc offset value : Nat
     aligned (by omega) loaded addressEq decode
     sourceRun
     (pcFits := pcFits) (base := base) (read0 := read0) (read1 := read1)
-    (read2 := read2) (read3 := read3)
+    (read2 := read2) (read3 := read3) (pcAligned := pcAligned)
 
 /-- Compatibility wrapper for the writer's common x10 stores. -/
 private theorem writeSuccessFrameDwordStoreStep (stepNo pc offset value : Nat)
@@ -6191,7 +6216,8 @@ private theorem writeSuccessFrameDwordStoreStep (stepNo pc offset value : Nat)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepStoreAfterRetired
         (afterWriteBytes (width := 8)
@@ -6200,7 +6226,7 @@ private theorem writeSuccessFrameDwordStoreStep (stepNo pc offset value : Nat)
         (BitVec.ofNat 64 pc) retired) false := by
   apply writeSuccessFrameDwordStoreRegStep stepNo pc offset value args state (.Regidx 10#5)
     imm byte0 byte1 byte2 byte3 access atPc stack offsetBound aligned loaded upper
-    addressEq decode pcFits base read0 read1 read2 read3
+    addressEq decode pcFits base read0 read1 read2 read3 (pcAligned := pcAligned)
   intro premise writes
   exact rX_x10_run premise _ ((writes.get x10 (by decide)).trans data)
 
@@ -8079,14 +8105,16 @@ private theorem writeSuccessLateSliceLoadStep (stepNo pc offset value : Nat)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination result) false := by
   exact writeSuccessFrameDwordLoadStep stepNo pc offset value args state rd destination
     result (BitVec.ofNat 12 offset) byte0 byte1 byte2 byte3 access atPc
     stack rep offsetBound slotAligned loaded
     (by rw [signExtend, ← BitVec.ofNat_add]) writeRun decode
-    (pcFits := pcFits) (destinationNotNextPc := destinationNotNextPc)
+    (pcFits := pcFits) (pcAligned := pcAligned)
+    (destinationNotNextPc := destinationNotNextPc)
     (destinationNotHart := destinationNotHart)
     (destinationNotIncrement := destinationNotIncrement)
     (destinationNotRetired := destinationNotRetired) (base := base)
@@ -8104,11 +8132,13 @@ private theorem writeSuccessLateSliceCallBaseStep (stepNo pc : Nat) (state : Sta
     (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some 0x00)
     (decode : Runs (ext_decode (fetchWord 0x97 0x00 0x00 0x00))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.UTYPE (0, .Regidx 1#5, .AUIPC))) :
+      (.UTYPE (0, .Regidx 1#5, .AUIPC)))
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x1 (BitVec.ofNat 64 pc)) false := by
   obtain ⟨retired, run⟩ := configuredAuipcStep stepNo state pc 0#20 0x97 0x00 0x00 0x00
-    configured atPc loaded pcFits read0 read1 read2 read3 (by rfl) decode
+    configured atPc loaded (pcFits := pcFits) (pcAligned := pcAligned) (read0 := read0)
+    (read1 := read1) (read2 := read2) (read3 := read3) (base := by rfl) (decode := decode)
   generalize concatEq : (0#20 +++ 0#12) = concatenated at run
   have zeroExtend : sign_extend concatenated = 0#64 := by
     rw [← concatEq]
@@ -8149,7 +8179,8 @@ private theorem writeSuccessLateSliceCallStep (stepNo pc target returnPc immedia
       BitVec.ofNat 64 (pc - 4 + immediate))
     (returnBits : Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = BitVec.ofNat 64 (pc + 4))
     (targetBit1 : Sail.BitVec.access
-      (BitVec.ofNat 64 (pc - 4) + sign_extend (BitVec.ofNat 12 immediate)) 1 = 0#1) :
+      (BitVec.ofNat 64 (pc - 4) + sign_extend (BitVec.ofNat 12 immediate)) 1 = 0#1)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepControlFlowAfterRetired
         (callLinkState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
@@ -8160,6 +8191,7 @@ private theorem writeSuccessLateSliceCallStep (stepNo pc target returnPc immedia
     (BitVec.ofNat 12 immediate) (BitVec.ofNat 64 (pc - 4 + immediate))
     (BitVec.ofNat 64 (pc + 4)) byte0 byte1 byte2 byte3 configured atPc baseRead loaded
     (pcFits := pcFits) (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+    (pcAligned := pcAligned)
     (base := base) (decode := decode) (targetEq := targetBits) (returnEq := returnBits)
     (targetBit1 := targetBit1)
 
@@ -9163,7 +9195,10 @@ private theorem writeSuccessForkNamePresentBranchStep (stepNo : Nat) (state : St
         0x15974 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x15970 atPc trivial
+    configured.stepContext 0x15970 atPc (by
+      unfold EndpointMachinePc
+      refine ⟨by native_decide, 0x63, ?_⟩
+      native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -9191,7 +9226,10 @@ private theorem writeSuccessForkNameAbsentBranchStep (stepNo : Nat) (state : Sta
         0x15994 retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext 0x15970 atPc trivial
+    configured.stepContext 0x15970 atPc (by
+      unfold EndpointMachinePc
+      refine ⟨by native_decide, 0x63, ?_⟩
+      native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -9244,7 +9282,8 @@ private theorem writeSuccessForkNameBooleanLiteralStep
     (read0 : Artifacts.programImage.readFileByte? pc = some 0x13 := by native_decide)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some 0x05 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some 0x00 := by native_decide) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some 0x00 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x10
         (BitVec.ofNat 64 value)) false := by
@@ -9261,6 +9300,7 @@ private theorem writeSuccessForkNameBooleanLiteralStep
     (.ITYPE (imm, .Regidx 0#5, .Regidx 10#5, .ADDI)) 0x13 0x05 byte2 0x00
     configured atPc loaded decode execute (pcFits := pcFits) (base := by rfl)
     (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+    (pcAligned := pcAligned)
 
 private theorem writeSuccessForkNamePresentBooleanStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -14730,6 +14770,8 @@ private theorem writeSuccessOutputHandoff (fromStep : Nat) (args : WriteSuccessA
       (seg3.reg x10 _ (by simp))))
     (by rw [rootSize]; simpa [callState] using ((callWrites.get x11 (by decide)).trans
       (seg3.reg x11 32 (by simp))))
+    (by have bound := context.parentRootRep.1; rw [rootSize] at bound; omega)
+    (by rw [rootSize]; decide)
     (by simpa [callState, callMemEq] using context.parentRootRep)
     bufferOutside accessCall.outputBufferStore accessCall.outputLengthStore
     (by native_decide) accessCall.configured
@@ -15243,6 +15285,16 @@ private theorem stepBound_le_max {bound : Nat → Nat} {index limit : Nat}
         exact Nat.le_max_left _ _
       · exact Nat.le_trans (ih (by omega)) (Nat.le_max_right _ _)
 
+private theorem stepBoundMax_lt {bound : Nat → Nat} {cap : Nat}
+    (capPositive : 0 < cap) (bounded : ∀ index, bound index < cap) :
+    ∀ limit, stepBoundMax bound limit < cap := by
+  intro limit
+  induction limit with
+  | zero => simpa [stepBoundMax] using capPositive
+  | succ limit ih =>
+      rw [stepBoundMax]
+      exact Nat.max_lt.mpr ⟨bounded limit, ih⟩
+
 private noncomputable def writeSuccessPhaseBound
     (h : Level2ContractAssumptions) (inputSize : Nat) : Nat :=
   1000 + inputSize * 7 +
@@ -15266,6 +15318,46 @@ private noncomputable def writeSuccessPhaseBound
       InlineEncoderInstanceContract.stepBound h.writeSuccessTransactions inputSize +
       InlineEncoderInstanceContract.stepBound h.writeSuccessWithdrawals inputSize +
       InlineEncoderInstanceContract.stepBound h.writeSuccessHashes inputSize)
+
+private theorem writeSuccessBound_lt_level1Fuel (h : Level2ContractAssumptions)
+    (inputSize : Nat) (inputBound : inputSize ≤ maxSszInputSize) :
+    5 * writeSuccessPhaseBound h inputSize + 15 < level1ContractFuel := by
+  have memcpy720 := MemcpyInstanceContract.bounded memcpyInstanceContract 720 (by
+    simp [maxSszInputSize])
+  have memcpy592 := MemcpyInstanceContract.bounded memcpyInstanceContract 592 (by
+    simp [maxSszInputSize])
+  have prefixBound := ConstantEncoderInstanceContract.bounded writeSuccessPrefixInstanceContract
+  have parentHash := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessParentHash) (2 ^ 64)
+  have feeRecipient := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessFeeRecipient) (2 ^ 64)
+  have stateRoot := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessStateRoot) (2 ^ 64)
+  have receiptsRoot := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessReceiptsRoot) (2 ^ 64)
+  have logsBloom := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessLogsBloom) (2 ^ 64)
+  have prevRandao := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel])
+    (RawEncoderInstanceContract.bounded writeSuccessPrevRandaoInstanceContract) (2 ^ 64)
+  have blockHash := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel]) (RawEncoderInstanceContract.bounded h.writeSuccessBlockHash) (2 ^ 64)
+  have parentBeacon := stepBoundMax_lt (cap := level2ContractFuel) (by
+    simp [level2ContractFuel])
+    (RawEncoderInstanceContract.bounded h.writeSuccessParentBeaconRoot) (2 ^ 64)
+  have boolean := EncoderCallInstanceContract.bounded h.writeSuccessBoolean inputSize inputBound
+  have optional := EncoderCallInstanceContract.bounded h.writeSuccessOptionalU64 inputSize inputBound
+  have byteLists := EncoderCallInstanceContract.bounded h.writeSuccessByteLists inputSize inputBound
+  have bytes := EncoderCallInstanceContract.bounded h.writeSuccessBytes inputSize inputBound
+  have int := EncoderCallInstanceContract.bounded h.writeSuccessInt inputSize inputBound
+  have transactions := InlineEncoderInstanceContract.bounded
+    h.writeSuccessTransactions inputSize inputBound
+  have withdrawals := InlineEncoderInstanceContract.bounded
+    h.writeSuccessWithdrawals inputSize inputBound
+  have hashes := InlineEncoderInstanceContract.bounded h.writeSuccessHashes inputSize inputBound
+  unfold writeSuccessPhaseBound
+  simp only [level1ContractFuel, level2ContractFuel, maxSszInputSize] at *
+  omega
 
 set_option genInjectivity false in
 private structure WriteSuccessEarlyHandoff (fromStep used : Nat) (args : WriteSuccessArgs)
@@ -15977,7 +16069,8 @@ contract. The remaining proof packages the completed machine handoff with the co
 aggregate endpoint call frame, and input-indexed step bound. -/
 theorem writeSuccessInstanceContract_of_level2
     (hLevel2 : Level2ContractAssumptions) : WriteSuccessInstanceContract := by
-  refine ⟨fun inputSize => 5 * writeSuccessPhaseBound hLevel2 inputSize + 15, ?_⟩
+  refine ⟨fun inputSize => 5 * writeSuccessPhaseBound hLevel2 inputSize + 15,
+    writeSuccessBound_lt_level1Fuel hLevel2, ?_⟩
   intro args fromStep before entry
   have entryCopy := entry
   obtain ⟨used, after, handoff, bounded⟩ :=

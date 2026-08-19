@@ -3,7 +3,9 @@
 This tree contains facts about the shipped Zesu `ssz_decode_root.main` RV64 ELF. Start at
 [`Root.lean`](Root.lean): `root_compliance` converts its sole `hLevel2` premise through
 `level1Contracts_of_level2` and `exportedContracts_of_level1` into the exported SSZ/RLP compliance
-statement modulo the fixed reviewed `knownBugs`.
+result, evaluates its confined trace with the computable RISC-V runner, and equates the normalized
+Zesu outcome with the pinned EVM-Sail decoder outcome. The relational form remains available as
+`complianceModulo_of_level2`.
 
 - `Artifacts`: immutable production-image bindings.
 - `Contracts`: Zesu machine/semantic relations and the fixed known-divergence policy.

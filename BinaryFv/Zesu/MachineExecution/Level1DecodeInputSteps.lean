@@ -47,7 +47,8 @@ theorem decodeInputAddiX2Step (stepNo pc : Nat) (state : State) (immediate : Bit
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x2 result) false := by
   let premise := coreControlFlowNextState
@@ -65,7 +66,7 @@ theorem decodeInputAddiX2Step (stepNo pc : Nat) (state : State) (immediate : Bit
     (.ITYPE (immediate, .Regidx 2#5, .Regidx 2#5, .ADDI)) byte0 byte1 byte2 byte3
     configured atPc loaded
     decode execute (pcFits := pcFits) (base := base) (read0 := read0) (read1 := read1)
-    (read2 := read2) (read3 := read3)
+    (read2 := read2) (read3 := read3) (pcAligned := pcAligned)
 
 /-- Production `0x121a4: mv s2, a2`. -/
 theorem decodeInputBindS2Step (stepNo : Nat) (state : State) (value : BitVec 64)
@@ -171,7 +172,8 @@ theorem decodeInputStoreStep (stepNo pc offset : Nat) (state : State)
     (read0 : Artifacts.programImage.readFileByte? pc = some byte0 := by native_decide)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepStoreAfterRetired
         (afterWriteBytes (width := 8)
@@ -217,7 +219,7 @@ theorem decodeInputStoreStep (stepNo pc offset : Nat) (state : State)
   simpa [afterWrite] using configuredDwordStoreStep stepNo pc state afterWrite imm
     (.Regidx 2#5) rs2 byte0 byte1 byte2 byte3 configured atPc loaded decode access
     (pcFits := pcFits) (base := base) (read0 := read0) (read1 := read1)
-    (read2 := read2) (read3 := read3)
+    (read2 := read2) (read3 := read3) (pcAligned := pcAligned)
 
 def decodeInputParentPc (pc : BitVec 64) : Prop :=
   pcInRanges Elflings.decodeInputOwnedPcRanges pc
@@ -475,7 +477,8 @@ theorem decodeInputSaveStep {args : DecodeInlineArgs}
     (read2 : Artifacts.programImage.readFileByte? (storePc + 2) = some byte2)
     (read3 : Artifacts.programImage.readFileByte? (storePc + 3) = some byte3)
     (advance : Sail.BitVec.addInt (BitVec.ofNat 64 storePc) 4 =
-      BitVec.ofNat 64 (storePc + 4)) :
+      BitVec.ofNat 64 (storePc + 4))
+    (pcAligned : storePc % 4 = 0 := by native_decide) :
     ∃ next,
       Seg decodeInputParentPc DecodeInlineInitialExecutionPc (fun _ _ _ _ _ => False)
         decodeInputParentWrites (decodeInputFrameMemory args) kv a (n + 1)
@@ -498,6 +501,7 @@ theorem decodeInputSaveStep {args : DecodeInlineArgs}
     imm rs2 byte0 byte1 byte2 byte3 configured seg.atPc stackRead pma' noMMIO
     aligned fits code addressEq decode dataRun (pcFits := pcFits) (base := base)
     (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
+    (pcAligned := pcAligned)
   obtain ⟨retired', next, nextEq, nextSeg⟩ := seg.stepStoreWitness
     (width := 8) (stackPointer + offset) source
     (BitVec.ofNat 64 (storePc + 4)) inRegion notExit ⟨retired, run⟩ advance
@@ -584,7 +588,7 @@ private theorem decodeInputSaveStepExact {args : DecodeInlineArgs}
   decodeInputSaveStep seg access stackLower loaded words wordsRep storePc stackPointer offset
     frameOffset source imm rs2 byte0 byte1 byte2 byte3 stackRead dataRun addressEqNat frameBound
     belowWords pcEq inRegion notExit decodeOfConfigured addressEq aligned fits keep site.pcFits base
-    site.read0 site.read1 site.read2 site.read3 site.advance
+    site.read0 site.read1 site.read2 site.read3 site.advance (pcAligned := site.pcAligned)
 
 /-- The first concrete save, `0x1216c: sd ra, 2024(sp)`. -/
 theorem decodeInputSaveRa {fromStep : Nat} {args : DecodeInlineArgs}
@@ -1259,9 +1263,14 @@ private theorem initialRegion_in_decodeRegion {pc : BitVec 64}
 /-- Resolve the Level-1 `decodeInput` contract from the exact Level-2 initial and resume contracts. -/
 theorem decodeInstanceContract_of_level2
     (hLevel2 : SszDecodeLevel2InstanceContract) : DecodeInstanceContractModuloKnownBugs := by
-  obtain ⟨initialBound, initialImpl⟩ := hLevel2.initial
-  obtain ⟨resumeBound, resumeImpl⟩ := hLevel2.resume
-  refine ⟨fun inputSize => 19 + initialBound inputSize + resumeBound inputSize, ?_⟩
+  obtain ⟨initialBound, _initialCap, initialImpl⟩ := hLevel2.initial
+  obtain ⟨resumeBound, _resumeCap, resumeImpl⟩ := hLevel2.resume
+  refine ⟨fun inputSize => 19 + initialBound inputSize + resumeBound inputSize, ?_, ?_⟩
+  · intro inputSize inputSizeBound
+    have initialCap := _initialCap inputSize inputSizeBound
+    have resumeCap := _resumeCap inputSize inputSizeBound
+    simp [level1ContractFuel, level2ContractFuel] at ⊢ initialCap resumeCap
+    omega
   intro boundary fromStep origin boundaryEntry
   let inline : DecodeInlineArgs := { boundary, origin }
   obtain ⟨childMachine, prefixTrace, childEntry⟩ :=

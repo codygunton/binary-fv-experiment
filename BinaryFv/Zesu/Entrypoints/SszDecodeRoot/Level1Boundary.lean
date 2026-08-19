@@ -123,7 +123,8 @@ def DecodeMeaningModuloKnownBugs (args : DecodeBoundaryArgs) : DecodeBoundaryOut
   | .failure => ¬∃ decoded, SailDecode args.input decoded
   | .success zesu =>
       (∃ sail, SailDecode args.input sail ∧
-        decodedResultRelModuloKnownBugs args.input zesu sail) ∨
+        decodedResultRelModuloKnownBugs args.input zesu sail ∧
+        AvoidsReviewedDomainDivergences args.input zesu) ∨
       ((¬∃ sail, SailDecode args.input sail) ∧
         ∃ bug ∈ knownBugs, KnownBugApplies args.input zesu bug)
 
@@ -223,6 +224,11 @@ def DecodeExitPc (pc : BitVec 64) : Prop :=
 
 theorem decodeInputExitPc_14cfc : 0x14cfc ∈ Elflings.decodeInputExitPcs := by native_decide
 
+/-- Conservative uniform cap for every resolved Level 1 function contract. -/
+def level1ContractFuel : Nat := 2 ^ 160
+
+def maxSszInputSize : Nat := 64 * 1024 * 1024
+
 /-- The exact strict implementation obligation at the generated production boundary. -/
 abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : Prop :=
   (strictDecodeContract stepBound).Implements EndpointStep EndpointPc DecodeExecutionPc DecodeExitPc
@@ -231,6 +237,7 @@ abbrev StrictDecodeInstanceContract (stepBound : DecodeBoundaryArgs → Nat) : P
 compatibility semantics. The bound is implementation evidence, not caller-selected contract data. -/
 def DecodeInstanceContractModuloKnownBugs : Prop :=
   ∃ stepBound : Nat → Nat,
+    (∀ inputSize, inputSize ≤ maxSszInputSize → stepBound inputSize < level1ContractFuel) ∧
     (decodeContractModuloKnownBugs (fun args => stepBound args.input.size)).Implements
       EndpointStep EndpointPc DecodeExecutionPc DecodeExitPc
 

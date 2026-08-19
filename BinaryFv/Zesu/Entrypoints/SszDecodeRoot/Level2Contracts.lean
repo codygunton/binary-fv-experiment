@@ -20,6 +20,9 @@ namespace BinaryFv.Zesu
 open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.RiscV
 
+/-- Conservative uniform cap carried by every unresolved Level 2 contract. -/
+def level2ContractFuel : Nat := 2 ^ 128
+
 /-! ## Inlined `ssz.decode` boundary
 
 The generated Level 2 instance starts at `0x121ac`, after `decodeInput` has saved its frame and
@@ -142,9 +145,11 @@ continuation reached only after `level1Contracts_of_level2` retires the two pare
 instructions at `0x14ca8` and `0x14cac`. -/
 structure SszDecodeLevel2InstanceContract : Prop where
   initial : ∃ initialBound : Nat → Nat,
+    (∀ inputSize, inputSize ≤ maxSszInputSize → initialBound inputSize < level2ContractFuel) ∧
     (decodeInlineInitialContract (fun args => initialBound args.boundary.input.size)).Implements
       EndpointStep EndpointPc DecodeInlineInitialExecutionPc DecodeInlineInitialExitPc
   resume : ∃ resumeBound : Nat → Nat,
+    (∀ inputSize, inputSize ≤ maxSszInputSize → resumeBound inputSize < level2ContractFuel) ∧
     (decodeInlineResumeContract (fun args => resumeBound args.inline.boundary.input.size)).Implements
       EndpointStep EndpointPc DecodeInlineInitialExecutionPc DecodeInlineResumeExitPc
 
@@ -196,6 +201,7 @@ def rawEncoderContract (entry expectedSize successPc : Nat)
 def RawEncoderInstanceContract (entry expectedSize : Nat) (executionPcs : List Elflings.PcRange)
     (exitPcs : List Nat) (successPc : Nat) : Prop :=
   ∃ stepBound : Nat → Nat,
+    (∀ inputSize, stepBound inputSize < level2ContractFuel) ∧
     (rawEncoderContract entry expectedSize successPc (fun args => stepBound args.bytes.size)).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
 
@@ -212,7 +218,13 @@ theorem implements {entry expectedSize : Nat} {executionPcs : List Elflings.PcRa
     (rawEncoderContract entry expectedSize successPc
       (fun args => contract.stepBound args.bytes.size)).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs) :=
-  Classical.choose_spec contract
+  (Classical.choose_spec contract).2
+
+theorem bounded {entry expectedSize : Nat} {executionPcs : List Elflings.PcRange}
+    {exitPcs : List Nat} {successPc : Nat}
+    (contract : RawEncoderInstanceContract entry expectedSize executionPcs exitPcs successPc)
+    (inputSize : Nat) : contract.stepBound inputSize < level2ContractFuel :=
+  (Classical.choose_spec contract).1 inputSize
 
 end RawEncoderInstanceContract
 
@@ -240,6 +252,7 @@ def constantEncoderContract (entry successPc : Nat) (bytes : Array UInt8)
 def ConstantEncoderInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRange)
     (exitPcs : List Nat) (successPc : Nat) (bytes : Array UInt8) : Prop :=
   ∃ stepBound : Nat,
+    stepBound < level2ContractFuel ∧
     (constantEncoderContract entry successPc bytes stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
 
@@ -255,7 +268,13 @@ theorem implements {entry : Nat} {executionPcs : List Elflings.PcRange}
     (contract : ConstantEncoderInstanceContract entry executionPcs exitPcs successPc bytes) :
     (constantEncoderContract entry successPc bytes contract.stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs) :=
-  Classical.choose_spec contract
+  (Classical.choose_spec contract).2
+
+theorem bounded {entry : Nat} {executionPcs : List Elflings.PcRange}
+    {exitPcs : List Nat} {successPc : Nat} {bytes : Array UInt8}
+    (contract : ConstantEncoderInstanceContract entry executionPcs exitPcs successPc bytes) :
+    contract.stepBound < level2ContractFuel :=
+  (Classical.choose_spec contract).1
 
 end ConstantEncoderInstanceContract
 
@@ -286,6 +305,7 @@ def writeFailureRecordContract (stepBound : Nat) :
 the caller's link register and full ABI call frame. -/
 def WriteFailureRecordInstanceContract : Prop :=
   ∃ stepBound : Nat,
+    stepBound < level2ContractFuel ∧
     (writeFailureRecordContract stepBound).Implements EndpointStep EndpointPc
       (pcInRanges Elflings.writeFailureRawLine127ExecutionPcRanges)
       (pcInList Elflings.writeFailureRawLine127ExitPcs)
@@ -416,6 +436,7 @@ def EncoderCallInstanceContract (entry : Nat) (executionPcs : List Elflings.PcRa
     (exitPcs : List Nat) (frameSize : Nat) (encode : Value → Array UInt8)
     (bindValue : EndpointState → Value → Prop) : Prop :=
   ∃ stepBound : Nat → Nat,
+    (∀ inputSize, inputSize ≤ maxSszInputSize → stepBound inputSize < level2ContractFuel) ∧
     (encoderCallContract entry exitPcs frameSize encode bindValue stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
 
@@ -434,7 +455,15 @@ theorem implements {Value : Type} {entry : Nat}
     (contract : EncoderCallInstanceContract entry executionPcs exitPcs frameSize encode bindValue) :
     (encoderCallContract entry exitPcs frameSize encode bindValue contract.stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs) :=
-  Classical.choose_spec contract
+  (Classical.choose_spec contract).2
+
+theorem bounded {Value : Type} {entry : Nat}
+    {executionPcs : List Elflings.PcRange} {exitPcs : List Nat} {frameSize : Nat}
+    {encode : Value → Array UInt8} {bindValue : EndpointState → Value → Prop}
+    (contract : EncoderCallInstanceContract entry executionPcs exitPcs frameSize encode bindValue)
+    (inputSize : Nat) (inputBound : inputSize ≤ maxSszInputSize) :
+    contract.stepBound inputSize < level2ContractFuel :=
+  (Classical.choose_spec contract).1 inputSize inputBound
 
 end EncoderCallInstanceContract
 
@@ -559,6 +588,7 @@ def memcpyContract (stepBound : Nat → Nat) :
 
 def MemcpyInstanceContract : Prop :=
   ∃ stepBound : Nat → Nat,
+    (∀ inputSize, inputSize ≤ maxSszInputSize → stepBound inputSize < level2ContractFuel) ∧
     (memcpyContract stepBound).Implements EndpointStep EndpointPc
       (pcInRanges Elflings.memcpyExecutionPcRanges) (pcInList Elflings.memcpyExitPcs)
 
@@ -570,7 +600,12 @@ noncomputable def stepBound (contract : MemcpyInstanceContract) : Nat → Nat :=
 theorem implements (contract : MemcpyInstanceContract) :
     (memcpyContract contract.stepBound).Implements EndpointStep EndpointPc
       (pcInRanges Elflings.memcpyExecutionPcRanges) (pcInList Elflings.memcpyExitPcs) :=
-  Classical.choose_spec contract
+  (Classical.choose_spec contract).2
+
+theorem bounded (contract : MemcpyInstanceContract) (inputSize : Nat)
+    (inputBound : inputSize ≤ maxSszInputSize) :
+    contract.stepBound inputSize < level2ContractFuel :=
+  (Classical.choose_spec contract).1 inputSize inputBound
 
 end MemcpyInstanceContract
 
@@ -711,6 +746,7 @@ def InlineEncoderInstanceContract (entry : Nat) (executionPcs : List Elflings.Pc
     (exitPcs : List Nat) (successPc : Nat) (encode : Value → Array UInt8)
     (bindValue : EndpointState → Value → Prop) : Prop :=
   ∃ stepBound : Nat → Nat,
+    (∀ inputSize, inputSize ≤ maxSszInputSize → stepBound inputSize < level2ContractFuel) ∧
     (inlineEncoderContract entry successPc encode bindValue stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs)
 
@@ -729,7 +765,15 @@ theorem implements {Value : Type} {entry successPc : Nat}
     (contract : InlineEncoderInstanceContract entry executionPcs exitPcs successPc encode bindValue) :
     (inlineEncoderContract entry successPc encode bindValue contract.stepBound).Implements
       EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs) :=
-  Classical.choose_spec contract
+  (Classical.choose_spec contract).2
+
+theorem bounded {Value : Type} {entry successPc : Nat}
+    {executionPcs : List Elflings.PcRange} {exitPcs : List Nat}
+    {encode : Value → Array UInt8} {bindValue : EndpointState → Value → Prop}
+    (contract : InlineEncoderInstanceContract entry executionPcs exitPcs successPc encode bindValue)
+    (inputSize : Nat) (inputBound : inputSize ≤ maxSszInputSize) :
+    contract.stepBound inputSize < level2ContractFuel :=
+  (Classical.choose_spec contract).1 inputSize inputBound
 
 end InlineEncoderInstanceContract
 

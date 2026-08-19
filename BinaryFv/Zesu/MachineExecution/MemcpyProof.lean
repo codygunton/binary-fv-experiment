@@ -1835,9 +1835,20 @@ private theorem liftMemcpyFunctionTrace (template : EndpointState)
 /-- The endpoint-wide configured machine supplies the old loop proof's fetch premise. -/
 theorem memcpyAbstractPlatform_of_configured {state : State}
     (configured : ConfiguredMachinePre EndpointMachinePc state) : AbstractPlatform state := by
-  intro target pc stable atPc _inside
+  intro target pc stable atPc inside
+  have machinePc : EndpointMachinePc pc := by
+    rcases inside with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    · exact ⟨by native_decide, 0x93, by native_decide⟩
+    · exact ⟨by native_decide, 0x63, by native_decide⟩
+    · exact ⟨by native_decide, 0x67, by native_decide⟩
+    · exact ⟨by native_decide, 0xb3, by native_decide⟩
+    · exact ⟨by native_decide, 0x83, by native_decide⟩
+    · exact ⟨by native_decide, 0x33, by native_decide⟩
+    · exact ⟨by native_decide, 0x93, by native_decide⟩
+    · exact ⟨by native_decide, 0x23, by native_decide⟩
+    · exact ⟨by native_decide, 0x6f, by native_decide⟩
   exact configured.platform target pc
-    (stable.weaken (fun _ preserved => instructionPreserved_nonW preserved)) atPc trivial
+    (stable.weaken (fun _ preserved => instructionPreserved_nonW preserved)) atPc machinePc
 
 /-- The endpoint-wide configured machine supplies the old loop proof's return-landing-pad premise. -/
 theorem memcpyAbstractElp_of_configured {state : State}
@@ -1956,7 +1967,10 @@ private theorem memcpyReturnUpdate {returnAddress : Nat}
 
 /-- The production `memcpy` instance, discharged by induction over its runtime byte count. -/
 theorem memcpyInstanceContract : MemcpyInstanceContract := by
-  refine ⟨fun size => size * 7 + 3, ?_⟩
+  refine ⟨fun size => size * 7 + 3, ?_, ?_⟩
+  · intro inputSize inputBound
+    simp [level2ContractFuel, maxSszInputSize] at ⊢ inputBound
+    omega
   intro args fromStep before entry
   rcases entry with ⟨returnListed, sizeFits, destinationFits, sourceFits, disjoint,
     atEntry, returnRegister, destinationRegister, sourceRegister, sizeRegister,

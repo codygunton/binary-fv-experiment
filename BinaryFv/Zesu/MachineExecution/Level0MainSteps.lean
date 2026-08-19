@@ -34,12 +34,12 @@ def mainGluePcs (pc : BitVec 64) : Prop := pcInRanges Elflings.mainGluePcRanges 
 
 private theorem endpointStepContext {state : State}
     (configured : ConfiguredMachinePre EndpointMachinePc state) (pc : BitVec 64)
-    (atPc : state.regs.get? PC = some pc) (_inside : mainGluePcs pc) :
+    (atPc : state.regs.get? PC = some pc) (inside : EndpointMachinePc pc) :
     FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc ∧
       FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc ∧
       InterruptDisabled (tryStepControlFlowAfterIncrement state) ∧
       LandingPadNotExpected (tryStepControlFlowAfterIncrement state) :=
-  configured.stepContext pc atPc trivial
+  configured.stepContext pc atPc inside
 
 theorem mainGluePcs_14cbc : mainGluePcs 0x14cbc := by
   unfold mainGluePcs
@@ -255,7 +255,8 @@ private theorem main_load_half_step (stepNo : Nat) (state : State) (pc : Nat)
       (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.LOAD (imm, stackPointer, .Regidx 10#5, true, 2)))
-    (access : MainHalfLoadAccess state (BitVec.ofNat 64 pc) imm stackPointer) :
+    (access : MainHalfLoadAccess state (BitVec.ofNat 64 pc) imm stackPointer)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepControlFlowAfterRetired
         { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc) with
@@ -264,7 +265,8 @@ private theorem main_load_half_step (stepNo : Nat) (state : State) (pc : Nat)
         (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    endpointStepContext configured (BitVec.ofNat 64 pc) atPc inside
+    endpointStepContext configured (BitVec.ofNat 64 pc) atPc ⟨by simpa using pcAligned, ⟨byte0, by
+      simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt pcFits] using read0⟩⟩
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -298,6 +300,7 @@ theorem configuredAuipcStep (stepNo : Nat) (state : State) (pc : Nat)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
     (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide)
     (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by rfl)
     (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
       (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)))
@@ -312,7 +315,8 @@ theorem configuredAuipcStep (stepNo : Nat) (state : State) (pc : Nat)
         (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc trivial
+    configured.stepContext (BitVec.ofNat 64 pc) atPc ⟨by simpa using pcAligned, ⟨byte0, by
+      simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt pcFits] using read0⟩⟩
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -374,7 +378,8 @@ private theorem main_li_zero_step (stepNo : Nat) (state : State) (pc : Nat)
     (read0 : Artifacts.programImage.readFileByte? pc = some 0x13)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some 0x05)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some 0x00)
-    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some 0x00) :
+    (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some 0x00)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepControlFlowAfterRetired
         { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc) with
@@ -383,7 +388,8 @@ private theorem main_li_zero_step (stepNo : Nat) (state : State) (pc : Nat)
         (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    endpointStepContext configured (BitVec.ofNat 64 pc) atPc inside
+    endpointStepContext configured (BitVec.ofNat 64 pc) atPc ⟨by simpa using pcAligned, ⟨0x13, by
+      simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt pcFits] using read0⟩⟩
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -425,6 +431,7 @@ theorem configuredJalrCallStep (stepNo : Nat) (state : State) (pc : Nat)
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
     (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (pcAligned : pc % 4 = 0 := by native_decide)
     (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by rfl)
     (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
       (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)))
@@ -442,7 +449,8 @@ theorem configuredJalrCallStep (stepNo : Nat) (state : State) (pc : Nat)
   subst target
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc trivial
+    configured.stepContext (BitVec.ofNat 64 pc) atPc ⟨by simpa using pcAligned, ⟨byte0, by
+      simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt pcFits] using read0⟩⟩
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -512,12 +520,14 @@ private theorem main_store_dword_step (stepNo : Nat) (state afterWrite : State)
       (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)))
       (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
       (.STORE (imm, rs2, stackPointer, 8)))
-    (access : MainDwordStoreAccess state afterWrite (BitVec.ofNat 64 pc) imm rs2) :
+    (access : MainDwordStoreAccess state afterWrite (BitVec.ofNat 64 pc) imm rs2)
+    (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (tryStepStoreAfterRetired afterWrite (BitVec.ofNat 64 pc) retired) false := by
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noFetchMMIO, interrupts, notExpected⟩ :=
-    endpointStepContext configured (BitVec.ofNat 64 pc) atPc inside
+    endpointStepContext configured (BitVec.ofNat 64 pc) atPc ⟨by simpa using pcAligned, ⟨byte0, by
+      simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt pcFits] using read0⟩⟩
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepStoreAfterIncrement state).mem := by
     simpa [tryStepStoreAfterIncrement] using loaded
@@ -814,7 +824,9 @@ theorem main_decode_status_success_step (stepNo : Nat) (state : State)
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
     endpointStepContext configured 0x14d00 atPc (by
-      refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+      unfold EndpointMachinePc
+      refine ⟨by native_decide, 0x63, ?_⟩
+      native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -843,7 +855,9 @@ theorem main_decode_status_failure_step (stepNo : Nat) (state : State)
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
     endpointStepContext configured 0x14d00 atPc (by
-      refine ⟨(0x14cec, 0x14d30), ?_, ?_, ?_⟩ <;> native_decide)
+      unfold EndpointMachinePc
+      refine ⟨by native_decide, 0x63, ?_⟩
+      native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepControlFlowAfterIncrement state).mem := by
     simpa [tryStepControlFlowAfterIncrement] using loaded
@@ -1090,7 +1104,9 @@ theorem main_stack_allocate_step (stepNo : Nat) (state : State) (stackValue : Bi
   obtain ⟨retired, counters⟩ := configured.counters
   obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
     endpointStepContext configured (BitVec.ofNat 64 Elflings.mainEntry) atPc (by
-      refine ⟨(0x14cb0, 0x14ccc), ?_, ?_, ?_⟩ <;> native_decide)
+      unfold EndpointMachinePc
+      refine ⟨by native_decide, 0x13, ?_⟩
+      native_decide)
   have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
       (tryStepStackAddiAfterIncrement state).mem := by
     simpa [tryStepStackAddiAfterIncrement] using loaded

@@ -25,7 +25,7 @@ def MainExecutionPc (pc : BitVec 64) : Prop :=
   DecodeExecutionPc pc ∨
   pcInRanges Elflings.writeSuccessExecutionPcRanges pc ∨
   pcInRanges Elflings.writeFailureExecutionPcRanges pc ∨
-  pcInRanges Elflings.zkvmExitExecutionPcRanges pc
+  ZkvmExitExecutionPc pc
 
 private theorem mainEntry_not_syscall : ¬ BareMetalHostTransitionPc Elflings.mainEntry := by
   unfold BareMetalHostTransitionPc
@@ -100,7 +100,8 @@ def MainMeaningModulo (bugs : List KnownBug) (args : MainArgs) : MainOutcome →
   | .failure => ¬∃ decoded, SailDecode args.input decoded
   | .success zesu =>
       (∃ sail, SailDecode args.input sail ∧
-        decodedResultRelModuloKnownBugs args.input zesu sail) ∨
+        decodedResultRelModuloKnownBugs args.input zesu sail ∧
+        AvoidsReviewedDomainDivergences args.input zesu) ∨
       ((¬∃ sail, SailDecode args.input sail) ∧
         ∃ bug ∈ bugs, KnownBugApplies args.input zesu bug)
 
@@ -125,7 +126,7 @@ theorem mainMeaning_of_modulo {args : MainArgs} (hAvoidKnownBugs : AvoidKnownBug
   | failure => exact meaning
   | success zesu =>
       rcases meaning with ⟨sail, decoded, related⟩ | ⟨rejected, bug, listed, applies⟩
-      · exact ⟨sail, decoded, hAvoidKnownBugs.successfulResult zesu sail decoded related⟩
+      · exact ⟨sail, decoded, hAvoidKnownBugs.successfulResult zesu sail decoded related.1⟩
       · exact False.elim (hAvoidKnownBugs.rejectedDomain rejected zesu bug listed applies)
 
 set_option genInjectivity false in
@@ -174,7 +175,7 @@ structure MainEntry (args : MainArgs) (state : EndpointState) : Prop where
   stdinCursor : state.stdinCursor = 0
   stdout : state.stdout = #[]
   exitCode : state.exitCode = none
-  inputBound : args.input.size ≤ 64 * 1024 * 1024
+  inputBound : args.input.size ≤ maxSszInputSize
   stackLower : 0xbb0 ≤ args.stackPointer
   stackFits : args.stackPointer + 0x380 < 2 ^ 64
   stackAligned : args.stackPointer % 16 = 0
@@ -257,55 +258,92 @@ theorem complianceFor_of_modulo (hAvoidKnownBugs : AvoidKnownBugs input)
   exact ⟨count, after, outcome, positive, bounded, trace, exitPc,
     mainMeaning_of_modulo hAvoidKnownBugs meaning, exit⟩
 
-/-- The parent contract derived by resolving Level 0 against its six selected children. -/
-abbrev ExportedContractAssumptions : Prop := ComplianceModulo knownBugs
+/-- The parent contract derived by resolving Level 0 against its six selected children, together
+with the concrete bound needed by the executable interpreter. -/
+def ExportedContractAssumptions : Prop :=
+  ∃ stepBound : MainArgs → Nat,
+    (∀ args, args.input.size ≤ maxSszInputSize → stepBound args < 2 ^ 192) ∧
+    (mainContractModulo knownBugs stepBound).Implements EndpointStep EndpointPc
+      MainExecutionPc (pcInList [Elflings.zkvmExitTerminalPc])
+
+theorem ExportedContractAssumptions.complianceModulo
+    (exported : ExportedContractAssumptions) : ComplianceModulo knownBugs :=
+  by rcases exported with ⟨stepBound, _cap, implements⟩; exact ⟨stepBound, implements⟩
 
 /-- The six existential contract bounds opened once, so Level 0 can add them into one endpoint
 termination bound while reusing the corresponding implementation proofs. -/
 structure Level1ResolvedContracts where
   readInputBound : Nat → Nat
+  readInputCap : ∀ inputSize, inputSize ≤ maxSszInputSize →
+    readInputBound inputSize < level1ContractFuel
   readInput : (readInputContract (fun args => readInputBound args.input.size)).Implements
     EndpointStep EndpointPc (pcInRanges Elflings.readInputExecutionPcRanges)
       (pcInList Elflings.readInputExitPcs)
   allocatorGetBound : Nat → Nat
+  allocatorGetCap : ∀ inputSize, inputSize ≤ maxSszInputSize →
+    allocatorGetBound inputSize < level1ContractFuel
   allocatorGet : (allocatorGetContract (fun args => allocatorGetBound args.input.size)).Implements
     EndpointStep EndpointPc (pcInRanges Elflings.allocatorGetExecutionPcRanges)
       (pcInList Elflings.allocatorGetExitPcs)
   decodeBound : Nat → Nat
+  decodeCap : ∀ inputSize, inputSize ≤ maxSszInputSize → decodeBound inputSize < level1ContractFuel
   sszDecode : (decodeContractModuloKnownBugs (fun args => decodeBound args.input.size)).Implements
     EndpointStep EndpointPc DecodeExecutionPc DecodeExitPc
   writeSuccessBound : Nat → Nat
+  writeSuccessCap : ∀ inputSize, inputSize ≤ maxSszInputSize →
+    writeSuccessBound inputSize < level1ContractFuel
   writeSuccess : (writeSuccessContract (fun args => writeSuccessBound args.inputSize)).Implements
     EndpointStep EndpointPc (pcInRanges Elflings.writeSuccessExecutionPcRanges)
       (pcInList Elflings.writeSuccessExitPcs)
   writeFailureBound : Nat
+  writeFailureCap : writeFailureBound < level1ContractFuel
   writeFailure : (writeFailureContract (fun _ => writeFailureBound)).Implements
     EndpointStep EndpointPc (pcInRanges Elflings.writeFailureExecutionPcRanges)
       (pcInList Elflings.writeFailureExitPcs)
   zkvmExitBound : Nat
+  zkvmExitCap : zkvmExitBound < level1ContractFuel
   zkvmExit : (zkvmExitContract (fun _ => zkvmExitBound)).Implements
-    EndpointStep EndpointPc (pcInRanges Elflings.zkvmExitExecutionPcRanges)
+    EndpointStep EndpointPc ZkvmExitExecutionPc
       (pcInList Elflings.zkvmExitExitPcs)
 
 noncomputable def Level1ContractAssumptions.resolve (h : Level1ContractAssumptions) :
     Level1ResolvedContracts :=
   { readInputBound := Classical.choose h.readInput
-    readInput := Classical.choose_spec h.readInput
+    readInputCap := (Classical.choose_spec h.readInput).1
+    readInput := (Classical.choose_spec h.readInput).2
     allocatorGetBound := Classical.choose h.allocatorGet
-    allocatorGet := Classical.choose_spec h.allocatorGet
+    allocatorGetCap := (Classical.choose_spec h.allocatorGet).1
+    allocatorGet := (Classical.choose_spec h.allocatorGet).2
     decodeBound := Classical.choose h.sszDecode
-    sszDecode := Classical.choose_spec h.sszDecode
+    decodeCap := (Classical.choose_spec h.sszDecode).1
+    sszDecode := (Classical.choose_spec h.sszDecode).2
     writeSuccessBound := Classical.choose h.writeSuccess
-    writeSuccess := Classical.choose_spec h.writeSuccess
+    writeSuccessCap := (Classical.choose_spec h.writeSuccess).1
+    writeSuccess := (Classical.choose_spec h.writeSuccess).2
     writeFailureBound := Classical.choose h.writeFailure
-    writeFailure := Classical.choose_spec h.writeFailure
+    writeFailureCap := (Classical.choose_spec h.writeFailure).1
+    writeFailure := (Classical.choose_spec h.writeFailure).2
     zkvmExitBound := Classical.choose h.zkvmExit
-    zkvmExit := Classical.choose_spec h.zkvmExit }
+    zkvmExitCap := (Classical.choose_spec h.zkvmExit).1
+    zkvmExit := (Classical.choose_spec h.zkvmExit).2 }
 
 def level0ResolvedStepBound (contracts : Level1ResolvedContracts) (inputSize : Nat) : Nat :=
   24 + contracts.readInputBound inputSize + contracts.allocatorGetBound inputSize +
     contracts.decodeBound inputSize + contracts.writeSuccessBound inputSize +
     contracts.writeFailureBound + contracts.zkvmExitBound
+
+/-- Six Level 1 contract caps plus the 24 parent-owned instructions fit the executable runner. -/
+theorem level0ResolvedStepBound_lt_endpointFuel (contracts : Level1ResolvedContracts)
+    (inputSize : Nat) (inputBound : inputSize ≤ maxSszInputSize) :
+    level0ResolvedStepBound contracts inputSize < 2 ^ 192 := by
+  have readInput := contracts.readInputCap inputSize inputBound
+  have allocatorGet := contracts.allocatorGetCap inputSize inputBound
+  have decode := contracts.decodeCap inputSize inputBound
+  have writeSuccess := contracts.writeSuccessCap inputSize inputBound
+  have writeFailure := contracts.writeFailureCap
+  have zkvmExit := contracts.zkvmExitCap
+  unfold level0ResolvedStepBound level1ContractFuel at *
+  omega
 
 private theorem instructionPreserved_abiCalleePreserved (register : Register)
     (preserved : instructionPreserved register) : abiCalleePreserved register := by
@@ -2302,7 +2340,7 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
           ((afterRegisterWrite_writes machine1 0x14d14 retired1 x1 0xfd14).get pma_regions
             (by decide)) |>.of_pma_regions_eq (callWrites.get pma_regions (by decide))
       have exitEntry : ZkvmExitEntry { code := 0 } callState := by
-        refine ⟨?_, ?_, callDataAccess.exitCodeStore, callCode, callConfigured⟩
+        refine ⟨?_, ?_, by native_decide, callDataAccess.exitCodeStore, callCode, callConfigured⟩
         · simp [callState, callMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
             tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.zkvmExitEntry]
         · exact (callWrites.get x10 (by decide)).trans zero2
@@ -2323,7 +2361,8 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
         after, .success decoded, ?_, (by omega), ?_, ?_, ?_⟩
       · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using callTrace.append wideExit
       · change (∃ sail, SailDecode args.input sail ∧
-          decodedResultRelModuloKnownBugs args.input decoded sail) ∨
+          decodedResultRelModuloKnownBugs args.input decoded sail ∧
+          AvoidsReviewedDomainDivergences args.input decoded) ∨
           ((¬∃ sail, SailDecode args.input sail) ∧
             ∃ bug ∈ knownBugs, KnownBugApplies args.input decoded bug)
         exact meaning
@@ -2528,7 +2567,7 @@ theorem main_resolved_handoff (contracts : Level1ResolvedContracts) (args : Main
               (by decide))).of_pma_regions_eq
             ((afterRegisterWrite_writes machine3 0x14d28 retired3 x1 0xfd28).get pma_regions
               (by decide)) |>.of_pma_regions_eq (exitWrites.get pma_regions (by decide))
-        refine ⟨?_, (exitWrites.get x10 (by decide)).trans zero4,
+        refine ⟨?_, (exitWrites.get x10 (by decide)).trans zero4, by native_decide,
           exitDataAccess.exitCodeStore, exitCodeLoaded, exitConfigured⟩
         simp [exitState, exitMachine, EndpointPc, MachinePc, tryStepControlFlowAfterRetired,
           tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, Elflings.zkvmExitEntry]
