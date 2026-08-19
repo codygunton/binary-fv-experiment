@@ -9,6 +9,6 @@ private def endpointExecutionSmoke (path : System.FilePath) : IO Unit := do
   | outcome => throw (IO.userError s!"endpoint execution failed for {path}: {repr outcome}")
 
 def endpointExecutionSmokeMain (paths : List String) : IO Unit :=
-  paths.forM endpointExecutionSmoke
+  paths.forM fun path => endpointExecutionSmoke path
 
 #eval endpointExecutionSmokeMain ["@MINIMAL@", "@TRANSACTION@", "@WITHDRAWAL@"]
