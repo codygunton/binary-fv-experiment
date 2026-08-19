@@ -82,14 +82,23 @@ theorem stateOfResult_eq_of_runs {action : SailM Unit} {start finish : State}
   rw [run]
   rfl
 
+/-- This generic projection prevents the kernel from reducing the computed ELF image in proof motives. -/
+private def resultMemory (result : EStateM.Result Exception State Unit) :
+    Std.ExtHashMap Nat (BitVec 8) :=
+  (stateOfResult result).mem
+
 def endpointProgramMemory : Std.ExtHashMap Nat (BitVec 8) :=
-  (stateOfResult (initializeEndpointBaseMachine.run endpointConfiguredMachine)).mem
+  resultMemory (initializeEndpointBaseMachine.run endpointConfiguredMachine)
+
+private theorem resultMemory_eq_of_runs {action : SailM Unit} {start finish : State}
+    (run : Runs action start finish ()) : resultMemory (action.run start) = finish.mem :=
+  congrArg (fun state : State => state.mem) (stateOfResult_eq_of_runs run)
 
 theorem endpointProgramMemory_eq_of_runs {finish : State}
     (run : Runs initializeEndpointBaseMachine endpointConfiguredMachine finish ()) :
     endpointProgramMemory = finish.mem := by
-  unfold endpointProgramMemory
-  exact congrArg (fun state : State => state.mem) (stateOfResult_eq_of_runs run)
+  change resultMemory (initializeEndpointBaseMachine.run endpointConfiguredMachine) = finish.mem
+  exact resultMemory_eq_of_runs run
 
 def endpointBaseMachine : State :=
   { endpointConfiguredMachine with mem := endpointProgramMemory }
