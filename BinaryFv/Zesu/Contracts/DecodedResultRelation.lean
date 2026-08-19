@@ -382,6 +382,33 @@ def decodedResultRelModuloKnownBugs (source : Array UInt8) (zesu : ZesuDecodedRe
   (zesu.chainConfig.chainId = sail.input.chain_config.chain_id ∨
     (sail.input.chain_config.chain_id = 0 ∧ zesu.chainConfig.chainId = 1))
 
+/-- Canonicalize the one reviewed successful-result divergence on either decoder's own value. -/
+def CanonicalDecodedResult.normalizeKnownBugs
+    (decoded : CanonicalDecodedResult) : CanonicalDecodedResult :=
+  { decoded with chainId := if decoded.chainId = 1 then 0 else decoded.chainId }
+
+theorem normalized_eq_of_decodedResultRelModuloKnownBugs
+    (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded) :
+    decodedResultRelModuloKnownBugs source zesu sail →
+      (CanonicalDecodedResult.ofZesu zesu).normalizeKnownBugs =
+        (CanonicalDecodedResult.ofEvmSail source sail).normalizeKnownBugs := by
+  simp only [decodedResultRelModuloKnownBugs, decodedResultRelExceptChainId,
+    CanonicalDecodedResult.normalizeKnownBugs, CanonicalDecodedResult.ofZesu,
+    CanonicalDecodedResult.ofEvmSail, CanonicalDecodedResult.mk.injEq]
+  rw [payloadRel_iff_canonical_eq]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  rw [arrayRel_iff_map_eq (fun bytes slice => bytes == sailSliceBytes source slice) id
+      (sailSliceBytes source) (bytesMatch_eq_true_iff source)]
+  simp only [List.map_id]
+  grind
+
 private def readU32LEAt (input : Array UInt8) (offset : Nat) : Option Nat := do
   let byte0 ← input[offset]?
   let byte1 ← input[offset + 1]?
@@ -425,6 +452,11 @@ instance (source : Array UInt8) (zesu : ZesuDecodedResult) (bug : KnownBug) :
     Decidable (KnownBugApplies source zesu bug) := by
   cases bug <;> simp only [KnownBugApplies] <;> try infer_instance
   cases zesu.chainConfig.activationBlock <;> infer_instance
+
+/-- None of the six reviewed accept/reject-domain divergences applies to this decoded value. -/
+def AvoidsReviewedDomainDivergences (source : Array UInt8)
+    (zesu : ZesuDecodedResult) : Prop :=
+  ∀ bug ∈ knownBugs, ¬KnownBugApplies source zesu bug
 
 instance (source : Array UInt8) (zesu : ZesuDecodedResult) (sail : SailDecoded) :
     Decidable (decodedResultRel source zesu sail) := by

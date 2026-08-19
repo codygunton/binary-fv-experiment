@@ -100,7 +100,8 @@ def MainMeaningModulo (bugs : List KnownBug) (args : MainArgs) : MainOutcome →
   | .failure => ¬∃ decoded, SailDecode args.input decoded
   | .success zesu =>
       (∃ sail, SailDecode args.input sail ∧
-        decodedResultRelModuloKnownBugs args.input zesu sail) ∨
+        decodedResultRelModuloKnownBugs args.input zesu sail ∧
+        AvoidsReviewedDomainDivergences args.input zesu) ∨
       ((¬∃ sail, SailDecode args.input sail) ∧
         ∃ bug ∈ bugs, KnownBugApplies args.input zesu bug)
 
@@ -125,7 +126,7 @@ theorem mainMeaning_of_modulo {args : MainArgs} (hAvoidKnownBugs : AvoidKnownBug
   | failure => exact meaning
   | success zesu =>
       rcases meaning with ⟨sail, decoded, related⟩ | ⟨rejected, bug, listed, applies⟩
-      · exact ⟨sail, decoded, hAvoidKnownBugs.successfulResult zesu sail decoded related⟩
+      · exact ⟨sail, decoded, hAvoidKnownBugs.successfulResult zesu sail decoded related.1⟩
       · exact False.elim (hAvoidKnownBugs.rejectedDomain rejected zesu bug listed applies)
 
 set_option genInjectivity false in
@@ -257,8 +258,17 @@ theorem complianceFor_of_modulo (hAvoidKnownBugs : AvoidKnownBugs input)
   exact ⟨count, after, outcome, positive, bounded, trace, exitPc,
     mainMeaning_of_modulo hAvoidKnownBugs meaning, exit⟩
 
-/-- The parent contract derived by resolving Level 0 against its six selected children. -/
-abbrev ExportedContractAssumptions : Prop := ComplianceModulo knownBugs
+/-- The parent contract derived by resolving Level 0 against its six selected children, together
+with the concrete bound needed by the executable interpreter. -/
+def ExportedContractAssumptions : Prop :=
+  ∃ stepBound : MainArgs → Nat,
+    (∀ args, args.input.size ≤ maxSszInputSize → stepBound args < 2 ^ 192) ∧
+    (mainContractModulo knownBugs stepBound).Implements EndpointStep EndpointPc
+      MainExecutionPc (pcInList [Elflings.zkvmExitTerminalPc])
+
+theorem ExportedContractAssumptions.complianceModulo
+    (exported : ExportedContractAssumptions) : ComplianceModulo knownBugs :=
+  by rcases exported with ⟨stepBound, _cap, implements⟩; exact ⟨stepBound, implements⟩
 
 /-- The six existential contract bounds opened once, so Level 0 can add them into one endpoint
 termination bound while reusing the corresponding implementation proofs. -/
@@ -2351,7 +2361,8 @@ theorem main_exit_success_or_select_failure (contracts : Level1ResolvedContracts
         after, .success decoded, ?_, (by omega), ?_, ?_, ?_⟩
       · simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using callTrace.append wideExit
       · change (∃ sail, SailDecode args.input sail ∧
-          decodedResultRelModuloKnownBugs args.input decoded sail) ∨
+          decodedResultRelModuloKnownBugs args.input decoded sail ∧
+          AvoidsReviewedDomainDivergences args.input decoded) ∨
           ((¬∃ sail, SailDecode args.input sail) ∧
             ∃ bug ∈ knownBugs, KnownBugApplies args.input decoded bug)
         exact meaning

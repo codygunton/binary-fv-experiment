@@ -61,6 +61,14 @@ private theorem endpointSegments_disjoint :
     endpointTextSegment.initialEndAddress ≤ endpointContextSegment.virtualAddress := by
   native_decide
 
+theorem endpointAllocatorZeroFill_valid :
+    Artifacts.programImage.containsZeroFillRange endpointAllocatorZeroFill = true := by
+  native_decide
+
+theorem endpointResultZeroFill_valid :
+    Artifacts.programImage.containsZeroFillRange endpointResultZeroFill = true := by
+  native_decide
+
 private theorem endpointBaseLoaded :
     ∃ finish, Runs initializeEndpointBaseMachine endpointConfiguredMachine finish () ∧
       finish.regs = endpointConfiguredMachine.regs ∧
@@ -77,11 +85,11 @@ private theorem endpointBaseLoaded :
       rw [LoadSegment.readFileByte?] at read
       split at read
       next inside =>
-        have rangeBoth : endpointContextSegment.virtualAddress ≤ address ∧
-            address < endpointContextSegment.initialEndAddress := by
-          simpa [LoadSegment.containsInitialByte] using inside
         have range : endpointContextSegment.virtualAddress ≤ address := by
-          exact rangeBoth.1
+          have bounds : endpointContextSegment.virtualAddress ≤ address ∧
+              address < endpointContextSegment.initialEndAddress := by
+            simpa [LoadSegment.containsInitialByte] using inside
+          exact bounds.1
         exact Nat.le_trans endpointSegments_disjoint range
       next outside => simp at read)]
     exact contextBytes address byte read
@@ -273,8 +281,18 @@ def canonicalMainArgs (input : Array UInt8) : MainArgs :=
 theorem initialEndpointState_mainEntry (input : Array UInt8)
     (inputBound : input.size ≤ 64 * 1024 * 1024) :
     MainEntry (canonicalMainArgs input) (initialEndpointState input) := by
+  let zeroSegment : LoadSegment :=
+    { virtualAddress := endpointAllocatorZeroFill.start, initialBytes := .empty,
+      memorySize := endpointAllocatorZeroFill.size, flags := 0 }
+  obtain ⟨zeroState, zeroRun, zeroRegs, zeroLow, zeroHigh, _zeroWindow⟩ :=
+    loadSegmentPrefix_establishes zeroSegment endpointAllocatorZeroFill.size endpointBaseMachine
+  let resultSegment : LoadSegment :=
+    { virtualAddress := endpointResultZeroFill.start, initialBytes := .empty,
+      memorySize := endpointResultZeroFill.size, flags := 0 }
+  obtain ⟨resultState, resultRun, resultRegs, resultLow, _resultHigh, _resultWindow⟩ :=
+    loadSegmentPrefix_establishes resultSegment endpointResultZeroFill.size zeroState
   obtain ⟨inputState, inputRun, inputRegs, inputFrame, inputWindow⟩ :=
-    writeMemoryBytes_establishes Elflings.inputBufferAddress input.toList endpointBaseMachine
+    writeMemoryBytes_establishes Elflings.inputBufferAddress input.toList resultState
   let contextState := afterWriteBytes (width := 8) inputState Elflings.ioContextAddress
     (BitVec.ofNat 64 input.size)
   let pcState : State := { contextState with
@@ -294,9 +312,14 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
   have stackRun : Runs (writeReg x2 (BitVec.ofNat 64 (canonicalStackPointer + 0x380)))
       returnState finalMachine () := by
     exact writeReg_run returnState x2 (BitVec.ofNat 64 (canonicalStackPointer + 0x380))
+  have zeroListRun : Runs (loadZeroFillRanges [endpointAllocatorZeroFill, endpointResultZeroFill])
+      endpointBaseMachine resultState () := by
+    unfold loadZeroFillRanges
+    exact Runs.bind zeroRun (Runs.bind resultRun rfl)
   have initializeRun : Runs (initializeEndpointInput input) endpointBaseMachine finalMachine () := by
     unfold initializeEndpointInput
-    exact Runs.bind inputRun (Runs.bind contextRun (Runs.bind pcRun (Runs.bind returnRun stackRun)))
+    exact Runs.bind zeroListRun (Runs.bind inputRun
+      (Runs.bind contextRun (Runs.bind pcRun (Runs.bind returnRun stackRun))))
   have machineEq : (initialEndpointState input).machine = finalMachine := by
     unfold initialEndpointState
     rw [initializeRun]
@@ -329,7 +352,25 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
       have beforeStack := endpointFileAddress_before_stack read
       have layout : canonicalStackPointer - 0xbb0 < Elflings.inputBufferAddress := by native_decide
       omega))]
+    rw [resultLow address (by
+      obtain ⟨segment, member, _lower, upper⟩ :=
+        Artifacts.programImage.readFileByte?_mem_segment read
+      have segmentBound : ∀ segment ∈ Artifacts.programImage.segments.toList,
+          segment.initialEndAddress ≤ 0x2000000 := by native_decide
+      have := segmentBound segment member
+      change address < 0x20018000
+      omega)]
+    rw [zeroLow address (by
+      obtain ⟨segment, member, _lower, upper⟩ :=
+        Artifacts.programImage.readFileByte?_mem_segment read
+      have segmentBound : ∀ segment ∈ Artifacts.programImage.segments.toList,
+          segment.initialEndAddress ≤ 0x2000000 := by native_decide
+      have := segmentBound segment member
+      change address < 0x2401a000
+      omega)]
     exact endpointBaseCode address byte read
+  have inputRegsBase : inputState.regs = endpointBaseMachine.regs :=
+    inputRegs.trans (resultRegs.trans zeroRegs)
   have code : Artifacts.programImage.fileBytesLoadedFaithfully finalMachine.mem := by
     simpa [finalMachine, returnState, pcState, contextState] using
       fileBytesLoadedFaithfully_afterWriteBytes Artifacts.programImage inputState
@@ -345,14 +386,14 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
     obtain ⟨platform, notLink⟩ := preserved
     rcases platform with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
       rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    · contradiction
+    · exact False.elim (notLink rfl)
     all_goals simp [finalMachine, returnState, pcState, contextState, afterWriteBytes_regs,
-      inputRegs, Std.ExtDHashMap.get?_insert]
+      inputRegsBase, Std.ExtDHashMap.get?_insert]
   have retiredFinal : RetiredCounterPresent finalMachine := by
     obtain ⟨retired, read⟩ := endpointBaseConfigured.retiredCounter
     exact ⟨retired, by
-      simpa [finalMachine, returnState, pcState, contextState, afterWriteBytes_regs, inputRegs,
-        Std.ExtDHashMap.get?_insert] using read⟩
+      simpa [finalMachine, returnState, pcState, contextState, afterWriteBytes_regs,
+        inputRegsBase, Std.ExtDHashMap.get?_insert] using read⟩
   have configured : ConfiguredMachinePre EndpointMachinePc finalMachine :=
     endpointBaseConfigured.mono agree retiredFinal
   have regions : finalMachine.regs.get? pma_regions = some [endpointPmaRegion] :=
@@ -411,7 +452,7 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
     calleeSaved := by
       refine ⟨DecodeCalleeSavedValues.mk 0 0 0 0 0 0 0 0 0 0 0 0, ?_⟩
       simp [DecodeCalleeSavedAtRegisters, finalMachine, returnState, pcState, contextState,
-        afterWriteBytes_regs, inputRegs, endpointBaseRegs, endpointConfiguredMachine,
+        afterWriteBytes_regs, inputRegsBase, endpointBaseRegs, endpointConfiguredMachine,
         Std.ExtDHashMap.get?_insert]
     savedReturnNoMMIO := endpointDataNoMMIOAtNat _ _ (by
       simp [canonicalMainArgs, canonicalStackPointer,

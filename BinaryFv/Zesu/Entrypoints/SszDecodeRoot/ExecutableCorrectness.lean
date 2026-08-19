@@ -149,10 +149,11 @@ theorem allowedModuloKnownBugs_ofMainOutcome_iff (args : MainArgs) (outcome : Ma
   cases outcome <;> simp [ZesuDecodeOutcome.ofMainOutcome,
     ZesuDecodeOutcome.AllowedModuloKnownBugs, MainMeaningModulo]
 
-theorem canonicalOutcome_eq_ofMainOutcome_iff (args : MainArgs) (outcome : MainOutcome) :
+theorem canonicalOutcome_eq_ofMainOutcome (args : MainArgs) (outcome : MainOutcome)
+    (meaning : MainMeaningModulo knownBugs args outcome) :
     CanonicalOutcome.ofZesuKnownBugs args.input (ZesuDecodeOutcome.ofMainOutcome outcome) =
-        CanonicalOutcome.ofEvmSail args.input ↔
-      MainMeaningModulo knownBugs args outcome := by
-  rw [canonicalOutcome_eq_iff_allowed, allowedModuloKnownBugs_ofMainOutcome_iff]
+        CanonicalOutcome.ofEvmSail args.input :=
+  canonicalOutcome_eq_of_allowed args.input _
+    ((allowedModuloKnownBugs_ofMainOutcome_iff args outcome).2 meaning)
 
 end BinaryFv.Zesu

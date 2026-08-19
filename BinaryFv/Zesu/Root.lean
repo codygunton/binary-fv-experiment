@@ -17,7 +17,9 @@ namespace BinaryFv.Zesu
 theorem exportedContracts_of_level1
     (hLevel1 : Level1ContractAssumptions) : ExportedContractAssumptions := by
   let contracts := hLevel1.resolve
-  refine ⟨fun args => level0ResolvedStepBound contracts args.input.size, ?_⟩
+  refine ⟨fun args => level0ResolvedStepBound contracts args.input.size, ?_, ?_⟩
+  · intro args inputBound
+    exact level0ResolvedStepBound_lt_endpointFuel contracts args.input.size inputBound
   intro args fromStep before entry
   obtain ⟨used, after, outcome, trace, usedPositive, meaning, exit, bounded⟩ :=
     main_resolved_handoff contracts args fromStep before entry
@@ -29,7 +31,7 @@ theorem exportedContracts_of_level1
 /-- Relational form retained for proofs that consume `ComplianceModulo` directly. -/
 theorem complianceModulo_of_level2
     (hLevel2 : Level2ContractAssumptions) : ComplianceModulo knownBugs :=
-  exportedContracts_of_level1 (level1Contracts_of_level2 hLevel2)
+  (exportedContracts_of_level1 (level1Contracts_of_level2 hLevel2)).complianceModulo
 
 private theorem mainExecutionPc_ne_terminal {pc : BitVec 64} (inside : MainExecutionPc pc) :
     pc ≠ BitVec.ofNat 64 Elflings.zkvmExitTerminalPc := by
@@ -76,26 +78,26 @@ theorem root_compliance (hLevel2 : Level2ContractAssumptions) :
         CanonicalOutcome.ofEvmSail input := by
   intro input inputBound
   let hLevel1 := level1Contracts_of_level2 hLevel2
-  let contracts := hLevel1.resolve
+  obtain ⟨stepBound, stepBoundCap, implements⟩ := exportedContracts_of_level1 hLevel1
   let args := canonicalMainArgs input
-  obtain ⟨used, after, outcome, trace, usedPositive, meaning, exit, bounded⟩ :=
-    main_resolved_handoff contracts args 0 (initialEndpointState input)
+  obtain ⟨used, after, outcome, usedPositive, bounded, trace, _terminal, meaning, exit⟩ :=
+    implements args 0 (initialEndpointState input)
       (initialEndpointState_mainEntry input inputBound)
-  have resolvedBound := level0ResolvedStepBound_lt_endpointFuel contracts input.size inputBound
-  have bounded' : used ≤ level0ResolvedStepBound contracts input.size := by
-    simpa [args, canonicalMainArgs] using bounded
+  have resolvedBound := stepBoundCap args (by simpa [args] using inputBound)
+  have bounded' : used ≤ stepBound args := by
+    simpa [mainContractModulo] using bounded
   have fuelSuffices : used < 2 ^ 192 := by omega
   have ran : runEndpoint (2 ^ 192) 0 (initialEndpointState input) = finishEndpoint after :=
     runEndpoint_of_confinedTrace (fun pc inside => mainExecutionPc_ne_terminal inside)
       trace fuelSuffices (by simpa [EndpointPc] using exit.1)
   have observed : finishEndpoint after = ZesuDecodeOutcome.ofMainOutcome outcome :=
-    finishEndpoint_of_mainExit exit
+    finishEndpoint_of_mainExit (before := initialEndpointState input) exit
   have execution : RiscvSpec.execute zesuSszBinary input =
       ZesuDecodeOutcome.ofMainOutcome outcome := by
     unfold RiscvSpec.execute zesuSszBinary
     exact ran.trans observed
   rw [execution]
-  exact (canonicalOutcome_eq_ofMainOutcome_iff args outcome).2 meaning
+  exact canonicalOutcome_eq_ofMainOutcome args outcome meaning
 
 /-- Exact compliance for one input whose domain and successful result avoid every reviewed bug. -/
 theorem compliance_for_input_of_avoids_known_bugs (hLevel2 : Level2ContractAssumptions)

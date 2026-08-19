@@ -123,7 +123,8 @@ def DecodeMeaningModuloKnownBugs (args : DecodeBoundaryArgs) : DecodeBoundaryOut
   | .failure => ¬∃ decoded, SailDecode args.input decoded
   | .success zesu =>
       (∃ sail, SailDecode args.input sail ∧
-        decodedResultRelModuloKnownBugs args.input zesu sail) ∨
+        decodedResultRelModuloKnownBugs args.input zesu sail ∧
+        AvoidsReviewedDomainDivergences args.input zesu) ∨
       ((¬∃ sail, SailDecode args.input sail) ∧
         ∃ bug ∈ knownBugs, KnownBugApplies args.input zesu bug)
 

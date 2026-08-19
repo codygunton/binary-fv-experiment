@@ -149,6 +149,7 @@ let
     cp ${repo}/tests/evm-sail/CombinedImportSmoke.lean CombinedImportSmoke.lean
     cp ${repo}/tests/evm-sail/ObservationSmoke.lean ObservationSmoke.lean
     cp ${repo}/tests/evm-sail/DifferentialSmoke.lean DifferentialSmoke.lean
+    cp ${repo}/tests/evm-sail/EndpointExecutionSmoke.lean EndpointExecutionSmoke.lean
     substituteInPlace ObservationSmoke.lean \
       --replace-fail '@SUCCESS@' '${zesuSszDecodeSmoke}/success.out' \
       --replace-fail '@FAILURE@' '${zesuSszDecodeSmoke}/rejected.out' \
@@ -171,6 +172,8 @@ let
       --replace-fail '@KEYS_SUCCESS@' '${zesuSszDecodeSmoke}/public-key-overflow.out' \
       --replace-fail '@HASHES_INPUT@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.ssz' \
       --replace-fail '@HASHES_SUCCESS@' '${zesuSszDecodeSmoke}/versioned-hash-overflow.out'
+    substituteInPlace EndpointExecutionSmoke.lean \
+      --replace-fail '@INPUT@' '${zesuSszDecodeSmoke}/minimal.ssz'
     lean -o compiled/BinaryFv/Specs/SSZ/Decode.olean Decode.lean
     lean -o compiled/BinaryFv/Zesu/DecodedValue/Observers.olean Observers.lean
     lean -o compiled/BinaryFv/Zesu/DecodedValue/Encoder.olean Encoder.lean
@@ -230,6 +233,7 @@ let
     lean CombinedImportSmoke.lean
     lean ObservationSmoke.lean
     lean --tstack=65536 DifferentialSmoke.lean
+    lean --tstack=4000000 EndpointExecutionSmoke.lean
     lean ${repo}/tools/RootProofDependencies.lean > root-dependencies.tsv
     mkdir -p "$out"
     cp root-dependencies.tsv "$out/"
