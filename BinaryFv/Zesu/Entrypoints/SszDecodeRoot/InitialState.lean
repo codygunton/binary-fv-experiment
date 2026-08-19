@@ -366,15 +366,15 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
       obtain ⟨segment, member, _lower, upper⟩ :=
         Artifacts.programImage.readFileByte?_mem_segment read
       have segmentBound : ∀ segment ∈ Artifacts.programImage.segments.toList,
-          segment.initialEndAddress ≤ 0x2000000 := by native_decide
+          segment.initialEndAddress ≤ 0x19010 := by native_decide
       have := segmentBound segment member
-      change address < 0x20018000
+      change address < 0x20016000
       omega)]
     rw [zeroLow address (by
       obtain ⟨segment, member, _lower, upper⟩ :=
         Artifacts.programImage.readFileByte?_mem_segment read
       have segmentBound : ∀ segment ∈ Artifacts.programImage.segments.toList,
-          segment.initialEndAddress ≤ 0x2000000 := by native_decide
+          segment.initialEndAddress ≤ 0x19010 := by native_decide
       have := segmentBound segment member
       change address < 0x2401a000
       omega)]
@@ -382,7 +382,7 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
       obtain ⟨segment, member, _lower, upper⟩ :=
         Artifacts.programImage.readFileByte?_mem_segment read
       have segmentBound : ∀ segment ∈ Artifacts.programImage.segments.toList,
-          segment.initialEndAddress ≤ 0x2000000 := by native_decide
+          segment.initialEndAddress ≤ 0x19010 := by native_decide
       have := segmentBound segment member
       change address < 0x1a000
       omega)]
