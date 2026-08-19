@@ -84,6 +84,8 @@ let
     mkdir -p compiled/BinaryFv/Zesu/{Contracts,DecodedValue,Elflings,Entrypoints/SszDecodeRoot}
     mkdir -p compiled/BinaryFv/RiscV/Logic
     mkdir -p compiled/BinaryFv/RiscV/Model
+    mkdir -p compiled/BinaryFv/RiscV/Execution
+    mkdir -p compiled/BinaryFv/RiscV/Proof
     mkdir -p compiled/BinaryFv/RiscV/Elfling
     mkdir -p compiled/BinaryFv/RiscV/Instruction
     mkdir -p compiled/BinaryFv/Binary
@@ -127,6 +129,9 @@ let
     cp ${repo}/BinaryFv/RiscV/Logic/MemFrame.lean MemFrame.lean
     cp ${repo}/BinaryFv/RiscV/Logic/SentinelTrace.lean SentinelTrace.lean
     cp ${repo}/BinaryFv/RiscV/Instruction/DecodeTactic.lean DecodeTactic.lean
+    cp ${repo}/BinaryFv/RiscV/Execution/ImageLoad.lean ImageLoad.lean
+    cp ${repo}/BinaryFv/RiscV/Execution/MemoryIo.lean MemoryIo.lean
+    cp ${repo}/BinaryFv/RiscV/Proof/ImageLoadCorrectness.lean ImageLoadCorrectness.lean
     cp ${repo}/BinaryFv/RiscV/Step/RegisterWrite.lean RegisterWrite.lean
     cp ${repo}/BinaryFv/RiscV/Elfling/FunctionTrace.lean FunctionTrace.lean
     cp ${repo}/BinaryFv/RiscV/Elfling/Boundary.lean Boundary.lean
@@ -193,6 +198,9 @@ let
     lean -o compiled/BinaryFv/RiscV/Logic/MemFrame.olean MemFrame.lean
     lean -o compiled/BinaryFv/RiscV/Logic/SentinelTrace.olean SentinelTrace.lean
     lean -o compiled/BinaryFv/RiscV/Instruction/DecodeTactic.olean DecodeTactic.lean
+    lean -o compiled/BinaryFv/RiscV/Execution/ImageLoad.olean ImageLoad.lean
+    lean -o compiled/BinaryFv/RiscV/Execution/MemoryIo.olean MemoryIo.lean
+    lean -o compiled/BinaryFv/RiscV/Proof/ImageLoadCorrectness.olean ImageLoadCorrectness.lean
     lean -o compiled/BinaryFv/RiscV/Step/RegisterWrite.olean RegisterWrite.lean
     lean -o compiled/BinaryFv/RiscV/Elfling/FunctionTrace.olean FunctionTrace.lean
     lean -o compiled/BinaryFv/RiscV/Elfling/Boundary.olean Boundary.lean
