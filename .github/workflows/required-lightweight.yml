@@ -12,9 +12,11 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: false
       - uses: cachix/install-nix-action@v27
-      - run: nix flake check --print-build-logs
+      - name: Run required checks with bounded parallelism
+        run: nix flake check --print-build-logs --max-jobs 2 --cores 0
