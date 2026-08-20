@@ -19,17 +19,20 @@ structure CheckedSliceArgs where
   stackPointer : Nat
   sourceAddress : Nat
   sourceBytes : Array UInt8
+  present : Bool
   startOffset : Nat
   endOffset : Nat
 
 inductive CheckedSliceOutcome where
+  | empty
   | invalid
   | selected (bytes : Array UInt8)
   deriving DecidableEq
 
 /-- The source result of `getSlice`: reject reversed or oversized bounds, otherwise select bytes. -/
 def checkedSliceMeaning (args : CheckedSliceArgs) : CheckedSliceOutcome :=
-  if args.endOffset < args.startOffset then .invalid
+  if !args.present then .empty
+  else if args.endOffset < args.startOffset then .invalid
   else if args.sourceBytes.size < args.endOffset then .invalid
   else .selected (args.sourceBytes.extract args.startOffset args.endOffset)
 
@@ -49,6 +52,7 @@ def checkedSliceContract
 def checkedSlice351cEntry (args : CheckedSliceArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some 0x130b0 ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.sourceBytes.size) ∧
+  args.present = true ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x1a0) args.startOffset ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x4f8) args.endOffset ∧
   BytesRep state.machine.mem args.sourceAddress args.sourceBytes ∧
@@ -61,6 +65,7 @@ def checkedSlice351cEntry (args : CheckedSliceArgs) (state : EndpointState) : Pr
 def checkedSlice351cSelectedRep (args : CheckedSliceArgs) (outcome : CheckedSliceOutcome)
     (state : EndpointState) : Prop :=
   match outcome with
+  | .empty => True
   | .invalid => True
   | .selected bytes =>
       bytes = args.sourceBytes.extract args.startOffset args.endOffset ∧
@@ -69,6 +74,7 @@ def checkedSlice351cSelectedRep (args : CheckedSliceArgs) (outcome : CheckedSlic
 def checkedSlice351cExit (args : CheckedSliceArgs) (outcome : CheckedSliceOutcome)
     (before after : EndpointState) : Prop :=
   after.machine.regs.get? PC = some (match outcome with
+    | .empty => 0x130c8
     | .invalid => 0x13db0
     | .selected _ => 0x130c8) ∧
   checkedSlice351cSelectedRep args outcome after ∧
@@ -177,7 +183,7 @@ theorem checkedSlice351cContract_implements :
     checkedSlice351cContract.Implements EndpointStep EndpointPc
       checkedSlice351cOwnPc checkedSlice351cExitPc := by
   intro args fromStep before entry
-  rcases entry with ⟨atPc, lengthAt, startRep, endRep, sourceRep, lengthFits,
+  rcases entry with ⟨atPc, lengthAt, present, startRep, endRep, sourceRep, lengthFits,
     sourceOutside, access, loaded⟩
   have startFits := startRep.1
   have endFits := endRep.1
@@ -199,8 +205,8 @@ theorem checkedSlice351cContract_implements :
       omega
     · simpa [after] using liftCheckedSlice351cTrace before machineTrace
     · exact ⟨0x13db0, seg.atPc, by unfold checkedSlice351cExitPc pcInList; native_decide⟩
-    · simp [checkedSlice351cContract, checkedSliceContract, checkedSliceMeaning, reversed]
-    · refine ⟨by simp [checkedSliceMeaning, reversed], ?_, ?_, ?_, seg.writes, seg.mem,
+    · simp [checkedSlice351cContract, checkedSliceContract, checkedSliceMeaning, present, reversed]
+    · refine ⟨by simp [checkedSliceMeaning, present, reversed], ?_, ?_, ?_, seg.writes, seg.mem,
         seg.retired, ?_, seg.aux, rfl, rfl, rfl, rfl⟩
       · simpa [after] using seg.atPc
       · simp [checkedSlice351cSelectedRep]
@@ -229,9 +235,9 @@ theorem checkedSlice351cContract_implements :
         omega
       · simpa [after] using liftCheckedSlice351cTrace before machineTrace
       · exact ⟨0x13db0, seg.atPc, by unfold checkedSlice351cExitPc pcInList; native_decide⟩
-      · simp [checkedSlice351cContract, checkedSliceContract, checkedSliceMeaning, reversed,
+      · simp [checkedSlice351cContract, checkedSliceContract, checkedSliceMeaning, present, reversed,
           oversized]
-      · refine ⟨by simp [checkedSliceMeaning, reversed, oversized], ?_, ?_, ?_, seg.writes,
+      · refine ⟨by simp [checkedSliceMeaning, present, reversed, oversized], ?_, ?_, ?_, seg.writes,
           seg.mem, seg.retired, ?_, seg.aux, rfl, rfl, rfl, rfl⟩
         · simpa [after] using seg.atPc
         · simp [checkedSlice351cSelectedRep]
@@ -265,9 +271,9 @@ theorem checkedSlice351cContract_implements :
         omega
       · simpa [after] using liftCheckedSlice351cTrace before machineTrace
       · exact ⟨0x130c8, seg.atPc, by unfold checkedSlice351cExitPc pcInList; native_decide⟩
-      · simp [checkedSlice351cContract, checkedSliceContract, checkedSliceMeaning, reversed,
+      · simp [checkedSlice351cContract, checkedSliceContract, checkedSliceMeaning, present, reversed,
           oversized, selected]
-      · refine ⟨by simp [checkedSliceMeaning, reversed, oversized, selected], ?_, ?_,
+      · refine ⟨by simp [checkedSliceMeaning, present, reversed, oversized, selected], ?_, ?_,
           sourceAfter, seg.writes, seg.mem, seg.retired, ?_, seg.aux, rfl, rfl, rfl, rfl⟩
         · simpa [after] using seg.atPc
         · exact ⟨rfl, by simpa [after] using selectedRep⟩
@@ -286,6 +292,7 @@ theorem proposed_checkedSlice_351c_proved :
 def checkedSlice34fdEntry (args : CheckedSliceArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some 0x13098 ∧
   state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.sourceBytes.size) ∧
+  args.present = true ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x4e8) args.startOffset ∧
   UIntRep 8 state.machine.mem (args.stackPointer + 0x4f0) args.endOffset ∧
   BytesRep state.machine.mem args.sourceAddress args.sourceBytes ∧
@@ -298,6 +305,7 @@ def checkedSlice34fdEntry (args : CheckedSliceArgs) (state : EndpointState) : Pr
 def checkedSlice34fdSelectedRep (args : CheckedSliceArgs) (outcome : CheckedSliceOutcome)
     (state : EndpointState) : Prop :=
   match outcome with
+  | .empty => True
   | .invalid => True
   | .selected bytes =>
       bytes = args.sourceBytes.extract args.startOffset args.endOffset ∧
@@ -308,6 +316,7 @@ def checkedSlice34fdSelectedRep (args : CheckedSliceArgs) (outcome : CheckedSlic
 def checkedSlice34fdExit (args : CheckedSliceArgs) (outcome : CheckedSliceOutcome)
     (before after : EndpointState) : Prop :=
   after.machine.regs.get? PC = some (match outcome with
+    | .empty => 0x130b0
     | .invalid => 0x13db0
     | .selected _ => 0x130b0) ∧
   checkedSlice34fdSelectedRep args outcome after ∧
@@ -364,7 +373,7 @@ theorem checkedSlice34fdContract_implements :
     checkedSlice34fdContract.Implements EndpointStep EndpointPc
       checkedSlice34fdOwnPc checkedSlice34fdExitPc := by
   intro args fromStep before entry
-  rcases entry with ⟨atPc, lengthAt, startRep, endRep, sourceRep, lengthFits,
+  rcases entry with ⟨atPc, lengthAt, present, startRep, endRep, sourceRep, lengthFits,
     sourceOutside, access, loaded⟩
   have startFits := startRep.1
   have endFits := endRep.1
@@ -390,8 +399,8 @@ theorem checkedSlice34fdContract_implements :
     · exact checkedSlice34fdMachineTrace before seg
         (by unfold checkedSlice34fdExitPc pcInList; native_decide)
     · exact ⟨0x13db0, seg.atPc, by unfold checkedSlice34fdExitPc pcInList; native_decide⟩
-    · simp [checkedSlice34fdContract, checkedSliceContract, checkedSliceMeaning, reversed]
-    · refine ⟨by simp [checkedSliceMeaning, reversed], ?_, ?_, ?_, seg.writes, seg.mem,
+    · simp [checkedSlice34fdContract, checkedSliceContract, checkedSliceMeaning, present, reversed]
+    · refine ⟨by simp [checkedSliceMeaning, present, reversed], ?_, ?_, ?_, seg.writes, seg.mem,
         seg.retired, ?_, seg.aux, rfl, rfl, rfl, rfl⟩
       · simpa [after] using seg.atPc
       · simp [checkedSlice34fdSelectedRep]
@@ -419,9 +428,9 @@ theorem checkedSlice34fdContract_implements :
       · exact checkedSlice34fdMachineTrace before seg
           (by unfold checkedSlice34fdExitPc pcInList; native_decide)
       · exact ⟨0x13db0, seg.atPc, by unfold checkedSlice34fdExitPc pcInList; native_decide⟩
-      · simp [checkedSlice34fdContract, checkedSliceContract, checkedSliceMeaning, reversed,
+      · simp [checkedSlice34fdContract, checkedSliceContract, checkedSliceMeaning, present, reversed,
           oversized]
-      · refine ⟨by simp [checkedSliceMeaning, reversed, oversized], ?_, ?_, ?_, seg.writes,
+      · refine ⟨by simp [checkedSliceMeaning, present, reversed, oversized], ?_, ?_, ?_, seg.writes,
           seg.mem, seg.retired, ?_, seg.aux, rfl, rfl, rfl, rfl⟩
         · simpa [after] using seg.atPc
         · simp [checkedSlice34fdSelectedRep]
@@ -454,9 +463,9 @@ theorem checkedSlice34fdContract_implements :
       · exact checkedSlice34fdMachineTrace before seg
           (by unfold checkedSlice34fdExitPc pcInList; native_decide)
       · exact ⟨0x130b0, seg.atPc, by unfold checkedSlice34fdExitPc pcInList; native_decide⟩
-      · simp [checkedSlice34fdContract, checkedSliceContract, checkedSliceMeaning, reversed,
+      · simp [checkedSlice34fdContract, checkedSliceContract, checkedSliceMeaning, present, reversed,
           oversized, selected]
-      · refine ⟨by simp [checkedSliceMeaning, reversed, oversized, selected], ?_, ?_,
+      · refine ⟨by simp [checkedSliceMeaning, present, reversed, oversized, selected], ?_, ?_,
           sourceAfter, seg.writes, seg.mem, seg.retired, ?_, seg.aux, rfl, rfl, rfl, rfl⟩
         · simpa [after] using seg.atPc
         · refine ⟨rfl, ?_, ?_, ?_⟩
