@@ -110,14 +110,15 @@ class ProofMapTest(unittest.TestCase):
             self.assertEqual(len(prepared["parents"]), 17)
             self.assertEqual(prepared["summary"]["level3ContractCount"], 57)
             self.assertEqual(prepared["proofProgress"], {
-                "directProofCount": 5, "remainingContractCount": 52})
+                "directProofCount": 6, "remainingContractCount": 51})
             proved = [child for parent in prepared["parents"] for child in parent["children"]
                       if child["proofStatus"] == "proved"]
             self.assertEqual({child["level3Field"] for child in proved},
                              {"mem_readInt_fi_1_2fa7", "mem_writeInt_fi_1_45b2",
                               "ssz_readU32_fi_1_3335",
                               "ssz_forkNameFromSchemaByte_fi_1_2fe4",
-                              "ssz_decode__struct_1051_f_fi_1_351c"})
+                              "ssz_decode__struct_1051_f_fi_1_351c",
+                              "ssz_decode__struct_1051_f_fi_1_34fd"})
             self.assertTrue(all(child["contractStatus"] == "proved_unconditionally"
                                 for child in proved))
             self.assertEqual(sum(len(row["glueObligations"])

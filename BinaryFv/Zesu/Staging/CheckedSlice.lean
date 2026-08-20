@@ -102,11 +102,11 @@ private theorem checkedSlice351cOwnPc_not_observed {pc : BitVec 64}
   rcases observed with observed | observed | observed
   all_goals omega
 
-private theorem liftCheckedSlice351cTrace (template : EndpointState)
-    {fromStep count : Nat} {before after : State}
-    (trace : ScopedTrace checkedSlice351cOwnPc checkedSlice351cExitPc
-      (fun _ _ _ _ _ => False) fromStep count before after) :
-    ConfinedTrace EndpointStep EndpointPc checkedSlice351cOwnPc fromStep count
+private theorem liftCheckedSliceTrace (template : EndpointState)
+    {own exit : BitVec 64 → Prop} {fromStep count : Nat} {before after : State}
+    (ownNotObserved : ∀ {pc}, own pc → ¬BareMetalHostTransitionPc pc)
+    (trace : ScopedTrace own exit (fun _ _ _ _ _ => False) fromStep count before after) :
+    ConfinedTrace EndpointStep EndpointPc own fromStep count
       { template with machine := before } { template with machine := after } := by
   induction trace with
   | exitAt fromStep state pc atPc exitPc => exact .refl fromStep { template with machine := state }
@@ -119,7 +119,7 @@ private theorem liftCheckedSlice351cTrace (template : EndpointState)
             change before.regs.get? PC = some observed at observedPc
             rw [atPc] at observedPc
             cases Option.some.inj observedPc
-            exact checkedSlice351cOwnPc_not_observed inside)
+            exact ownNotObserved inside)
           machineStep
       · simpa using ih
   | childBody fromStep used count child before middle after body rest ih => exact body.elim
@@ -130,6 +130,24 @@ private theorem liftCheckedSlice351cTrace (template : EndpointState)
   | callStep fromStep used count callSite program parent callee before resume after transfer rest ih =>
       exact transfer.body.elim
 
+private theorem liftCheckedSlice351cTrace (template : EndpointState)
+    {fromStep count : Nat} {before after : State}
+    (trace : ScopedTrace checkedSlice351cOwnPc checkedSlice351cExitPc
+      (fun _ _ _ _ _ => False) fromStep count before after) :
+    ConfinedTrace EndpointStep EndpointPc checkedSlice351cOwnPc fromStep count
+      { template with machine := before } { template with machine := after } :=
+  liftCheckedSliceTrace template checkedSlice351cOwnPc_not_observed trace
+
+private theorem sourceRepOfCheckedSliceSeg {args : CheckedSliceArgs}
+    {own exit : BitVec 64 → Prop} {W : RegSet} {M : Region} {kv : List RegVal}
+    {fromStep count : Nat} {before after : State} {pc : BitVec 64}
+    (sourceRep : BytesRep before.mem args.sourceAddress args.sourceBytes)
+    (outside : ∀ index, index < args.sourceBytes.size → ¬M (args.sourceAddress + index))
+    (seg : Seg own exit (fun _ _ _ _ _ => False) W M
+      kv fromStep count before after pc) :
+    BytesRep after.mem args.sourceAddress args.sourceBytes :=
+  sourceRep.of_writesOnlyWithin seg.mem outside
+
 private theorem sourceRepOfSeg {args : CheckedSliceArgs} {kv : List RegVal}
     {fromStep count : Nat} {before after : State} {pc : BitVec 64}
     (sourceRep : BytesRep before.mem args.sourceAddress args.sourceBytes)
@@ -139,14 +157,20 @@ private theorem sourceRepOfSeg {args : CheckedSliceArgs} {kv : List RegVal}
       checkedSlice351cWrites (checkedSlice351cMemory args.stackPointer)
       kv fromStep count before after pc) :
     BytesRep after.mem args.sourceAddress args.sourceBytes :=
-  sourceRep.of_writesOnlyWithin seg.mem outside
+  sourceRepOfCheckedSliceSeg sourceRep outside seg
+
+private theorem checkedSliceEndTrace {own exit : BitVec 64 → Prop}
+    {fromStep count : Nat} {state : State} {pc : BitVec 64}
+    (atPc : state.regs.get? PC = some pc) (exitPc : exit pc) :
+    ScopedTrace own exit (fun _ _ _ _ _ => False) (fromStep + count) 0 state state :=
+  .exitAt (fromStep + count) state pc atPc exitPc
 
 private theorem checkedSlice351cEndTrace {fromStep count : Nat} {state : State}
     {pc : BitVec 64} (atPc : state.regs.get? PC = some pc)
     (exitPc : checkedSlice351cExitPc pc) :
     ScopedTrace checkedSlice351cOwnPc checkedSlice351cExitPc
       (fun _ _ _ _ _ => False) (fromStep + count) 0 state state :=
-  .exitAt (fromStep + count) state pc atPc exitPc
+  checkedSliceEndTrace atPc exitPc
 
 /-- The production `fi:1:351c` instance satisfies the shared checked-slice contract. -/
 theorem checkedSlice351cContract_implements :
@@ -256,5 +280,197 @@ def Proposed_ssz_decode__struct_1051_f_fi_1_351c_Contract : Prop :=
 theorem proposed_checkedSlice_351c_proved :
     Proposed_ssz_decode__struct_1051_f_fi_1_351c_Contract :=
   checkedSlice351cContract_implements
+
+/-! ## Request-type-zero checked slice -/
+
+def checkedSlice34fdEntry (args : CheckedSliceArgs) (state : EndpointState) : Prop :=
+  state.machine.regs.get? PC = some 0x13098 ∧
+  state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.sourceBytes.size) ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 0x4e8) args.startOffset ∧
+  UIntRep 8 state.machine.mem (args.stackPointer + 0x4f0) args.endOffset ∧
+  BytesRep state.machine.mem args.sourceAddress args.sourceBytes ∧
+  args.sourceBytes.size < 2 ^ 64 ∧
+  (∀ index, index < args.sourceBytes.size →
+    ¬checkedSlice34fdMemory args.stackPointer (args.sourceAddress + index)) ∧
+  CheckedSliceMachineAccess args.stackPointer state.machine ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+
+def checkedSlice34fdSelectedRep (args : CheckedSliceArgs) (outcome : CheckedSliceOutcome)
+    (state : EndpointState) : Prop :=
+  match outcome with
+  | .invalid => True
+  | .selected bytes =>
+      bytes = args.sourceBytes.extract args.startOffset args.endOffset ∧
+      state.machine.regs.get? x13 = some (BitVec.ofNat 64 args.startOffset) ∧
+      state.machine.regs.get? x12 = some (BitVec.ofNat 64 args.endOffset) ∧
+      BytesRep state.machine.mem (args.sourceAddress + args.startOffset) bytes
+
+def checkedSlice34fdExit (args : CheckedSliceArgs) (outcome : CheckedSliceOutcome)
+    (before after : EndpointState) : Prop :=
+  after.machine.regs.get? PC = some (match outcome with
+    | .invalid => 0x13db0
+    | .selected _ => 0x130b0) ∧
+  checkedSlice34fdSelectedRep args outcome after ∧
+  BytesRep after.machine.mem args.sourceAddress args.sourceBytes ∧
+  WritesOnlyRegs checkedSlice34fdWrites before.machine after.machine ∧
+  WritesOnlyWithin (checkedSlice34fdMemory args.stackPointer) before.machine after.machine ∧
+  RetiredCounterPresent after.machine ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+  EndpointMachineAuxAgree before.machine after.machine ∧
+  after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
+  after.stdout = before.stdout ∧ after.exitCode = before.exitCode
+
+def checkedSlice34fdContract :
+    RelationalMachineContract EndpointState CheckedSliceArgs CheckedSliceOutcome :=
+  checkedSliceContract checkedSlice34fdEntry checkedSlice34fdExit (fun _ => 6)
+
+private theorem checkedSlice34fdOwnPc_not_observed {pc : BitVec 64}
+    (inside : checkedSlice34fdOwnPc pc) : ¬BareMetalHostTransitionPc pc := by
+  intro observed
+  unfold checkedSlice34fdOwnPc pcInList at inside
+  unfold BareMetalHostTransitionPc at observed
+  unfold readContextReturnPc writeContextReturnPc exitContextStorePc at observed
+  simp at inside
+  rcases observed with observed | observed | observed
+  all_goals omega
+
+private theorem sourceRepOf34fdSeg {args : CheckedSliceArgs} {kv : List RegVal}
+    {fromStep count : Nat} {before after : State} {pc : BitVec 64}
+    (sourceRep : BytesRep before.mem args.sourceAddress args.sourceBytes)
+    (outside : ∀ index, index < args.sourceBytes.size →
+      ¬checkedSlice34fdMemory args.stackPointer (args.sourceAddress + index))
+    (seg : Seg checkedSlice34fdOwnPc checkedSlice34fdExitPc
+      (fun _ _ _ _ _ => False) checkedSlice34fdWrites
+      (checkedSlice34fdMemory args.stackPointer) kv fromStep count before after pc) :
+    BytesRep after.mem args.sourceAddress args.sourceBytes :=
+  sourceRepOfCheckedSliceSeg sourceRep outside seg
+
+private theorem checkedSlice34fdMachineTrace (template : EndpointState)
+    {stackPointer fromStep count : Nat} {kv : List RegVal}
+    {before after : State} {pc : BitVec 64}
+    (seg : Seg checkedSlice34fdOwnPc checkedSlice34fdExitPc
+      (fun _ _ _ _ _ => False) checkedSlice34fdWrites
+      (checkedSlice34fdMemory stackPointer) kv fromStep count before after pc)
+    (exitPc : checkedSlice34fdExitPc pc) :
+    ConfinedTrace EndpointStep EndpointPc checkedSlice34fdOwnPc fromStep count
+      { template with machine := before } { template with machine := after } := by
+  have trace : ScopedTrace checkedSlice34fdOwnPc checkedSlice34fdExitPc
+      (fun _ _ _ _ _ => False) fromStep count before after :=
+    seg.confined 0 after (checkedSliceEndTrace seg.atPc exitPc)
+  exact liftCheckedSliceTrace template checkedSlice34fdOwnPc_not_observed trace
+
+/-- The production `fi:1:34fd` instance satisfies the shared checked-slice contract. -/
+theorem checkedSlice34fdContract_implements :
+    checkedSlice34fdContract.Implements EndpointStep EndpointPc
+      checkedSlice34fdOwnPc checkedSlice34fdExitPc := by
+  intro args fromStep before entry
+  rcases entry with ⟨atPc, lengthAt, startRep, endRep, sourceRep, lengthFits,
+    sourceOutside, access, loaded⟩
+  have startFits := startRep.1
+  have endFits := endRep.1
+  by_cases reversed : args.endOffset < args.startOffset
+  · have startEndComparison : zopz0zI_u (BitVec.ofNat 64 args.endOffset)
+        (BitVec.ofNat 64 args.startOffset) = true := by
+      rw [checkedSliceComparisonOfNat args.endOffset args.startOffset endFits startFits]
+      simp [reversed]
+    have lengthComparison : zopz0zI_u (BitVec.ofNat 64 args.sourceBytes.size)
+        (BitVec.ofNat 64 args.endOffset) =
+          decide (args.sourceBytes.size < args.endOffset) :=
+      checkedSliceComparisonOfNat _ _ lengthFits endFits
+    obtain ⟨finalMachine, seg⟩ := checkedSlice34fdRun fromStep args.stackPointer
+      args.sourceBytes.size args.startOffset args.endOffset before.machine access atPc lengthAt
+      startRep endRep startEndComparison lengthComparison loaded
+    change Seg checkedSlice34fdOwnPc checkedSlice34fdExitPc (fun _ _ _ _ _ => False)
+      checkedSlice34fdWrites (checkedSlice34fdMemory args.stackPointer) _ fromStep 4
+      before.machine finalMachine 0x13db0 at seg
+    let after : EndpointState := { before with machine := finalMachine }
+    refine ⟨4, after, .invalid, by omega, ?_, ?_, ?_, ?_, ?_⟩
+    · change 4 ≤ 6
+      omega
+    · exact checkedSlice34fdMachineTrace before seg
+        (by unfold checkedSlice34fdExitPc pcInList; native_decide)
+    · exact ⟨0x13db0, seg.atPc, by unfold checkedSlice34fdExitPc pcInList; native_decide⟩
+    · simp [checkedSlice34fdContract, checkedSliceContract, checkedSliceMeaning, reversed]
+    · refine ⟨by simp [checkedSliceMeaning, reversed], ?_, ?_, ?_, seg.writes, seg.mem,
+        seg.retired, ?_, seg.aux, rfl, rfl, rfl, rfl⟩
+      · simpa [after] using seg.atPc
+      · simp [checkedSlice34fdSelectedRep]
+      · exact sourceRepOf34fdSeg sourceRep sourceOutside seg
+      · exact checkedSlice34fdCodeOfSeg access loaded seg
+  · have startEndComparison : zopz0zI_u (BitVec.ofNat 64 args.endOffset)
+        (BitVec.ofNat 64 args.startOffset) = false := by
+      rw [checkedSliceComparisonOfNat args.endOffset args.startOffset endFits startFits]
+      simp [reversed]
+    by_cases oversized : args.sourceBytes.size < args.endOffset
+    · have lengthComparison : zopz0zI_u (BitVec.ofNat 64 args.sourceBytes.size)
+          (BitVec.ofNat 64 args.endOffset) = true := by
+        rw [checkedSliceComparisonOfNat args.sourceBytes.size args.endOffset lengthFits endFits]
+        simp [oversized]
+      obtain ⟨finalMachine, seg⟩ := checkedSlice34fdRun fromStep args.stackPointer
+        args.sourceBytes.size args.startOffset args.endOffset before.machine access atPc lengthAt
+        startRep endRep startEndComparison lengthComparison loaded
+      change Seg checkedSlice34fdOwnPc checkedSlice34fdExitPc (fun _ _ _ _ _ => False)
+        checkedSlice34fdWrites (checkedSlice34fdMemory args.stackPointer) _ fromStep 6
+        before.machine finalMachine 0x13db0 at seg
+      let after : EndpointState := { before with machine := finalMachine }
+      refine ⟨6, after, .invalid, by omega, ?_, ?_, ?_, ?_, ?_⟩
+      · change 6 ≤ 6
+        omega
+      · exact checkedSlice34fdMachineTrace before seg
+          (by unfold checkedSlice34fdExitPc pcInList; native_decide)
+      · exact ⟨0x13db0, seg.atPc, by unfold checkedSlice34fdExitPc pcInList; native_decide⟩
+      · simp [checkedSlice34fdContract, checkedSliceContract, checkedSliceMeaning, reversed,
+          oversized]
+      · refine ⟨by simp [checkedSliceMeaning, reversed, oversized], ?_, ?_, ?_, seg.writes,
+          seg.mem, seg.retired, ?_, seg.aux, rfl, rfl, rfl, rfl⟩
+        · simpa [after] using seg.atPc
+        · simp [checkedSlice34fdSelectedRep]
+        · exact sourceRepOf34fdSeg sourceRep sourceOutside seg
+        · exact checkedSlice34fdCodeOfSeg access loaded seg
+    · have lengthComparison : zopz0zI_u (BitVec.ofNat 64 args.sourceBytes.size)
+          (BitVec.ofNat 64 args.endOffset) = false := by
+        rw [checkedSliceComparisonOfNat args.sourceBytes.size args.endOffset lengthFits endFits]
+        simp [oversized]
+      obtain ⟨finalMachine, seg⟩ := checkedSlice34fdRun fromStep args.stackPointer
+        args.sourceBytes.size args.startOffset args.endOffset before.machine access atPc lengthAt
+        startRep endRep startEndComparison lengthComparison loaded
+      change Seg checkedSlice34fdOwnPc checkedSlice34fdExitPc (fun _ _ _ _ _ => False)
+        checkedSlice34fdWrites (checkedSlice34fdMemory args.stackPointer) _ fromStep 6
+        before.machine finalMachine 0x130b0 at seg
+      let selected := args.sourceBytes.extract args.startOffset args.endOffset
+      let after : EndpointState := { before with machine := finalMachine }
+      have sourceAfter := sourceRepOf34fdSeg sourceRep sourceOutside seg
+      have selectedRep : BytesRep finalMachine.mem (args.sourceAddress + args.startOffset)
+          selected := by
+        have range := sourceAfter.extractRange args.startOffset
+          (args.endOffset - args.startOffset) (by omega)
+        have endEq : args.startOffset + (args.endOffset - args.startOffset) =
+            args.endOffset := Nat.add_sub_of_le (by omega)
+        rw [endEq] at range
+        simpa [selected] using range
+      refine ⟨6, after, .selected selected, by omega, ?_, ?_, ?_, ?_, ?_⟩
+      · change 6 ≤ 6
+        omega
+      · exact checkedSlice34fdMachineTrace before seg
+          (by unfold checkedSlice34fdExitPc pcInList; native_decide)
+      · exact ⟨0x130b0, seg.atPc, by unfold checkedSlice34fdExitPc pcInList; native_decide⟩
+      · simp [checkedSlice34fdContract, checkedSliceContract, checkedSliceMeaning, reversed,
+          oversized, selected]
+      · refine ⟨by simp [checkedSliceMeaning, reversed, oversized, selected], ?_, ?_,
+          sourceAfter, seg.writes, seg.mem, seg.retired, ?_, seg.aux, rfl, rfl, rfl, rfl⟩
+        · simpa [after] using seg.atPc
+        · refine ⟨rfl, ?_, ?_, ?_⟩
+          · simpa [after] using seg.reg x13 (BitVec.ofNat 64 args.startOffset) (by simp)
+          · simpa [after] using seg.reg x12 (BitVec.ofNat 64 args.endOffset) (by simp)
+          · simpa [after] using selectedRep
+        · exact checkedSlice34fdCodeOfSeg access loaded seg
+
+def Proposed_ssz_decode__struct_1051_f_fi_1_34fd_Contract : Prop :=
+  checkedSlice34fdContract.Implements EndpointStep EndpointPc
+    checkedSlice34fdOwnPc checkedSlice34fdExitPc
+
+theorem proposed_checkedSlice_34fd_proved :
+    Proposed_ssz_decode__struct_1051_f_fi_1_34fd_Contract :=
+  checkedSlice34fdContract_implements
 
 end BinaryFv.Zesu.Staging

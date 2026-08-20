@@ -25,6 +25,11 @@
       "field": "ssz_decode__struct_1051_f_fi_1_351c",
       "theorem": "BinaryFv.Zesu.Staging.proposed_checkedSlice_351c_proved",
       "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode__struct_1051_f_fi_1_351c_Contract"
+    },
+    {
+      "field": "ssz_decode__struct_1051_f_fi_1_34fd",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_checkedSlice_34fd_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode__struct_1051_f_fi_1_34fd_Contract"
     }
   ]
 }
