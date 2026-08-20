@@ -387,6 +387,7 @@ let
     grep -Fq 'PROGRESS.get(meta.owner)' "$out/index.html"
     grep -Fq 'contract_consumed:' "$out/index.html"
     grep -Fq 'proof_in_progress:' "$out/index.html"
+    grep -Fq 'covered_by_proved_parent' "$out/index.html"
     cp ${zesuCfg}/flame.json "$out/flame-full.json"
     python ${../tools/build_flame_ui_data.py} --input ${zesuCfg}/flame.json \
       --core "$out/flame-core-full.json" --details "$out/flame-details-full.json"

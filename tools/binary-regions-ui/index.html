@@ -87,6 +87,7 @@
  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
  .legend i.conditional{background:repeating-linear-gradient(135deg,var(--proof-green) 0 4px,var(--proof-yellow) 4px 8px)}
  .legend i.contracted{background:repeating-linear-gradient(135deg,var(--proof-yellow) 0 4px,var(--proof-red) 4px 8px)}
+ .legend i.covered{background:#fff;border:2px solid var(--proof-green)}
  /* the frame label is a foreignObject painted over the rect and it swallows every
     click; without this nothing in the graph is clickable at all. */
  #chart foreignObject, #chart foreignObject *{pointer-events:none}
@@ -105,6 +106,7 @@
     <a class="button" href="README.md" target="_blank">graph rules</a>
     <span class="legend"><span><i style="background:var(--proof-green)"></i>proven unconditionally</span>
       <span><i class="conditional"></i>proven conditionally on contracts</span>
+      <span><i class="covered"></i>covered by a proved parent; no direct proof</span>
       <span><i style="background:var(--proof-yellow)"></i>proof in progress</span>
       <span><i class="contracted"></i>contract specified</span>
       <span><i style="background:var(--proof-red)"></i>no progress</span>
@@ -154,10 +156,23 @@ const metaOf=node=>META[node.data.uiId]||{};
 
 let Z=1, baseW=0;
 const pathOf=node=>{const parts=[];for(let n=node;n;n=n.parent)parts.unshift(n.data.name);return parts.join('|');};
-const proofState=d=>{const meta=metaOf(d);
+const ownProofState=d=>{const meta=metaOf(d);
   return PROGRESS.get(meta.owner)||PROGRESS.get(meta.machineOwner)||
     PROGRESS.get(meta.qualified)||{status:'not_selected'};};
+const directlyProved=s=>s==='proved'||s==='unconditionally_proven';
+const proofState=d=>{
+  const own=ownProofState(d);
+  if(directlyProved(own.status))return own;
+  for(let parent=d.parent;parent;parent=parent.parent){
+    const inherited=ownProofState(parent);
+    if(directlyProved(inherited.status))return {...own,status:'covered_by_proved_parent',
+      condition:'A proved parent covers this instance. This instance has no direct proof.',
+      coveringTheorem:inherited.theorem||inherited.contract||null};
+  }
+  return own;
+};
 const proofColor=s=>({unconditionally_proven:'#a8e6b8',proved:'#a8e6b8',
+  covered_by_proved_parent:'#fff',
   conditionally_proven:'url(#conditionally-proven)',in_progress:'#ffe39a',proof_in_progress:'#ffe39a',
   contracted:'url(#contract-specified)',contract_specified_assumption:'url(#contract-specified)',
   contract_consumed:'url(#contract-specified)',contract_not_specified:'#f3aaaa',
@@ -233,6 +248,12 @@ function pinVisibleFrameLabels(){
 }
 
 function syncGraphOverlays(){
+  d3.selectAll('#chart g.frame').each(function(d){
+    const rect=this.querySelector('rect'); if(!rect||!d)return;
+    const covered=proofState(d).status==='covered_by_proved_parent';
+    rect.style.stroke=covered?'#67b77d':'';
+    rect.style.strokeWidth=covered?'2px':'';
+  });
   renderLevelLabels();
   pinVisibleFrameLabels();
 }
@@ -357,6 +378,7 @@ async function details(d){
       <span>callsite / return</span><span>${m.callsitePc==null?'program entry':`0x${m.callsitePc.toString(16)} / 0x${m.returnPc.toString(16)}`}</span>
       <span>proof status</span><span>${esc(progress.status.replaceAll('_',' '))}</span>
       <span>contract/theorem</span><span>${esc(progress.theorem||progress.contract||'none')}</span>
+      <span>covering parent theorem</span><span>${esc(progress.coveringTheorem||'none')}</span>
       <span>outstanding condition</span><span>${esc(progress.condition||'none')}</span>
       <span>hierarchy parent</span><span>${esc(m.displayAnchorName||'lexical DWARF parent')} ${displayCallsites?`at ${displayCallsites}`:''}</span>
       <span>machine-symbol callers</span><span>${callers.join('<br>')||'none'}</span>
