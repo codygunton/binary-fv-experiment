@@ -10,6 +10,9 @@ from validate_hlevel3_guidance_retrospective import build
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE = Path(os.environ.get(
+    "HLEVEL3_RETROSPECTIVE_SOURCE",
+    str(ROOT / "BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.lean")))
 
 
 class RetrospectiveTests(unittest.TestCase):
@@ -20,7 +23,7 @@ class RetrospectiveTests(unittest.TestCase):
         if not manifest.exists():
             raise unittest.SkipTest("built Level 2 manifest is unavailable")
         cls.manifest = json.loads(manifest.read_text())
-        cls.source = (ROOT / "BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.lean").read_text()
+        cls.source = SOURCE.read_text()
 
     def test_two_completed_contracts(self):
         result = build(self.manifest, self.source)

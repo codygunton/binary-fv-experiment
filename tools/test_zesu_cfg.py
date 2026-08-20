@@ -19,6 +19,7 @@ def validate(path: Path) -> None:
     assert data["totals"]["functions"] == len(data["functions"])
     validate_instances(data)
     validate_indirect_calls(data)
+    validate_jump_tables(data)
     assert data["totals"]["blocks"] == sum(len(fn["blocks"]) for fn in data["functions"])
     assert data["totals"]["symbolInstructionReferences"] == sum(fn["instructionCount"] for fn in data["functions"])
     assert any(fn["semanticGroup"] == "ssz" for fn in data["functions"])
@@ -111,6 +112,16 @@ def validate(path: Path) -> None:
         else:
             raise AssertionError("forged allocator-vtable target was accepted")
 
+    if data["resolvedJumpTables"]:
+        forged_jump = copy.deepcopy(data)
+        forged_jump["resolvedJumpTables"][0]["targets"][0] += 4
+        try:
+            validate_jump_tables(forged_jump)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("forged switch-table target was accepted")
+
 
 def validate_indirect_calls(data: dict) -> None:
     if data["artifact"]["kind"] != "ELF64 RISC-V linked executable":
@@ -131,6 +142,23 @@ def validate_indirect_calls(data: dict) -> None:
         assert row["kind"] == "allocator-vtable"
         assert row["callee"] == callee and row["target"] == target and row["slot"] == slot
         assert row["vtable"] == 0x177a8
+
+
+def validate_jump_tables(data: dict) -> None:
+    if data["artifact"]["kind"] != "ELF64 RISC-V linked executable":
+        assert data["resolvedJumpTables"] == []
+        return
+    row = next(item for item in data["resolvedJumpTables"] if item["source"] == 0x12248)
+    assert row == {
+        "source": 0x12248,
+        "tableBase": 0x17228,
+        "entryCount": 21,
+        "targets": [
+            0x126a4, 0x1224c, 0x125cc, 0x125ec, 0x1259c, 0x12628, 0x12658,
+            0x125fc, 0x12688, 0x125bc, 0x12678, 0x1258c, 0x125ac, 0x12648,
+            0x12580, 0x125dc, 0x12570, 0x12608, 0x12668, 0x12698, 0x12618,
+        ],
+    }
 
 
 def validate_instances(data: dict) -> None:

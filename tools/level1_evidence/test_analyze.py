@@ -4,6 +4,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from analyze import (make_report, parse_trace, reduce_trace, validate_decode_runs,
@@ -86,6 +87,21 @@ class EvidenceTest(unittest.TestCase):
             trace.write_text("E 4\nE 8\nE 12\nE 16\n")
             with self.assertRaisesRegex(ValueError, "entry coverage is incomplete"):
                 make_report(self.manifest, elf, [("mutated", trace)])
+
+    def test_records_incomplete_entry_coverage_when_requested(self):
+        with tempfile.TemporaryDirectory() as directory:
+            elf = Path(directory) / "elf"
+            trace = Path(directory) / "trace"
+            shutil.copyfile(sys.executable, elf)
+            trace.write_text("E 0\n")
+            with patch("analyze.validate_initialized_decoded_prefixes", return_value=[]):
+                report = make_report(
+                    self.manifest, elf, [("unobserved", trace)],
+                    structural_only=True,
+                    allow_incomplete_entry_coverage=True)
+            self.assertEqual(report["entryCoverage"], {
+                "observed": [], "missing": ["fi:1"], "complete": False,
+            })
 
     def test_parser_rejects_bad_register_record(self):
         with tempfile.TemporaryDirectory() as directory:

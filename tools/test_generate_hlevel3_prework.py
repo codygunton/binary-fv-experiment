@@ -13,6 +13,9 @@ HERE = Path(__file__).parent
 RESULT = Path(os.environ.get(
     "HLEVEL3_ARTIFACT_DIR", "/home/cody/binary-fv-experiment/result-binary-regions-ui"))
 CFG_RESULT = Path(os.environ.get("HLEVEL3_CFG_DIR", str(RESULT)))
+CLAUSES = Path(os.environ.get(
+    "HLEVEL3_CLAUSES", str(HERE / "level2_contract_clauses.json")))
+TARGETS = Path(os.environ.get("HLEVEL3_TARGETS", str(HERE / "hlevel3_targets.json")))
 
 
 @unittest.skipUnless(RESULT.exists(), "built binary-regions UI is unavailable")
@@ -32,8 +35,7 @@ class LiveArtifactTests(unittest.TestCase):
         if not level3_evidence.exists():
             raise unittest.SkipTest("generated Level 3 evidence is unavailable")
         cls.documents.append(json.loads(level3_evidence.read_text()))
-        cls.documents.extend(json.loads((HERE / name).read_text()) for name in (
-            "level2_contract_clauses.json", "hlevel3_targets.json"))
+        cls.documents.extend(json.loads(path.read_text()) for path in (CLAUSES, TARGETS))
 
     def test_exact_level2_boundary(self):
         result = build(*self.documents)

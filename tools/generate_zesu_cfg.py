@@ -7,6 +7,7 @@ import argparse
 import bisect
 import hashlib
 import json
+import struct
 from collections import defaultdict, deque
 from pathlib import Path
 
@@ -248,6 +249,74 @@ def decode_text(elf: ELFFile) -> dict[int, dict]:
     return result
 
 
+def operand_parts(instruction: dict) -> list[str]:
+    return [part.strip() for part in instruction["operands"].split(",")]
+
+
+def read_virtual_bytes(elf: ELFFile, address: int, size: int) -> bytes:
+    """Read one file-backed virtual-address range from the linked ELF."""
+    for segment in elf.iter_segments():
+        start = segment["p_vaddr"]
+        file_end = start + segment["p_filesz"]
+        if start <= address and address + size <= file_end:
+            offset = address - start
+            return segment.data()[offset:offset + size]
+    raise ValueError(f"virtual range 0x{address:x}..0x{address + size:x} is not file-backed")
+
+
+def resolved_jump_tables(elf: ELFFile, instructions: dict[int, dict]) -> list[dict]:
+    """Resolve Zig's bounded RV64 switch table into exact CFG successors.
+
+    The compiler emits `addi; li; bltu; slli; auipc; addi; add; ld`, then jumps through the
+    loaded address. The bound proves the table length. The table bytes bind every successor to the
+    linked ELF instead of to one observed execution.
+    """
+    if elf["e_type"] != "ET_EXEC":
+        return []
+    pcs = sorted(instructions)
+    pc_index = {pc: index for index, pc in enumerate(pcs)}
+    rows = []
+    for jump_pc, jump in instructions.items():
+        if jump["mnemonic"] != "jr" or jump_pc not in pc_index or pc_index[jump_pc] < 11:
+            continue
+        window = [instructions[pc] for pc in pcs[pc_index[jump_pc] - 11:pc_index[jump_pc] + 1]]
+        first, limit, branch, shift, high, low, add, load = window[:8]
+        first_args = operand_parts(first)
+        limit_args = operand_parts(limit)
+        branch_args = operand_parts(branch)
+        shift_args = operand_parts(shift)
+        high_args = operand_parts(high)
+        low_args = operand_parts(low)
+        add_args = operand_parts(add)
+        load_args = operand_parts(load)
+        jump_args = operand_parts(jump)
+        if not (
+            first["mnemonic"] == "addi" and len(first_args) == 3 and first_args[0] == first_args[1]
+            and limit["mnemonic"] == "addi" and len(limit_args) == 3 and limit_args[1] == "zero"
+            and branch["mnemonic"] == "bltu" and branch_args[:2] == [limit_args[0], first_args[0]]
+            and shift["mnemonic"] == "slli" and shift_args == [first_args[0], first_args[0], "3"]
+            and high["mnemonic"] == "auipc" and len(high_args) == 2
+            and low["mnemonic"] == "addi" and low_args[:2] == [high_args[0], high_args[0]]
+            and add["mnemonic"] == "add" and add_args == [first_args[0], high_args[0], first_args[0]]
+            and load["mnemonic"] == "ld" and load_args == [first_args[0], f"0({first_args[0]})"]
+            and jump_args == [first_args[0]]
+        ):
+            continue
+        entry_count = int(limit_args[2], 0) + 1
+        table_base = high["pc"] + (int(high_args[1], 0) << 12) + int(low_args[2], 0)
+        targets = list(struct.unpack(f"<{entry_count}Q", read_virtual_bytes(
+            elf, table_base, entry_count * 8)))
+        if any(target not in instructions for target in targets):
+            raise ValueError(f"jump table at 0x{table_base:x} contains a non-instruction target")
+        rows.append({
+            "source": jump_pc,
+            "tableBase": table_base,
+            "entryCount": entry_count,
+            "targets": targets,
+        })
+    return sorted(rows, key=lambda row: row["source"])
+
+
 def functions(elf: ELFFile) -> list[dict]:
     symtab = elf.get_section_by_name(".symtab")
     rows = []
@@ -268,12 +337,14 @@ def immediate_target(insn: dict) -> int | None:
 
 
 def make_blocks(fn: dict, instructions: dict[int, dict], sources: dict[int, tuple[str, int]],
-                instruction_pcs: list[int] | None = None) -> list[dict]:
+                instruction_pcs: list[int] | None = None,
+                indirect_successors: dict[int, list[int]] | None = None) -> list[dict]:
     start, end = fn["start"], fn["start"] + fn["size"]
     all_pcs = instruction_pcs or sorted(instructions)
     pcs = all_pcs[bisect.bisect_left(all_pcs, start):bisect.bisect_left(all_pcs, end)]
     if not pcs:
         return []
+    indirect_successors = indirect_successors or {}
     leaders = {pcs[0]}
     for index, pc in enumerate(pcs):
         insn = instructions[pc]
@@ -281,6 +352,9 @@ def make_blocks(fn: dict, instructions: dict[int, dict], sources: dict[int, tupl
         if mnemonic in COND | UNCOND:
             target = immediate_target(insn)
             if target is not None and start <= target < end:
+                leaders.add(target)
+        for target in indirect_successors.get(pc, []):
+            if start <= target < end:
                 leaders.add(target)
         if mnemonic in COND | UNCOND | RET | {"jal", "jalr"} and index + 1 < len(pcs):
             leaders.add(pcs[index + 1])
@@ -304,6 +378,10 @@ def make_blocks(fn: dict, instructions: dict[int, dict], sources: dict[int, tupl
         target = immediate_target(tail) if mnemonic in COND | UNCOND else None
         if target in by_pc:
             block["successors"].append(f"0x{target:x}")
+        block["successors"].extend(
+            f"0x{successor:x}" for successor in indirect_successors.get(tail["pc"], [])
+            if successor in by_pc
+        )
         if mnemonic not in UNCOND | RET and index + 1 < len(blocks):
             block["successors"].append(blocks[index + 1]["id"])
         block["successors"] = list(dict.fromkeys(block["successors"]))
@@ -706,6 +784,10 @@ def main() -> None:
         }.get(elf["e_type"], f"ELF64 RISC-V {elf['e_type']}")
         source_rows = line_map(elf)
         instruction_rows = decode_text(elf)
+        jump_table_rows = resolved_jump_tables(elf, instruction_rows)
+        jump_table_successors = {
+            row["source"]: row["targets"] for row in jump_table_rows
+        }
         function_rows = functions(elf)
         instance_rows = function_instances(elf, instruction_rows)
         call_rows = direct_calls(elf, function_rows, instruction_rows)
@@ -715,7 +797,8 @@ def main() -> None:
         instruction_pcs = sorted(instruction_rows)
         for fn in function_rows:
             source_file, source_line = nearest_source(fn["start"], source_rows)
-            blocks = make_blocks(fn, instruction_rows, source_rows, instruction_pcs)
+            blocks = make_blocks(
+                fn, instruction_rows, source_rows, instruction_pcs, jump_table_successors)
             output_functions.append({
                 **fn, "instructionCount": sum(b["instructionCount"] for b in blocks),
                 "blockCount": len(blocks), "sourceFile": source_file, "sourceLine": source_line,
@@ -736,6 +819,7 @@ def main() -> None:
         "functionInstances": instance_rows,
         "calls": call_rows,
         "reviewedIndirectCalls": indirect_call_rows,
+        "resolvedJumpTables": jump_table_rows,
         "totals": {"functions": len(output_functions), "instructions": len(instruction_rows),
                    "functionInstances": len(instance_rows),
                    "inlinedFunctionInstances": sum(row["kind"] == "inlined" for row in instance_rows),

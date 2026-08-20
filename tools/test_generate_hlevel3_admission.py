@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RESULT = Path(os.environ.get("HLEVEL3_PREWORK_DIR", "/tmp"))
 EVIDENCE = Path(os.environ.get("HLEVEL3_EVIDENCE", "/tmp/level3-evidence-placeholder.json"))
 BINDINGS = Path(os.environ.get("HLEVEL3_BINDINGS", "/tmp/level3-boundary-bindings.json"))
+REGISTRY = Path(os.environ.get(
+    "HLEVEL3_REGISTRY", str(ROOT / "tools/hlevel3_contract_schemas.json")))
 
 
 @unittest.skipUnless((RESULT / "hlevel3-prework.json").exists() and EVIDENCE.exists() and BINDINGS.exists(),
@@ -26,7 +28,7 @@ class AdmissionTests(unittest.TestCase):
         cls.inventory = json.loads((RESULT / "hlevel3-prework.json").read_text())
         cls.evidence = json.loads(EVIDENCE.read_text())
         cls.bindings = json.loads(BINDINGS.read_text())
-        cls.registry = json.loads((ROOT / "tools/hlevel3_contract_schemas.json").read_text())
+        cls.registry = json.loads(REGISTRY.read_text())
 
     def test_exact_boundary(self):
         result = build(self.inventory, self.evidence, self.bindings, self.registry)
@@ -55,7 +57,8 @@ class AdmissionTests(unittest.TestCase):
     def test_forged_machine_boundary_is_rejected(self):
         inventory = copy.deepcopy(self.inventory)
         inventory["proposedLevel3Contracts"][0]["executionPcs"] = []
-        with self.assertRaisesRegex(ValueError, "failed generated contract requirements"):
+        with self.assertRaisesRegex(
+                ValueError, "failed generated contract requirements|observed exits disagree"):
             build(inventory, self.evidence, self.bindings, self.registry)
 
     def test_forged_entry_address_is_rejected(self):

@@ -299,7 +299,8 @@ def validate_initialized_decoded_prefixes(_vectors: list[dict],
 
 def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
                 bindings: dict | None = None, inputs: dict[str, Path] | None = None,
-                structural_only: bool = False) -> dict:
+                structural_only: bool = False,
+                allow_incomplete_entry_coverage: bool = False) -> dict:
     digest = load_image_sha256(elf)
     if digest != manifest["artifact"]["sha256"]:
         raise ValueError("manifest and observed ELF digests differ")
@@ -311,15 +312,19 @@ def make_report(manifest: dict, elf: Path, traces: list[tuple[str, Path]],
         if instance["entryReached"]
     }
     expected = {instance["id"] for instance in manifest["instances"]}
-    if reached != expected:
-        missing = sorted(expected - reached)
+    missing = sorted(expected - reached)
+    if missing and not allow_incomplete_entry_coverage:
         raise ValueError(f"Level {manifest.get('level', 1)} entry coverage is incomplete: {missing}")
     report = {
         "schemaVersion": 1,
         "artifact": manifest["artifact"],
         "level": manifest.get("level", 1),
         "vectors": vectors,
-        "entryCoverage": {"observed": sorted(reached), "complete": True},
+        "entryCoverage": {
+            "observed": sorted(reached),
+            "missing": missing,
+            "complete": not missing,
+        },
         "unmeasuredClauses": [
             "universal path coverage",
             "universal step bounds",
@@ -348,6 +353,7 @@ def main() -> int:
     parser.add_argument("--input", action="append", default=[], help="LABEL=PATH")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--structural-only", action="store_true")
+    parser.add_argument("--allow-incomplete-entry-coverage", action="store_true")
     args = parser.parse_args()
     traces = []
     for value in args.trace:
@@ -363,7 +369,8 @@ def main() -> int:
         inputs[label] = Path(path)
     bindings = json.loads(args.bindings.read_text()) if args.bindings else None
     report = make_report(json.loads(args.manifest.read_text()), args.elf, traces,
-                         bindings, inputs, args.structural_only)
+                         bindings, inputs, args.structural_only,
+                         args.allow_incomplete_entry_coverage)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return 0
 

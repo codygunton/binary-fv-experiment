@@ -10,6 +10,8 @@ from generate_hlevel3_lean_staging import generate, idiom_checks
 
 ROOT = Path(__file__).resolve().parents[1]
 PREWORK = Path(os.environ.get("HLEVEL3_PREWORK_DIR", "/tmp"))
+CATALOGUE = Path(os.environ.get(
+    "HLEVEL3_CATALOGUE", str(ROOT / "tools/hlevel3_proof_idioms.json")))
 
 
 @unittest.skipUnless(all((PREWORK / name).exists() for name in (
@@ -21,7 +23,7 @@ class LeanStagingTests(unittest.TestCase):
         cls.inventory, cls.guidance, cls.admission = [
             json.loads((PREWORK / name).read_text()) for name in (
                 "hlevel3-prework.json", "hlevel3-guidance.json", "hlevel3-admission.json")]
-        cls.catalogue = json.loads((ROOT / "tools/hlevel3_proof_idioms.json").read_text())
+        cls.catalogue = json.loads(CATALOGUE.read_text())
         cls.source = generate(cls.inventory, cls.guidance, cls.admission, cls.catalogue)
 
     def test_exact_typed_holes(self):

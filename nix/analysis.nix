@@ -250,7 +250,8 @@ let
         ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
     done
     mkdir -p "$out"
-    python tools/analyze.py --structural-only \
+    # This pre-work records unobserved proposed contracts. It does not admit them.
+    python tools/analyze.py --structural-only --allow-incomplete-entry-coverage \
       --manifest ${zesuSszDecodeLevel3Manifest}/level3-manifest.json \
       --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
       --trace minimal=minimal.trace --trace block-number=block-number.trace \
@@ -311,16 +312,21 @@ let
       HLEVEL3_CFG_DIR=${zesuSszDecodeCfg} \
       HLEVEL3_MANIFEST=${zesuSszDecodeLevel3Manifest}/level3-manifest.json \
       HLEVEL3_EVIDENCE=${zesuSszDecodeLevel3Evidence}/level3-evidence.json \
+      HLEVEL3_CLAUSES=${../tools/level2_contract_clauses.json} \
+      HLEVEL3_TARGETS=${../tools/hlevel3_targets.json} \
         PYTHONPATH=${../tools} python ${../tools/test_generate_hlevel3_prework.py}
       HLEVEL3_PREWORK_DIR=$out \
       HLEVEL3_EVIDENCE=${zesuSszDecodeLevel3Evidence}/level3-evidence.json \
       HLEVEL3_BINDINGS=${zesuSszDecodeLevel3BoundaryBindings}/level3-boundary-bindings.json \
+      HLEVEL3_REGISTRY=${../tools/hlevel3_contract_schemas.json} \
         PYTHONPATH=${../tools} python ${../tools/test_generate_hlevel3_admission.py}
       HLEVEL3_GUIDANCE=$out/hlevel3-guidance.json \
         PYTHONPATH=${../tools} python ${../tools/test_generate_hlevel3_guidance.py}
       HLEVEL3_PREWORK_DIR=$out \
+      HLEVEL3_CATALOGUE=${../tools/hlevel3_proof_idioms.json} \
         PYTHONPATH=${../tools} python ${../tools/test_generate_hlevel3_lean_staging.py}
       HLEVEL3_LEVEL2_MANIFEST=${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+      HLEVEL3_RETROSPECTIVE_SOURCE=${../BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.lean} \
         PYTHONPATH=${../tools} python ${../tools/test_validate_hlevel3_guidance_retrospective.py}
       mkdir repeated
       PYTHONPATH=${../tools} python ${../tools/generate_hlevel3_prework.py} \
