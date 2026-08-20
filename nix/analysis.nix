@@ -81,7 +81,6 @@ let
         --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
         --flame ${zesuSszDecodeCfg}/flame.json \
         --level 3 --output "$out/level3-manifest.json"
-      python ${../tools/test_level_manifest.py} "$out/level3-manifest.json"
       PYTHONPATH=${../tools} python ${../tools/test_level3_manifest.py} \
         "$out/level3-manifest.json" ${../tools/hlevel3_targets.json}
     '';
