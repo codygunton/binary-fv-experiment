@@ -112,7 +112,7 @@ let
         --manifest ${zesuSszDecodeLevel3Manifest}/level3-manifest.json \
         --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
         --output "$out/level3-boundary-bindings.json"
-      python ${../tools/test_level_boundary_bindings.py} "$out/level3-boundary-bindings.json"
+      python ${../tools/test_level3_boundary_bindings.py} "$out/level3-boundary-bindings.json"
     '';
 
   zesuSszDecodeLevel1Lean = pkgs.runCommand "zesu-ssz-decode-level1-lean-d67f28c"
