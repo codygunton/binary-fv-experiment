@@ -3,12 +3,11 @@
 This report classifies every proposed Level 3 instance. `direct-now` instances have no
 unresolved child proof. `direct-after-dependencies` instances become direct proofs after
 the named shared leaf or wrapper proof exists. `retain-contract` instances keep a Level 3
-assumption because they contain a runtime loop, a large parser, an unresolved allocator,
-or a machine region that requires typed re-entry.
+assumption because they contain a runtime loop, a large parser, or an unresolved allocator.
 The validator also accepts a shared concrete body when the core flame metadata records its
 machine owner at expanded call sites. The current tree uses this form for `fi:1:43a9`.
 
-Counts: 4 direct now; 40 direct after shared dependencies; 13 retained contracts.
+Counts: 8 direct now; 40 direct after shared dependencies; 9 retained contracts.
 
 | Instance | Source operation | Entry | Execution | Owned | Observed | Decision | Reason |
 |---|---|---:|---:|---:|---:|---|---|
@@ -54,11 +53,11 @@ Counts: 4 direct now; 40 direct after shared dependencies; 13 retained contracts
 | `fi:1:49b1` | `extern_io.write_output` | `0x161c0` | 18 | 5 | 1 | direct-after-dependencies | 3-5 owned instructions around the proved write_output leaf |
 | `fi:1:2fa7` | `mem.readInt` | `0x121c4` | 10 | 10 | 14 | direct-now | ten-instruction leaf; prove one shared fixed-width read theorem |
 | `fi:1:2fe4` | `ssz.forkNameFromSchemaByte` | `0x1221c` | 12 | 12 | 13 | direct-now | twelve-instruction leaf with finite result branches |
-| `fi:1:34fd` | `ssz.decode__struct_1051.f` | `0x13098` | 7 | 7 | 13 | retain-contract | later machine region needs a typed re-entry contract |
+| `fi:1:34fd` | `ssz.decode__struct_1051.f` | `0x13098` | 7 | 7 | 13 | direct-now | leaf wrapper with 6-17 instructions |
 | `fi:1:351c` | `ssz.decode__struct_1051.f` | `0x130b0` | 6 | 6 | 13 | direct-now | leaf wrapper with 6-17 instructions |
-| `fi:1:3541` | `ssz.decode__struct_1051.f` | `0x130c8` | 13 | 13 | 13 | retain-contract | entry jump and later machine region need a typed re-entry contract |
-| `fi:1:3566` | `ssz.decode__struct_1051.f` | `0x13100` | 17 | 17 | 13 | retain-contract | entry exit and later machine region need a typed re-entry contract |
-| `fi:1:358b` | `ssz.decode__struct_1051.f` | `0x13144` | 16 | 16 | 12 | retain-contract | later machine region needs a typed re-entry contract |
+| `fi:1:3541` | `ssz.decode__struct_1051.f` | `0x130c8` | 13 | 13 | 13 | direct-now | leaf wrapper with 6-17 instructions |
+| `fi:1:3566` | `ssz.decode__struct_1051.f` | `0x13100` | 17 | 17 | 13 | direct-now | leaf wrapper with 6-17 instructions |
+| `fi:1:358b` | `ssz.decode__struct_1051.f` | `0x13144` | 16 | 16 | 12 | direct-now | leaf wrapper with 6-17 instructions |
 | `fi:1:45b2` | `mem.writeInt` | `0x15d18` | 1 | 1 | 13 | direct-now | one-instruction leaf; reuse the staged store contract |
 | `fi:1:1999` | `ssz.decodeByteListList` | `0x10214` | 298 | 81 | 13 | retain-contract | runtime-sized offset loop and allocator descendants |
 | `fi:1:340d` | `mem.Allocator.alloc__anon_1045` | `0x12e90` | 205 | 0 | 13 | retain-contract | allocator subtree delegates to allocAdvancedWithRetAddr |
@@ -72,11 +71,11 @@ Counts: 4 direct now; 40 direct after shared dependencies; 13 retained contracts
 
 ## Recommended proof order
 
-1. Prove generic `mem.readInt`, staged `mem.writeInt`, fork-name, and the contiguous checked-slice region.
+1. Prove generic `mem.readInt`, the staged `mem.writeInt`, and the five struct-field leaves.
 2. Discharge all `ssz.readU32`, `ssz.readU64`, and `extern_io.write_output` wrappers.
 3. Discharge `Encoder.raw`, then `Encoder.int`, then the two optional encoders.
 4. Discharge `ssz.decodeWithdrawal` with the shared integer-read theorem.
-5. Keep assumptions for nine large instances and four checked-slice re-entry instances.
+5. Design assumptions only for the nine retained instances.
 
 A direct proof still needs a local semantic theorem statement. It avoids exposing that
 statement as an `hLevel3` premise and avoids a second refinement level for the wrapper.
