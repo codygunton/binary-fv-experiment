@@ -9,6 +9,21 @@ def put_int(data: bytearray, offset: int, width: int, value: int) -> None:
     data[offset:offset + width] = value.to_bytes(width, "little")
 
 
+def rlp_bytes(value: bytes) -> bytes:
+    if len(value) == 1 and value[0] < 0x80:
+        return value
+    if len(value) <= 55:
+        return bytes((0x80 + len(value),)) + value
+    raise ValueError("fixture RLP byte string is too large")
+
+
+def rlp_list(items: list[bytes]) -> bytes:
+    payload = b"".join(items)
+    if len(payload) <= 55:
+        return bytes((0xC0 + len(payload),)) + payload
+    raise ValueError("fixture RLP list is too large")
+
+
 def minimal_input() -> bytearray:
     data = bytearray(666)
     data[0:2] = bytes((0x15, 0x01))
@@ -27,6 +42,31 @@ def minimal_input() -> bytearray:
     return data
 
 
+def activation_timestamp_input() -> bytearray:
+    data = minimal_input()
+    put_int(data, 14, 4, 672)
+    data.extend((1).to_bytes(8, "little"))
+    return data
+
+
+def blob_transaction_input() -> bytearray:
+    data = minimal_input()
+    empty = rlp_bytes(b"")
+    transaction = bytes((3,)) + rlp_list([
+        empty, empty, empty, empty, empty, empty, empty, empty,
+        rlp_list([]), empty, rlp_list([rlp_bytes(bytes((1,)) + bytes(31))]),
+        empty, empty, empty,
+    ])
+    encoded = (4).to_bytes(4, "little") + transaction
+    added = len(encoded)
+    for offset in (6, 10, 14, 22, 58):
+        put_int(data, offset, 4, int.from_bytes(data[offset:offset + 4], "little") + added)
+    put_int(data, 570, 4, 540 + added)
+    put_int(data, 590, 4, 540 + added)
+    data[602:602] = encoded
+    return data
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("output", type=Path)
@@ -35,7 +75,8 @@ def main() -> None:
         choices=("invalid-schema", "block-number", "chain-id-zero", "legacy-requests",
                  "legacy-payload", "future-activation", "extra-data-33",
                  "public-key-overflow", "versioned-hash-overflow",
-                 "one-transaction", "one-withdrawal"),
+                 "one-transaction", "one-withdrawal", "activation-timestamp",
+                 "blob-transaction"),
     )
     args = parser.parse_args()
     data = minimal_input()
@@ -111,6 +152,12 @@ def main() -> None:
             put_int(data, offset, 4, int.from_bytes(data[offset:offset + 4], "little") + added)
         put_int(data, 590, 4, 540 + added)
         data[602:602] = withdrawal
+    elif args.mutation == "activation-timestamp":
+        # Extend SszForkActivation with one timestamp value at activation offset 16.
+        data = activation_timestamp_input()
+    elif args.mutation == "blob-transaction":
+        # One EIP-4844 transaction with one versioned hash exercises Encoder.raw in its loop.
+        data = blob_transaction_input()
     args.output.write_bytes(data)
 
 

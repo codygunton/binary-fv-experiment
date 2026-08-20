@@ -245,7 +245,7 @@ let
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel3Manifest}/level3-manifest.json"))["instances"]; pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | {pc for row in rows for pc in row["exitPcs"]}); print(",".join("snapshot="+str(pc) for pc in pcs))')
     for vector in minimal block-number chain-id-zero legacy-requests legacy-payload \
         future-activation extra-data-33 public-key-overflow versioned-hash-overflow \
-        one-transaction one-withdrawal invalid; do
+        one-transaction one-withdrawal activation-timestamp blob-transaction invalid; do
       ${rv64.qemuRiscv64} -plugin ./trace.so,out="$vector.trace",input=${targets.public.zesuSszDecodeSmoke}/"$vector.ssz",input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,capture_window=0x14d30,capture_window_width=848,"$snapshots" \
         ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
     done
@@ -263,6 +263,8 @@ let
       --trace versioned-hash-overflow=versioned-hash-overflow.trace \
       --trace one-transaction=one-transaction.trace \
       --trace one-withdrawal=one-withdrawal.trace \
+      --trace activation-timestamp=activation-timestamp.trace \
+      --trace blob-transaction=blob-transaction.trace \
       --trace invalid=invalid.trace \
       --output "$out/level3-evidence.json"
   '';

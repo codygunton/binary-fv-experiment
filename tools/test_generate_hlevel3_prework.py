@@ -50,6 +50,12 @@ class LiveArtifactTests(unittest.TestCase):
                 covered.update(child["subtreePcs"])
             self.assertEqual(set(parent["executionPcs"]), covered, parent["field"])
 
+    def test_every_level3_candidate_has_entry_evidence(self):
+        result = build(*self.documents)
+        missing = [row["instanceId"] for row in result["proposedLevel3Contracts"]
+                   if row["evidence"]["entryCount"] == 0]
+        self.assertEqual([], missing)
+
     def test_wrong_target_is_rejected(self):
         documents = copy.deepcopy(self.documents)
         documents[-1]["targets"][0]["instanceId"] = "fi:missing"

@@ -184,6 +184,8 @@ let
     python ${repo}/tools/make_minimal_ssz.py versioned-hash-overflow.ssz --mutation versioned-hash-overflow
     python ${repo}/tools/make_minimal_ssz.py one-transaction.ssz --mutation one-transaction
     python ${repo}/tools/make_minimal_ssz.py one-withdrawal.ssz --mutation one-withdrawal
+    python ${repo}/tools/make_minimal_ssz.py activation-timestamp.ssz --mutation activation-timestamp
+    python ${repo}/tools/make_minimal_ssz.py blob-transaction.ssz --mutation blob-transaction
 
     ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < minimal.ssz > success.out
@@ -211,6 +213,10 @@ let
       < one-transaction.ssz > one-transaction.out
     ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
       < one-withdrawal.ssz > one-withdrawal.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
+      < activation-timestamp.ssz > activation-timestamp.out
+    ${rv64.qemuRiscv64} ${zesuSszDecodeLinuxRv64Elf}/bin/zesu-ssz-decode \
+      < blob-transaction.ssz > blob-transaction.out
 
     test "$(od -An -tx1 -N6 success.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 changed.out | tr -d ' \n')" = 5a53535a0101
@@ -227,12 +233,15 @@ let
     test "$(od -An -tx1 -N6 versioned-hash-overflow.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 one-transaction.out | tr -d ' \n')" = 5a53535a0101
     test "$(od -An -tx1 -N6 one-withdrawal.out | tr -d ' \n')" = 5a53535a0101
+    test "$(od -An -tx1 -N6 activation-timestamp.out | tr -d ' \n')" = 5a53535a0101
+    test "$(od -An -tx1 -N6 blob-transaction.out | tr -d ' \n')" = 5a53535a0101
     cp minimal.ssz invalid.ssz block-number.ssz chain-id-zero.ssz legacy-requests.ssz \
       legacy-payload.ssz future-activation.ssz extra-data-33.ssz public-key-overflow.ssz \
       versioned-hash-overflow.ssz success.out rejected.out changed.out \
       chain-id-zero.out legacy-requests.out legacy-payload.out future-activation.out \
       extra-data-33.out public-key-overflow.out versioned-hash-overflow.out \
-      one-transaction.ssz one-withdrawal.ssz one-transaction.out one-withdrawal.out "$out/"
+      one-transaction.ssz one-withdrawal.ssz activation-timestamp.ssz blob-transaction.ssz \
+      one-transaction.out one-withdrawal.out activation-timestamp.out blob-transaction.out "$out/"
   '';
 
   zesuSszDecodeSourceProbe = pkgs.stdenv.mkDerivation {
