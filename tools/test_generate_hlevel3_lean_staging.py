@@ -34,6 +34,14 @@ class LeanStagingTests(unittest.TestCase):
             "def Proposed_ssz_readU32_fi_1_33a1_Contract : Prop := by\n  exact ∃ stepBound",
             self.source)
 
+    def test_read_u32_destination_tuple_is_instance_specific(self):
+        self.assertIn(
+            "sszReadU32Contract 0x12ca4 58 x16 x6 x17 x5 stepBound",
+            self.source)
+        self.assertNotIn(
+            "sszReadU32Contract 0x12ca4 58 x10 x15 x13 x14 stepBound",
+            self.source)
+
     def test_every_level3_field_is_passed_to_a_parent(self):
         for row in self.inventory["proposedLevel3Contracts"]:
             self.assertIn(f"hLevel3.{row['field']}", self.source)
