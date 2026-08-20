@@ -5,7 +5,7 @@ import os
 import unittest
 from pathlib import Path
 
-from generate_hlevel3_lean_staging import generate, idiom_checks
+from generate_hlevel3_lean_staging import DIRECT_PROOFS, generate, idiom_checks
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +27,7 @@ class LeanStagingTests(unittest.TestCase):
         cls.source = generate(cls.inventory, cls.guidance, cls.admission, cls.catalogue)
 
     def test_exact_typed_holes(self):
-        self.assertEqual(self.source.count("  sorry"), 72)
+        self.assertEqual(self.source.count("  sorry"), 72 - len(DIRECT_PROOFS))
         self.assertEqual(self.source.count("def Proposed_"), 58)
         self.assertEqual(self.source.count("private theorem resolve_"), 17)
         self.assertIn(
@@ -52,7 +52,11 @@ class LeanStagingTests(unittest.TestCase):
 
     def test_every_level3_field_is_passed_to_a_parent(self):
         for row in self.inventory["proposedLevel3Contracts"]:
-            self.assertIn(f"hLevel3.{row['field']}", self.source)
+            if row["field"] in DIRECT_PROOFS:
+                self.assertNotIn(f"hLevel3.{row['field']}", self.source)
+                self.assertIn(DIRECT_PROOFS[row["field"]], self.source)
+            else:
+                self.assertIn(f"hLevel3.{row['field']}", self.source)
 
     def test_idiom_file_checks_every_declaration(self):
         source = idiom_checks(self.catalogue)

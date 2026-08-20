@@ -8,6 +8,16 @@ import json
 import textwrap
 from pathlib import Path
 
+DIRECT_PROOFS = {
+    "mem_readInt_fi_1_2fa7":
+        "BinaryFv.Zesu.Staging.proposed_memReadInt_proved",
+}
+
+DIRECT_CONTRACTS = {
+    "mem_readInt_fi_1_2fa7":
+        "BinaryFv.Zesu.Staging.Proposed_mem_readInt_fi_1_2fa7_Contract",
+}
+
 
 def contract_name(field: str) -> str:
     return f"Proposed_{field}_Contract"
@@ -123,6 +133,8 @@ def read_u32_schema() -> list[str]:
 
 
 def contract_body(field: str) -> list[str]:
+    if field in DIRECT_PROOFS:
+        return [f"  exact {DIRECT_CONTRACTS[field]}"]
     if field == "mem_writeInt_fi_1_45b2":
         return ["  exact BinaryFv.Zesu.Staging.Proposed_mem_writeInt_fi_1_45b2_Contract"]
     if field not in {"ssz_readU32_fi_1_3335", "ssz_readU32_fi_1_33a1"}:
@@ -161,6 +173,7 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
         "import BinaryFv.Zesu.MachineExecution.Level0MainSteps",
         "import BinaryFv.RiscV.Elfling.Seg",
         "import BinaryFv.Zesu.Staging.MemWriteInt",
+        "import BinaryFv.Zesu.Staging.MemReadInt",
         "",
         "/-!",
         "# Generated hLevel3 staging",
@@ -208,18 +221,23 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
         "structure Level3ContractAssumptions : Prop where",
     ])
     for row in inventory["proposedLevel3Contracts"]:
+        if row["field"] in DIRECT_PROOFS:
+            continue
         lines.extend([f"  {row['field']} :", f"    {contract_name(row['field'])}"])
     lines.append("")
 
     parents = {row["field"]: row for row in inventory["parents"]}
     for field in inventory["level2ResolutionOrder"]:
         parent = parents[field]
-        child_fields = unique([child["level3Field"] for child in parent["children"]
-                               if child["disposition"] == "level3-assumption"])
+        all_child_fields = unique([child["level3Field"] for child in parent["children"]
+                                   if child["disposition"] == "level3-assumption"])
+        child_fields = [field for field in all_child_fields if field not in DIRECT_PROOFS]
         siblings = unique([child["level2Field"] for child in parent["children"]
                            if child["disposition"] == "level2-sibling-dependency"])
         closed = unique([child["theorem"] for child in parent["children"]
-                         if child["disposition"] == "unconditional-child-proof"])
+                         if child["disposition"] == "unconditional-child-proof"] +
+                        [DIRECT_PROOFS[field] for field in all_child_fields
+                         if field in DIRECT_PROOFS])
         lines.extend([
             "/--",
             *comments(
@@ -270,7 +288,8 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
         siblings = unique([child["level2Field"] for child in parent["children"]
                            if child["disposition"] == "level2-sibling-dependency"])
         child_fields = unique([child["level3Field"] for child in parent["children"]
-                               if child["disposition"] == "level3-assumption"])
+                               if child["disposition"] == "level3-assumption" and
+                               child["level3Field"] not in DIRECT_PROOFS])
         args = [*(f"hLevel3.{child}" for child in child_fields),
                 *(available[sibling] for sibling in siblings)]
         local = f"resolved_{field}"

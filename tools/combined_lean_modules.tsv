@@ -56,5 +56,7 @@ BinaryFv.Zesu.Entrypoints.SszDecodeRoot.InitialState	InitialState.lean	compiled/
 BinaryFv.Zesu.Root	ZesuRoot.lean	compiled/BinaryFv/Zesu/Root.olean	--tstack=4000000
 BinaryFv.Zesu.TrustAudit	TrustAudit.lean	compiled/BinaryFv/Zesu/TrustAudit.olean	--tstack=4000000
 BinaryFv.Zesu.Staging.MemWriteInt	MemWriteInt.lean	compiled/BinaryFv/Zesu/Staging/MemWriteInt.olean
+BinaryFv.Zesu.MachineExecution.HLevel3MemReadIntSteps	HLevel3MemReadIntSteps.lean	compiled/BinaryFv/Zesu/MachineExecution/HLevel3MemReadIntSteps.olean
+BinaryFv.Zesu.Staging.MemReadInt	MemReadInt.lean	compiled/BinaryFv/Zesu/Staging/MemReadInt.olean
 BinaryFv.Zesu.Staging.HLevel3	HLevel3.lean	compiled/BinaryFv/Zesu/Staging/HLevel3.olean
 BinaryFv.Zesu.Staging.HLevel3IdiomChecks	HLevel3IdiomChecks.lean	compiled/BinaryFv/Zesu/Staging/HLevel3IdiomChecks.olean

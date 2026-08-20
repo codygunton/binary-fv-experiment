@@ -4,6 +4,7 @@ import BinaryFv.Zesu.MachineExecution.MemcpyProof
 import BinaryFv.Zesu.MachineExecution.Level0MainSteps
 import BinaryFv.RiscV.Elfling.Seg
 import BinaryFv.Zesu.Staging.MemWriteInt
+import BinaryFv.Zesu.Staging.MemReadInt
 
 /-!
 # Generated hLevel3 staging
@@ -128,7 +129,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_mem_readInt_fi_1_2fa7_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_mem_readInt_fi_1_2fa7_Contract
 
 /--
 Contract design hole for `fi:1:2fe4` at `0x1221c`.
@@ -1104,8 +1105,6 @@ def Proposed_mem_Allocator_dupe__anon_1128_fi_1_5b8d_Contract : Prop := by
 structure Level3ContractAssumptions : Prop where
   ssz_decodeByteListList_fi_1_1999 :
     Proposed_ssz_decodeByteListList_fi_1_1999_Contract
-  mem_readInt_fi_1_2fa7 :
-    Proposed_mem_readInt_fi_1_2fa7_Contract
   ssz_forkNameFromSchemaByte_fi_1_2fe4 :
     Proposed_ssz_forkNameFromSchemaByte_fi_1_2fe4_Contract
   ssz_readU32_fi_1_2ff8 :
@@ -1223,21 +1222,21 @@ structure Level3ContractAssumptions : Prop where
 Resolve Level 2 field `sszDecode` for `fi:1:2e0f`.
 Level 3 contracts: `mem_Allocator_dupe__anon_1128_fi_1_5b8d`,
 `ssz_decodeByteListList_fi_1_1999`, `mem_Allocator_alloc__anon_1151_fi_1_5a81`,
-`mem_readInt_fi_1_2fa7`, `ssz_forkNameFromSchemaByte_fi_1_2fe4`, `ssz_readU32_fi_1_2ff8`,
-`ssz_readU32_fi_1_3064`, `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`,
-`ssz_readU32_fi_1_31b1`, `ssz_readU64_fi_1_3203`, `ssz_readU64_fi_1_327b`,
-`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`,
-`mem_Allocator_alloc__anon_1045_fi_1_340d`, `ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`,
-`ssz_decode__struct_1051_f_fi_1_34fd`, `ssz_decode__struct_1051_f_fi_1_351c`,
-`ssz_decode__struct_1051_f_fi_1_3541`, `ssz_decode__struct_1051_f_fi_1_3566`,
-`ssz_decode__struct_1051_f_fi_1_358b`, `ssz_readU64_fi_1_35ab`, `ssz_readU64_fi_1_361f`,
-`ssz_readU32_fi_1_3693`, `ssz_readU64_fi_1_36dd`, `ssz_readU64_fi_1_3731`,
-`ssz_readU64_fi_1_37a5`, `ssz_readU32_fi_1_37cf`, `ssz_readU64_fi_1_3823`,
-`mem_Allocator_alloc__anon_1173_fi_1_386d`, `rlp_decode_decodeSingleTx_fi_1_3940`,
-`mem_Allocator_alloc__anon_1432_fi_1_39b7`, `ssz_decodeWithdrawal_fi_1_3a74`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_forkNameFromSchemaByte_fi_1_2fe4`, `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
+`ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`,
+`ssz_readU64_fi_1_3203`, `ssz_readU64_fi_1_327b`, `ssz_readU32_fi_1_32f5`,
+`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`, `mem_Allocator_alloc__anon_1045_fi_1_340d`,
+`ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`, `ssz_decode__struct_1051_f_fi_1_34fd`,
+`ssz_decode__struct_1051_f_fi_1_351c`, `ssz_decode__struct_1051_f_fi_1_3541`,
+`ssz_decode__struct_1051_f_fi_1_3566`, `ssz_decode__struct_1051_f_fi_1_358b`,
+`ssz_readU64_fi_1_35ab`, `ssz_readU64_fi_1_361f`, `ssz_readU32_fi_1_3693`,
+`ssz_readU64_fi_1_36dd`, `ssz_readU64_fi_1_3731`, `ssz_readU64_fi_1_37a5`,
+`ssz_readU32_fi_1_37cf`, `ssz_readU64_fi_1_3823`, `mem_Allocator_alloc__anon_1173_fi_1_386d`,
+`rlp_decode_decodeSingleTx_fi_1_3940`, `mem_Allocator_alloc__anon_1432_fi_1_39b7`,
+`ssz_decodeWithdrawal_fi_1_3a74`, `ssz_readU32_fi_1_3b27`.
 Earlier Level 2 results: none.
-Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContract`.
+Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContract`,
+`BinaryFv.Zesu.Staging.proposed_memReadInt_proved`.
 Parent glue: 1931 instructions in 184 block fragments.
 Fragment `0x121ac` (6 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
@@ -2108,7 +2107,6 @@ private theorem resolve_sszDecode
     (mem_Allocator_dupe__anon_1128_fi_1_5b8d : Proposed_mem_Allocator_dupe__anon_1128_fi_1_5b8d_Contract)
     (ssz_decodeByteListList_fi_1_1999 : Proposed_ssz_decodeByteListList_fi_1_1999_Contract)
     (mem_Allocator_alloc__anon_1151_fi_1_5a81 : Proposed_mem_Allocator_alloc__anon_1151_fi_1_5a81_Contract)
-    (mem_readInt_fi_1_2fa7 : Proposed_mem_readInt_fi_1_2fa7_Contract)
     (ssz_forkNameFromSchemaByte_fi_1_2fe4 : Proposed_ssz_forkNameFromSchemaByte_fi_1_2fe4_Contract)
     (ssz_readU32_fi_1_2ff8 : Proposed_ssz_readU32_fi_1_2ff8_Contract)
     (ssz_readU32_fi_1_3064 : Proposed_ssz_readU32_fi_1_3064_Contract)
@@ -2626,7 +2624,6 @@ theorem level2Contracts_of_level3_staged
       hLevel3.mem_Allocator_dupe__anon_1128_fi_1_5b8d
       hLevel3.ssz_decodeByteListList_fi_1_1999
       hLevel3.mem_Allocator_alloc__anon_1151_fi_1_5a81
-      hLevel3.mem_readInt_fi_1_2fa7
       hLevel3.ssz_forkNameFromSchemaByte_fi_1_2fe4
       hLevel3.ssz_readU32_fi_1_2ff8
       hLevel3.ssz_readU32_fi_1_3064
