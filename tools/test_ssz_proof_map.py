@@ -2,6 +2,7 @@
 import copy
 import importlib.util
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -21,6 +22,9 @@ class ProofMapTest(unittest.TestCase):
         offset = 9 if cls.baseline else 8
         cls.hlevel3 = ([json.loads(Path(path).read_text()) for path in INPUTS[offset:offset + 3]]
                        if len(INPUTS) - offset == 3 else [None, None, None])
+        direct_path = Path(os.environ.get(
+            "HLEVEL3_DIRECT_PROOFS", Path(__file__).with_name("hlevel3_direct_proofs.json")))
+        cls.hlevel3_direct = json.loads(direct_path.read_text()) if direct_path.exists() else None
         module_path = Path(__file__).with_name("build_ssz_proof_map.py")
         spec = importlib.util.spec_from_file_location("proof_map", module_path)
         cls.module = importlib.util.module_from_spec(spec)
@@ -30,7 +34,7 @@ class ProofMapTest(unittest.TestCase):
         result = self.module.build(
             *self.documents, baseline=self.baseline,
             hlevel3_inventory=self.hlevel3[0], hlevel3_guidance=self.hlevel3[1],
-            hlevel3_admission=self.hlevel3[2])
+            hlevel3_admission=self.hlevel3[2], hlevel3_direct_proofs=self.hlevel3_direct)
         contracts = [node for node in result["refinementGraph"]["nodes"]
                      if node["kind"] == "level1Contract"]
         self.assertEqual(len(contracts), 6)
@@ -105,6 +109,14 @@ class ProofMapTest(unittest.TestCase):
             prepared = result["hLevel3Preparation"]
             self.assertEqual(len(prepared["parents"]), 17)
             self.assertEqual(prepared["summary"]["level3ContractCount"], 58)
+            self.assertEqual(prepared["proofProgress"], {
+                "directProofCount": 2, "remainingContractCount": 56})
+            proved = [child for parent in prepared["parents"] for child in parent["children"]
+                      if child["proofStatus"] == "proved"]
+            self.assertEqual({child["level3Field"] for child in proved},
+                             {"mem_readInt_fi_1_2fa7", "mem_writeInt_fi_1_45b2"})
+            self.assertTrue(all(child["contractStatus"] == "proved_unconditionally"
+                                for child in proved))
             self.assertEqual(sum(len(row["glueObligations"])
                                  for row in prepared["parents"]), 231)
         if self.baseline:

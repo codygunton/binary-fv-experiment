@@ -281,12 +281,19 @@ let
       --level2-evidence "$out/level2-evidence.json" \
       --level2-bindings "$out/level2-boundary-bindings.json" \
       --hlevel2-baseline "$out/hlevel2-baseline.json" \
+      --hlevel3-inventory "$out/hlevel3-prework.json" \
+      --hlevel3-guidance "$out/hlevel3-guidance.json" \
+      --hlevel3-admission "$out/hlevel3-admission.json" \
+      --hlevel3-direct-proofs "$out/hlevel3_direct_proofs.json" \
       --output "$out/proof-map.json" --flame-progress-output "$out/flame-progress.json"
-    python ${repo}/tools/test_ssz_proof_map.py \
+    HLEVEL3_DIRECT_PROOFS="$out/hlevel3_direct_proofs.json" \
+      python ${repo}/tools/test_ssz_proof_map.py \
       "$out/zesu-cfg.json" "$out/flame.json" "$out/level1-manifest.json" \
       "$out/level1-evidence.json" "$out/level1-boundary-bindings.json" \
       "$out/level2-manifest.json" "$out/level2-evidence.json" \
-      "$out/level2-boundary-bindings.json" "$out/hlevel2-baseline.json"
+      "$out/level2-boundary-bindings.json" "$out/hlevel2-baseline.json" \
+      "$out/hlevel3-prework.json" "$out/hlevel3-guidance.json" \
+      "$out/hlevel3-admission.json"
   '';
 in
 {

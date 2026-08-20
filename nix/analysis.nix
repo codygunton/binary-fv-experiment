@@ -294,7 +294,8 @@ let
         --bindings ${zesuSszDecodeLevel3BoundaryBindings}/level3-boundary-bindings.json \
         --registry ${../tools/hlevel3_contract_schemas.json} \
         --output "$out/hlevel3-admission.json"
-      PYTHONPATH=${../tools} python ${../tools/generate_hlevel3_lean_staging.py} \
+      HLEVEL3_DIRECT_PROOFS=${../tools/hlevel3_direct_proofs.json} \
+        PYTHONPATH=${../tools} python ${../tools/generate_hlevel3_lean_staging.py} \
         --inventory "$out/hlevel3-prework.json" \
         --guidance "$out/hlevel3-guidance.json" \
         --admission "$out/hlevel3-admission.json" \
@@ -326,6 +327,7 @@ let
         PYTHONPATH=${../tools} python ${../tools/test_generate_hlevel3_guidance.py}
       HLEVEL3_PREWORK_DIR=$out \
       HLEVEL3_CATALOGUE=${../tools/hlevel3_proof_idioms.json} \
+      HLEVEL3_DIRECT_PROOFS=${../tools/hlevel3_direct_proofs.json} \
         PYTHONPATH=${../tools} python ${../tools/test_generate_hlevel3_lean_staging.py}
       HLEVEL3_LEVEL2_MANIFEST=${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
       HLEVEL3_RETROSPECTIVE_SOURCE=${../BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.lean} \
@@ -375,8 +377,10 @@ let
     cp ${zesuSszDecodeStatelessInputLayout}/stateless-input-layout.json "$out/"
     cp ${../tools/build_ssz_proof_map.py} build_ssz_proof_map.py
     cp ${../tools/test_ssz_proof_map.py} test_ssz_proof_map.py
-    python build_ssz_proof_map.py --cfg ${zesuSszDecodeCfg}/zesu-cfg.json --flame ${zesuSszDecodeCfg}/flame.json --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --evidence ${zesuSszDecodeLevel1Evidence}/level1-evidence.json --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json --level2-manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json --level2-evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json --level2-bindings ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json --hlevel3-inventory ${zesuSszDecodeHLevel3Prework}/hlevel3-prework.json --hlevel3-guidance ${zesuSszDecodeHLevel3Prework}/hlevel3-guidance.json --hlevel3-admission ${zesuSszDecodeHLevel3Prework}/hlevel3-admission.json --output "$out/proof-map.json" --flame-progress-output "$out/flame-progress.json"
-    python test_ssz_proof_map.py ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json ${zesuSszDecodeLevel1Manifest}/level1-manifest.json ${zesuSszDecodeLevel1Evidence}/level1-evidence.json ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json ${zesuSszDecodeLevel2Manifest}/level2-manifest.json ${zesuSszDecodeLevel2Evidence}/level2-evidence.json ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json ${zesuSszDecodeHLevel3Prework}/hlevel3-prework.json ${zesuSszDecodeHLevel3Prework}/hlevel3-guidance.json ${zesuSszDecodeHLevel3Prework}/hlevel3-admission.json
+    cp ${../tools/hlevel3_direct_proofs.json} "$out/hlevel3_direct_proofs.json"
+    python build_ssz_proof_map.py --cfg ${zesuSszDecodeCfg}/zesu-cfg.json --flame ${zesuSszDecodeCfg}/flame.json --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --evidence ${zesuSszDecodeLevel1Evidence}/level1-evidence.json --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json --level2-manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json --level2-evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json --level2-bindings ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json --hlevel3-inventory ${zesuSszDecodeHLevel3Prework}/hlevel3-prework.json --hlevel3-guidance ${zesuSszDecodeHLevel3Prework}/hlevel3-guidance.json --hlevel3-admission ${zesuSszDecodeHLevel3Prework}/hlevel3-admission.json --hlevel3-direct-proofs "$out/hlevel3_direct_proofs.json" --output "$out/proof-map.json" --flame-progress-output "$out/flame-progress.json"
+    HLEVEL3_DIRECT_PROOFS="$out/hlevel3_direct_proofs.json" \
+      python test_ssz_proof_map.py ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json ${zesuSszDecodeLevel1Manifest}/level1-manifest.json ${zesuSszDecodeLevel1Evidence}/level1-evidence.json ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json ${zesuSszDecodeLevel2Manifest}/level2-manifest.json ${zesuSszDecodeLevel2Evidence}/level2-evidence.json ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json ${zesuSszDecodeHLevel3Prework}/hlevel3-prework.json ${zesuSszDecodeHLevel3Prework}/hlevel3-guidance.json ${zesuSszDecodeHLevel3Prework}/hlevel3-admission.json
     grep -Fq "fetch('proof-map.json')" "$out/index.html"
     grep -Fq "flame-core-full.json" "$out/index.html"
     grep -Fq '.minFrameSize(1)' "$out/index.html"

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "proofs": [
+    {
+      "field": "mem_readInt_fi_1_2fa7",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_memReadInt_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_mem_readInt_fi_1_2fa7_Contract"
+    },
+    {
+      "field": "mem_writeInt_fi_1_45b2",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_memWriteInt_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_mem_writeInt_fi_1_45b2_Contract"
+    }
+  ]
+}

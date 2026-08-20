@@ -12,7 +12,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
           level2_manifest: dict | None = None, level2_evidence: dict | None = None,
           level2_bindings: dict | None = None, baseline: dict | None = None,
           hlevel3_inventory: dict | None = None, hlevel3_guidance: dict | None = None,
-          hlevel3_admission: dict | None = None) -> dict:
+          hlevel3_admission: dict | None = None,
+          hlevel3_direct_proofs: dict | None = None) -> dict:
     if any(cfg["artifact"] != document["artifact"]
            for document in (manifest, evidence, bindings)):
         raise ValueError("CFG, manifest, evidence, and boundary-binding artifact identities differ")
@@ -224,19 +225,36 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             raise ValueError("CFG and hLevel3 preparation artifact identities differ")
         guide_by_id = {row["id"]: row for row in hlevel3_guidance["obligations"]}
         admission_by_id = {row["instanceId"]: row for row in hlevel3_admission["instances"]}
+        direct_rows = hlevel3_direct_proofs["proofs"] if hlevel3_direct_proofs else []
+        direct_by_field = {row["field"]: row for row in direct_rows}
+        if len(direct_by_field) != len(direct_rows):
+            raise ValueError("duplicate hLevel3 direct-proof field")
+        inventory_fields = {row["field"] for row in hlevel3_inventory["proposedLevel3Contracts"]}
+        unknown_direct = sorted(set(direct_by_field) - inventory_fields)
+        if unknown_direct:
+            raise ValueError(f"unknown hLevel3 direct-proof fields: {unknown_direct}")
         hlevel3_preparation = {
             "summary": hlevel3_inventory["summary"],
             "admissionSummary": hlevel3_admission["summary"],
+            "proofProgress": {
+                "directProofCount": len(direct_by_field),
+                "remainingContractCount": len(inventory_fields) - len(direct_by_field),
+            },
             "parents": [],
         }
         for parent in hlevel3_inventory["parents"]:
             children = []
             for child in parent["children"]:
                 prepared = admission_by_id.get(child.get("instanceId"))
+                direct = direct_by_field.get(child.get("level3Field"))
                 children.append({
                     **child,
                     "contractFamily": prepared["contractFamily"] if prepared else None,
-                    "contractStatus": prepared["contractStatus"] if prepared else child["disposition"],
+                    "contractStatus": ("proved_unconditionally" if direct else
+                                       prepared["contractStatus"] if prepared else
+                                       child["disposition"]),
+                    "proofStatus": "proved" if direct else "not_proved",
+                    "proofTheorem": direct["theorem"] if direct else None,
                     "observedVectors": prepared["empirical"]["vectors"] if prepared else [],
                 })
             obligations = [guide_by_id[row["id"]] for row in parent["glueObligations"]]
@@ -328,7 +346,8 @@ def main() -> int:
     for name in ("level2-manifest", "level2-evidence", "level2-bindings"):
         parser.add_argument("--" + name, type=Path)
     parser.add_argument("--hlevel2-baseline", type=Path)
-    for name in ("hlevel3-inventory", "hlevel3-guidance", "hlevel3-admission"):
+    for name in ("hlevel3-inventory", "hlevel3-guidance", "hlevel3-admission",
+                 "hlevel3-direct-proofs"):
         parser.add_argument("--" + name, type=Path)
     parser.add_argument("--flame-progress-output", type=Path)
     args = parser.parse_args()
@@ -346,7 +365,9 @@ def main() -> int:
         hlevel3_guidance=(json.loads(args.hlevel3_guidance.read_text())
                           if args.hlevel3_guidance else None),
         hlevel3_admission=(json.loads(args.hlevel3_admission.read_text())
-                           if args.hlevel3_admission else None))
+                           if args.hlevel3_admission else None),
+        hlevel3_direct_proofs=(json.loads(args.hlevel3_direct_proofs.read_text())
+                              if args.hlevel3_direct_proofs else None))
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     if args.flame_progress_output:
         args.flame_progress_output.write_text(

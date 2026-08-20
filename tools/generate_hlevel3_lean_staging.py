@@ -5,22 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import textwrap
 from pathlib import Path
 
-DIRECT_PROOFS = {
-    "mem_readInt_fi_1_2fa7":
-        "BinaryFv.Zesu.Staging.proposed_memReadInt_proved",
-    "mem_writeInt_fi_1_45b2":
-        "BinaryFv.Zesu.Staging.proposed_memWriteInt_proved",
-}
-
-DIRECT_CONTRACTS = {
-    "mem_readInt_fi_1_2fa7":
-        "BinaryFv.Zesu.Staging.Proposed_mem_readInt_fi_1_2fa7_Contract",
-    "mem_writeInt_fi_1_45b2":
-        "BinaryFv.Zesu.Staging.Proposed_mem_writeInt_fi_1_45b2_Contract",
-}
+DIRECT_PROOF_PATH = Path(os.environ.get(
+    "HLEVEL3_DIRECT_PROOFS", Path(__file__).with_name("hlevel3_direct_proofs.json")))
+DIRECT_PROOF_ROWS = json.loads(DIRECT_PROOF_PATH.read_text())["proofs"]
+DIRECT_PROOFS = {row["field"]: row["theorem"] for row in DIRECT_PROOF_ROWS}
+DIRECT_CONTRACTS = {row["field"]: row["contract"] for row in DIRECT_PROOF_ROWS}
 
 
 def contract_name(field: str) -> str:
