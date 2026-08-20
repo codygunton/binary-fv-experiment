@@ -41,14 +41,19 @@ class LiveArtifactTests(unittest.TestCase):
         result = build(*self.documents)
         self.assertEqual(17, result["summary"]["level2FieldCount"])
         self.assertEqual(17, len({row["field"] for row in result["parents"]}))
-        self.assertEqual(58, result["summary"]["level3ContractCount"])
-        self.assertGreater(result["summary"]["level3ChildRouteCount"], 0)
-        self.assertGreater(result["summary"]["parentGlueInstructionCount"], 0)
+        self.assertEqual(57, result["summary"]["level3ContractCount"])
+        self.assertEqual(88, result["summary"]["level3ChildRouteCount"])
+        self.assertEqual(2389, result["summary"]["parentGlueInstructionCount"])
+        self.assertEqual(230, result["summary"]["parentGlueObligationCount"])
         for parent in result["parents"]:
             covered = set(parent["gluePcs"])
             for child in parent["children"]:
                 covered.update(child["subtreePcs"])
             self.assertEqual(set(parent["executionPcs"]), covered, parent["field"])
+        ssz_decode = next(row for row in result["parents"] if row["field"] == "sszDecode")
+        self.assertFalse(any(row.get("machineOwner") == "fi:1:33a1"
+                             for row in ssz_decode["children"]))
+        self.assertTrue({76964, 76968, 76972, 76976} <= set(ssz_decode["gluePcs"]))
 
     def test_every_level3_candidate_has_entry_evidence(self):
         result = build(*self.documents)
@@ -72,6 +77,12 @@ class LiveArtifactTests(unittest.TestCase):
         documents = copy.deepcopy(self.documents)
         documents[-1]["targets"][1]["field"] = documents[-1]["targets"][0]["field"]
         with self.assertRaisesRegex(ValueError, "17 distinct"):
+            build(*documents)
+
+    def test_forged_absorbed_attribution_is_rejected(self):
+        documents = copy.deepcopy(self.documents)
+        documents[-1]["absorbedInlineAttributions"][0]["executionPcs"][0] += 4
+        with self.assertRaisesRegex(ValueError, "absorbed inline attribution disagrees"):
             build(*documents)
 
 

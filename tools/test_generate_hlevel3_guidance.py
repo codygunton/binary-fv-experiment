@@ -17,13 +17,13 @@ class GuidanceTests(unittest.TestCase):
 
     def test_every_glue_fragment_has_guidance(self):
         summary = self.document["summary"]
-        self.assertEqual(summary["obligationCount"], 231)
+        self.assertEqual(summary["obligationCount"], 230)
         self.assertEqual(summary["unmatchedObligationCount"], 0)
-        self.assertEqual(len(self.document["obligations"]), 231)
+        self.assertEqual(len(self.document["obligations"]), 230)
 
     def test_all_motifs_are_analyzed_without_top_n_cutoff(self):
         summary = self.document["summary"]
-        self.assertEqual(summary["analyzedMotifCount"], 8724)
+        self.assertEqual(summary["analyzedMotifCount"], 8728)
         self.assertEqual(summary["selectedMotifCount"], len(self.document["motifs"]))
         self.assertTrue(all(row["length"] >= 2 for row in self.document["motifs"]))
 
@@ -34,7 +34,7 @@ class GuidanceTests(unittest.TestCase):
                 self.assertTrue(hint["api"]["name"])
 
     def test_normalized_sibling_reuse_is_recorded(self):
-        self.assertEqual(len(self.document["exactSiblingGroups"]), 13)
+        self.assertEqual(len(self.document["exactSiblingGroups"]), 12)
         self.assertTrue(all(len(row["occurrences"]) >= 2
                             for row in self.document["exactSiblingGroups"]))
 

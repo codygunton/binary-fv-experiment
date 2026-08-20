@@ -108,9 +108,9 @@ class ProofMapTest(unittest.TestCase):
         if self.hlevel3[0]:
             prepared = result["hLevel3Preparation"]
             self.assertEqual(len(prepared["parents"]), 17)
-            self.assertEqual(prepared["summary"]["level3ContractCount"], 58)
+            self.assertEqual(prepared["summary"]["level3ContractCount"], 57)
             self.assertEqual(prepared["proofProgress"], {
-                "directProofCount": 3, "remainingContractCount": 55})
+                "directProofCount": 3, "remainingContractCount": 54})
             proved = [child for parent in prepared["parents"] for child in parent["children"]
                       if child["proofStatus"] == "proved"]
             self.assertEqual({child["level3Field"] for child in proved},
@@ -119,7 +119,7 @@ class ProofMapTest(unittest.TestCase):
             self.assertTrue(all(child["contractStatus"] == "proved_unconditionally"
                                 for child in proved))
             self.assertEqual(sum(len(row["glueObligations"])
-                                 for row in prepared["parents"]), 231)
+                                 for row in prepared["parents"]), 230)
         if self.baseline:
             self.assertEqual(result["formalCoverage"]["directPcCount"],
                              len(self.baseline["coverage"]["directlyDischargedStepPcs"]))

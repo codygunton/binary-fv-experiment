@@ -73,9 +73,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_3064`, `ssz_readU32_fi_1_30e2`,
 `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`, `ssz_readU32_fi_1_32f5`,
-`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`, `ssz_readU32_fi_1_3457`,
-`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`,
+`ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`, `ssz_readU32_fi_1_3b27`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -92,9 +91,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_30e2`,
 `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`, `ssz_readU32_fi_1_32f5`,
-`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`, `ssz_readU32_fi_1_3457`,
-`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`,
+`ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`, `ssz_readU32_fi_1_3b27`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -111,9 +109,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`, `ssz_readU32_fi_1_32f5`,
-`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`, `ssz_readU32_fi_1_3457`,
-`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`,
+`ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`, `ssz_readU32_fi_1_3b27`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -130,9 +127,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_31b1`, `ssz_readU32_fi_1_32f5`,
-`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`, `ssz_readU32_fi_1_3457`,
-`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`,
+`ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`, `ssz_readU32_fi_1_3b27`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -149,9 +145,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_32f5`,
-`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`, `ssz_readU32_fi_1_3457`,
-`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`,
+`ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`, `ssz_readU32_fi_1_3b27`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -185,9 +180,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`,
-`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`, `ssz_readU32_fi_1_3457`,
-`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`,
+`ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`, `ssz_readU32_fi_1_3b27`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -204,9 +198,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`,
-`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_33a1`, `ssz_readU32_fi_1_3457`,
-`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`,
+`ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`, `ssz_readU32_fi_1_3b27`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -214,25 +207,6 @@ Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_readU32_fi_1_3335_Contract : Prop := by
   exact BinaryFv.Zesu.Staging.Proposed_ssz_readU32_fi_1_3335_Contract
-
-/--
-Contract design hole for `fi:1:33a1` at `0x12ca4`.
-Source operation: Read a fixed-width little-endian integer from the represented source window.
-Source reference: `deps/zesu/src/stateless/stateless/ssz.zig and zig/std/mem.zig`.
-Family: `read-integer`.
-Boundary bindings: none.
-Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
-`ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`,
-`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_3457`,
-`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU32_fi_1_3b27`.
-Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
-Required design: bind semantic values to the recorded DWARF registers or memory.
-Required design: state configured-machine, access, termination, and exact frame facts.
-Do not replace this hole with a PC-only or unbound semantic contract.
--/
-def Proposed_ssz_readU32_fi_1_33a1_Contract : Prop := by
-  exact BinaryFv.Zesu.Staging.Proposed_ssz_readU32_fi_1_33a1_Contract
 
 /--
 Contract design hole for `fi:1:327b` at `0x12df4`.
@@ -274,9 +248,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`,
-`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`,
-`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_34c1`,
+`ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`, `ssz_readU32_fi_1_3b27`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -293,9 +266,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`,
-`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`,
-`ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_3457`,
+`ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`, `ssz_readU32_fi_1_3b27`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -431,9 +403,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`,
-`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`,
-`ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_3457`,
+`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_37cf`, `ssz_readU32_fi_1_3b27`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -501,9 +472,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`,
-`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`,
-`ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_3457`,
+`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_3b27`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -599,9 +569,8 @@ Family: `read-integer`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`,
-`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`,
-`ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`,
-`ssz_readU32_fi_1_37cf`.
+`ssz_readU32_fi_1_32f5`, `ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_3457`,
+`ssz_readU32_fi_1_34c1`, `ssz_readU32_fi_1_3693`, `ssz_readU32_fi_1_37cf`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -1010,7 +979,7 @@ Do not replace this hole with a PC-only or unbound semantic contract.
 def Proposed_mem_Allocator_dupe__anon_1128_fi_1_5b8d_Contract : Prop := by
   sorry
 
-/-- The 58 proposed Level 3 contracts selected below the 17 unresolved Level 2 fields. -/
+/-- The 57 proposed Level 3 contracts selected below the 17 unresolved Level 2 fields. -/
 structure Level3ContractAssumptions : Prop where
   ssz_decodeByteListList_fi_1_1999 :
     Proposed_ssz_decodeByteListList_fi_1_1999_Contract
@@ -1030,8 +999,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_ssz_readU64_fi_1_3203_Contract
   ssz_readU32_fi_1_32f5 :
     Proposed_ssz_readU32_fi_1_32f5_Contract
-  ssz_readU32_fi_1_33a1 :
-    Proposed_ssz_readU32_fi_1_33a1_Contract
   ssz_readU64_fi_1_327b :
     Proposed_ssz_readU64_fi_1_327b_Contract
   mem_Allocator_alloc__anon_1045_fi_1_340d :
@@ -1130,20 +1097,20 @@ Level 3 contracts: `mem_Allocator_dupe__anon_1128_fi_1_5b8d`,
 `ssz_forkNameFromSchemaByte_fi_1_2fe4`, `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`,
 `ssz_readU64_fi_1_3203`, `ssz_readU64_fi_1_327b`, `ssz_readU32_fi_1_32f5`,
-`ssz_readU32_fi_1_33a1`, `mem_Allocator_alloc__anon_1045_fi_1_340d`, `ssz_readU32_fi_1_3457`,
-`ssz_readU32_fi_1_34c1`, `ssz_decode__struct_1051_f_fi_1_34fd`,
-`ssz_decode__struct_1051_f_fi_1_351c`, `ssz_decode__struct_1051_f_fi_1_3541`,
-`ssz_decode__struct_1051_f_fi_1_3566`, `ssz_decode__struct_1051_f_fi_1_358b`,
-`ssz_readU64_fi_1_35ab`, `ssz_readU64_fi_1_361f`, `ssz_readU32_fi_1_3693`,
-`ssz_readU64_fi_1_36dd`, `ssz_readU64_fi_1_3731`, `ssz_readU64_fi_1_37a5`,
-`ssz_readU32_fi_1_37cf`, `ssz_readU64_fi_1_3823`, `mem_Allocator_alloc__anon_1173_fi_1_386d`,
-`rlp_decode_decodeSingleTx_fi_1_3940`, `mem_Allocator_alloc__anon_1432_fi_1_39b7`,
-`ssz_decodeWithdrawal_fi_1_3a74`, `ssz_readU32_fi_1_3b27`.
+`mem_Allocator_alloc__anon_1045_fi_1_340d`, `ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`,
+`ssz_decode__struct_1051_f_fi_1_34fd`, `ssz_decode__struct_1051_f_fi_1_351c`,
+`ssz_decode__struct_1051_f_fi_1_3541`, `ssz_decode__struct_1051_f_fi_1_3566`,
+`ssz_decode__struct_1051_f_fi_1_358b`, `ssz_readU64_fi_1_35ab`, `ssz_readU64_fi_1_361f`,
+`ssz_readU32_fi_1_3693`, `ssz_readU64_fi_1_36dd`, `ssz_readU64_fi_1_3731`,
+`ssz_readU64_fi_1_37a5`, `ssz_readU32_fi_1_37cf`, `ssz_readU64_fi_1_3823`,
+`mem_Allocator_alloc__anon_1173_fi_1_386d`, `rlp_decode_decodeSingleTx_fi_1_3940`,
+`mem_Allocator_alloc__anon_1432_fi_1_39b7`, `ssz_decodeWithdrawal_fi_1_3a74`,
+`ssz_readU32_fi_1_3b27`.
 Earlier Level 2 results: none.
 Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContract`,
 `BinaryFv.Zesu.Staging.proposed_memReadInt_proved`,
 `BinaryFv.Zesu.Staging.proposed_readU32_3335_proved`.
-Parent glue: 1931 instructions in 184 block fragments.
+Parent glue: 1935 instructions in 183 block fragments.
 Fragment `0x121ac` (6 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
@@ -1482,18 +1449,15 @@ Fragment `0x12c0c` (3 steps): compose with `BinaryFv.RiscV.Seg.step`,
 `BinaryFv.RiscV.Seg.forget`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
 Motifs: `motif:318fac39b92b394a`. Closest proofs: none.
-Fragment `0x12c28` (31 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
-`BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
-`BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
-`BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:133bc6a434340379`, `motif:1608d5f6962fcf62`, `motif:4d64a51abd709211`,
-`motif:6b13913d8f1ff2a7`, `motif:c6b7b6aae967b037`, `motif:dae19658980a6164`,
-`motif:e3bb7b6debe9a53d`. Closest proofs: none.
-Fragment `0x12cb4` (7 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
+Fragment `0x12c28` (42 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
+`BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:6d657803278499fb`, `motif:abf6924e08182240`. Closest proofs: none.
+Motifs: `motif:133bc6a434340379`, `motif:4d64a51abd709211`, `motif:6d657803278499fb`,
+`motif:6e3e7744e33e3798`, `motif:97e9ce5e3e69c357`, `motif:c6b7b6aae967b037`,
+`motif:dae19658980a6164`, `motif:e3bb7b6debe9a53d`, `motif:f20f95a066f073d1`. Closest proofs:
+none.
 Fragment `0x12cd0` (7 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.step`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
@@ -1558,8 +1522,8 @@ Fragment `0x12ec8` (26 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:157339b06d3300f9`, `motif:27cfea70774ffaed`, `motif:34e5446b50addf60`. Closest
-proofs: none.
+Motifs: `motif:157339b06d3300f9`, `motif:27cfea70774ffaed`, `motif:2da0a3df85264c22`,
+`motif:34e5446b50addf60`. Closest proofs: none.
 Fragment `0x12f48` (10 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
@@ -1685,7 +1649,7 @@ Motifs: none. Closest proofs: none.
 Fragment `0x139e8` (3 steps): compose with `BinaryFv.RiscV.Seg.step`,
 `BinaryFv.RiscV.Seg.forget`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:6b13913d8f1ff2a7`. Closest proofs: none.
+Motifs: none. Closest proofs: none.
 Fragment `0x13a54` (69 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
@@ -1798,8 +1762,9 @@ Fragment `0x141e0` (26 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:11b1497dba807c6c`, `motif:9a144369cee8d6f6`, `motif:abf6924e08182240`,
-`motif:dae19658980a6164`, `motif:e98ffb8adc5ab0dd`. Closest proofs: none.
+Motifs: `motif:11b1497dba807c6c`, `motif:2da0a3df85264c22`, `motif:97e9ce5e3e69c357`,
+`motif:9a144369cee8d6f6`, `motif:dae19658980a6164`, `motif:e98ffb8adc5ab0dd`. Closest proofs:
+none.
 Fragment `0x14248` (2 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`.
 Motifs: `motif:b631af6e154c4ce1`. Closest proofs: none.
@@ -1990,7 +1955,7 @@ Fragment `0x14b28` (46 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.Zesu.configuredJalrCallStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
 Motifs: `motif:1bb1e82ae16efeea`, `motif:2229c4040d831b3f`, `motif:348c1d38932e3afe`,
-`motif:3efce179b73cdd11`, `motif:9f775ee85031f771`, `motif:cd26604b518d4d93`,
+`motif:3efce179b73cdd11`, `motif:97e9ce5e3e69c357`, `motif:9f775ee85031f771`,
 `motif:e98ffb8adc5ab0dd`, `motif:f2fd49ee2d35a3a7`. Closest proofs: none.
 Fragment `0x14be0` (47 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredJStep`,
@@ -2022,7 +1987,6 @@ private theorem resolve_sszDecode
     (ssz_readU64_fi_1_3203 : Proposed_ssz_readU64_fi_1_3203_Contract)
     (ssz_readU64_fi_1_327b : Proposed_ssz_readU64_fi_1_327b_Contract)
     (ssz_readU32_fi_1_32f5 : Proposed_ssz_readU32_fi_1_32f5_Contract)
-    (ssz_readU32_fi_1_33a1 : Proposed_ssz_readU32_fi_1_33a1_Contract)
     (mem_Allocator_alloc__anon_1045_fi_1_340d : Proposed_mem_Allocator_alloc__anon_1045_fi_1_340d_Contract)
     (ssz_readU32_fi_1_3457 : Proposed_ssz_readU32_fi_1_3457_Contract)
     (ssz_readU32_fi_1_34c1 : Proposed_ssz_readU32_fi_1_34c1_Contract)
@@ -2362,9 +2326,9 @@ Fragment `0x14f08` (117 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
 Motifs: `motif:10adc5365e4a6c68`, `motif:1160559b028ce6ae`, `motif:133bc6a434340379`,
-`motif:1608d5f6962fcf62`, `motif:166b3c2e18bf9ab0`, `motif:1b04c3e112d1bc8c`,
-`motif:1bb1e82ae16efeea`, `motif:2b95cfcaa493e814`, `motif:318fac39b92b394a`,
-`motif:381d7b0041a1b68f`, `motif:61b812638b9a08f2`, `motif:6c1029df5014c0f9`,
+`motif:166b3c2e18bf9ab0`, `motif:1b04c3e112d1bc8c`, `motif:1bb1e82ae16efeea`,
+`motif:2b95cfcaa493e814`, `motif:318fac39b92b394a`, `motif:381d7b0041a1b68f`,
+`motif:61b812638b9a08f2`, `motif:6c1029df5014c0f9`, `motif:6e3e7744e33e3798`,
 `motif:92bdeb182860442c`, `motif:9849f3b404e0e9d7`, `motif:cd26604b518d4d93`,
 `motif:e45d82e5b545468b`, `motif:e6e0b8fc7a348252`, `motif:f20f95a066f073d1`. Closest proofs:
 none.
@@ -2537,7 +2501,6 @@ theorem level2Contracts_of_level3_staged
       hLevel3.ssz_readU64_fi_1_3203
       hLevel3.ssz_readU64_fi_1_327b
       hLevel3.ssz_readU32_fi_1_32f5
-      hLevel3.ssz_readU32_fi_1_33a1
       hLevel3.mem_Allocator_alloc__anon_1045_fi_1_340d
       hLevel3.ssz_readU32_fi_1_3457
       hLevel3.ssz_readU32_fi_1_34c1

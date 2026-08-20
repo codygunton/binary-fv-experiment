@@ -6,6 +6,15 @@
       "theorem": "BinaryFv.Zesu.MachineExecution.memcpyInstanceContract"
     }
   ],
+  "absorbedInlineAttributions": [
+    {
+      "instanceId": "fi:1:33a1",
+      "parentInstanceId": "fi:1:2e0f",
+      "qualified": "ssz.readU32",
+      "executionPcs": [76964, 76968, 76972, 76976],
+      "reason": "DWARF assigns an error-result initialization corridor to readU32, but the corridor contains addi; sw; sh; sb and no integer read."
+    }
+  ],
   "targets": [
     {"field": "sszDecode", "instanceId": "fi:1:2e0f", "schema": "decode-inline"},
     {"field": "writeSuccessParentHash", "instanceId": "fi:1:3d77", "schema": "raw-encoder"},

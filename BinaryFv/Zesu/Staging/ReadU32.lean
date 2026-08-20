@@ -30,10 +30,6 @@ def sszReadU32Preserved3335 (register : Register) : Prop :=
   instructionPreserved register ∧ register ≠ x10 ∧ register ≠ x15 ∧
     register ≠ x13 ∧ register ≠ x14
 
-def sszReadU32Preserved33a1 (register : Register) : Prop :=
-  instructionPreserved register ∧ register ≠ x16 ∧ register ≠ x6 ∧
-    register ≠ x17 ∧ register ≠ x5
-
 def sszReadU32Entry (entry sourceOffset : Nat) (args : SszReadU32Args)
     (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
@@ -83,26 +79,12 @@ def sszReadU32Bindings3335 (bytes : Array UInt8) (state : EndpointState) : Prop 
   state.machine.regs.get? x14 =
     some (zero_extend (m := 64) (BitVec.ofNat 8 (sszReadU32Byte bytes 3).toNat))
 
-def sszReadU32Bindings33a1 (bytes : Array UInt8) (state : EndpointState) : Prop :=
-  state.machine.regs.get? x16 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 0).toNat) ∧
-  state.machine.regs.get? x6 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 1).toNat) ∧
-  state.machine.regs.get? x17 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 2).toNat) ∧
-  state.machine.regs.get? x5 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 3).toNat)
-
 def Proposed_ssz_readU32_fi_1_3335_Contract : Prop :=
   ∃ stepBound : SszReadU32Args → Nat,
     (∀ args, stepBound args < level2ContractFuel) ∧
     (sszReadU32Contract 0x12c18 22 sszReadU32Bindings3335
       sszReadU32Preserved3335 stepBound).Implements EndpointStep EndpointPc
       readU32_3335OwnPc readU32_3335ExitPc
-
-def Proposed_ssz_readU32_fi_1_33a1_Contract : Prop :=
-  ∃ stepBound : SszReadU32Args → Nat,
-    (∀ args, stepBound args < level2ContractFuel) ∧
-    (sszReadU32Contract 0x12ca4 58 sszReadU32Bindings33a1
-      sszReadU32Preserved33a1 stepBound).Implements EndpointStep EndpointPc
-      (fun pc => pcInList [0x12ca4, 0x12ca8, 0x12cac, 0x12cb0] pc)
-      (fun pc => pcInList [0x12cb4] pc)
 
 private theorem readU32OwnPc_not_observed {pc : BitVec 64}
     (inside : readU32_3335OwnPc pc) : ¬BareMetalHostTransitionPc pc := by

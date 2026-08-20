@@ -85,6 +85,10 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
         raise ValueError("hLevel3 preparation must map exactly 17 distinct Level 2 fields")
     manifest_by_id = {row["id"]: row for row in manifest["instances"]}
     target_ids = {row["instanceId"] for row in target_rows}
+    absorbed_attributions = {row["instanceId"]: row
+                             for row in targets.get("absorbedInlineAttributions", [])}
+    if len(absorbed_attributions) != len(targets.get("absorbedInlineAttributions", [])):
+        raise ValueError("duplicate absorbed inline attribution")
     level3_rows = [row for row in level3_manifest["instances"]
                    if set(row["parentInstanceIds"]) & target_ids]
     level3_by_id = {row["id"]: row for row in level3_rows}
@@ -132,6 +136,7 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
     parents = []
     selected_ids = set()
     child_route_ids = set()
+    consumed_attributions = set()
     total_glue = set()
     for target in target_rows:
         instance_id = target["instanceId"]
@@ -151,6 +156,7 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
         if own != sorted(parent["instructionPcs"]):
             raise ValueError(f"Level 2 owned PCs disagree with the CFG: {instance_id}")
         routes = {}
+        attribution_glue = set()
         for occurrence in occurrences:
             for child in occurrence.get("children", []):
                 child_meta = meta[child["key"]]
@@ -180,6 +186,16 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
             route["subtreePcs"] = sorted(route["subtreePcs"])
             route["occurrenceCount"] = len(route["occurrencePaths"])
             owner = route["machineOwner"]
+            if owner in absorbed_attributions:
+                correction = absorbed_attributions[owner]
+                if (correction["parentInstanceId"] != instance_id or
+                        correction["qualified"] != route["qualified"] or
+                        sorted(correction["executionPcs"]) != route["subtreePcs"] or
+                        route["ownPcs"]):
+                    raise ValueError(f"absorbed inline attribution disagrees with {owner}")
+                attribution_glue.update(route["subtreePcs"])
+                consumed_attributions.add(owner)
+                continue
             if owner in level3_by_id:
                 route["disposition"] = "level3-assumption"
                 route["level3Field"] = lean_field(owner, level3_by_id[owner]["qualified"])
@@ -194,7 +210,7 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
                 raise ValueError(f"Level 3 child has no proof disposition: {owner}")
             child_rows.append(route)
         absorbed = sorted(set(parent["absorbedInstructionPcs"]))
-        glue = sorted(set(own) | set(absorbed))
+        glue = sorted(set(own) | set(absorbed) | attribution_glue)
         covered = set(glue)
         for route in child_rows:
             covered.update(route["subtreePcs"])
@@ -226,6 +242,9 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
                          "observedExtentPcs": sorted(capture["extent"]),
                          "observedExitTransitions": [list(edge) for edge in sorted(capture["exits"])]},
         })
+    if consumed_attributions != set(absorbed_attributions):
+        missing = sorted(set(absorbed_attributions) - consumed_attributions)
+        raise ValueError(f"unused absorbed inline attributions: {missing}")
     dependencies = {row["field"]: set() for row in parents}
     for parent in parents:
         dependencies[parent["field"]].update(
@@ -249,6 +268,8 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
         raise ValueError(f"Level 2 sibling contract dependency cycle: {cycle}")
     proposed = []
     for row in level3_rows:
+        if row["id"] in absorbed_attributions:
+            continue
         capture = level3_observed[row["id"]]
         proposed.append({
             "field": lean_field(row["id"], row["qualified"]),
@@ -267,7 +288,7 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
     return {
         "schemaVersion": 1, "artifact": cfg["artifact"],
         "summary": {"level2FieldCount": len(parents),
-                    "level3ChildRouteCount": len(child_route_ids),
+                    "level3ChildRouteCount": sum(len(row["children"]) for row in parents),
                     "level3ContractCount": len(proposed),
                     "parentGlueInstructionCount": len(total_glue),
                     "parentGlueObligationCount": sum(len(row["glueObligations"]) for row in parents)},

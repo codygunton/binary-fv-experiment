@@ -130,8 +130,8 @@ def render(inventory: dict, flames: list[dict]) -> str:
         })
     counts = {name: sum(row["disposition"] == name for row in rows) for name in (
         "direct-now", "direct-after-dependencies", "retain-contract")}
-    if len(rows) != 58 or counts != {
-            "direct-now": 8, "direct-after-dependencies": 41, "retain-contract": 9}:
+    if len(rows) != 57 or counts != {
+            "direct-now": 8, "direct-after-dependencies": 40, "retain-contract": 9}:
         raise ValueError(f"review coverage changed: instances={len(rows)}, counts={counts}")
     lines = [
         "# Level 3 direct-discharge review",

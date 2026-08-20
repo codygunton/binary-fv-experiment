@@ -70,8 +70,9 @@ def build(inventory: dict, evidence: dict, bindings: dict, registry: dict) -> di
     if inventory["artifact"] != evidence["artifact"] or inventory["artifact"] != bindings["artifact"]:
         raise ValueError("hLevel3 admission inputs describe different ELFs")
     proposed = inventory["proposedLevel3Contracts"]
-    if len(proposed) != 58:
-        raise ValueError("hLevel3 admission requires exactly 58 proposed contracts")
+    expected_count = inventory["summary"]["level3ContractCount"]
+    if len(proposed) != expected_count:
+        raise ValueError("hLevel3 admission contract count disagrees with its inventory")
     binding_by_id = {row["id"]: row for row in bindings["instances"]}
     if len(binding_by_id) != len(bindings["instances"]):
         raise ValueError("duplicate Level 3 boundary binding")

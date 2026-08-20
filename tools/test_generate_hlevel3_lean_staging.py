@@ -30,26 +30,17 @@ class LeanStagingTests(unittest.TestCase):
         cls.read_u32_source = READ_U32_SOURCE.read_text()
 
     def test_exact_typed_holes(self):
-        external_contracts = set(DIRECT_PROOFS) | {"ssz_readU32_fi_1_33a1"}
-        self.assertEqual(self.source.count(": Prop := by\n  sorry"), 58 - len(external_contracts))
+        external_contracts = set(DIRECT_PROOFS)
+        self.assertEqual(self.source.count(": Prop := by\n  sorry"), 57 - len(external_contracts))
         self.assertEqual(self.source.count("private theorem resolve_"), 17)
-        self.assertEqual(self.source.count("  sorry"), 58 - len(external_contracts) + 17)
-        self.assertEqual(self.source.count("def Proposed_"), 58)
-        self.assertIn(
-            "def Proposed_ssz_readU32_fi_1_33a1_Contract : Prop := by\n"
-            "  exact BinaryFv.Zesu.Staging.Proposed_ssz_readU32_fi_1_33a1_Contract",
-            self.source)
+        self.assertEqual(self.source.count("  sorry"), 57 - len(external_contracts) + 17)
+        self.assertEqual(self.source.count("def Proposed_"), 57)
 
     def test_read_u32_destination_tuple_is_instance_specific(self):
         self.assertIn(
             "sszReadU32Contract 0x12c18 22 sszReadU32Bindings3335",
             self.read_u32_source)
-        self.assertIn(
-            "sszReadU32Contract 0x12ca4 58 sszReadU32Bindings33a1",
-            self.read_u32_source)
-        self.assertNotIn(
-            "sszReadU32Contract 0x12ca4 58 sszReadU32Bindings3335",
-            self.read_u32_source)
+        self.assertNotIn("0x12ca4", self.read_u32_source)
 
     def test_read_u32_entry_requires_nonwrapping_source_window(self):
         self.assertIn(

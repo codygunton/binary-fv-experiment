@@ -45,10 +45,6 @@ def comments(*values: str) -> list[str]:
 def contract_body(field: str) -> list[str]:
     if field in DIRECT_PROOFS:
         return [f"  exact {DIRECT_CONTRACTS[field]}"]
-    if field == "ssz_readU32_fi_1_3335":
-        return ["  exact BinaryFv.Zesu.Staging.Proposed_ssz_readU32_fi_1_3335_Contract"]
-    if field == "ssz_readU32_fi_1_33a1":
-        return ["  exact BinaryFv.Zesu.Staging.Proposed_ssz_readU32_fi_1_33a1_Contract"]
     return ["  sorry"]
 
 
@@ -111,7 +107,8 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
             "",
         ])
     lines.extend([
-        "/-- The 58 proposed Level 3 contracts selected below the 17 unresolved Level 2 fields. -/",
+        f"/-- The {len(inventory['proposedLevel3Contracts'])} proposed Level 3 contracts selected "
+        "below the 17 unresolved Level 2 fields. -/",
         "structure Level3ContractAssumptions : Prop where",
     ])
     for row in inventory["proposedLevel3Contracts"]:
