@@ -95,7 +95,7 @@ def read_u32_schema() -> list[str]:
         "  after.stdout = before.stdout ∧ after.exitCode = before.exitCode",
         "",
         "/-- Shared relational contract schema for all reviewed inlined `ssz.readU32` instances. -/",
-        "def sszReadU32Contract (entry sourceOffset : Nat) (dest0 dest1 dest2 dest3 : Register) ",
+        "def sszReadU32Contract (entry sourceOffset : Nat) (dest0 dest1 dest2 dest3 : Register)",
         "    (stepBound : SszReadU32Args → Nat) :",
         "    RelationalMachineContract EndpointState SszReadU32Args Nat :=",
         "  { allows := fun args result => args.sourceBytes.size = 4 ∧",
