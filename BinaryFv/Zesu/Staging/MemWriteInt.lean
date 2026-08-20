@@ -24,8 +24,13 @@ structure MemWriteIntArgs where
   addressFits : address + 8 ≤ 2 ^ 64
   valueFits : value < 2 ^ 64
 
-def memWriteIntStoreState (state : State) : State :=
-  coreStoreNextState (tryStepStoreAfterIncrement state) (BitVec.ofNat 64 0x15d18)
+structure MemWriteIntStoreAccess (args : MemWriteIntArgs) (state : State) : Prop where
+  nonwrap : args.address + 8 ≤ 2 ^ 64
+  aligned : is_aligned_vaddr (virtaddr.Virtaddr (BitVec.ofNat 64 args.address)) 8 = true
+  pma : StorePmaAllows state (BitVec.ofNat 64 args.address) 8
+  noMMIO : StoreMMIOAddressExcluded (BitVec.ofNat 64 args.address) 8
+  codeDisjoint : ∀ index : Fin 8,
+    Artifacts.programImage.readFileByte? (args.address + index.val) = none
 
 def memWriteIntStorePre (args : MemWriteIntArgs) (state : State) : Prop :=
   ∃ (byte0 byte1 byte2 byte3 : UInt8),
@@ -39,24 +44,39 @@ def memWriteIntStorePre (args : MemWriteIntArgs) (state : State) : Prop :=
       (BitVec.ofNat 8 byte3.toNat)))
       (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
       (.STORE (0#12, .Regidx 10#5, .Regidx 2#5, 8)) ∧
-    ∃ (destination mstatusBits dataBits : BitVec 64),
-      destination = BitVec.ofNat 64 args.address ∧
-      dataBits = BitVec.ofNat 64 args.value ∧
-      (memWriteIntStoreState state).regs.get? mstatus = some mstatusBits ∧
-      (memWriteIntStoreState state).regs.get? cur_privilege = some .Machine ∧
-      _get_Mstatus_MPRV mstatusBits = 0#1 ∧
-      Runs (rX_bits (.Regidx 10#5)) (memWriteIntStoreState state)
-        (memWriteIntStoreState state) dataBits ∧
-      Runs (get_transformed_data_addr (.Regidx 2#5) (sign_extend (m := 64) (0#12))
-        (Store Data) 8)
-        (memWriteIntStoreState state) (memWriteIntStoreState state)
-        (.Ext_DataAddr_OK (virtaddr.Virtaddr destination)) ∧
-      is_aligned_vaddr (virtaddr.Virtaddr destination) 8 = true ∧
-      Runs (phys_access_check (Store Data) PBMT_PMA .Machine
-        (physaddr.Physaddr destination) 8 false)
-        (memWriteIntStoreState state) (memWriteIntStoreState state) none ∧
-      Runs (within_mmio_writable (physaddr.Physaddr destination) 8)
-        (memWriteIntStoreState state) (memWriteIntStoreState state) false
+    MemWriteIntStoreAccess args state
+
+theorem memWriteIntStoreAccess_rejects_denied_pma
+    (denied : ¬StorePmaAllows state (BitVec.ofNat 64 args.address) 8) :
+    ¬MemWriteIntStoreAccess args state := by
+  intro access
+  exact denied access.pma
+
+theorem memWriteIntStoreAccess_rejects_mmio
+    (denied : ¬StoreMMIOAddressExcluded (BitVec.ofNat 64 args.address) 8) :
+    ¬MemWriteIntStoreAccess args state := by
+  intro access
+  exact denied access.noMMIO
+
+theorem memWriteIntStoreAccess_rejects_misaligned
+    (misaligned : ¬is_aligned_vaddr (virtaddr.Virtaddr (BitVec.ofNat 64 args.address)) 8 = true) :
+    ¬MemWriteIntStoreAccess args state := by
+  intro access
+  exact misaligned access.aligned
+
+theorem memWriteIntStoreAccess_rejects_wrap
+    (wraps : ¬args.address + 8 ≤ 2 ^ 64) :
+    ¬MemWriteIntStoreAccess args state := by
+  intro access
+  exact wraps access.nonwrap
+
+theorem memWriteIntStoreAccess_rejects_code_overlap
+    (overlap : ∃ index : Fin 8,
+      Artifacts.programImage.readFileByte? (args.address + index.val) ≠ none) :
+    ¬MemWriteIntStoreAccess args state := by
+  intro access
+  obtain ⟨index, different⟩ := overlap
+  exact different (access.codeDisjoint index)
 
 def memWriteIntEntry (args : MemWriteIntArgs) (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 0x15d18) ∧
