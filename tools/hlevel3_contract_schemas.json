@@ -92,12 +92,12 @@
         {"id": "withdrawal-result", "requirement": "The four decoded fields equal the canonical withdrawal fields.", "support": "source-oracle-and-proof"}
       ]
     },
-    "offset-read": {
+    "checked-slice-selection": {
       "qualified": ["ssz.decode__struct_1051.f"],
-      "semanticOperation": "Read one checked SSZ offset from the enclosing decoder input.",
+      "semanticOperation": "Select one execution-request byte slice from the checked offset table.",
       "reference": "deps/zesu/src/stateless/stateless/ssz.zig",
       "extraClauses": [
-        {"id": "offset-result", "requirement": "The result equals the selected four-byte offset and satisfies the enclosing bounds.", "support": "empirical-and-proof"}
+        {"id": "checked-slice-result", "requirement": "The result is empty when the index exceeds the table, rejects invalid bounds, or equals the selected input slice.", "support": "source-oracle-and-proof"}
       ]
     },
     "fork-name": {

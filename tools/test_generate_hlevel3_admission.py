@@ -115,6 +115,17 @@ class AdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid semantic clauses"):
             build(self.inventory, self.evidence, self.bindings, registry)
 
+    def test_checked_slice_family_matches_source_operation(self):
+        result = build(self.inventory, self.evidence, self.bindings, self.registry)
+        rows = [row for row in result["instances"]
+                if row["qualified"] == "ssz.decode__struct_1051.f"]
+        self.assertEqual(len(rows), 5)
+        self.assertEqual({row["contractFamily"] for row in rows},
+                         {"checked-slice-selection"})
+        self.assertEqual({clause["id"] for row in rows for clause in row["clauses"]
+                          if clause["id"] == "checked-slice-result"},
+                         {"checked-slice-result"})
+
 
 if __name__ == "__main__":
     unittest.main()

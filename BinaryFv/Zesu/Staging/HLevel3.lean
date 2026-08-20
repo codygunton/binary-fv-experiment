@@ -278,9 +278,9 @@ def Proposed_ssz_readU32_fi_1_34c1_Contract : Prop := by
 
 /--
 Contract design hole for `fi:1:34fd` at `0x13098`.
-Source operation: Read one checked SSZ offset from the enclosing decoder input.
+Source operation: Select one execution-request byte slice from the checked offset table.
 Source reference: `deps/zesu/src/stateless/stateless/ssz.zig`.
-Family: `offset-read`.
+Family: `checked-slice-selection`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_decode__struct_1051_f_fi_1_351c`,
 `ssz_decode__struct_1051_f_fi_1_3541`, `ssz_decode__struct_1051_f_fi_1_3566`,
@@ -295,9 +295,9 @@ def Proposed_ssz_decode__struct_1051_f_fi_1_34fd_Contract : Prop := by
 
 /--
 Contract design hole for `fi:1:351c` at `0x130b0`.
-Source operation: Read one checked SSZ offset from the enclosing decoder input.
+Source operation: Select one execution-request byte slice from the checked offset table.
 Source reference: `deps/zesu/src/stateless/stateless/ssz.zig`.
-Family: `offset-read`.
+Family: `checked-slice-selection`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_decode__struct_1051_f_fi_1_34fd`,
 `ssz_decode__struct_1051_f_fi_1_3541`, `ssz_decode__struct_1051_f_fi_1_3566`,
@@ -312,9 +312,9 @@ def Proposed_ssz_decode__struct_1051_f_fi_1_351c_Contract : Prop := by
 
 /--
 Contract design hole for `fi:1:3541` at `0x130c8`.
-Source operation: Read one checked SSZ offset from the enclosing decoder input.
+Source operation: Select one execution-request byte slice from the checked offset table.
 Source reference: `deps/zesu/src/stateless/stateless/ssz.zig`.
-Family: `offset-read`.
+Family: `checked-slice-selection`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_decode__struct_1051_f_fi_1_34fd`,
 `ssz_decode__struct_1051_f_fi_1_351c`, `ssz_decode__struct_1051_f_fi_1_3566`,
@@ -329,9 +329,9 @@ def Proposed_ssz_decode__struct_1051_f_fi_1_3541_Contract : Prop := by
 
 /--
 Contract design hole for `fi:1:3566` at `0x13100`.
-Source operation: Read one checked SSZ offset from the enclosing decoder input.
+Source operation: Select one execution-request byte slice from the checked offset table.
 Source reference: `deps/zesu/src/stateless/stateless/ssz.zig`.
-Family: `offset-read`.
+Family: `checked-slice-selection`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_decode__struct_1051_f_fi_1_34fd`,
 `ssz_decode__struct_1051_f_fi_1_351c`, `ssz_decode__struct_1051_f_fi_1_3541`,
@@ -346,9 +346,9 @@ def Proposed_ssz_decode__struct_1051_f_fi_1_3566_Contract : Prop := by
 
 /--
 Contract design hole for `fi:1:358b` at `0x13144`.
-Source operation: Read one checked SSZ offset from the enclosing decoder input.
+Source operation: Select one execution-request byte slice from the checked offset table.
 Source reference: `deps/zesu/src/stateless/stateless/ssz.zig`.
-Family: `offset-read`.
+Family: `checked-slice-selection`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_decode__struct_1051_f_fi_1_34fd`,
 `ssz_decode__struct_1051_f_fi_1_351c`, `ssz_decode__struct_1051_f_fi_1_3541`,
