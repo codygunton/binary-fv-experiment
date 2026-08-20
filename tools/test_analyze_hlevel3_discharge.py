@@ -1,11 +1,30 @@
 import unittest
 
-from analyze_hlevel3_discharge import classify, flame_meta_instances, validate_direct_children
+from analyze_hlevel3_discharge import (
+    classify, classify_instance, flame_meta_instances, validate_direct_children,
+)
 
 
 class Level3DischargeReviewTests(unittest.TestCase):
     def test_small_leaf_is_direct(self):
         self.assertEqual(classify("mem.readInt")[0], "direct-now")
+
+    def test_contiguous_checked_slice_is_direct(self):
+        self.assertEqual(
+            classify_instance("fi:1:351c", "ssz.decode__struct_1051.f")[0],
+            "direct-now",
+        )
+
+    def test_checked_slice_reentry_keeps_contract(self):
+        for instance_id in ("fi:1:34fd", "fi:1:3541", "fi:1:3566", "fi:1:358b"):
+            self.assertEqual(
+                classify_instance(instance_id, "ssz.decode__struct_1051.f")[0],
+                "retain-contract",
+            )
+
+    def test_reentry_exception_rejects_changed_source(self):
+        with self.assertRaisesRegex(ValueError, "changed source operation"):
+            classify_instance("fi:1:34fd", "ssz.readU32")
 
     def test_wrapper_waits_for_shared_leaf(self):
         self.assertEqual(classify("ssz.readU32")[0], "direct-after-dependencies")

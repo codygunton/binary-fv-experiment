@@ -11,7 +11,14 @@ DIRECT_NOW = {
     "mem.readInt": "ten-instruction leaf; prove one shared fixed-width read theorem",
     "mem.writeInt": "one-instruction leaf; reuse the staged store contract",
     "ssz.forkNameFromSchemaByte": "twelve-instruction leaf with finite result branches",
-    "ssz.decode__struct_1051.f": "leaf wrapper with 6-17 instructions",
+    "ssz.decode__struct_1051.f": "one contiguous checked-slice machine region",
+}
+
+NON_CONTIGUOUS_RETAIN = {
+    "fi:1:34fd": "later machine region needs a typed re-entry contract",
+    "fi:1:3541": "entry jump and later machine region need a typed re-entry contract",
+    "fi:1:3566": "entry exit and later machine region need a typed re-entry contract",
+    "fi:1:358b": "later machine region needs a typed re-entry contract",
 }
 
 DIRECT_AFTER = {
@@ -48,6 +55,15 @@ def classify(qualified: str) -> tuple[str, str]:
     if qualified in RETAIN:
         return "retain-contract", RETAIN[qualified]
     raise ValueError(f"unreviewed Level 3 source operation: {qualified}")
+
+
+def classify_instance(instance_id: str, qualified: str) -> tuple[str, str]:
+    """Classify one exact machine instance, including reviewed re-entry exceptions."""
+    if instance_id in NON_CONTIGUOUS_RETAIN:
+        if qualified != "ssz.decode__struct_1051.f":
+            raise ValueError(f"re-entry exception changed source operation: {instance_id}")
+        return "retain-contract", NON_CONTIGUOUS_RETAIN[instance_id]
+    return classify(qualified)
 
 
 def flame_nodes(tree: dict) -> dict[str, dict]:
@@ -110,7 +126,7 @@ def render(inventory: dict, flames: list[dict]) -> str:
                 nodes[instance_id] = node
     rows = []
     for item in inventory["proposedLevel3Contracts"]:
-        disposition, reason = classify(item["qualified"])
+        disposition, reason = classify_instance(item["instanceId"], item["qualified"])
         node = nodes.get(item["instanceId"])
         if (disposition != "retain-contract" and node is None
                 and item["instanceId"] not in meta_instances):
@@ -131,7 +147,7 @@ def render(inventory: dict, flames: list[dict]) -> str:
     counts = {name: sum(row["disposition"] == name for row in rows) for name in (
         "direct-now", "direct-after-dependencies", "retain-contract")}
     if len(rows) != 57 or counts != {
-            "direct-now": 8, "direct-after-dependencies": 40, "retain-contract": 9}:
+            "direct-now": 4, "direct-after-dependencies": 40, "retain-contract": 13}:
         raise ValueError(f"review coverage changed: instances={len(rows)}, counts={counts}")
     lines = [
         "# Level 3 direct-discharge review",
@@ -139,7 +155,8 @@ def render(inventory: dict, flames: list[dict]) -> str:
         "This report classifies every proposed Level 3 instance. `direct-now` instances have no",
         "unresolved child proof. `direct-after-dependencies` instances become direct proofs after",
         "the named shared leaf or wrapper proof exists. `retain-contract` instances keep a Level 3",
-        "assumption because they contain a runtime loop, a large parser, or an unresolved allocator.",
+        "assumption because they contain a runtime loop, a large parser, an unresolved allocator,",
+        "or a machine region that requires typed re-entry.",
         "The validator also accepts a shared concrete body when the core flame metadata records its",
         "machine owner at expanded call sites. The current tree uses this form for `fi:1:43a9`.",
         "",
@@ -159,11 +176,11 @@ def render(inventory: dict, flames: list[dict]) -> str:
         "",
         "## Recommended proof order",
         "",
-        "1. Prove generic `mem.readInt`, the staged `mem.writeInt`, and the five struct-field leaves.",
+        "1. Prove generic `mem.readInt`, staged `mem.writeInt`, fork-name, and the one contiguous checked-slice region.",
         "2. Discharge all `ssz.readU32`, `ssz.readU64`, and `extern_io.write_output` wrappers.",
         "3. Discharge `Encoder.raw`, then `Encoder.int`, then the two optional encoders.",
         "4. Discharge `ssz.decodeWithdrawal` with the shared integer-read theorem.",
-        "5. Design assumptions only for the nine retained instances.",
+        "5. Keep assumptions for nine large instances and four checked-slice re-entry instances.",
         "",
         "A direct proof still needs a local semantic theorem statement. It avoids exposing that",
         "statement as an `hLevel3` premise and avoids a second refinement level for the wrapper.",
