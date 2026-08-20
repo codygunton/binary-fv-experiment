@@ -13,6 +13,75 @@ design hole. Each refinement theorem is a machine-proof hole with generated guid
 
 namespace BinaryFv.Zesu.Staging.HLevel3
 
+open PreSail LeanRV64DExecutable.Functions Register
+open BinaryFv.RiscV
+
+/-- Arguments bound to one inlined `ssz.readU32` byte window. -/
+structure SszReadU32Args where
+  sourceAddress : Nat
+  sourceBytes : Array UInt8
+
+/-- The byte selected by an inlined `ssz.readU32` load. -/
+def sszReadU32Byte (bytes : Array UInt8) (index : Nat) : UInt8 :=
+  (bytes[index]?).getD 0
+
+/-- The four-byte little-endian result of `ssz.readU32`. -/
+def sszReadU32Value (bytes : Array UInt8) : Nat :=
+  (sszReadU32Byte bytes 0).toNat + 256 * (sszReadU32Byte bytes 1).toNat +
+    65536 * (sszReadU32Byte bytes 2).toNat +
+    16777216 * (sszReadU32Byte bytes 3).toNat
+
+/-- Registers unchanged by the four `lbu` instructions in an inlined `ssz.readU32`. -/
+def sszReadU32Preserved (register : Register) : Prop :=
+  instructionPreserved register ∧ register ≠ x16 ∧ register ≠ x6 ∧
+    register ≠ x17 ∧ register ≠ x5
+
+/-- Entry bindings for the four production loads at one inlined `ssz.readU32`. -/
+def sszReadU32Entry (entry sourceOffset : Nat) (args : SszReadU32Args)
+    (state : EndpointState) : Prop :=
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
+  state.machine.regs.get? x18 = some (BitVec.ofNat 64 args.sourceAddress) ∧
+  args.sourceBytes.size = 4 ∧
+  BytesRep state.machine.mem (args.sourceAddress + sourceOffset) args.sourceBytes ∧
+  (∀ index, index < 4 →
+    LoadPmaAllows state.machine
+      (BitVec.ofNat 64 (args.sourceAddress + sourceOffset + index)) 1) ∧
+  (∀ index, index < 4 →
+    LoadMMIOAddressExcluded
+      (BitVec.ofNat 64 (args.sourceAddress + sourceOffset + index)) 1) ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  ConfiguredMachinePre (fun pc => pcInList [entry, entry + 4, entry + 8, entry + 12] pc)
+    state.machine
+
+/-- Result and exact frame bindings after the final `lbu` at one inlined `ssz.readU32`. -/
+def sszReadU32Exit (args : SszReadU32Args) (result : Nat)
+    (before after : EndpointState) : Prop :=
+  result = sszReadU32Value args.sourceBytes ∧
+  after.machine.regs.get? x16 =
+    some (BitVec.ofNat 64 (sszReadU32Byte args.sourceBytes 0).toNat) ∧
+  after.machine.regs.get? x6 =
+    some (BitVec.ofNat 64 (sszReadU32Byte args.sourceBytes 1).toNat) ∧
+  after.machine.regs.get? x17 =
+    some (BitVec.ofNat 64 (sszReadU32Byte args.sourceBytes 2).toNat) ∧
+  after.machine.regs.get? x5 =
+    some (BitVec.ofNat 64 (sszReadU32Byte args.sourceBytes 3).toNat) ∧
+  Agree sszReadU32Preserved before.machine after.machine ∧
+  RetiredCounterPresent after.machine ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
+  after.machine.mem = before.machine.mem ∧
+  EndpointMachineAuxAgree before.machine after.machine ∧
+  after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
+  after.stdout = before.stdout ∧ after.exitCode = before.exitCode
+
+/-- Shared relational contract schema for all reviewed inlined `ssz.readU32` instances. -/
+def sszReadU32Contract (entry sourceOffset : Nat) (stepBound : SszReadU32Args → Nat) :
+    RelationalMachineContract EndpointState SszReadU32Args Nat :=
+  { allows := fun args result => args.sourceBytes.size = 4 ∧
+      result = sszReadU32Value args.sourceBytes
+    entry := sszReadU32Entry entry sourceOffset
+    exit := sszReadU32Exit
+    stepBound := stepBound }
+
 /--
 Contract design hole for `fi:1:1999` at `0x10214`.
 Source operation: Decode one SSZ variable-list offset table into represented byte slices.
@@ -226,7 +295,11 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_readU32_fi_1_33a1_Contract : Prop := by
-  sorry
+  exact ∃ stepBound : SszReadU32Args → Nat,
+    (∀ args, stepBound args < level2ContractFuel) ∧
+    (sszReadU32Contract 0x12ca4 58 stepBound).Implements EndpointStep EndpointPc
+      (fun pc => pcInList [0x12ca4, 0x12ca8, 0x12cac, 0x12cb0] pc)
+      (fun pc => pcInList [0x12cb4] pc)
 
 /--
 Contract design hole for `fi:1:327b` at `0x12df4`.

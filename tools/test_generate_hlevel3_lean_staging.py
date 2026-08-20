@@ -27,9 +27,12 @@ class LeanStagingTests(unittest.TestCase):
         cls.source = generate(cls.inventory, cls.guidance, cls.admission, cls.catalogue)
 
     def test_exact_typed_holes(self):
-        self.assertEqual(self.source.count("  sorry"), 75)
+        self.assertEqual(self.source.count("  sorry"), 74)
         self.assertEqual(self.source.count("def Proposed_"), 58)
         self.assertEqual(self.source.count("private theorem resolve_"), 17)
+        self.assertIn(
+            "def Proposed_ssz_readU32_fi_1_33a1_Contract : Prop := by\n  exact ∃ stepBound",
+            self.source)
 
     def test_every_level3_field_is_passed_to_a_parent(self):
         for row in self.inventory["proposedLevel3Contracts"]:
