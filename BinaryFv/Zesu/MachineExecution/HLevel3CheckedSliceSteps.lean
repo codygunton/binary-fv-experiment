@@ -1099,7 +1099,7 @@ theorem checkedSlice3541EndPrefix
       (seg2.reg x13 (BitVec.ofNat 64 candidateEnd) (by simp))
       (checkedSlice3541CodeOfSeg access loaded seg2))
     (by native_decide)
-    (by intro address lower upper; exact ⟨lower, upper⟩)
+    (by intro address lower upper; exact ⟨by omega, by omega⟩)
     (by intro register bookkeeping; exact Or.inl bookkeeping)
     (by simp [RegsOutside, stepBookkeeping])
   have storedCandidate : UIntRep 8 s3.mem (stackPointer + 0x170) candidateEnd := by
@@ -2255,6 +2255,501 @@ theorem checkedSlice3566InvalidStartEndRun
       reversedComparison (checkedSlice3566CodeOfSeg access loaded prefixSeg))
     (by intro register bookkeeping; exact Or.inl bookkeeping)
     (by simp [RegsOutside, stepBookkeeping])
-  exact ⟨after, by simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using finalSeg⟩
+  refine ⟨after, ?_⟩
+  cases hasNext <;> simpa using finalSeg
+
+/-- Exact `0x1312c: sub a4,a4,a3`. -/
+theorem checkedSlice3566SubtractStartStep
+    (stepNo startOffset endOffset : Nat) (state : State)
+    (access : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x1312c)
+    (startAt : state.regs.get? x13 = some (BitVec.ofNat 64 startOffset))
+    (endAt : state.regs.get? x14 = some (BitVec.ofNat 64 endOffset))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x1312c retired x14
+        (BitVec.ofNat 64 endOffset - BitVec.ofNat 64 startOffset)) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x1312c
+  have startPremise : premise.regs.get? x13 = some (BitVec.ofNat 64 startOffset) :=
+    (stepPremiseState_writes state 0x1312c).get x13 (by decide) |>.trans startAt
+  have endPremise : premise.regs.get? x14 = some (BitVec.ofNat 64 endOffset) :=
+    (stepPremiseState_writes state 0x1312c).get x14 (by decide) |>.trans endAt
+  have execute : Runs (execute (.RTYPE (.Regidx 13#5, .Regidx 14#5, .Regidx 14#5, .SUB)))
+      premise { premise with regs := (premise.regs.insert x14
+        (BitVec.ofNat 64 endOffset - BitVec.ofNat 64 startOffset)) } (.Retire_Success ()) := by
+    change Runs (execute_RTYPE (.Regidx 13#5) (.Regidx 14#5) (.Regidx 14#5) .SUB) _ _ _
+    exact execute_RTYPE_run premise _ (.Regidx 13#5) (.Regidx 14#5) (.Regidx 14#5)
+      .SUB (BitVec.ofNat 64 endOffset) (BitVec.ofNat 64 startOffset)
+      (rX_x14_run premise _ endPremise) (rX_x13_run premise _ startPremise)
+      (wX_x14_run premise _)
+  exact configuredRegisterWriteStep stepNo 0x1312c state x14
+    (BitVec.ofNat 64 endOffset - BitVec.ofNat 64 startOffset)
+    (.RTYPE (.Regidx 13#5, .Regidx 14#5, .Regidx 14#5, .SUB)) 0x33 0x07 0xd7 0x40
+    access atPc loaded (by configured_decode access) execute
+    (pcFits := by native_decide) (base := by rfl)
+
+/-- Exact `0x13130: sd a4,0x280(sp)`. -/
+theorem checkedSlice3566StoreLengthStep
+    (stepNo stackPointer sliceLength : Nat) (state : State)
+    (access : CheckedSliceMachineAccess stackPointer state)
+    (atPc : state.regs.get? PC = some 0x13130)
+    (lengthAt : state.regs.get? x14 = some (BitVec.ofNat 64 sliceLength))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement state) 0x13130)
+          (stackPointer + 0x280) (BitVec.ofNat 64 sliceLength))
+        0x13130 retired) false := by
+  have stackFits := access.stackFits
+  have stackAligned := access.stackAligned
+  apply configuredStackDwordStoreStep stepNo 0x13130 stackPointer 0x280 state
+    (BitVec.ofNat 64 sliceLength) 0x280 (.Regidx 14#5) 0x23 0x30 0xe1 0x28
+    access.configured atPc access.stackRead (access.storePma 0x280 (by omega))
+    (access.storeNoMMIO 0x280 (by omega)) (by omega) (by omega) loaded (base := by rfl)
+  · change BitVec.ofNat 64 stackPointer + 0x280#64 = _
+    rw [← BitVec.ofNat_add]
+  · obtain ⟨_, _, _, _, _⟩ := access.configured.storeDecodeContext
+    configured_decode access.configured
+  · intro premise writes
+    exact rX_x14_run premise _ ((writes.get x14 (by decide)).trans lengthAt)
+
+/-- Exact `0x13134: li a4,17`. -/
+theorem checkedSlice3566LoadNextThresholdStep (stepNo : Nat) (state : State)
+    (access : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x13134)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x13134 retired x14 17) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x13134
+  have execute : Runs (execute (.ITYPE (17, .Regidx 0#5, .Regidx 14#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x14 17 } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 17 (.Regidx 0#5) (.Regidx 14#5) .ADDI) _ _ _
+    have resultEq : iTypeResult .ADDI 17 0 = 17#64 := by native_decide
+    simpa only [resultEq] using execute_ITYPE_run premise _ 17 (.Regidx 0#5)
+      (.Regidx 14#5) .ADDI 0 (rX_x0_run premise) (wX_x14_run premise _)
+  exact configuredRegisterWriteStep stepNo 0x13134 state x14 17
+    (.ITYPE (17, .Regidx 0#5, .Regidx 14#5, .ADDI)) 0x13 0x07 0x10 0x01
+    access atPc loaded (by configured_decode access) execute
+    (pcFits := by native_decide) (base := by rfl)
+
+/-- Exact `0x13138: ld a5,0x190(sp)`. -/
+theorem checkedSlice3566LoadSourceBaseStep
+    (stepNo stackPointer sourceBase : Nat) (state : State)
+    (access : CheckedSliceMachineAccess stackPointer state)
+    (atPc : state.regs.get? PC = some 0x13138)
+    (rep : UIntRep 8 state.mem (stackPointer + 0x190) sourceBase)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x13138 retired x15 (BitVec.ofNat 64 sourceBase)) false := by
+  have stackFits := access.stackFits
+  have stackAligned := access.stackAligned
+  apply configuredStackDwordLoadStep stepNo 0x13138 stackPointer 0x190 sourceBase state
+    0x190 (.Regidx 15#5) x15 (BitVec.ofNat 64 sourceBase) 0x83 0x37 0x01 0x19
+    access.configured atPc access.stackRead rep (access.loadPma 0x190 (by omega))
+    (access.loadNoMMIO 0x190 (by omega)) (by omega) (by omega) loaded (base := by rfl)
+  · change BitVec.ofNat 64 stackPointer + 0x190#64 = _
+    rw [← BitVec.ofNat_add]
+  · intro premise
+    exact wX_x15_run premise (BitVec.ofNat 64 sourceBase)
+  · configured_decode access.configured
+
+/-- Exact `0x1313c: add a3,a5,a3`. -/
+theorem checkedSlice3566AddSourceBaseStep
+    (stepNo sourceBase startOffset : Nat) (state : State)
+    (access : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x1313c)
+    (baseAt : state.regs.get? x15 = some (BitVec.ofNat 64 sourceBase))
+    (startAt : state.regs.get? x13 = some (BitVec.ofNat 64 startOffset))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x1313c retired x13
+        (BitVec.ofNat 64 sourceBase + BitVec.ofNat 64 startOffset)) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x1313c
+  have basePremise : premise.regs.get? x15 = some (BitVec.ofNat 64 sourceBase) :=
+    (stepPremiseState_writes state 0x1313c).get x15 (by decide) |>.trans baseAt
+  have startPremise : premise.regs.get? x13 = some (BitVec.ofNat 64 startOffset) :=
+    (stepPremiseState_writes state 0x1313c).get x13 (by decide) |>.trans startAt
+  have execute : Runs (execute (.RTYPE (.Regidx 13#5, .Regidx 15#5, .Regidx 13#5, .ADD)))
+      premise { premise with regs := (premise.regs.insert x13
+        (BitVec.ofNat 64 sourceBase + BitVec.ofNat 64 startOffset)) } (.Retire_Success ()) := by
+    change Runs (execute_RTYPE (.Regidx 13#5) (.Regidx 15#5) (.Regidx 13#5) .ADD) _ _ _
+    exact execute_RTYPE_run premise _ (.Regidx 13#5) (.Regidx 15#5) (.Regidx 13#5)
+      .ADD (BitVec.ofNat 64 sourceBase) (BitVec.ofNat 64 startOffset)
+      (rX_x15_run premise _ basePremise) (rX_x13_run premise _ startPremise)
+      (wX_x13_run premise _)
+  exact configuredRegisterWriteStep stepNo 0x1313c state x13
+    (BitVec.ofNat 64 sourceBase + BitVec.ofNat 64 startOffset)
+    (.RTYPE (.Regidx 13#5, .Regidx 15#5, .Regidx 13#5, .ADD)) 0xb3 0x86 0xd7 0x00
+    access atPc loaded (by configured_decode access) execute
+    (pcFits := by native_decide) (base := by rfl)
+
+/-- Exact `0x13140: sd a3,0x278(sp)`. -/
+theorem checkedSlice3566StoreAddressStep
+    (stepNo stackPointer address : Nat) (state : State)
+    (access : CheckedSliceMachineAccess stackPointer state)
+    (atPc : state.regs.get? PC = some 0x13140)
+    (addressAt : state.regs.get? x13 = some (BitVec.ofNat 64 address))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement state) 0x13140)
+          (stackPointer + 0x278) (BitVec.ofNat 64 address))
+        0x13140 retired) false := by
+  have stackFits := access.stackFits
+  have stackAligned := access.stackAligned
+  apply configuredStackDwordStoreStep stepNo 0x13140 stackPointer 0x278 state
+    (BitVec.ofNat 64 address) 0x278 (.Regidx 13#5) 0x23 0x3c 0xd1 0x26
+    access.configured atPc access.stackRead (access.storePma 0x278 (by omega))
+    (access.storeNoMMIO 0x278 (by omega)) (by omega) (by omega) loaded (base := by rfl)
+  · change BitVec.ofNat 64 stackPointer + 0x278#64 = _
+    rw [← BitVec.ofNat_add]
+  · obtain ⟨_, _, _, _, _⟩ := access.configured.storeDecodeContext
+    configured_decode access.configured
+  · intro premise writes
+    exact rX_x13_run premise _ ((writes.get x13 (by decide)).trans addressAt)
+
+private theorem checkedSlice3566BoundsPrefix
+    (fromStep prefixCount stackPointer candidateEnd endOffset startOffset savedS8 savedS11 : Nat)
+    (base join : State) (access : CheckedSliceMachineAccess stackPointer base)
+    (prefixSeg : Seg checkedSlice3566OwnPc checkedSlice3566ExitPc
+      (fun _ _ _ _ _ => False) checkedSlice3566Writes
+      (checkedSlice3566Memory stackPointer)
+      [⟨x14, BitVec.ofNat 64 endOffset⟩, ⟨x15, 16⟩,
+        ⟨x12, BitVec.ofNat 64 candidateEnd⟩, ⟨x13, BitVec.ofNat 64 startOffset⟩]
+      fromStep prefixCount base join 0x13118)
+    (savedS8Rep : UIntRep 8 base.mem (stackPointer + 0x1b0) savedS8)
+    (savedS11Rep : UIntRep 8 base.mem (stackPointer + 0x1a8) savedS11)
+    (validComparison : zopz0zI_u (BitVec.ofNat 64 endOffset)
+      (BitVec.ofNat 64 startOffset) = false)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully base.mem) :
+    ∃ after,
+      Seg checkedSlice3566OwnPc checkedSlice3566ExitPc (fun _ _ _ _ _ => False)
+        checkedSlice3566Writes (checkedSlice3566Memory stackPointer)
+        [⟨x22, 1⟩, ⟨x27, BitVec.ofNat 64 savedS11⟩,
+          ⟨x24, BitVec.ofNat 64 savedS8⟩, ⟨x14, BitVec.ofNat 64 endOffset⟩,
+          ⟨x15, 16⟩, ⟨x12, BitVec.ofNat 64 candidateEnd⟩,
+          ⟨x13, BitVec.ofNat 64 startOffset⟩]
+        fromStep (prefixCount + 4) base after 0x13128 := by
+  obtain ⟨checked, checkedSeg⟩ := prefixSeg.stepFallThrough 0x1311c
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList])
+    (checkedSlice3566ReversedBranchStep (fromStep + prefixCount) stackPointer startOffset
+      endOffset join (checkedSlice3566AccessOfSeg access prefixSeg) prefixSeg.atPc
+      (prefixSeg.reg x13 (BitVec.ofNat 64 startOffset) (by simp))
+      (prefixSeg.reg x14 (BitVec.ofNat 64 endOffset) (by simp)) validComparison
+      (checkedSlice3566CodeOfSeg access loaded prefixSeg))
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have savedS8Checked : UIntRep 8 checked.mem (stackPointer + 0x1b0) savedS8 :=
+    savedS8Rep.of_writesOnlyWithin checkedSeg.mem (by
+      intro index indexBound inside
+      unfold checkedSlice3566Memory byteRange at inside
+      omega)
+  obtain ⟨loadedS8, s8Seg⟩ := checkedSeg.step
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList]) x24
+    (BitVec.ofNat 64 savedS8) 0x13120
+    (checkedSlice3566LoadS8Step (fromStep + prefixCount + 1) stackPointer savedS8 checked
+      (checkedSlice3566AccessOfSeg access checkedSeg) checkedSeg.atPc savedS8Checked
+      (checkedSlice3566CodeOfSeg access loaded checkedSeg))
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [checkedSlice3566Writes]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have savedS11Loaded : UIntRep 8 loadedS8.mem (stackPointer + 0x1a8) savedS11 :=
+    savedS11Rep.of_writesOnlyWithin s8Seg.mem (by
+      intro index indexBound inside
+      unfold checkedSlice3566Memory byteRange at inside
+      omega)
+  obtain ⟨loadedS11, s11Seg⟩ := s8Seg.step
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList]) x27
+    (BitVec.ofNat 64 savedS11) 0x13124
+    (checkedSlice3566LoadS11Step (fromStep + prefixCount + 2) stackPointer savedS11 loadedS8
+      (checkedSlice3566AccessOfSeg access s8Seg) s8Seg.atPc savedS11Loaded
+      (checkedSlice3566CodeOfSeg access loaded s8Seg))
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [checkedSlice3566Writes]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨after, tagSeg⟩ := s11Seg.step
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList]) x22 1 0x13128
+    (checkedSlice3566LoadSuccessTagStep (fromStep + prefixCount + 3) loadedS11
+      (checkedSlice3566AccessOfSeg access s11Seg).configured s11Seg.atPc
+      (checkedSlice3566CodeOfSeg access loaded s11Seg))
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [checkedSlice3566Writes]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  exact ⟨after, by simpa only [Nat.add_assoc] using tagSeg⟩
+
+/-- The present type-three instance rejects an end offset that exceeds the source length. -/
+theorem checkedSlice3566LengthRejectedRun
+    (fromStep stackPointer length tableBytes candidateEnd startOffset savedS8 savedS11 : Nat)
+    (state : State) (access : CheckedSliceMachineAccess stackPointer state)
+    (atPc : state.regs.get? PC = some 0x13100)
+    (lengthAt : state.regs.get? x10 = some (BitVec.ofNat 64 length))
+    (tableAt : state.regs.get? x11 = some (BitVec.ofNat 64 tableBytes))
+    (thresholdAt : state.regs.get? x12 = some 13)
+    (startAt : state.regs.get? x13 = some (BitVec.ofNat 64 startOffset))
+    (candidateRep : UIntRep 8 state.mem (stackPointer + 0x508) candidateEnd)
+    (savedS8Rep : UIntRep 8 state.mem (stackPointer + 0x1b0) savedS8)
+    (savedS11Rep : UIntRep 8 state.mem (stackPointer + 0x1a8) savedS11)
+    (presentComparison : zopz0zI_u (BitVec.ofNat 64 tableBytes) 13 = false)
+    (hasNextComparison : zopz0zI_u 16 (BitVec.ofNat 64 tableBytes) = hasNext)
+    (validComparison : zopz0zI_u
+      (BitVec.ofNat 64 (if hasNext then candidateEnd else length))
+      (BitVec.ofNat 64 startOffset) = false)
+    (oversizedComparison : zopz0zI_u (BitVec.ofNat 64 length)
+      (BitVec.ofNat 64 (if hasNext then candidateEnd else length)) = true)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ after,
+      Seg checkedSlice3566OwnPc checkedSlice3566ExitPc (fun _ _ _ _ _ => False)
+        checkedSlice3566Writes (checkedSlice3566Memory stackPointer)
+        [⟨x22, 1⟩, ⟨x27, BitVec.ofNat 64 savedS11⟩,
+          ⟨x24, BitVec.ofNat 64 savedS8⟩,
+          ⟨x14, BitVec.ofNat 64 (if hasNext then candidateEnd else length)⟩,
+          ⟨x15, 16⟩, ⟨x12, BitVec.ofNat 64 candidateEnd⟩,
+          ⟨x13, BitVec.ofNat 64 startOffset⟩]
+        fromStep ((if hasNext then 5 else 6) + 5) state after 0x1230c := by
+  obtain ⟨join, prefixSeg⟩ := checkedSlice3566EndPrefix fromStep stackPointer length tableBytes
+    candidateEnd startOffset state access atPc lengthAt tableAt thresholdAt startAt candidateRep
+    presentComparison hasNextComparison loaded
+  obtain ⟨checked, checkedSeg⟩ := checkedSlice3566BoundsPrefix fromStep
+    (if hasNext then 5 else 6) stackPointer candidateEnd
+    (if hasNext then candidateEnd else length) startOffset savedS8 savedS11 state join access
+    prefixSeg savedS8Rep savedS11Rep validComparison loaded
+  have lengthAtChecked : checked.regs.get? x10 = some (BitVec.ofNat 64 length) :=
+    (checkedSeg.get x10 (by simp [checkedSlice3566Writes, stepBookkeeping])).trans lengthAt
+  obtain ⟨after, finalSeg⟩ := checkedSeg.stepJump 0x1230c
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList])
+    (checkedSlice3566OversizedBranchStep
+      (fromStep + (if hasNext then 5 else 6) + 4) stackPointer length
+      (if hasNext then candidateEnd else length) checked
+      (checkedSlice3566AccessOfSeg access checkedSeg) checkedSeg.atPc lengthAtChecked
+      (checkedSeg.reg x14 (BitVec.ofNat 64 (if hasNext then candidateEnd else length)) (by simp))
+      oversizedComparison (checkedSlice3566CodeOfSeg access loaded checkedSeg))
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  refine ⟨after, ?_⟩
+  cases hasNext <;> simpa using finalSeg
+
+/-- The valid type-three route stores its selected slice and reaches the type-four dispatcher. -/
+theorem checkedSlice3566SelectedRun
+    (fromStep stackPointer length tableBytes candidateEnd startOffset savedS8 savedS11 sourceBase :
+      Nat)
+    (state : State) (access : CheckedSliceMachineAccess stackPointer state)
+    (atPc : state.regs.get? PC = some 0x13100)
+    (lengthAt : state.regs.get? x10 = some (BitVec.ofNat 64 length))
+    (tableAt : state.regs.get? x11 = some (BitVec.ofNat 64 tableBytes))
+    (thresholdAt : state.regs.get? x12 = some 13)
+    (startAt : state.regs.get? x13 = some (BitVec.ofNat 64 startOffset))
+    (candidateRep : UIntRep 8 state.mem (stackPointer + 0x508) candidateEnd)
+    (sourceBaseRep : UIntRep 8 state.mem (stackPointer + 0x190) sourceBase)
+    (savedS8Rep : UIntRep 8 state.mem (stackPointer + 0x1b0) savedS8)
+    (savedS11Rep : UIntRep 8 state.mem (stackPointer + 0x1a8) savedS11)
+    (presentComparison : zopz0zI_u (BitVec.ofNat 64 tableBytes) 13 = false)
+    (hasNextComparison : zopz0zI_u 16 (BitVec.ofNat 64 tableBytes) = hasNext)
+    (validComparison : zopz0zI_u
+      (BitVec.ofNat 64 (if hasNext then candidateEnd else length))
+      (BitVec.ofNat 64 startOffset) = false)
+    (lengthComparison : zopz0zI_u (BitVec.ofNat 64 length)
+      (BitVec.ofNat 64 (if hasNext then candidateEnd else length)) = false)
+    (differenceEq : BitVec.ofNat 64 (if hasNext then candidateEnd else length) -
+      BitVec.ofNat 64 startOffset =
+        BitVec.ofNat 64 ((if hasNext then candidateEnd else length) - startOffset))
+    (sliceLengthFits : (if hasNext then candidateEnd else length) - startOffset < 2 ^ 64)
+    (addressFits : sourceBase + startOffset < 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ after,
+      Seg checkedSlice3566OwnPc checkedSlice3566ExitPc (fun _ _ _ _ _ => False)
+        checkedSlice3566Writes (checkedSlice3566Memory stackPointer)
+        [⟨x13, BitVec.ofNat 64 sourceBase + BitVec.ofNat 64 startOffset⟩,
+          ⟨x15, BitVec.ofNat 64 sourceBase⟩, ⟨x14, 17⟩, ⟨x22, 1⟩,
+          ⟨x27, BitVec.ofNat 64 savedS11⟩, ⟨x24, BitVec.ofNat 64 savedS8⟩,
+          ⟨x12, BitVec.ofNat 64 candidateEnd⟩]
+        fromStep ((if hasNext then 5 else 6) + 11) state after 0x13144 ∧
+      UIntRep 8 after.mem (stackPointer + 0x280)
+        ((if hasNext then candidateEnd else length) - startOffset) ∧
+      UIntRep 8 after.mem (stackPointer + 0x278) (sourceBase + startOffset) := by
+  obtain ⟨join, prefixSeg⟩ := checkedSlice3566EndPrefix fromStep stackPointer length tableBytes
+    candidateEnd startOffset state access atPc lengthAt tableAt thresholdAt startAt candidateRep
+    presentComparison hasNextComparison loaded
+  obtain ⟨checked, checkedSeg⟩ := checkedSlice3566BoundsPrefix fromStep
+    (if hasNext then 5 else 6) stackPointer candidateEnd
+    (if hasNext then candidateEnd else length) startOffset savedS8 savedS11 state join access
+    prefixSeg savedS8Rep savedS11Rep validComparison loaded
+  have lengthAtChecked : checked.regs.get? x10 = some (BitVec.ofNat 64 length) :=
+    (checkedSeg.get x10 (by simp [checkedSlice3566Writes, stepBookkeeping])).trans lengthAt
+  obtain ⟨bounded, boundedSeg⟩ := checkedSeg.stepFallThrough 0x1312c
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList])
+    (checkedSlice3566OversizedBranchStep
+      (fromStep + (if hasNext then 5 else 6) + 4) stackPointer length
+      (if hasNext then candidateEnd else length) checked
+      (checkedSlice3566AccessOfSeg access checkedSeg) checkedSeg.atPc lengthAtChecked
+      (checkedSeg.reg x14 (BitVec.ofNat 64 (if hasNext then candidateEnd else length)) (by simp))
+      lengthComparison (checkedSlice3566CodeOfSeg access loaded checkedSeg))
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have boundedSeg' := boundedSeg.forget
+    (kv' := [⟨x22, 1⟩, ⟨x27, BitVec.ofNat 64 savedS11⟩,
+      ⟨x24, BitVec.ofNat 64 savedS8⟩, ⟨x15, 16⟩,
+      ⟨x12, BitVec.ofNat 64 candidateEnd⟩,
+      ⟨x13, BitVec.ofNat 64 startOffset⟩]) (by simp)
+  obtain ⟨subtracted, subtractSeg⟩ := boundedSeg'.step
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList]) x14
+    (BitVec.ofNat 64 ((if hasNext then candidateEnd else length) - startOffset)) 0x13130
+    (by
+      simpa only [differenceEq] using checkedSlice3566SubtractStartStep
+        (fromStep + (if hasNext then 5 else 6) + 5) startOffset
+        (if hasNext then candidateEnd else length) bounded
+        (checkedSlice3566AccessOfSeg access boundedSeg).configured boundedSeg.atPc
+        (boundedSeg.reg x13 (BitVec.ofNat 64 startOffset) (by simp))
+        (boundedSeg.reg x14
+          (BitVec.ofNat 64 (if hasNext then candidateEnd else length)) (by simp))
+        (checkedSlice3566CodeOfSeg access loaded boundedSeg))
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [checkedSlice3566Writes]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨lengthRetired, storedLength, storedLengthEq, lengthSeg⟩ :=
+    subtractSeg.stepStoreWitness
+    (width := 8) (stackPointer + 0x280)
+    (BitVec.ofNat 64 ((if hasNext then candidateEnd else length) - startOffset)) 0x13134
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList])
+    (checkedSlice3566StoreLengthStep
+      (fromStep + (if hasNext then 5 else 6) + 6) stackPointer
+      ((if hasNext then candidateEnd else length) - startOffset) subtracted
+      (checkedSlice3566AccessOfSeg access subtractSeg) subtractSeg.atPc
+      (subtractSeg.reg x14
+        (BitVec.ofNat 64 ((if hasNext then candidateEnd else length) - startOffset)) (by simp))
+      (checkedSlice3566CodeOfSeg access loaded subtractSeg))
+    (by native_decide)
+    (by intro address lower upper; exact ⟨by omega, by omega⟩)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have lengthStored : UIntRep 8 storedLength.mem (stackPointer + 0x280)
+      ((if hasNext then candidateEnd else length) - startOffset) := by
+    rw [storedLengthEq]
+    simpa [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+      uintRep_afterWriteBytes_eight
+        (coreStoreNextState (tryStepStoreAfterIncrement subtracted) 0x13130)
+        (stackPointer + 0x280)
+        ((if hasNext then candidateEnd else length) - startOffset) sliceLengthFits (by
+          have stackFits := access.stackFits
+          omega)
+  have lengthSeg' := lengthSeg.forget
+    (kv' := [⟨x22, 1⟩, ⟨x27, BitVec.ofNat 64 savedS11⟩,
+      ⟨x24, BitVec.ofNat 64 savedS8⟩, ⟨x15, 16⟩,
+      ⟨x12, BitVec.ofNat 64 candidateEnd⟩,
+      ⟨x13, BitVec.ofNat 64 startOffset⟩]) (by simp)
+  obtain ⟨tagRetired, tagged, taggedEq, taggedSeg⟩ := lengthSeg'.stepWitness
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList]) x14 17 0x13138
+    (checkedSlice3566LoadNextThresholdStep
+      (fromStep + (if hasNext then 5 else 6) + 7) storedLength
+      (checkedSlice3566AccessOfSeg access lengthSeg).configured lengthSeg.atPc
+      (checkedSlice3566CodeOfSeg access loaded lengthSeg))
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [checkedSlice3566Writes]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have lengthTagged : UIntRep 8 tagged.mem (stackPointer + 0x280)
+      ((if hasNext then candidateEnd else length) - startOffset) := by
+    rw [taggedEq]
+    exact lengthStored.of_mem_eq
+      (afterRegisterWrite_mem storedLength 0x13134 tagRetired x14 17)
+  have sourceBaseTagged : UIntRep 8 tagged.mem (stackPointer + 0x190) sourceBase :=
+    sourceBaseRep.of_writesOnlyWithin taggedSeg.mem (by
+      intro index indexBound inside
+      unfold checkedSlice3566Memory byteRange at inside
+      omega)
+  have taggedSeg' := taggedSeg.forget
+    (kv' := [⟨x14, 17⟩, ⟨x22, 1⟩, ⟨x27, BitVec.ofNat 64 savedS11⟩,
+      ⟨x24, BitVec.ofNat 64 savedS8⟩, ⟨x12, BitVec.ofNat 64 candidateEnd⟩,
+      ⟨x13, BitVec.ofNat 64 startOffset⟩]) (by simp)
+  obtain ⟨baseRetired, based, basedEq, basedSeg⟩ := taggedSeg'.stepWitness
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList]) x15
+    (BitVec.ofNat 64 sourceBase) 0x1313c
+    (checkedSlice3566LoadSourceBaseStep
+      (fromStep + (if hasNext then 5 else 6) + 8) stackPointer sourceBase tagged
+      (checkedSlice3566AccessOfSeg access taggedSeg) taggedSeg.atPc sourceBaseTagged
+      (checkedSlice3566CodeOfSeg access loaded taggedSeg))
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [checkedSlice3566Writes]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have lengthBased : UIntRep 8 based.mem (stackPointer + 0x280)
+      ((if hasNext then candidateEnd else length) - startOffset) := by
+    rw [basedEq]
+    exact lengthTagged.of_mem_eq
+      (afterRegisterWrite_mem tagged 0x13138 baseRetired x15 (BitVec.ofNat 64 sourceBase))
+  have basedSeg' := basedSeg.forget
+    (kv' := [⟨x15, BitVec.ofNat 64 sourceBase⟩, ⟨x14, 17⟩, ⟨x22, 1⟩,
+      ⟨x27, BitVec.ofNat 64 savedS11⟩, ⟨x24, BitVec.ofNat 64 savedS8⟩,
+      ⟨x12, BitVec.ofNat 64 candidateEnd⟩]) (by simp)
+  obtain ⟨addressRetired, addressed, addressedEq, addressedSeg⟩ := basedSeg'.stepWitness
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList]) x13
+    (BitVec.ofNat 64 sourceBase + BitVec.ofNat 64 startOffset) 0x13140
+    (checkedSlice3566AddSourceBaseStep
+      (fromStep + (if hasNext then 5 else 6) + 9) sourceBase startOffset based
+      (checkedSlice3566AccessOfSeg access basedSeg).configured basedSeg.atPc
+      (basedSeg.reg x15 (BitVec.ofNat 64 sourceBase) (by simp))
+      (basedSeg.reg x13 (BitVec.ofNat 64 startOffset) (by simp))
+      (checkedSlice3566CodeOfSeg access loaded basedSeg))
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [checkedSlice3566Writes]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have lengthAddressed : UIntRep 8 addressed.mem (stackPointer + 0x280)
+      ((if hasNext then candidateEnd else length) - startOffset) := by
+    rw [addressedEq]
+    exact lengthBased.of_mem_eq
+      (afterRegisterWrite_mem based 0x1313c addressRetired x13
+        (BitVec.ofNat 64 sourceBase + BitVec.ofNat 64 startOffset))
+  obtain ⟨finalRetired, after, finalEq, finalSeg⟩ := addressedSeg.stepStoreWitness
+    (width := 8) (stackPointer + 0x278)
+    (BitVec.ofNat 64 (sourceBase + startOffset)) 0x13144
+    (by owned_pc [checkedSlice3566OwnPc, pcInList])
+    (by owned_pc [checkedSlice3566ExitPc, pcInList])
+    (checkedSlice3566StoreAddressStep
+      _ stackPointer
+      (sourceBase + startOffset) addressed
+      (checkedSlice3566AccessOfSeg access addressedSeg) addressedSeg.atPc
+      (by
+        have addressAt := addressedSeg.reg x13
+          (BitVec.ofNat 64 sourceBase + BitVec.ofNat 64 startOffset) (by simp)
+        rw [← BitVec.ofNat_add] at addressAt
+        exact addressAt)
+      (checkedSlice3566CodeOfSeg access loaded addressedSeg))
+    (by native_decide)
+    (by intro address lower upper; exact ⟨by omega, by omega⟩)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have finalWrites : WritesOnlyWithin (byteRange (stackPointer + 0x278) 8) addressed after := by
+    rw [finalEq]
+    intro other outside
+    exact storeRetirement_mem_writes addressed 0x13140 0x13144 finalRetired
+      (stackPointer + 0x278) (BitVec.ofNat 64 (sourceBase + startOffset)) other
+      (fun written => outside written)
+  have lengthAfter : UIntRep 8 after.mem (stackPointer + 0x280)
+      ((if hasNext then candidateEnd else length) - startOffset) :=
+    lengthAddressed.of_writesOnlyWithin finalWrites (by
+      intro index indexBound inside
+      unfold byteRange at inside
+      omega)
+  have addressAfter : UIntRep 8 after.mem (stackPointer + 0x278)
+      (sourceBase + startOffset) := by
+    rw [finalEq]
+    simpa [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+      uintRep_afterWriteBytes_eight
+        (coreStoreNextState (tryStepStoreAfterIncrement addressed) 0x13140)
+        (stackPointer + 0x278) (sourceBase + startOffset) addressFits (by
+          have stackFits := access.stackFits
+          omega)
+  refine ⟨after, ?_, lengthAfter, addressAfter⟩
+  cases hasNext <;> simpa using finalSeg
 
 end BinaryFv.Zesu.MachineExecution
