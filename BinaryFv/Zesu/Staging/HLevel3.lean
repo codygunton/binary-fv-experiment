@@ -278,7 +278,11 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_readU32_fi_1_3335_Contract : Prop := by
-  sorry
+  exact ∃ stepBound : SszReadU32Args → Nat,
+    (∀ args, stepBound args < level2ContractFuel) ∧
+    (sszReadU32Contract 0x12c18 22 x10 x15 x13 x14 stepBound).Implements EndpointStep EndpointPc
+      (fun pc => pcInList [0x12c18, 0x12c1c, 0x12c20, 0x12c24] pc)
+      (fun pc => pcInList [0x12c28] pc)
 
 /--
 Contract design hole for `fi:1:33a1` at `0x12ca4`.

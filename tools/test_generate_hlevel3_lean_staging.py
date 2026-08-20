@@ -27,7 +27,7 @@ class LeanStagingTests(unittest.TestCase):
         cls.source = generate(cls.inventory, cls.guidance, cls.admission, cls.catalogue)
 
     def test_exact_typed_holes(self):
-        self.assertEqual(self.source.count("  sorry"), 74)
+        self.assertEqual(self.source.count("  sorry"), 73)
         self.assertEqual(self.source.count("def Proposed_"), 58)
         self.assertEqual(self.source.count("private theorem resolve_"), 17)
         self.assertIn(
@@ -35,6 +35,9 @@ class LeanStagingTests(unittest.TestCase):
             self.source)
 
     def test_read_u32_destination_tuple_is_instance_specific(self):
+        self.assertIn(
+            "sszReadU32Contract 0x12c18 22 x10 x15 x13 x14 stepBound",
+            self.source)
         self.assertIn(
             "sszReadU32Contract 0x12ca4 58 x16 x6 x17 x5 stepBound",
             self.source)
