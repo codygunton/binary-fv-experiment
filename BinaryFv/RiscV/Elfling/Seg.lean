@@ -485,6 +485,32 @@ theorem stepJump (seg : Seg own exit childSummary W M kv a n base cur pc) (targe
     (fun _ => RegsHold.nil _)
     bookkeeping keep
 
+/-- `stepJump` with the concrete retirement witness retained for memory-fact transport. -/
+theorem stepJumpWitness (seg : Seg own exit childSummary W M kv a n base cur pc)
+    (target : BitVec 64) (inRegion : own pc) (notExit : ¬ exit pc)
+    (run : ∃ retired, Runs (try_step (a + n) false) cur
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement cur) pc target) target retired)
+      false)
+    (bookkeeping : ∀ r, stepBookkeeping r → W r)
+    (keep : RegsOutside stepBookkeeping kv) :
+    ∃ retired next,
+      next = tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement cur) pc target) target retired ∧
+      Seg own exit childSummary W M kv a (n + 1) base next target := by
+  obtain ⟨retired, hrun⟩ := run
+  refine ⟨retired, _, rfl, ?_⟩
+  exact
+    { trace := seg.trace.snoc hrun
+      confined := seg.confined.trans (ConfinedPrefix.ownStep seg.atPc inRegion notExit hrun)
+      writes := seg.writes.trans_same ((jumpRetirement_writes cur pc target retired).mono bookkeeping)
+      mem := WritesOnlyWithin.trans_same seg.mem
+        (writesOnlyWithin_of_mem_eq (jumpRetirement_mem cur pc target retired))
+      aux := seg.aux.trans ⟨rfl, rfl, rfl⟩
+      retired := jumpRetirement_retired_present cur pc target retired
+      atPc := jumpRetirement_pc cur pc target retired
+      regs := seg.regs.through (jumpRetirement_writes cur pc target retired) keep }
+
 /-- A comparison or branch-not-taken retirement that advances through the base control-flow path. -/
 theorem stepFallThrough (seg : Seg own exit childSummary W M kv a n base cur pc)
     (target : BitVec 64) (inRegion : own pc) (notExit : ¬ exit pc)
