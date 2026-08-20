@@ -561,6 +561,62 @@ theorem configuredBranchNotTakenStep (stepNo pc : Nat) (state : State)
     platform noMMIO bytes interrupts base decode notExpected condition counters.1 counters.2.1
     counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1 counters.2.2.2.2.2⟩
 
+/-- Retire one exact `jalr x0,0(rs1)` indirect jump from a configured state. -/
+theorem configuredJrStep (stepNo pc : Nat) (state : State) (rs1 : regidx)
+    (source : BitVec 64) (byte0 byte1 byte2 byte3 : UInt8)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.JALR (0#12, rs1, zreg)))
+    (sourceRun : Runs (rX_bits rs1)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)) source)
+    (targetAligned : Sail.BitVec.access source 1 = 0#1)
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat)) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+          (Sail.BitVec.update source 0 0#1))
+        (Sail.BitVec.update source 0 0#1) retired) false := by
+  obtain ⟨retired, counters⟩ := configured.counters
+  obtain ⟨platform, noMMIO, interrupts, notExpected⟩ :=
+    configured.stepContext (BitVec.ofNat 64 pc) atPc ⟨by simpa using site.pcAligned, ⟨byte0, by
+      simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt site.pcFits] using site.read0⟩⟩
+  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Artifacts.programImage
+    (tryStepControlFlowAfterIncrement state) pc site.pcFits loadedAfter
+    byte0 byte1 byte2 byte3 site.read0 site.read1 site.read2 site.read3
+  obtain ⟨seccfgBits, seccfgRead, _⟩ := configured.seccfgPresent
+  have helpElp := updateElpState_run_atStepPremise state (BitVec.ofNat 64 pc) rs1
+    seccfgBits configured.normal.2.1 seccfgRead
+  let premise := coreControlFlowNextState
+    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+  have nextRead : Runs (get_next_pc ()) premise premise
+      (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) := by
+    unfold get_next_pc
+    exact readReg_run premise nextPC _ (by simp [premise, coreControlFlowNextState])
+  cases misaRead : state.regs.get? misa with
+  | none =>
+      have impossible := configured.normal.2.2.2.2.2.2.2.2.2.2.2
+      simp [misaRead] at impossible
+  | some misaBits =>
+      have zca := currentlyEnabledZca_run_atStepPremise state (BitVec.ofNat 64 pc)
+        misaBits misaRead
+      exact ⟨retired, tryStepRetRetires stepNo state (BitVec.ofNat 64 pc) retired rs1
+        (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) source 0 0
+        (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
+        (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)
+        (_get_Misa_C misaBits == 1#1) platform noMMIO bytes interrupts base decode notExpected
+        helpElp nextRead sourceRun targetAligned zca counters.1 counters.2.1 counters.2.2.1
+        counters.2.2.2.1 counters.2.2.2.2.1 counters.2.2.2.2.2⟩
+
 /-- Retire a production `ret` (`jalr x0, 0(ra)`) from a configured endpoint state. -/
 theorem configuredRetStep (stepNo pc : Nat) (state : State) (returnAddress : BitVec 64)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
