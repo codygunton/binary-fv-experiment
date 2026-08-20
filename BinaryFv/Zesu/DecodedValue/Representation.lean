@@ -120,6 +120,18 @@ def BytesRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
     ∀ index (inBounds : index < bytes.size),
       mem.get? (address + index) = some (BitVec.ofNat 8 bytes[index].toNat)
 
+/-- Extract one represented byte as the one-byte integer window used by an exact load proof. -/
+theorem BytesRep.uintRepAt {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat}
+    {bytes : Array UInt8} (rep : BytesRep mem address bytes) (index : Nat)
+    (bound : index < bytes.size) :
+    UIntRep 1 mem (address + index) bytes[index].toNat := by
+  have fits := rep.1
+  refine ⟨bytes[index].toNat_lt, by omega, ?_⟩
+  intro byteIndex byteBound
+  have byteIndexZero : byteIndex = 0 := by omega
+  subst byteIndex
+  simpa [byteAt_zero] using rep.2 index bound
+
 /-- Any initialized eight-byte window represents one bounded little-endian natural value. -/
 theorem BytesRep.existsUIntRepEight {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat}
     {bytes : Array UInt8} (rep : BytesRep mem address bytes) (size : bytes.size = 8) :

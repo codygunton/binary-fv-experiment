@@ -5,6 +5,7 @@ import BinaryFv.Zesu.MachineExecution.Level0MainSteps
 import BinaryFv.RiscV.Elfling.Seg
 import BinaryFv.Zesu.Staging.MemWriteInt
 import BinaryFv.Zesu.Staging.MemReadInt
+import BinaryFv.Zesu.Staging.ReadU32
 
 /-!
 # Generated hLevel3 staging
@@ -17,88 +18,6 @@ namespace BinaryFv.Zesu.Staging.HLevel3
 
 open PreSail LeanRV64DExecutable.Functions Register
 open BinaryFv.RiscV
-
-/-- Arguments bound to one inlined `ssz.readU32` byte window. -/
-structure SszReadU32Args where
-  sourceAddress : Nat
-  sourceBytes : Array UInt8
-
-/-- The byte selected by an inlined `ssz.readU32` load. -/
-def sszReadU32Byte (bytes : Array UInt8) (index : Nat) : UInt8 :=
-  (bytes[index]?).getD 0
-
-/-- The four-byte little-endian result of `ssz.readU32`. -/
-def sszReadU32Value (bytes : Array UInt8) : Nat :=
-  (sszReadU32Byte bytes 0).toNat + 256 * (sszReadU32Byte bytes 1).toNat +
-    65536 * (sszReadU32Byte bytes 2).toNat +
-    16777216 * (sszReadU32Byte bytes 3).toNat
-
-/-- Registers unchanged by the four `lbu` instructions in `fi:1:3335`. -/
-def sszReadU32Preserved3335 (register : Register) : Prop :=
-  instructionPreserved register ∧ register ≠ x10 ∧ register ≠ x15 ∧
-    register ≠ x13 ∧ register ≠ x14
-
-/-- Registers unchanged by the four `lbu` instructions in `fi:1:33a1`. -/
-def sszReadU32Preserved33a1 (register : Register) : Prop :=
-  instructionPreserved register ∧ register ≠ x16 ∧ register ≠ x6 ∧
-    register ≠ x17 ∧ register ≠ x5
-
-/-- Entry bindings for the four production loads at one inlined `ssz.readU32`. -/
-def sszReadU32Entry (entry sourceOffset : Nat) (args : SszReadU32Args)
-    (state : EndpointState) : Prop :=
-  state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
-  state.machine.regs.get? x18 = some (BitVec.ofNat 64 args.sourceAddress) ∧
-  args.sourceBytes.size = 4 ∧
-  args.sourceAddress + sourceOffset + 4 ≤ 2 ^ 64 ∧
-  BytesRep state.machine.mem (args.sourceAddress + sourceOffset) args.sourceBytes ∧
-  (∀ index, index < 4 →
-    LoadPmaAllows state.machine
-      (BitVec.ofNat 64 (args.sourceAddress + sourceOffset + index)) 1) ∧
-  (∀ index, index < 4 →
-    LoadMMIOAddressExcluded
-      (BitVec.ofNat 64 (args.sourceAddress + sourceOffset + index)) 1) ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
-  ConfiguredMachinePre (fun pc => pcInList [entry, entry + 4, entry + 8, entry + 12] pc)
-    state.machine
-
-/-- Result and exact frame bindings after the final `lbu` at one inlined `ssz.readU32`. -/
-def sszReadU32Exit (bindBytes : Array UInt8 → EndpointState → Prop)
-    (preserved : Register → Prop) (args : SszReadU32Args) (result : Nat)
-    (before after : EndpointState) : Prop :=
-  result = sszReadU32Value args.sourceBytes ∧
-  bindBytes args.sourceBytes after ∧
-  Agree preserved before.machine after.machine ∧
-  RetiredCounterPresent after.machine ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
-  after.machine.mem = before.machine.mem ∧
-  EndpointMachineAuxAgree before.machine after.machine ∧
-  after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
-  after.stdout = before.stdout ∧ after.exitCode = before.exitCode
-
-/-- Shared relational contract schema for all reviewed inlined `ssz.readU32` instances. -/
-def sszReadU32Contract (entry sourceOffset : Nat)
-    (bindBytes : Array UInt8 → EndpointState → Prop) (preserved : Register → Prop)
-    (stepBound : SszReadU32Args → Nat) :
-    RelationalMachineContract EndpointState SszReadU32Args Nat :=
-  { allows := fun args result => args.sourceBytes.size = 4 ∧
-      result = sszReadU32Value args.sourceBytes
-    entry := sszReadU32Entry entry sourceOffset
-    exit := sszReadU32Exit bindBytes preserved
-    stepBound := stepBound }
-
-/-- Concrete result registers for `fi:1:3335`. -/
-def sszReadU32Bindings3335 (bytes : Array UInt8) (state : EndpointState) : Prop :=
-  state.machine.regs.get? x10 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 0).toNat) ∧
-  state.machine.regs.get? x15 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 1).toNat) ∧
-  state.machine.regs.get? x13 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 2).toNat) ∧
-  state.machine.regs.get? x14 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 3).toNat)
-
-/-- Concrete result registers for `fi:1:33a1`. -/
-def sszReadU32Bindings33a1 (bytes : Array UInt8) (state : EndpointState) : Prop :=
-  state.machine.regs.get? x16 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 0).toNat) ∧
-  state.machine.regs.get? x6 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 1).toNat) ∧
-  state.machine.regs.get? x17 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 2).toNat) ∧
-  state.machine.regs.get? x5 = some (BitVec.ofNat 64 (sszReadU32Byte bytes 3).toNat)
 
 /--
 Contract design hole for `fi:1:1999` at `0x10214`.
@@ -294,12 +213,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_readU32_fi_1_3335_Contract : Prop := by
-  exact ∃ stepBound : SszReadU32Args → Nat,
-    (∀ args, stepBound args < level2ContractFuel) ∧
-    (sszReadU32Contract 0x12c18 22 sszReadU32Bindings3335
-      sszReadU32Preserved3335 stepBound).Implements EndpointStep EndpointPc
-      (fun pc => pcInList [0x12c18, 0x12c1c, 0x12c20, 0x12c24] pc)
-      (fun pc => pcInList [0x12c28] pc)
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_readU32_fi_1_3335_Contract
 
 /--
 Contract design hole for `fi:1:33a1` at `0x12ca4`.
@@ -318,12 +232,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_readU32_fi_1_33a1_Contract : Prop := by
-  exact ∃ stepBound : SszReadU32Args → Nat,
-    (∀ args, stepBound args < level2ContractFuel) ∧
-    (sszReadU32Contract 0x12ca4 58 sszReadU32Bindings33a1
-      sszReadU32Preserved33a1 stepBound).Implements EndpointStep EndpointPc
-      (fun pc => pcInList [0x12ca4, 0x12ca8, 0x12cac, 0x12cb0] pc)
-      (fun pc => pcInList [0x12cb4] pc)
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_readU32_fi_1_33a1_Contract
 
 /--
 Contract design hole for `fi:1:327b` at `0x12df4`.
@@ -1121,8 +1030,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_ssz_readU64_fi_1_3203_Contract
   ssz_readU32_fi_1_32f5 :
     Proposed_ssz_readU32_fi_1_32f5_Contract
-  ssz_readU32_fi_1_3335 :
-    Proposed_ssz_readU32_fi_1_3335_Contract
   ssz_readU32_fi_1_33a1 :
     Proposed_ssz_readU32_fi_1_33a1_Contract
   ssz_readU64_fi_1_327b :
@@ -1223,8 +1130,8 @@ Level 3 contracts: `mem_Allocator_dupe__anon_1128_fi_1_5b8d`,
 `ssz_forkNameFromSchemaByte_fi_1_2fe4`, `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`,
 `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`,
 `ssz_readU64_fi_1_3203`, `ssz_readU64_fi_1_327b`, `ssz_readU32_fi_1_32f5`,
-`ssz_readU32_fi_1_3335`, `ssz_readU32_fi_1_33a1`, `mem_Allocator_alloc__anon_1045_fi_1_340d`,
-`ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`, `ssz_decode__struct_1051_f_fi_1_34fd`,
+`ssz_readU32_fi_1_33a1`, `mem_Allocator_alloc__anon_1045_fi_1_340d`, `ssz_readU32_fi_1_3457`,
+`ssz_readU32_fi_1_34c1`, `ssz_decode__struct_1051_f_fi_1_34fd`,
 `ssz_decode__struct_1051_f_fi_1_351c`, `ssz_decode__struct_1051_f_fi_1_3541`,
 `ssz_decode__struct_1051_f_fi_1_3566`, `ssz_decode__struct_1051_f_fi_1_358b`,
 `ssz_readU64_fi_1_35ab`, `ssz_readU64_fi_1_361f`, `ssz_readU32_fi_1_3693`,
@@ -1234,7 +1141,8 @@ Level 3 contracts: `mem_Allocator_dupe__anon_1128_fi_1_5b8d`,
 `ssz_decodeWithdrawal_fi_1_3a74`, `ssz_readU32_fi_1_3b27`.
 Earlier Level 2 results: none.
 Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContract`,
-`BinaryFv.Zesu.Staging.proposed_memReadInt_proved`.
+`BinaryFv.Zesu.Staging.proposed_memReadInt_proved`,
+`BinaryFv.Zesu.Staging.proposed_readU32_3335_proved`.
 Parent glue: 1931 instructions in 184 block fragments.
 Fragment `0x121ac` (6 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
@@ -2114,7 +2022,6 @@ private theorem resolve_sszDecode
     (ssz_readU64_fi_1_3203 : Proposed_ssz_readU64_fi_1_3203_Contract)
     (ssz_readU64_fi_1_327b : Proposed_ssz_readU64_fi_1_327b_Contract)
     (ssz_readU32_fi_1_32f5 : Proposed_ssz_readU32_fi_1_32f5_Contract)
-    (ssz_readU32_fi_1_3335 : Proposed_ssz_readU32_fi_1_3335_Contract)
     (ssz_readU32_fi_1_33a1 : Proposed_ssz_readU32_fi_1_33a1_Contract)
     (mem_Allocator_alloc__anon_1045_fi_1_340d : Proposed_mem_Allocator_alloc__anon_1045_fi_1_340d_Contract)
     (ssz_readU32_fi_1_3457 : Proposed_ssz_readU32_fi_1_3457_Contract)
@@ -2630,7 +2537,6 @@ theorem level2Contracts_of_level3_staged
       hLevel3.ssz_readU64_fi_1_3203
       hLevel3.ssz_readU64_fi_1_327b
       hLevel3.ssz_readU32_fi_1_32f5
-      hLevel3.ssz_readU32_fi_1_3335
       hLevel3.ssz_readU32_fi_1_33a1
       hLevel3.mem_Allocator_alloc__anon_1045_fi_1_340d
       hLevel3.ssz_readU32_fi_1_3457

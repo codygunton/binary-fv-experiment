@@ -10,6 +10,11 @@
       "field": "mem_writeInt_fi_1_45b2",
       "theorem": "BinaryFv.Zesu.Staging.proposed_memWriteInt_proved",
       "contract": "BinaryFv.Zesu.Staging.Proposed_mem_writeInt_fi_1_45b2_Contract"
+    },
+    {
+      "field": "ssz_readU32_fi_1_3335",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_readU32_3335_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_readU32_fi_1_3335_Contract"
     }
   ]
 }

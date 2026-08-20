@@ -328,6 +328,7 @@ let
       HLEVEL3_PREWORK_DIR=$out \
       HLEVEL3_CATALOGUE=${../tools/hlevel3_proof_idioms.json} \
       HLEVEL3_DIRECT_PROOFS=${../tools/hlevel3_direct_proofs.json} \
+      HLEVEL3_READ_U32_SOURCE=${../BinaryFv/Zesu/Staging/ReadU32.lean} \
         PYTHONPATH=${../tools} python ${../tools/test_generate_hlevel3_lean_staging.py}
       HLEVEL3_LEVEL2_MANIFEST=${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
       HLEVEL3_RETROSPECTIVE_SOURCE=${../BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.lean} \
