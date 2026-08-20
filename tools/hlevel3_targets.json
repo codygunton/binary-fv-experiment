@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "unconditionalChildren": [
+    {
+      "instanceId": "fi:0:2d1",
+      "theorem": "BinaryFv.Zesu.MachineExecution.memcpyInstanceContract"
+    }
+  ],
+  "targets": [
+    {"field": "sszDecode", "instanceId": "fi:1:2e0f", "schema": "decode-inline"},
+    {"field": "writeSuccessParentHash", "instanceId": "fi:1:3d77", "schema": "raw-encoder"},
+    {"field": "writeSuccessFeeRecipient", "instanceId": "fi:1:3da0", "schema": "raw-encoder"},
+    {"field": "writeSuccessStateRoot", "instanceId": "fi:1:3dc9", "schema": "raw-encoder"},
+    {"field": "writeSuccessReceiptsRoot", "instanceId": "fi:1:3df2", "schema": "raw-encoder"},
+    {"field": "writeSuccessLogsBloom", "instanceId": "fi:1:3e1b", "schema": "raw-encoder"},
+    {"field": "writeSuccessBlockHash", "instanceId": "fi:1:3e6d", "schema": "raw-encoder"},
+    {"field": "writeSuccessParentBeaconRoot", "instanceId": "fi:1:40ed", "schema": "raw-encoder"},
+    {"field": "writeSuccessTransactions", "instanceId": "fi:1:3e96", "schema": "inline-array-encoder"},
+    {"field": "writeSuccessWithdrawals", "instanceId": "fi:1:40af", "schema": "inline-array-encoder"},
+    {"field": "writeSuccessHashes", "instanceId": "fi:1:4116", "schema": "inline-array-encoder"},
+    {"field": "writeSuccessBoolean", "instanceId": "fi:1:4276", "schema": "encoder-call"},
+    {"field": "writeSuccessOptionalU64", "instanceId": "fi:1:42cc", "schema": "encoder-call"},
+    {"field": "writeSuccessByteLists", "instanceId": "fi:1:4316", "schema": "encoder-call"},
+    {"field": "writeSuccessBytes", "instanceId": "fi:1:4333", "schema": "encoder-call"},
+    {"field": "writeSuccessInt", "instanceId": "fi:1:4578", "schema": "encoder-call"},
+    {"field": "writeFailureRecord", "instanceId": "fi:1:499d", "schema": "constant-encoder"}
+  ]
+}

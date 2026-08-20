@@ -22,7 +22,7 @@ let
     text = ''exec ${riscvObjdump} -dr ${zesuRv64Object}/obj/zesu.o "$@"'';
   };
 
-  python = pkgs.python3.withPackages (ps: [ ps.pyelftools ps.capstone ]);
+  python = pkgs.python3.withPackages (ps: [ ps.pyelftools ps.capstone ps.numpy ]);
   makeCfg = name: artifact: filename: pkgs.runCommand name { nativeBuildInputs = [ python ]; } ''
       mkdir -p "$out"
       PYTHONPATH=${../tools} python ${../tools/generate_zesu_cfg.py} \
@@ -74,6 +74,18 @@ let
       PYTHONPATH=${../tools} python ${../tools/test_level2_manifest.py} "$out/level2-manifest.json"
     '';
 
+  zesuSszDecodeLevel3Manifest = pkgs.runCommand "zesu-ssz-decode-level3-manifest-d67f28c"
+    { nativeBuildInputs = [ python ]; } ''
+      mkdir -p "$out"
+      python ${../tools/generate_level_manifest.py} \
+        --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --flame ${zesuSszDecodeCfg}/flame.json \
+        --level 3 --output "$out/level3-manifest.json"
+      python ${../tools/test_level_manifest.py} "$out/level3-manifest.json"
+      PYTHONPATH=${../tools} python ${../tools/test_level3_manifest.py} \
+        "$out/level3-manifest.json" ${../tools/hlevel3_targets.json}
+    '';
+
   zesuSszDecodeLevel1BoundaryBindings = pkgs.runCommand
     "zesu-ssz-decode-level1-boundary-bindings-d67f28c" { nativeBuildInputs = [ python ]; } ''
       mkdir -p "$out"
@@ -92,6 +104,16 @@ let
         --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
         --output "$out/level2-boundary-bindings.json"
       python ${../tools/test_level2_boundary_bindings.py} "$out/level2-boundary-bindings.json"
+    '';
+
+  zesuSszDecodeLevel3BoundaryBindings = pkgs.runCommand
+    "zesu-ssz-decode-level3-boundary-bindings-d67f28c" { nativeBuildInputs = [ python ]; } ''
+      mkdir -p "$out"
+      python ${../tools/generate_level_boundary_bindings.py} \
+        --manifest ${zesuSszDecodeLevel3Manifest}/level3-manifest.json \
+        --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+        --output "$out/level3-boundary-bindings.json"
+      python ${../tools/test_level_boundary_bindings.py} "$out/level3-boundary-bindings.json"
     '';
 
   zesuSszDecodeLevel1Lean = pkgs.runCommand "zesu-ssz-decode-level1-lean-d67f28c"
@@ -212,6 +234,116 @@ let
         --output "$out/level2-admission.json"
     '';
 
+  zesuSszDecodeLevel3Evidence = pkgs.runCommand "zesu-ssz-decode-level3-evidence-d67f28c" {
+    nativeBuildInputs = [ pkgs.gcc pkgs.glib pkgs.pkg-config python pkgs.qemu-user ];
+  } ''
+    set -euo pipefail
+    cp -R ${level1EvidenceTools} tools
+    chmod -R u+w tools
+    cp ${../tools/elf_identity.py} tools/elf_identity.py
+    python -m unittest discover -s tools -p 'test_*.py'
+    gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
+    snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel3Manifest}/level3-manifest.json"))["instances"]; pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | {pc for row in rows for pc in row["exitPcs"]}); print(",".join("snapshot="+str(pc) for pc in pcs))')
+    for vector in minimal block-number chain-id-zero legacy-requests legacy-payload \
+        future-activation extra-data-33 public-key-overflow versioned-hash-overflow \
+        one-transaction one-withdrawal invalid; do
+      ${rv64.qemuRiscv64} -plugin ./trace.so,out="$vector.trace",input=${targets.public.zesuSszDecodeSmoke}/"$vector.ssz",input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,capture_window=0x14d30,capture_window_width=848,"$snapshots" \
+        ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
+    done
+    mkdir -p "$out"
+    python tools/analyze.py --structural-only \
+      --manifest ${zesuSszDecodeLevel3Manifest}/level3-manifest.json \
+      --elf ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode \
+      --trace minimal=minimal.trace --trace block-number=block-number.trace \
+      --trace chain-id-zero=chain-id-zero.trace --trace legacy-requests=legacy-requests.trace \
+      --trace legacy-payload=legacy-payload.trace \
+      --trace future-activation=future-activation.trace \
+      --trace extra-data-33=extra-data-33.trace \
+      --trace public-key-overflow=public-key-overflow.trace \
+      --trace versioned-hash-overflow=versioned-hash-overflow.trace \
+      --trace one-transaction=one-transaction.trace \
+      --trace one-withdrawal=one-withdrawal.trace \
+      --trace invalid=invalid.trace \
+      --output "$out/level3-evidence.json"
+  '';
+
+  zesuSszDecodeHLevel3Prework = pkgs.runCommand
+    "zesu-ssz-decode-hlevel3-prework-d67f28c" { nativeBuildInputs = [ python ]; } ''
+      mkdir -p "$out"
+      PYTHONPATH=${../tools} python ${../tools/generate_hlevel3_prework.py} \
+        --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --flame ${zesuSszDecodeCfg}/flame.json \
+        --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+        --level3-manifest ${zesuSszDecodeLevel3Manifest}/level3-manifest.json \
+        --evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json \
+        --level3-evidence ${zesuSszDecodeLevel3Evidence}/level3-evidence.json \
+        --clauses ${../tools/level2_contract_clauses.json} \
+        --targets ${../tools/hlevel3_targets.json} \
+        --output "$out/hlevel3-prework.json"
+      PYTHONPATH=${../tools} python ${../tools/generate_hlevel3_guidance.py} \
+        --inventory "$out/hlevel3-prework.json" \
+        --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --catalogue ${../tools/hlevel3_proof_idioms.json} \
+        --lean-root ${../BinaryFv/Zesu/MachineExecution} \
+        --output "$out/hlevel3-guidance.json"
+      PYTHONPATH=${../tools} python ${../tools/generate_hlevel3_admission.py} \
+        --inventory "$out/hlevel3-prework.json" \
+        --evidence ${zesuSszDecodeLevel3Evidence}/level3-evidence.json \
+        --bindings ${zesuSszDecodeLevel3BoundaryBindings}/level3-boundary-bindings.json \
+        --registry ${../tools/hlevel3_contract_schemas.json} \
+        --output "$out/hlevel3-admission.json"
+      PYTHONPATH=${../tools} python ${../tools/generate_hlevel3_lean_staging.py} \
+        --inventory "$out/hlevel3-prework.json" \
+        --guidance "$out/hlevel3-guidance.json" \
+        --admission "$out/hlevel3-admission.json" \
+        --catalogue ${../tools/hlevel3_proof_idioms.json} \
+        --output "$out/HLevel3.lean" \
+        --idiom-output "$out/HLevel3IdiomChecks.lean"
+      cmp "$out/HLevel3.lean" ${../BinaryFv/Zesu/Staging/HLevel3.lean}
+      cmp "$out/HLevel3IdiomChecks.lean" ${../BinaryFv/Zesu/Staging/HLevel3IdiomChecks.lean}
+      PYTHONPATH=${../tools} python ${../tools/validate_hlevel3_guidance_retrospective.py} \
+        --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+        --source ${../BinaryFv/Zesu/MachineExecution/Level1WriteSuccessSteps.lean} \
+        --output "$out/hlevel3-retrospective.json"
+      mkdir live-artifacts
+      cp ${zesuSszDecodeLevel2Manifest}/level2-manifest.json live-artifacts/
+      cp ${zesuSszDecodeLevel2Evidence}/level2-evidence.json live-artifacts/
+      HLEVEL3_ARTIFACT_DIR=$PWD/live-artifacts \
+      HLEVEL3_CFG_DIR=${zesuSszDecodeCfg} \
+      HLEVEL3_MANIFEST=${zesuSszDecodeLevel3Manifest}/level3-manifest.json \
+      HLEVEL3_EVIDENCE=${zesuSszDecodeLevel3Evidence}/level3-evidence.json \
+        PYTHONPATH=${../tools} python ${../tools/test_generate_hlevel3_prework.py}
+      HLEVEL3_PREWORK_DIR=$out \
+      HLEVEL3_EVIDENCE=${zesuSszDecodeLevel3Evidence}/level3-evidence.json \
+      HLEVEL3_BINDINGS=${zesuSszDecodeLevel3BoundaryBindings}/level3-boundary-bindings.json \
+        PYTHONPATH=${../tools} python ${../tools/test_generate_hlevel3_admission.py}
+      HLEVEL3_GUIDANCE=$out/hlevel3-guidance.json \
+        PYTHONPATH=${../tools} python ${../tools/test_generate_hlevel3_guidance.py}
+      HLEVEL3_PREWORK_DIR=$out \
+        PYTHONPATH=${../tools} python ${../tools/test_generate_hlevel3_lean_staging.py}
+      HLEVEL3_LEVEL2_MANIFEST=${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+        PYTHONPATH=${../tools} python ${../tools/test_validate_hlevel3_guidance_retrospective.py}
+      mkdir repeated
+      PYTHONPATH=${../tools} python ${../tools/generate_hlevel3_prework.py} \
+        --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --flame ${zesuSszDecodeCfg}/flame.json \
+        --manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json \
+        --level3-manifest ${zesuSszDecodeLevel3Manifest}/level3-manifest.json \
+        --evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json \
+        --level3-evidence ${zesuSszDecodeLevel3Evidence}/level3-evidence.json \
+        --clauses ${../tools/level2_contract_clauses.json} \
+        --targets ${../tools/hlevel3_targets.json} \
+        --output repeated/hlevel3-prework.json
+      cmp "$out/hlevel3-prework.json" repeated/hlevel3-prework.json
+      PYTHONPATH=${../tools} python ${../tools/generate_hlevel3_guidance.py} \
+        --inventory repeated/hlevel3-prework.json \
+        --cfg ${zesuSszDecodeCfg}/zesu-cfg.json \
+        --catalogue ${../tools/hlevel3_proof_idioms.json} \
+        --lean-root ${../BinaryFv/Zesu/MachineExecution} \
+        --output repeated/hlevel3-guidance.json
+      cmp "$out/hlevel3-guidance.json" repeated/hlevel3-guidance.json
+    '';
+
   zesuCfgUi = pkgs.runCommand "zesu-rv64-cfg-ui-d67f28c"
     { nativeBuildInputs = [ pkgs.python3 ]; } ''
     cp -R ${../tools/binary-regions-ui} "$out"
@@ -225,13 +357,19 @@ let
     cp ${zesuSszDecodeLevel1Evidence}/level1-evidence.json "$out/"
     cp ${zesuSszDecodeLevel2Evidence}/level2-evidence.json "$out/"
     cp ${zesuSszDecodeLevel2Admission}/level2-admission.json "$out/"
+    cp ${zesuSszDecodeLevel3Manifest}/level3-manifest.json "$out/"
+    cp ${zesuSszDecodeLevel3Evidence}/level3-evidence.json "$out/"
+    cp ${zesuSszDecodeLevel3BoundaryBindings}/level3-boundary-bindings.json "$out/"
+    cp ${zesuSszDecodeHLevel3Prework}/hlevel3-prework.json "$out/"
+    cp ${zesuSszDecodeHLevel3Prework}/hlevel3-guidance.json "$out/"
+    cp ${zesuSszDecodeHLevel3Prework}/hlevel3-admission.json "$out/"
     cp ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json "$out/"
     cp ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json "$out/"
     cp ${zesuSszDecodeStatelessInputLayout}/stateless-input-layout.json "$out/"
     cp ${../tools/build_ssz_proof_map.py} build_ssz_proof_map.py
     cp ${../tools/test_ssz_proof_map.py} test_ssz_proof_map.py
-    python build_ssz_proof_map.py --cfg ${zesuSszDecodeCfg}/zesu-cfg.json --flame ${zesuSszDecodeCfg}/flame.json --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --evidence ${zesuSszDecodeLevel1Evidence}/level1-evidence.json --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json --level2-manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json --level2-evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json --level2-bindings ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json --output "$out/proof-map.json" --flame-progress-output "$out/flame-progress.json"
-    python test_ssz_proof_map.py ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json ${zesuSszDecodeLevel1Manifest}/level1-manifest.json ${zesuSszDecodeLevel1Evidence}/level1-evidence.json ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json ${zesuSszDecodeLevel2Manifest}/level2-manifest.json ${zesuSszDecodeLevel2Evidence}/level2-evidence.json ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json
+    python build_ssz_proof_map.py --cfg ${zesuSszDecodeCfg}/zesu-cfg.json --flame ${zesuSszDecodeCfg}/flame.json --manifest ${zesuSszDecodeLevel1Manifest}/level1-manifest.json --evidence ${zesuSszDecodeLevel1Evidence}/level1-evidence.json --bindings ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json --level2-manifest ${zesuSszDecodeLevel2Manifest}/level2-manifest.json --level2-evidence ${zesuSszDecodeLevel2Evidence}/level2-evidence.json --level2-bindings ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json --hlevel3-inventory ${zesuSszDecodeHLevel3Prework}/hlevel3-prework.json --hlevel3-guidance ${zesuSszDecodeHLevel3Prework}/hlevel3-guidance.json --hlevel3-admission ${zesuSszDecodeHLevel3Prework}/hlevel3-admission.json --output "$out/proof-map.json" --flame-progress-output "$out/flame-progress.json"
+    python test_ssz_proof_map.py ${zesuSszDecodeCfg}/zesu-cfg.json ${zesuSszDecodeCfg}/flame.json ${zesuSszDecodeLevel1Manifest}/level1-manifest.json ${zesuSszDecodeLevel1Evidence}/level1-evidence.json ${zesuSszDecodeLevel1BoundaryBindings}/level1-boundary-bindings.json ${zesuSszDecodeLevel2Manifest}/level2-manifest.json ${zesuSszDecodeLevel2Evidence}/level2-evidence.json ${zesuSszDecodeLevel2BoundaryBindings}/level2-boundary-bindings.json ${zesuSszDecodeHLevel3Prework}/hlevel3-prework.json ${zesuSszDecodeHLevel3Prework}/hlevel3-guidance.json ${zesuSszDecodeHLevel3Prework}/hlevel3-admission.json
     grep -Fq "fetch('proof-map.json')" "$out/index.html"
     grep -Fq "flame-core-full.json" "$out/index.html"
     grep -Fq '.minFrameSize(1)' "$out/index.html"
@@ -248,13 +386,14 @@ in
   public = {
     inherit dump stats zesuCfg zesuSszDecodeCfg zesuSszDecodeLinuxCfg
       zesuSszDecodeBareMetalRetargetCheck zesuSszDecodeLevel1Manifest
-      zesuSszDecodeLevel2Manifest
+      zesuSszDecodeLevel2Manifest zesuSszDecodeLevel3Manifest
       zesuSszDecodeLevel1BoundaryBindings zesuSszDecodeLevel2BoundaryBindings
+      zesuSszDecodeLevel3BoundaryBindings
       zesuSszDecodeLevel1Lean
       zesuSszDecodeLevel2Lean
       zesuSszDecodeStatelessInputLayout
-      zesuSszDecodeLevel1Evidence zesuSszDecodeLevel2Evidence
-      zesuSszDecodeLevel2Admission zesuCfgUi;
+      zesuSszDecodeLevel1Evidence zesuSszDecodeLevel2Evidence zesuSszDecodeLevel3Evidence
+      zesuSszDecodeLevel2Admission zesuSszDecodeHLevel3Prework zesuCfgUi;
     machine-regions-ui = zesuCfgUi;
   };
 }

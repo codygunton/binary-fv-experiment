@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 1,
+  "requiredFamilies": [
+    "exact-site", "configured-context", "owned-region", "instruction-class",
+    "segment-composition", "register-frame", "memory-frame", "representation-transport",
+    "heavy-artifact-transport", "automation"
+  ],
+  "idioms": [
+    {
+      "id": "exact-instruction-site", "family": "exact-site", "priority": 10,
+      "declaration": "BinaryFv.Zesu.MachineExecution.ExactInstructionSite",
+      "goal": "Pinned bytes, address fit, alignment, and fall-through for one instruction.",
+      "shape": {"instructionClasses": ["*"]},
+      "hypotheses": ["The PC and four bytes come from the production program image."],
+      "autoParams": [], "example": "BinaryFv/Zesu/MachineExecution/MemcpyProof.lean:103",
+      "restrictions": ["Do not decode byte literals by hand."]
+    },
+    {
+      "id": "configured-decode-context", "family": "configured-context", "priority": 20,
+      "declaration": "BinaryFv.RiscV.ConfiguredMachinePre.decodeContext",
+      "goal": "Shared decode facts after the retirement-counter increment.",
+      "shape": {"instructionClasses": ["ITYPE", "SHIFTIOP", "RTYPE", "MULDIV", "LOAD", "BTYPE", "JAL", "JALR", "AUIPC", "LUI"]},
+      "hypotheses": ["ConfiguredMachinePre holds at the current state."],
+      "autoParams": [], "example": "BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.lean:121",
+      "restrictions": ["Use storeDecodeContext for a store instruction."]
+    },
+    {
+      "id": "configured-store-decode-context", "family": "configured-context", "priority": 20,
+      "declaration": "BinaryFv.RiscV.ConfiguredMachinePre.storeDecodeContext",
+      "goal": "Shared decode facts for one store instruction.",
+      "shape": {"instructionClasses": ["STORE"]},
+      "hypotheses": ["ConfiguredMachinePre holds at the current state."],
+      "autoParams": [], "example": "BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.lean:238",
+      "restrictions": []
+    },
+    {
+      "id": "owned-pc", "family": "owned-region", "priority": 15,
+      "syntax": "owned_pc",
+      "goal": "Literal generated execution-range or exit membership.",
+      "shape": {"instructionClasses": ["*"]},
+      "hypotheses": ["The goal uses a generated range or exit predicate."],
+      "autoParams": [], "example": "BinaryFv/Zesu/MachineExecution/Level1DecodeInputSteps.lean:353",
+      "restrictions": ["Do not write a local native_decide block for this goal."]
+    },
+    {
+      "id": "configured-register-write", "family": "instruction-class", "priority": 30,
+      "declaration": "BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep",
+      "goal": "One register-writing arithmetic or logical instruction executes.",
+      "shape": {"instructionClasses": ["ITYPE", "SHIFTIOP", "RTYPE", "MULDIV", "LUI"]},
+      "hypotheses": ["The concrete execute-run wrapper supplies the result."],
+      "autoParams": ["bytes", "ownership", "fall-through", "decode context"],
+      "example": "BinaryFv/Zesu/MachineExecution/Level2RuntimeLeaves.lean:105",
+      "restrictions": ["Use a more specific theorem when one already matches the instruction."]
+    },
+    {
+      "id": "configured-dword-load", "family": "instruction-class", "priority": 30,
+      "declaration": "BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep",
+      "goal": "One aligned eight-byte load executes.",
+      "shape": {"mnemonics": ["ld"]},
+      "hypotheses": ["The source bytes, PMA, MMIO, and read access are available."],
+      "autoParams": ["bytes", "ownership", "fall-through", "decode context"],
+      "example": "BinaryFv/Zesu/MachineExecution/InstructionClassSteps.lean:171",
+      "restrictions": ["Other load widths need their matching concrete theorem."]
+    },
+    {
+      "id": "configured-dword-store", "family": "instruction-class", "priority": 30,
+      "declaration": "BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep",
+      "goal": "One aligned eight-byte store executes.",
+      "shape": {"mnemonics": ["sd"]},
+      "hypotheses": ["The destination PMA, MMIO, write access, and code separation are available."],
+      "autoParams": ["bytes", "ownership", "fall-through", "decode context"],
+      "example": "BinaryFv/Zesu/MachineExecution/InstructionClassSteps.lean:258",
+      "restrictions": ["Other store widths need their matching concrete theorem."]
+    },
+    {
+      "id": "configured-direct-jump", "family": "instruction-class", "priority": 30,
+      "declaration": "BinaryFv.Zesu.MachineExecution.configuredJStep",
+      "goal": "One direct jump executes.",
+      "shape": {"mnemonics": ["j"]},
+      "hypotheses": ["The literal target and jump immediate agree."],
+      "autoParams": ["bytes", "ownership", "decode context"],
+      "example": "BinaryFv/Zesu/MachineExecution/InstructionClassSteps.lean:301",
+      "restrictions": []
+    },
+    {
+      "id": "configured-return", "family": "instruction-class", "priority": 30,
+      "declaration": "BinaryFv.Zesu.MachineExecution.configuredRetStep",
+      "goal": "One return instruction executes.",
+      "shape": {"mnemonics": ["ret"]},
+      "hypotheses": ["The live link register equals the required return address."],
+      "autoParams": ["bytes", "ownership", "decode context"],
+      "example": "BinaryFv/Zesu/MachineExecution/InstructionClassSteps.lean:375",
+      "restrictions": []
+    },
+    {
+      "id": "configured-auipc", "family": "instruction-class", "priority": 30,
+      "declaration": "BinaryFv.Zesu.configuredAuipcStep",
+      "goal": "One AUIPC instruction executes.",
+      "shape": {"mnemonics": ["auipc"]},
+      "hypotheses": ["The concrete immediate and destination are supplied."],
+      "autoParams": ["bytes", "ownership", "decode context"],
+      "example": "BinaryFv/Zesu/MachineExecution/Level0MainSteps.lean:293",
+      "restrictions": []
+    },
+    {
+      "id": "configured-jalr-call", "family": "instruction-class", "priority": 30,
+      "declaration": "BinaryFv.Zesu.configuredJalrCallStep",
+      "goal": "One direct JALR call setup executes.",
+      "shape": {"mnemonics": ["jalr"]},
+      "hypotheses": ["The live base register and computed target are supplied."],
+      "autoParams": ["bytes", "ownership", "decode context"],
+      "example": "BinaryFv/Zesu/MachineExecution/Level0MainSteps.lean:422",
+      "restrictions": ["The theorem does not prove the child contract."]
+    },
+    {
+      "id": "seg-straight-line", "family": "segment-composition", "priority": 5,
+      "declaration": "BinaryFv.RiscV.Seg.step",
+      "goal": "Compose adjacent register-writing instructions without named successor states.",
+      "shape": {"transfers": ["ordinary"], "minimumLength": 2},
+      "hypotheses": ["Choose fixed register and memory write regions before composition."],
+      "autoParams": [], "example": "BinaryFv/Zesu/MachineExecution/Level1DecodeInputSteps.lean:1029",
+      "restrictions": ["Use forget before a recorded register is overwritten."]
+    },
+    {
+      "id": "seg-store", "family": "segment-composition", "priority": 5,
+      "declaration": "BinaryFv.RiscV.Seg.stepStore",
+      "goal": "Append a store to an existing segment.",
+      "shape": {"instructionClasses": ["STORE"]},
+      "hypotheses": ["The fixed memory region contains the store window."],
+      "autoParams": [], "example": "BinaryFv/Zesu/MachineExecution/Level1DecodeInputSteps.lean:505",
+      "restrictions": ["Use stepStoreWitness when the caller needs the retirement witness."]
+    },
+    {
+      "id": "seg-control-transfer", "family": "segment-composition", "priority": 5,
+      "declaration": "BinaryFv.RiscV.Seg.stepJump",
+      "goal": "Append a proved jump to an existing segment.",
+      "shape": {"transfers": ["conditional", "directJump"]},
+      "hypotheses": ["The selected target and retirement facts are proved."],
+      "autoParams": [], "example": "BinaryFv/RiscV/Elfling/Seg.lean:468",
+      "restrictions": ["A child call still needs its typed contract and return composition."]
+    },
+    {
+      "id": "seg-forget-register", "family": "segment-composition", "priority": 6,
+      "declaration": "BinaryFv.RiscV.Seg.forget",
+      "goal": "Remove a recorded register before a later overwrite.",
+      "shape": {"instructionClasses": ["*"]},
+      "hypotheses": ["The smaller register-value list is a subset of the current list."],
+      "autoParams": [], "example": "BinaryFv/RiscV/Elfling/Seg.lean:250",
+      "restrictions": []
+    },
+    {
+      "id": "writes-only-register-frame", "family": "register-frame", "priority": 12,
+      "declaration": "BinaryFv.RiscV.WritesOnlyRegs.get",
+      "goal": "Carry an unchanged register through one or more framed steps.",
+      "shape": {"instructionClasses": ["*"]},
+      "hypotheses": ["The register lies outside the write set."],
+      "autoParams": [], "example": "GRIND.md:20",
+      "restrictions": ["Use grind for several registers across several steps."]
+    },
+    {
+      "id": "writes-only-memory-frame", "family": "memory-frame", "priority": 12,
+      "declaration": "BinaryFv.RiscV.WritesOnlyWithin",
+      "goal": "Carry memory facts outside a fixed write region.",
+      "shape": {"instructionClasses": ["STORE"]},
+      "hypotheses": ["The represented bytes do not intersect the write region."],
+      "autoParams": [], "example": "BinaryFv/Zesu/DecodedValue/Representation.lean:167",
+      "restrictions": ["Do not replace a store frame with false memory equality."]
+    },
+    {
+      "id": "bytes-representation-frame", "family": "representation-transport", "priority": 14,
+      "declaration": "BinaryFv.Zesu.BytesRep.of_writesOnlyWithin",
+      "goal": "Carry represented bytes through a disjoint memory write frame.",
+      "shape": {"instructionClasses": ["STORE"]},
+      "hypotheses": ["Every represented byte lies outside the write region."],
+      "autoParams": [], "example": "BinaryFv/Zesu/DecodedValue/Representation.lean:167",
+      "restrictions": []
+    },
+    {
+      "id": "byte-window-relocation", "family": "representation-transport", "priority": 14,
+      "declaration": "BinaryFv.Zesu.ByteWindowRelocation.atOffset",
+      "goal": "Select a sub-window from a proved byte relocation.",
+      "shape": {"instructionClasses": ["*"]},
+      "hypotheses": ["The sub-window lies inside the relocated window."],
+      "autoParams": [], "example": "BinaryFv/Zesu/DecodedValue/Representation.lean:194",
+      "restrictions": []
+    },
+    {
+      "id": "option-heavy-transport", "family": "heavy-artifact-transport", "priority": 8,
+      "declaration": "BinaryFv.Option.getD_map_of_eq_some",
+      "goal": "Transport a computed Option branch without unfolding its heavy scrutinee.",
+      "shape": {"instructionClasses": []},
+      "hypotheses": ["The computed option equals a named some value."],
+      "autoParams": [], "example": "BinaryFv/Option.lean:11",
+      "restrictions": ["Pass the mapped function explicitly."]
+    },
+    {
+      "id": "register-frame-grind", "family": "automation", "priority": 9,
+      "declaration": "BinaryFv.RiscV.WritesOnlyRegs.get",
+      "goal": "Carry several register reads through several write-set frames.",
+      "shape": {"minimumLength": 2},
+      "hypotheses": ["One typed WritesOnlyRegs fact is in scope for each step."],
+      "autoParams": [], "example": "GRIND.md:44",
+      "restrictions": ["Do not use this for one isolated read."]
+    }
+  ]
+}

@@ -4,7 +4,8 @@ let
     inherit (packages) binaryFvLean binaryFvEvmSailCombinedImport evmSailLeanExtraction zesuRv64Object
       generatedSailSnapshotTests zesuHlevel2ProofBaseline
       zesuSszDecodeRv64Object zesuSszDecodeRv64Elf zesuSszDecodeSmoke
-      zesuSszDecodeBareMetalRetargetCheck zesuSszDecodeLevel1Evidence zesuCfgUi;
+      zesuSszDecodeBareMetalRetargetCheck zesuSszDecodeLevel1Evidence
+      zesuSszDecodeHLevel3Prework zesuCfgUi;
     zesuSszDecodeSourceProbe = packages.zesuSszDecodeSourceProbe;
     default = packages.binaryFvLean;
   };

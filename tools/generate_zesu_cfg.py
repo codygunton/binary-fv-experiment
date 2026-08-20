@@ -745,7 +745,10 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
     if args.flame:
-        args.flame.write_text(json.dumps(build_flame(output_functions, instance_rows, instruction_rows, call_rows), sort_keys=True, separators=(",", ":")) + "\n")
+        hierarchy_calls = [*call_rows, *indirect_call_rows]
+        args.flame.write_text(json.dumps(
+            build_flame(output_functions, instance_rows, instruction_rows, hierarchy_calls),
+            sort_keys=True, separators=(",", ":")) + "\n")
     if args.proof_map:
         args.proof_map.write_text(json.dumps(build_proof_map(output_functions, len(instruction_rows)), sort_keys=True, separators=(",", ":")) + "\n")
 

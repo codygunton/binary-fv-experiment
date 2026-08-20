@@ -216,6 +216,18 @@ def validate_flame(data: dict, flame: dict) -> None:
                             if row["qualified"].startswith(
                                 "mem.Allocator.allocBytesWithAlignment__anon_")]
         assert allocator_leaves and all(row["refinementLevel"] > 1 for row in allocator_leaves)
+        indirect_instances = [row for row in flame["meta"].values()
+                              if row.get("callsitePc") in {
+                                  call["source"] for call in data["reviewedIndirectCalls"]
+                              }]
+        assert len(indirect_instances) == len(data["reviewedIndirectCalls"]) == 6
+        assert {row["callsitePc"] for row in indirect_instances} == {
+            call["source"] for call in data["reviewedIndirectCalls"]
+        }
+        assert {row["qualified"] for row in indirect_instances} == {
+            "alt_fl_alloc.alloc", "alt_fl_alloc.remap"
+        }
+        assert all(row["displayTreeLevel"] > 1 for row in indirect_instances)
         observations = [row for row in flame["meta"].values()
                         if row["qualified"].startswith("ssz_decode_observation.")]
         assert observations

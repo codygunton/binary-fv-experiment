@@ -126,7 +126,7 @@ let
     cp -R ${binaryFvLean}/lean compiled
     chmod -R u+w compiled
     mkdir -p compiled/BinaryFv/Specs/SSZ
-    mkdir -p compiled/BinaryFv/Zesu/{Contracts,DecodedValue,Elflings,Entrypoints/SszDecodeRoot}
+    mkdir -p compiled/BinaryFv/Zesu/{Contracts,DecodedValue,Elflings,Entrypoints/SszDecodeRoot,Staging}
     mkdir -p compiled/BinaryFv/RiscV/Logic
     mkdir -p compiled/BinaryFv/RiscV/Model
     mkdir -p compiled/BinaryFv/RiscV/Execution
@@ -160,6 +160,8 @@ let
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/InitialState.lean InitialState.lean
     cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
     cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
+    cp ${repo}/BinaryFv/Zesu/Staging/HLevel3.lean HLevel3.lean
+    cp ${repo}/BinaryFv/Zesu/Staging/HLevel3IdiomChecks.lean HLevel3IdiomChecks.lean
     cp ${repo}/BinaryFv/Zesu/Elflings/GeneratedLevel1.lean GeneratedLevel1.lean
     cp ${repo}/BinaryFv/Zesu/Elflings/GeneratedLevel2.lean GeneratedLevel2.lean
     cp ${repo}/BinaryFv/Zesu/Contracts/Machine.lean Machine.lean
@@ -234,6 +236,10 @@ let
     lean --tstack=65536 DifferentialSmoke.lean
     lean --tstack=4000000 EndpointExecutionSmoke.lean
     lean ${repo}/tools/RootProofDependencies.lean > root-dependencies.tsv
+    if grep -Fq $'\tBinaryFv.Zesu.Staging.' root-dependencies.tsv; then
+      echo "production root depends on an hLevel3 staging module" >&2
+      exit 1
+    fi
     mkdir -p "$out"
     cp root-dependencies.tsv "$out/"
   '';

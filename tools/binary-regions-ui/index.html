@@ -404,6 +404,14 @@ function renderProofMap(){
       data-region="${esc(region.id)}"><b>${esc(region.label)}</b>
       <small>${esc(region.authoringState)} · ${(region.pcs||[]).length||region.boundaryInstructionCount||0} instructions</small>
       <div>${esc(region.blocker)}</div></div>`).join('');
+  const l3=PROOF_MAP.hLevel3Preparation;
+  const l3Panel=!l3?'':`<div class="proof-tools"><b>hLevel3 preparation</b>
+      <span class="muted">${l3.summary.level3ContractCount} child contracts · ${l3.summary.parentGlueInstructionCount} parent-glue instructions · ${l3.summary.parentGlueObligationCount} guided fragments</span></div>
+    <div class="proof-grid">${l3.parents.map(parent=>`<div class="author-card contract_specified_assumption">
+      <b>${esc(parent.field)}</b><small>${parent.children.length} routes · ${parent.glueInstructionCount} glue instructions</small>
+      <div>${esc(parent.stagingTheorem)} · ${parent.glueObligations.length} guided fragments</div>
+      <details><summary>proof preparation</summary><div>${parent.children.map(child=>`${esc(child.qualified||child.instanceId)}: ${esc(child.contractStatus)}`).join('<br>')}</div>
+      <div>${parent.glueObligations.map(item=>`0x${item.entryPc.toString(16)}: ${item.instructionCount} steps · ${item.preferredStrategy.composition.map(x=>esc(x.api.name)).join(', ')||'explicit composition'}`).join('<br>')}</div></details></div>`).join('')}</div>`;
   $('#proof-map').innerHTML=`<div class="proof-summary">
       ${stat('directly discharged PCs',coverage.directPcCount,coverage.boundaryRegionPcCount,'#a8e6b8')}
       ${stat('proved boundary region',coverage.boundaryRegionPcCount,coverage.endpointPcCount,'#7fcf92')}
@@ -414,7 +422,7 @@ function renderProofMap(){
       <span>LLVM IR: ${esc(PROOF_MAP.compilerProvenance.state)}</span></div>
     <div class="proof-tools"><b>authoring regions</b>
       ${['all',...new Set(PROOF_MAP.authoringRegions.map(row=>row.authoringState))].map(value=>`<button data-filter="${value}" ${PROOF_FILTER===value?'disabled':''}>${value.replaceAll('_',' ')}</button>`).join('')}</div>
-    <div class="proof-grid">${regions}</div><div class="proof-tools"><b>Refinement dependency graph</b>
+    <div class="proof-grid">${regions}</div>${l3Panel}<div class="proof-tools"><b>Refinement dependency graph</b>
       <span class="muted">selected contracts + parent-owned glue instructions → parent contract</span></div>
     <div class="cfg-canvas" id="proof-cfg"></div>`;
   $('#proof-map').querySelectorAll('[data-filter]').forEach(button=>button.onclick=()=>{

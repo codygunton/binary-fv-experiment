@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+
+import copy
+import json
+import os
+import unittest
+from pathlib import Path
+
+from generate_hlevel3_prework import build
+
+
+HERE = Path(__file__).parent
+RESULT = Path(os.environ.get(
+    "HLEVEL3_ARTIFACT_DIR", "/home/cody/binary-fv-experiment/result-binary-regions-ui"))
+CFG_RESULT = Path(os.environ.get("HLEVEL3_CFG_DIR", str(RESULT)))
+
+
+@unittest.skipUnless(RESULT.exists(), "built binary-regions UI is unavailable")
+class LiveArtifactTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.documents = [json.loads((CFG_RESULT / name).read_text()) for name in (
+            "zesu-cfg.json", "flame.json")]
+        cls.documents.append(json.loads((RESULT / "level2-manifest.json").read_text()))
+        level3_path = Path(os.environ.get("HLEVEL3_MANIFEST", str(RESULT / "level3-manifest.json")))
+        if not level3_path.exists():
+            raise unittest.SkipTest("generated Level 3 manifest is unavailable")
+        cls.documents.append(json.loads(level3_path.read_text()))
+        cls.documents.append(json.loads((RESULT / "level2-evidence.json").read_text()))
+        level3_evidence = Path(os.environ.get(
+            "HLEVEL3_EVIDENCE", str(RESULT / "level3-evidence.json")))
+        if not level3_evidence.exists():
+            raise unittest.SkipTest("generated Level 3 evidence is unavailable")
+        cls.documents.append(json.loads(level3_evidence.read_text()))
+        cls.documents.extend(json.loads((HERE / name).read_text()) for name in (
+            "level2_contract_clauses.json", "hlevel3_targets.json"))
+
+    def test_exact_level2_boundary(self):
+        result = build(*self.documents)
+        self.assertEqual(17, result["summary"]["level2FieldCount"])
+        self.assertEqual(17, len({row["field"] for row in result["parents"]}))
+        self.assertEqual(58, result["summary"]["level3ContractCount"])
+        self.assertGreater(result["summary"]["level3ChildRouteCount"], 0)
+        self.assertGreater(result["summary"]["parentGlueInstructionCount"], 0)
+        for parent in result["parents"]:
+            covered = set(parent["gluePcs"])
+            for child in parent["children"]:
+                covered.update(child["subtreePcs"])
+            self.assertEqual(set(parent["executionPcs"]), covered, parent["field"])
+
+    def test_wrong_target_is_rejected(self):
+        documents = copy.deepcopy(self.documents)
+        documents[-1]["targets"][0]["instanceId"] = "fi:missing"
+        with self.assertRaisesRegex(ValueError, "unknown Level 2 target"):
+            build(*documents)
+
+    def test_artifact_mismatch_is_rejected(self):
+        documents = copy.deepcopy(self.documents)
+        documents[4]["artifact"]["sha256"] = "forged"
+        with self.assertRaisesRegex(ValueError, "artifact identities differ"):
+            build(*documents)
+
+    def test_duplicate_field_is_rejected(self):
+        documents = copy.deepcopy(self.documents)
+        documents[-1]["targets"][1]["field"] = documents[-1]["targets"][0]["field"]
+        with self.assertRaisesRegex(ValueError, "17 distinct"):
+            build(*documents)
+
+
+if __name__ == "__main__":
+    unittest.main()

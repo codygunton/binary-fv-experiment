@@ -10,7 +10,9 @@ from pathlib import Path
 
 def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict,
           level2_manifest: dict | None = None, level2_evidence: dict | None = None,
-          level2_bindings: dict | None = None, baseline: dict | None = None) -> dict:
+          level2_bindings: dict | None = None, baseline: dict | None = None,
+          hlevel3_inventory: dict | None = None, hlevel3_guidance: dict | None = None,
+          hlevel3_admission: dict | None = None) -> dict:
     if any(cfg["artifact"] != document["artifact"]
            for document in (manifest, evidence, bindings)):
         raise ValueError("CFG, manifest, evidence, and boundary-binding artifact identities differ")
@@ -211,6 +213,40 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
                 "status": authoring_state,
             })
 
+    hlevel3_preparation = None
+    if any(row is not None for row in
+           (hlevel3_inventory, hlevel3_guidance, hlevel3_admission)):
+        if any(row is None for row in
+               (hlevel3_inventory, hlevel3_guidance, hlevel3_admission)):
+            raise ValueError("all hLevel3 preparation artifacts must be supplied together")
+        if any(cfg["artifact"] != document["artifact"] for document in
+               (hlevel3_inventory, hlevel3_guidance, hlevel3_admission)):
+            raise ValueError("CFG and hLevel3 preparation artifact identities differ")
+        guide_by_id = {row["id"]: row for row in hlevel3_guidance["obligations"]}
+        admission_by_id = {row["instanceId"]: row for row in hlevel3_admission["instances"]}
+        hlevel3_preparation = {
+            "summary": hlevel3_inventory["summary"],
+            "admissionSummary": hlevel3_admission["summary"],
+            "parents": [],
+        }
+        for parent in hlevel3_inventory["parents"]:
+            children = []
+            for child in parent["children"]:
+                prepared = admission_by_id.get(child.get("instanceId"))
+                children.append({
+                    **child,
+                    "contractFamily": prepared["contractFamily"] if prepared else None,
+                    "contractStatus": prepared["contractStatus"] if prepared else child["disposition"],
+                    "observedVectors": prepared["empirical"]["vectors"] if prepared else [],
+                })
+            obligations = [guide_by_id[row["id"]] for row in parent["glueObligations"]]
+            hlevel3_preparation["parents"].append({
+                "field": parent["field"], "instanceId": parent["instanceId"],
+                "source": parent["source"], "glueInstructionCount": len(parent["gluePcs"]),
+                "children": children, "glueObligations": obligations,
+                "stagingTheorem": f"resolve_{parent['field']}",
+            })
+
     regions.append({
         "id": "level0-glue", "label": "main parent-owned glue", "authoringState": "local",
         "blocker": "None: the conditional Level 0 theorem and refinement edge are proved.",
@@ -271,6 +307,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         "compilerProvenance": {"state": "same-ELF DWARF"},
         "phases": [{"id": "level0-glue", "label": "main parent-owned glue", "pcs": glue_pcs}],
         "authoringRegions": regions,
+        "hLevel3Preparation": hlevel3_preparation,
         "flameProgress": {
             "states": [
                 {"owner": main["id"], "qualified": "main", "status": "conditionally_proven"},
@@ -291,6 +328,8 @@ def main() -> int:
     for name in ("level2-manifest", "level2-evidence", "level2-bindings"):
         parser.add_argument("--" + name, type=Path)
     parser.add_argument("--hlevel2-baseline", type=Path)
+    for name in ("hlevel3-inventory", "hlevel3-guidance", "hlevel3-admission"):
+        parser.add_argument("--" + name, type=Path)
     parser.add_argument("--flame-progress-output", type=Path)
     args = parser.parse_args()
     documents = [json.loads(getattr(args, name).read_text())
@@ -298,8 +337,16 @@ def main() -> int:
     documents.extend(json.loads(getattr(args, name.replace("-", "_")).read_text())
                      if getattr(args, name.replace("-", "_")) else None
                      for name in ("level2-manifest", "level2-evidence", "level2-bindings"))
-    result = build(*documents, baseline=(json.loads(args.hlevel2_baseline.read_text())
-                                         if args.hlevel2_baseline else None))
+    result = build(
+        *documents,
+        baseline=(json.loads(args.hlevel2_baseline.read_text())
+                  if args.hlevel2_baseline else None),
+        hlevel3_inventory=(json.loads(args.hlevel3_inventory.read_text())
+                           if args.hlevel3_inventory else None),
+        hlevel3_guidance=(json.loads(args.hlevel3_guidance.read_text())
+                          if args.hlevel3_guidance else None),
+        hlevel3_admission=(json.loads(args.hlevel3_admission.read_text())
+                           if args.hlevel3_admission else None))
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     if args.flame_progress_output:
         args.flame_progress_output.write_text(

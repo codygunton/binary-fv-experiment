@@ -12,19 +12,25 @@ sys.argv[:] = sys.argv[:1]
 class ProofMapTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if len(INPUTS) not in (8, 9):
+        if len(INPUTS) not in (8, 9, 11, 12):
             raise RuntimeError(
                 "expected CFG FLAME L1_MANIFEST L1_EVIDENCE L1_BINDINGS "
                 "L2_MANIFEST L2_EVIDENCE L2_BINDINGS HLEVEL2_BASELINE")
         cls.documents = [json.loads(Path(path).read_text()) for path in INPUTS[:8]]
-        cls.baseline = json.loads(Path(INPUTS[8]).read_text()) if len(INPUTS) == 9 else None
+        cls.baseline = json.loads(Path(INPUTS[8]).read_text()) if len(INPUTS) in (9, 12) else None
+        offset = 9 if cls.baseline else 8
+        cls.hlevel3 = ([json.loads(Path(path).read_text()) for path in INPUTS[offset:offset + 3]]
+                       if len(INPUTS) - offset == 3 else [None, None, None])
         module_path = Path(__file__).with_name("build_ssz_proof_map.py")
         spec = importlib.util.spec_from_file_location("proof_map", module_path)
         cls.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.module)
 
     def test_exact_level_relationship(self):
-        result = self.module.build(*self.documents, baseline=self.baseline)
+        result = self.module.build(
+            *self.documents, baseline=self.baseline,
+            hlevel3_inventory=self.hlevel3[0], hlevel3_guidance=self.hlevel3[1],
+            hlevel3_admission=self.hlevel3[2])
         contracts = [node for node in result["refinementGraph"]["nodes"]
                      if node["kind"] == "level1Contract"]
         self.assertEqual(len(contracts), 6)
@@ -95,6 +101,12 @@ class ProofMapTest(unittest.TestCase):
         self.assertEqual(zkvm_exit["proofStatus"], "proved")
         self.assertEqual(result["targetModel"]["status"], "valid_bare_metal")
         self.assertEqual(len(progress), 27)
+        if self.hlevel3[0]:
+            prepared = result["hLevel3Preparation"]
+            self.assertEqual(len(prepared["parents"]), 17)
+            self.assertEqual(prepared["summary"]["level3ContractCount"], 58)
+            self.assertEqual(sum(len(row["glueObligations"])
+                                 for row in prepared["parents"]), 231)
         if self.baseline:
             self.assertEqual(result["formalCoverage"]["directPcCount"],
                              len(self.baseline["coverage"]["directlyDischargedStepPcs"]))

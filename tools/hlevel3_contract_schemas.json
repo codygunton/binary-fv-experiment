@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "commonClauses": [
+    {
+      "id": "machine-boundary",
+      "requirement": "The production ELF supplies the exact entry, execution, exit, ownership, and call boundary.",
+      "support": "generated"
+    },
+    {
+      "id": "entry-state",
+      "requirement": "The entry binds each semantic value to a register or represented memory window.",
+      "support": "empirical-and-proof"
+    },
+    {
+      "id": "execution-access",
+      "requirement": "The entry supplies configured-machine, PMA, MMIO, read-access, and write-access facts used by the first instruction.",
+      "support": "proof"
+    },
+    {
+      "id": "exit-state",
+      "requirement": "Each observed exit agrees with the declared result and control-flow boundary.",
+      "support": "empirical-and-proof"
+    },
+    {
+      "id": "frames-and-termination",
+      "requirement": "The contract states a termination bound and exact register, memory, code, and auxiliary-state frames.",
+      "support": "proof"
+    }
+  ],
+  "families": {
+    "host-write": {
+      "qualified": ["extern_io.write_output"],
+      "semanticOperation": "Append the represented source bytes to the bare-metal output context.",
+      "reference": "deps/zesu/src/zkvm/extern_io.zig",
+      "extraClauses": [
+        {"id": "output-bytes", "requirement": "The host write equals the entry pointer and length byte window.", "support": "empirical-and-proof"}
+      ]
+    },
+    "allocator-alloc": {
+      "qualified": ["mem.Allocator.alloc__anon_1045", "mem.Allocator.alloc__anon_1151", "mem.Allocator.alloc__anon_1173", "mem.Allocator.alloc__anon_1432"],
+      "semanticOperation": "Allocate an aligned byte window with the requested size.",
+      "reference": "zig/std/mem/Allocator.zig",
+      "extraClauses": [
+        {"id": "allocation-result", "requirement": "The result is an error or a fresh aligned window with the requested size.", "support": "empirical-and-proof"}
+      ]
+    },
+    "allocator-dupe": {
+      "qualified": ["mem.Allocator.dupe__anon_1128"],
+      "semanticOperation": "Allocate a destination window and copy the represented source bytes into it.",
+      "reference": "zig/std/mem/Allocator.zig",
+      "extraClauses": [
+        {"id": "duplicate-result", "requirement": "The successful result is a fresh represented copy of the source window.", "support": "empirical-and-proof"}
+      ]
+    },
+    "read-integer": {
+      "qualified": ["mem.readInt", "ssz.readU32", "ssz.readU64"],
+      "semanticOperation": "Read a fixed-width little-endian integer from the represented source window.",
+      "reference": "deps/zesu/src/stateless/stateless/ssz.zig and zig/std/mem.zig",
+      "extraClauses": [
+        {"id": "little-endian-result", "requirement": "The result equals the little-endian value of the exact input bytes.", "support": "empirical-and-proof"}
+      ]
+    },
+    "write-integer": {
+      "qualified": ["mem.writeInt"],
+      "semanticOperation": "Write one fixed-width little-endian integer into the represented destination window.",
+      "reference": "zig/std/mem.zig",
+      "extraClauses": [
+        {"id": "little-endian-write", "requirement": "The destination bytes equal the little-endian entry value.", "support": "empirical-and-proof"}
+      ]
+    },
+    "transaction-decode": {
+      "qualified": ["rlp_decode.decodeSingleTx"],
+      "semanticOperation": "Decode one transaction RLP item into the Zesu transaction representation.",
+      "reference": "deps/zesu/src/stateless/rlp_decode.zig and the pinned EVM-Sail transaction decoder",
+      "extraClauses": [
+        {"id": "transaction-result", "requirement": "The accepted transaction equals the canonical EVM-Sail transaction result modulo reviewed bugs.", "support": "source-oracle-and-proof"}
+      ]
+    },
+    "byte-list-list-decode": {
+      "qualified": ["ssz.decodeByteListList"],
+      "semanticOperation": "Decode one SSZ variable-list offset table into represented byte slices.",
+      "reference": "deps/zesu/src/stateless/stateless/ssz.zig and the pinned EVM-Sail SSZ decoder",
+      "extraClauses": [
+        {"id": "slice-result", "requirement": "Every result slice has the offset, length, order, and bytes required by the SSZ input.", "support": "source-oracle-and-proof"}
+      ]
+    },
+    "withdrawal-decode": {
+      "qualified": ["ssz.decodeWithdrawal"],
+      "semanticOperation": "Decode one fixed-size SSZ withdrawal record.",
+      "reference": "deps/zesu/src/stateless/stateless/ssz.zig and the pinned EVM-Sail SSZ decoder",
+      "extraClauses": [
+        {"id": "withdrawal-result", "requirement": "The four decoded fields equal the canonical withdrawal fields.", "support": "source-oracle-and-proof"}
+      ]
+    },
+    "offset-read": {
+      "qualified": ["ssz.decode__struct_1051.f"],
+      "semanticOperation": "Read one checked SSZ offset from the enclosing decoder input.",
+      "reference": "deps/zesu/src/stateless/stateless/ssz.zig",
+      "extraClauses": [
+        {"id": "offset-result", "requirement": "The result equals the selected four-byte offset and satisfies the enclosing bounds.", "support": "empirical-and-proof"}
+      ]
+    },
+    "fork-name": {
+      "qualified": ["ssz.forkNameFromSchemaByte"],
+      "semanticOperation": "Map the schema byte to the reviewed fork-name result or rejection.",
+      "reference": "deps/zesu/src/stateless/stateless/ssz.zig",
+      "extraClauses": [
+        {"id": "fork-result", "requirement": "Every accepted and rejected schema byte follows the source case split.", "support": "source-oracle-and-proof"}
+      ]
+    },
+    "encoder-collection": {
+      "qualified": ["ssz_decode_observation.Encoder.accessList", "ssz_decode_observation.Encoder.authorizations"],
+      "semanticOperation": "Append the canonical observation encoding of one structured collection.",
+      "reference": "deps/zesu/src/zkvm/ssz_decode_observation.zig",
+      "extraClauses": [
+        {"id": "encoded-collection", "requirement": "The complete emitted substream equals the independent source encoder result.", "support": "source-oracle-and-proof"}
+      ]
+    },
+    "encoder-integer": {
+      "qualified": ["ssz_decode_observation.Encoder.int"],
+      "semanticOperation": "Append one fixed-width integer to the observation output.",
+      "reference": "deps/zesu/src/zkvm/ssz_decode_observation.zig",
+      "extraClauses": [
+        {"id": "encoded-integer", "requirement": "The emitted bytes equal the selected little-endian entry value.", "support": "empirical-and-proof"}
+      ]
+    },
+    "encoder-optional": {
+      "qualified": ["ssz_decode_observation.Encoder.optionalAddress", "ssz_decode_observation.Encoder.optionalU128"],
+      "semanticOperation": "Append the canonical tagged encoding of one optional value.",
+      "reference": "deps/zesu/src/zkvm/ssz_decode_observation.zig",
+      "extraClauses": [
+        {"id": "encoded-optional", "requirement": "The tag and payload equal the entry optional value.", "support": "source-oracle-and-proof"}
+      ]
+    },
+    "encoder-raw": {
+      "qualified": ["ssz_decode_observation.Encoder.raw"],
+      "semanticOperation": "Append one represented byte window to the observation output.",
+      "reference": "deps/zesu/src/zkvm/ssz_decode_observation.zig",
+      "extraClauses": [
+        {"id": "encoded-bytes", "requirement": "The emitted bytes equal the complete entry byte window.", "support": "empirical-and-proof"}
+      ]
+    }
+  }
+}
