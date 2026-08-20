@@ -2752,4 +2752,248 @@ theorem checkedSlice3566SelectedRun
   refine ⟨after, ?_, lengthAfter, addressAfter⟩
   cases hasNext <;> simpa using finalSeg
 
+/-! ## Request-type-four checked slice at `0x13144` -/
+
+def checkedSlice358bOwnPc (pc : BitVec 64) : Prop :=
+  pcInList [0x13144, 0x13148, 0x1314c, 0x13d7c, 0x13d80, 0x13d84, 0x13d88,
+    0x13d8c, 0x13d90, 0x13d94, 0x13d98, 0x13d9c, 0x13da0, 0x13da4, 0x13da8,
+    0x13dac] pc
+
+def checkedSlice358bExitPc (pc : BitVec 64) : Prop :=
+  pcInList [0x1230c, 0x13150, 0x131b0, 0x13cb8, 0x13db0] pc
+
+def checkedSlice358bWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x10 ∨ register = x11 ∨ register = x13 ∨
+    register = x22 ∨ register = x24 ∨ register = x27
+
+def checkedSlice358bMemory (stackPointer : Nat) : Region := fun address =>
+  byteRange (stackPointer + 0x268) 8 address ∨ byteRange (stackPointer + 0x270) 8 address
+
+private theorem instructionPreserved_disjoint_checkedSlice358bWrites :
+    RegSet.Disjoint instructionPreserved checkedSlice358bWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  all_goals simp [instructionPreserved, platformPreserved] at preserved
+
+private theorem platformPreserved_disjoint_checkedSlice358bWrites :
+    RegSet.Disjoint platformPreserved checkedSlice358bWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact platformPreserved_disjoint register preserved bookkeeping
+  all_goals simp [platformPreserved] at preserved
+
+private theorem checkedSlice358bMemory_in_frame {stackPointer address : Nat}
+    (inside : checkedSlice358bMemory stackPointer address) :
+    checkedSliceFrame stackPointer address := by
+  change (stackPointer + 0x268 ≤ address ∧ address < stackPointer + 0x268 + 8) ∨
+    (stackPointer + 0x270 ≤ address ∧ address < stackPointer + 0x270 + 8) at inside
+  unfold checkedSliceFrame byteRange
+  rcases inside with inside | inside <;> omega
+
+theorem checkedSlice358bAccessOfSeg {stackPointer : Nat} {kv : List RegVal}
+    {fromStep count : Nat} {before after : State} {pc : BitVec 64}
+    (access : CheckedSliceMachineAccess stackPointer before)
+    (seg : Seg checkedSlice358bOwnPc checkedSlice358bExitPc
+      (fun _ _ _ _ _ => False) checkedSlice358bWrites
+      (checkedSlice358bMemory stackPointer) kv fromStep count before after pc) :
+    CheckedSliceMachineAccess stackPointer after :=
+  access.ofSeg instructionPreserved_disjoint_checkedSlice358bWrites
+    platformPreserved_disjoint_checkedSlice358bWrites
+    (by intro written; simp [checkedSlice358bWrites, stepBookkeeping] at written) seg
+
+theorem checkedSlice358bCodeOfSeg {stackPointer : Nat} {kv : List RegVal}
+    {fromStep count : Nat} {before after : State} {pc : BitVec 64}
+    (access : CheckedSliceMachineAccess stackPointer before)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.mem)
+    (seg : Seg checkedSlice358bOwnPc checkedSlice358bExitPc
+      (fun _ _ _ _ _ => False) checkedSlice358bWrites
+      (checkedSlice358bMemory stackPointer) kv fromStep count before after pc) :
+    Artifacts.programImage.fileBytesLoadedFaithfully after.mem :=
+  checkedSliceCodeOfSeg access loaded checkedSlice358bMemory_in_frame seg
+
+private theorem checkedSlice358bPresentRun (state : State) (tableBytes : BitVec 64)
+    (tableAt : state.regs.get? x11 = some tableBytes)
+    (thresholdAt : state.regs.get? x14 = some 17) :
+    Runs (bTypeTaken (.Regidx 14#5) (.Regidx 11#5) .BLTU) state state
+      (zopz0zI_u tableBytes 17) :=
+  bltuConditionRun state (.Regidx 11#5) (.Regidx 14#5) tableBytes 17
+    (rX_x11_run state tableBytes tableAt) (rX_x14_run state 17 thresholdAt)
+
+/-- Exact `0x13144: bltu a1,a4,0x13cb8`. -/
+theorem checkedSlice358bPresentBranchStep
+    (stepNo stackPointer tableBytes : Nat) (state : State)
+    (access : CheckedSliceMachineAccess stackPointer state)
+    (atPc : state.regs.get? PC = some 0x13144)
+    (tableAt : state.regs.get? x11 = some (BitVec.ofNat 64 tableBytes))
+    (thresholdAt : state.regs.get? x14 = some 17)
+    (comparison : zopz0zI_u (BitVec.ofNat 64 tableBytes) 17 = absent)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (if absent then
+        tryStepControlFlowAfterRetired
+          (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x13144 0x13cb8)
+          0x13cb8 retired
+      else
+        tryStepControlFlowAfterRetired
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x13144)
+          0x13148 retired) false := by
+  cases absent
+  · apply configuredBranchNotTakenStep stepNo 0x13144 state 0xb74 (.Regidx 14#5)
+      (.Regidx 11#5) .BLTU 0xe3 0xea 0xe5 0x36 access.configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode access.configured
+    · simpa only [comparison] using checkedSlice358bPresentRun
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x13144)
+        (BitVec.ofNat 64 tableBytes)
+        ((stepPremiseState_writes state 0x13144).get x11 (by decide) |>.trans tableAt)
+        ((stepPremiseState_writes state 0x13144).get x14 (by decide) |>.trans thresholdAt)
+  · apply configuredBranchTakenStep stepNo 0x13144 0x13cb8 state 0xb74 (.Regidx 14#5)
+      (.Regidx 11#5) .BLTU 0xe3 0xea 0xe5 0x36 access.configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode access.configured
+    · simpa only [comparison] using checkedSlice358bPresentRun
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x13144)
+        (BitVec.ofNat 64 tableBytes)
+        ((stepPremiseState_writes state 0x13144).get x11 (by decide) |>.trans tableAt)
+        ((stepPremiseState_writes state 0x13144).get x14 (by decide) |>.trans thresholdAt)
+    all_goals native_decide
+
+/-- Exact `0x13148: li a3,20`. -/
+theorem checkedSlice358bLoadEndThresholdStep (stepNo : Nat) (state : State)
+    (access : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x13148)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x13148 retired x13 20) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x13148
+  have execute : Runs (execute (.ITYPE (20, .Regidx 0#5, .Regidx 13#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x13 20 } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 20 (.Regidx 0#5) (.Regidx 13#5) .ADDI) _ _ _
+    have resultEq : iTypeResult .ADDI 20 0 = 20#64 := by native_decide
+    simpa only [resultEq] using execute_ITYPE_run premise _ 20 (.Regidx 0#5)
+      (.Regidx 13#5) .ADDI 0 (rX_x0_run premise) (wX_x13_run premise _)
+  exact configuredRegisterWriteStep stepNo 0x13148 state x13 20
+    (.ITYPE (20, .Regidx 0#5, .Regidx 13#5, .ADDI)) 0x93 0x06 0x40 0x01
+    access atPc loaded (by configured_decode access) execute
+    (pcFits := by native_decide) (base := by rfl)
+
+private theorem checkedSlice358bHasNextRun (state : State) (tableBytes : BitVec 64)
+    (tableAt : state.regs.get? x11 = some tableBytes)
+    (thresholdAt : state.regs.get? x13 = some 20) :
+    Runs (bTypeTaken (.Regidx 11#5) (.Regidx 13#5) .BLTU) state state
+      (zopz0zI_u 20 tableBytes) :=
+  bltuConditionRun state (.Regidx 13#5) (.Regidx 11#5) 20 tableBytes
+    (rX_x13_run state 20 thresholdAt) (rX_x11_run state tableBytes tableAt)
+
+/-- Exact `0x1314c: bltu a3,a1,0x13d7c`. -/
+theorem checkedSlice358bHasNextBranchStep
+    (stepNo stackPointer tableBytes : Nat) (state : State)
+    (access : CheckedSliceMachineAccess stackPointer state)
+    (atPc : state.regs.get? PC = some 0x1314c)
+    (tableAt : state.regs.get? x11 = some (BitVec.ofNat 64 tableBytes))
+    (thresholdAt : state.regs.get? x13 = some 20)
+    (comparison : zopz0zI_u 20 (BitVec.ofNat 64 tableBytes) = hasNext)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (if hasNext then
+        tryStepControlFlowAfterRetired
+          (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x1314c 0x13d7c)
+          0x13d7c retired
+      else
+        tryStepControlFlowAfterRetired
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x1314c)
+          0x13150 retired) false := by
+  cases hasNext
+  · apply configuredBranchNotTakenStep stepNo 0x1314c state 0xc30 (.Regidx 11#5)
+      (.Regidx 13#5) .BLTU 0xe3 0xe8 0xb6 0x42 access.configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode access.configured
+    · simpa only [comparison] using checkedSlice358bHasNextRun
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x1314c)
+        (BitVec.ofNat 64 tableBytes)
+        ((stepPremiseState_writes state 0x1314c).get x11 (by decide) |>.trans tableAt)
+        ((stepPremiseState_writes state 0x1314c).get x13 (by decide) |>.trans thresholdAt)
+  · apply configuredBranchTakenStep stepNo 0x1314c 0x13d7c state 0xc30 (.Regidx 11#5)
+      (.Regidx 13#5) .BLTU 0xe3 0xe8 0xb6 0x42 access.configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode access.configured
+    · simpa only [comparison] using checkedSlice358bHasNextRun
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x1314c)
+        (BitVec.ofNat 64 tableBytes)
+        ((stepPremiseState_writes state 0x1314c).get x11 (by decide) |>.trans tableAt)
+        ((stepPremiseState_writes state 0x1314c).get x13 (by decide) |>.trans thresholdAt)
+    all_goals native_decide
+
+/-- The type-four instance reaches its empty, continuation, or candidate-end route. -/
+theorem checkedSlice358bEntryRun
+    (fromStep stackPointer tableBytes : Nat) (state : State)
+    (access : CheckedSliceMachineAccess stackPointer state)
+    (atPc : state.regs.get? PC = some 0x13144)
+    (tableAt : state.regs.get? x11 = some (BitVec.ofNat 64 tableBytes))
+    (thresholdAt : state.regs.get? x14 = some 17)
+    (presentComparison : zopz0zI_u (BitVec.ofNat 64 tableBytes) 17 = absent)
+    (hasNextComparison : zopz0zI_u 20 (BitVec.ofNat 64 tableBytes) = hasNext)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ after,
+      Seg checkedSlice358bOwnPc checkedSlice358bExitPc (fun _ _ _ _ _ => False)
+        checkedSlice358bWrites (checkedSlice358bMemory stackPointer)
+        (if absent then [⟨x11, BitVec.ofNat 64 tableBytes⟩]
+          else [⟨x13, 20⟩, ⟨x11, BitVec.ofNat 64 tableBytes⟩]) fromStep
+        (if absent then 1 else 3) state after
+        (if absent then 0x13cb8 else if hasNext then 0x13d7c else 0x13150) := by
+  obtain ⟨retired, retiredRead⟩ := access.configured.retiredCounter
+  have seg0 := Seg.nil checkedSlice358bOwnPc checkedSlice358bExitPc
+    (fun _ _ _ _ _ => False) checkedSlice358bWrites
+    (checkedSlice358bMemory stackPointer) fromStep ⟨retired, retiredRead⟩ atPc
+  have seg0 := seg0.know x11 (BitVec.ofNat 64 tableBytes) tableAt
+  cases absent
+  · obtain ⟨present, seg1⟩ := seg0.stepFallThrough 0x13148
+      (by owned_pc [checkedSlice358bOwnPc, pcInList])
+      (by owned_pc [checkedSlice358bExitPc, pcInList])
+      (checkedSlice358bPresentBranchStep fromStep stackPointer tableBytes state access atPc tableAt
+        thresholdAt presentComparison loaded)
+      (by intro register bookkeeping; exact Or.inl bookkeeping)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨tagRetired, tagged, taggedEq, seg2⟩ := seg1.stepWitness
+      (by owned_pc [checkedSlice358bOwnPc, pcInList])
+      (by owned_pc [checkedSlice358bExitPc, pcInList]) x13 20 0x1314c
+      (checkedSlice358bLoadEndThresholdStep (fromStep + 1) present
+        (checkedSlice358bAccessOfSeg access seg1).configured seg1.atPc
+        (checkedSlice358bCodeOfSeg access loaded seg1))
+      (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+      (by simp [checkedSlice358bWrites]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    have tableTagged : tagged.regs.get? x11 = some (BitVec.ofNat 64 tableBytes) :=
+      seg2.reg x11 (BitVec.ofNat 64 tableBytes) (by simp)
+    cases hasNext
+    · obtain ⟨after, seg3⟩ := seg2.stepFallThrough 0x13150
+        (by owned_pc [checkedSlice358bOwnPc, pcInList])
+        (by owned_pc [checkedSlice358bExitPc, pcInList])
+        (checkedSlice358bHasNextBranchStep (fromStep + 2) stackPointer tableBytes tagged
+          (checkedSlice358bAccessOfSeg access seg2) seg2.atPc tableTagged
+          (seg2.reg x13 20 (by simp)) hasNextComparison
+          (checkedSlice358bCodeOfSeg access loaded seg2))
+        (by intro register bookkeeping; exact Or.inl bookkeeping)
+        (by simp [RegsOutside, stepBookkeeping])
+      exact ⟨after, by simpa only [if_false] using seg3⟩
+    · obtain ⟨after, seg3⟩ := seg2.stepJump 0x13d7c
+        (by owned_pc [checkedSlice358bOwnPc, pcInList])
+        (by owned_pc [checkedSlice358bExitPc, pcInList])
+        (checkedSlice358bHasNextBranchStep (fromStep + 2) stackPointer tableBytes tagged
+          (checkedSlice358bAccessOfSeg access seg2) seg2.atPc tableTagged
+          (seg2.reg x13 20 (by simp)) hasNextComparison
+          (checkedSlice358bCodeOfSeg access loaded seg2))
+        (by intro register bookkeeping; exact Or.inl bookkeeping)
+        (by simp [RegsOutside, stepBookkeeping])
+      exact ⟨after, by simpa only [if_true] using seg3⟩
+  · obtain ⟨after, seg1⟩ := seg0.stepJump 0x13cb8
+      (by owned_pc [checkedSlice358bOwnPc, pcInList])
+      (by owned_pc [checkedSlice358bExitPc, pcInList])
+      (checkedSlice358bPresentBranchStep fromStep stackPointer tableBytes state access atPc tableAt
+        thresholdAt presentComparison loaded)
+      (by intro register bookkeeping; exact Or.inl bookkeeping)
+      (by simp [RegsOutside, stepBookkeeping])
+    exact ⟨after, by simpa only [if_true] using seg1⟩
+
 end BinaryFv.Zesu.MachineExecution
