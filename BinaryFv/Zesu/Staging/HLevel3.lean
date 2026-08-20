@@ -344,7 +344,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_decode__struct_1051_f_fi_1_3566_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_decode__struct_1051_f_fi_1_3566_Contract
 
 /--
 Contract design hole for `fi:1:358b` at `0x13144`.
@@ -1007,8 +1007,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_ssz_readU32_fi_1_3457_Contract
   ssz_readU32_fi_1_34c1 :
     Proposed_ssz_readU32_fi_1_34c1_Contract
-  ssz_decode__struct_1051_f_fi_1_3566 :
-    Proposed_ssz_decode__struct_1051_f_fi_1_3566_Contract
   ssz_decode__struct_1051_f_fi_1_358b :
     Proposed_ssz_decode__struct_1051_f_fi_1_358b_Contract
   ssz_readU64_fi_1_35ab :
@@ -1091,13 +1089,12 @@ Level 3 contracts: `mem_Allocator_dupe__anon_1128_fi_1_5b8d`,
 `ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`, `ssz_readU32_fi_1_30e2`,
 `ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`, `ssz_readU64_fi_1_3203`,
 `ssz_readU64_fi_1_327b`, `ssz_readU32_fi_1_32f5`, `mem_Allocator_alloc__anon_1045_fi_1_340d`,
-`ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`, `ssz_decode__struct_1051_f_fi_1_3566`,
-`ssz_decode__struct_1051_f_fi_1_358b`, `ssz_readU64_fi_1_35ab`, `ssz_readU64_fi_1_361f`,
-`ssz_readU32_fi_1_3693`, `ssz_readU64_fi_1_36dd`, `ssz_readU64_fi_1_3731`,
-`ssz_readU64_fi_1_37a5`, `ssz_readU32_fi_1_37cf`, `ssz_readU64_fi_1_3823`,
-`mem_Allocator_alloc__anon_1173_fi_1_386d`, `rlp_decode_decodeSingleTx_fi_1_3940`,
-`mem_Allocator_alloc__anon_1432_fi_1_39b7`, `ssz_decodeWithdrawal_fi_1_3a74`,
-`ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`, `ssz_decode__struct_1051_f_fi_1_358b`,
+`ssz_readU64_fi_1_35ab`, `ssz_readU64_fi_1_361f`, `ssz_readU32_fi_1_3693`,
+`ssz_readU64_fi_1_36dd`, `ssz_readU64_fi_1_3731`, `ssz_readU64_fi_1_37a5`,
+`ssz_readU32_fi_1_37cf`, `ssz_readU64_fi_1_3823`, `mem_Allocator_alloc__anon_1173_fi_1_386d`,
+`rlp_decode_decodeSingleTx_fi_1_3940`, `mem_Allocator_alloc__anon_1432_fi_1_39b7`,
+`ssz_decodeWithdrawal_fi_1_3a74`, `ssz_readU32_fi_1_3b27`.
 Earlier Level 2 results: none.
 Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContract`,
 `BinaryFv.Zesu.Staging.proposed_memReadInt_proved`,
@@ -1105,7 +1102,8 @@ Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContra
 `BinaryFv.Zesu.Staging.proposed_readU32_3335_proved`,
 `BinaryFv.Zesu.Staging.proposed_checkedSlice_34fd_proved`,
 `BinaryFv.Zesu.Staging.proposed_checkedSlice_351c_proved`,
-`BinaryFv.Zesu.Staging.proposed_checkedSlice_3541_proved`.
+`BinaryFv.Zesu.Staging.proposed_checkedSlice_3541_proved`,
+`BinaryFv.Zesu.Staging.proposed_checkedSlice_3566_proved`.
 Parent glue: 1935 instructions in 183 block fragments.
 Fragment `0x121ac` (6 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
@@ -1985,7 +1983,6 @@ private theorem resolve_sszDecode
     (mem_Allocator_alloc__anon_1045_fi_1_340d : Proposed_mem_Allocator_alloc__anon_1045_fi_1_340d_Contract)
     (ssz_readU32_fi_1_3457 : Proposed_ssz_readU32_fi_1_3457_Contract)
     (ssz_readU32_fi_1_34c1 : Proposed_ssz_readU32_fi_1_34c1_Contract)
-    (ssz_decode__struct_1051_f_fi_1_3566 : Proposed_ssz_decode__struct_1051_f_fi_1_3566_Contract)
     (ssz_decode__struct_1051_f_fi_1_358b : Proposed_ssz_decode__struct_1051_f_fi_1_358b_Contract)
     (ssz_readU64_fi_1_35ab : Proposed_ssz_readU64_fi_1_35ab_Contract)
     (ssz_readU64_fi_1_361f : Proposed_ssz_readU64_fi_1_361f_Contract)
@@ -2495,7 +2492,6 @@ theorem level2Contracts_of_level3_staged
       hLevel3.mem_Allocator_alloc__anon_1045_fi_1_340d
       hLevel3.ssz_readU32_fi_1_3457
       hLevel3.ssz_readU32_fi_1_34c1
-      hLevel3.ssz_decode__struct_1051_f_fi_1_3566
       hLevel3.ssz_decode__struct_1051_f_fi_1_358b
       hLevel3.ssz_readU64_fi_1_35ab
       hLevel3.ssz_readU64_fi_1_361f
