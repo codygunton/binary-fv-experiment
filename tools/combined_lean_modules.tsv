@@ -60,5 +60,7 @@ BinaryFv.Zesu.MachineExecution.HLevel3MemReadIntSteps	HLevel3MemReadIntSteps.lea
 BinaryFv.Zesu.Staging.MemReadInt	MemReadInt.lean	compiled/BinaryFv/Zesu/Staging/MemReadInt.olean
 BinaryFv.Zesu.MachineExecution.HLevel3ReadU32Steps	HLevel3ReadU32Steps.lean	compiled/BinaryFv/Zesu/MachineExecution/HLevel3ReadU32Steps.olean
 BinaryFv.Zesu.Staging.ReadU32	ReadU32.lean	compiled/BinaryFv/Zesu/Staging/ReadU32.olean
+BinaryFv.Zesu.MachineExecution.HLevel3ForkNameSteps	HLevel3ForkNameSteps.lean	compiled/BinaryFv/Zesu/MachineExecution/HLevel3ForkNameSteps.olean
+BinaryFv.Zesu.Staging.ForkName	ForkName.lean	compiled/BinaryFv/Zesu/Staging/ForkName.olean
 BinaryFv.Zesu.Staging.HLevel3	HLevel3.lean	compiled/BinaryFv/Zesu/Staging/HLevel3.olean
 BinaryFv.Zesu.Staging.HLevel3IdiomChecks	HLevel3IdiomChecks.lean	compiled/BinaryFv/Zesu/Staging/HLevel3IdiomChecks.olean
