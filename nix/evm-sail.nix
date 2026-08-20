@@ -161,6 +161,7 @@ let
     cp ${repo}/BinaryFv/Zesu/Entrypoints/SszDecodeRoot/InitialState.lean InitialState.lean
     cp ${repo}/BinaryFv/Zesu/Root.lean ZesuRoot.lean
     cp ${repo}/BinaryFv/Zesu/TrustAudit.lean TrustAudit.lean
+    cp ${repo}/BinaryFv/Zesu/Staging/MemWriteInt.lean MemWriteInt.lean
     cp ${repo}/BinaryFv/Zesu/Staging/HLevel3.lean HLevel3.lean
     cp ${repo}/BinaryFv/Zesu/Staging/HLevel3IdiomChecks.lean HLevel3IdiomChecks.lean
     cp ${repo}/BinaryFv/Zesu/Elflings/GeneratedLevel1.lean GeneratedLevel1.lean
