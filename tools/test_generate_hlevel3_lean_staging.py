@@ -36,13 +36,13 @@ class LeanStagingTests(unittest.TestCase):
 
     def test_read_u32_destination_tuple_is_instance_specific(self):
         self.assertIn(
-            "sszReadU32Contract 0x12c18 22 x10 x15 x13 x14 stepBound",
+            "sszReadU32Contract 0x12c18 22 sszReadU32Bindings3335",
             self.source)
         self.assertIn(
-            "sszReadU32Contract 0x12ca4 58 x16 x6 x17 x5 stepBound",
+            "sszReadU32Contract 0x12ca4 58 sszReadU32Bindings33a1",
             self.source)
         self.assertNotIn(
-            "sszReadU32Contract 0x12ca4 58 x10 x15 x13 x14 stepBound",
+            "sszReadU32Contract 0x12ca4 58 sszReadU32Bindings3335",
             self.source)
 
     def test_read_u32_entry_requires_nonwrapping_source_window(self):
