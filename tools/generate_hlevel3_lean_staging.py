@@ -109,6 +109,8 @@ def read_u32_schema() -> list[str]:
 
 
 def contract_body(field: str) -> list[str]:
+    if field == "mem_writeInt_fi_1_45b2":
+        return ["  exact BinaryFv.Zesu.Staging.Proposed_mem_writeInt_fi_1_45b2_Contract"]
     if field not in {"ssz_readU32_fi_1_3335", "ssz_readU32_fi_1_33a1"}:
         return ["  sorry"]
     if field == "ssz_readU32_fi_1_3335":
@@ -142,6 +144,7 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
         "import BinaryFv.Zesu.MachineExecution.MemcpyProof",
         "import BinaryFv.Zesu.MachineExecution.Level0MainSteps",
         "import BinaryFv.RiscV.Elfling.Seg",
+        "import BinaryFv.Zesu.Staging.MemWriteInt",
         "",
         "/-!",
         "# Generated hLevel3 staging",

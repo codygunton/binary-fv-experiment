@@ -3,6 +3,7 @@ import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.Zesu.MachineExecution.MemcpyProof
 import BinaryFv.Zesu.MachineExecution.Level0MainSteps
 import BinaryFv.RiscV.Elfling.Seg
+import BinaryFv.Zesu.Staging.MemWriteInt
 
 /-!
 # Generated hLevel3 staging
@@ -1015,8 +1016,8 @@ Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
-def Proposed_mem_writeInt_fi_1_45b2_Contract : Prop := by
-  sorry
+def Proposed_mem_writeInt_fi_1_45b2_Contract : Prop :=
+  BinaryFv.Zesu.Staging.Proposed_mem_writeInt_fi_1_45b2_Contract
 
 /--
 Contract design hole for `fi:1:45f6` at `0x15d1c`.
