@@ -504,6 +504,33 @@ theorem stepFallThrough (seg : Seg own exit childSummary W M kv a n base cur pc)
     (fun retired => fallThroughRetirement_pc cur pc target retired)
     (fun _ => RegsHold.nil _) bookkeeping keep
 
+/-- `stepFallThrough` with the concrete retirement witness retained for a caller that must
+transport a fact through the exact branch successor. -/
+theorem stepFallThroughWitness (seg : Seg own exit childSummary W M kv a n base cur pc)
+    (target : BitVec 64) (inRegion : own pc) (notExit : ¬ exit pc)
+    (run : ∃ retired, Runs (try_step (a + n) false) cur
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc) target retired) false)
+    (bookkeeping : ∀ r, stepBookkeeping r → W r)
+    (keep : RegsOutside stepBookkeeping kv) :
+    ∃ retired next,
+      next = tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc) target retired ∧
+      Seg own exit childSummary W M kv a (n + 1) base next target := by
+  obtain ⟨retired, hrun⟩ := run
+  refine ⟨retired, _, rfl, ?_⟩
+  exact
+    { trace := seg.trace.snoc hrun
+      confined := seg.confined.trans (ConfinedPrefix.ownStep seg.atPc inRegion notExit hrun)
+      writes := seg.writes.trans_same
+        ((fallThroughRetirement_writes cur pc target retired).mono bookkeeping)
+      mem := WritesOnlyWithin.trans_same seg.mem
+        (writesOnlyWithin_of_mem_eq (fallThroughRetirement_mem cur pc target retired))
+      aux := seg.aux.trans ⟨rfl, rfl, rfl⟩
+      retired := fallThroughRetirement_retired_present cur pc target retired
+      atPc := fallThroughRetirement_pc cur pc target retired
+      regs := seg.regs.through (fallThroughRetirement_writes cur pc target retired) keep }
+
 /-- A fall-through store.  The class-specific proof supplies `run`; this adapter records the
 store's established register and memory frames without exposing its successor state. -/
 theorem stepStore {width : Nat} (seg : Seg own exit childSummary W M kv a n base cur pc)

@@ -345,6 +345,49 @@ theorem configuredDwordLoadStep (stepNo pc : Nat) (state : State)
     (destinationNotRetired := destinationNotRetired) (read0 := read0) (read1 := read1)
     (read2 := read2) (read3 := read3)
 
+/-- Retire one exact `ld offset(sp)` from a represented stack word. -/
+theorem configuredStackDwordLoadStep (stepNo pc stackPointer offset value : Nat)
+    (state : State) (imm : BitVec 12) (rd : regidx) (destination : Register)
+    (result : RegisterType destination) (byte0 byte1 byte2 byte3 : UInt8)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (stackRead : state.regs.get? x2 = some (BitVec.ofNat 64 stackPointer))
+    (rep : UIntRep 8 state.mem (stackPointer + offset) value)
+    (pma : LoadPmaAllows state (BitVec.ofNat 64 (stackPointer + offset)) 8)
+    (notMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 (stackPointer + offset)) 8)
+    (sumFits : stackPointer + offset < 2 ^ 64)
+    (aligned : (stackPointer + offset) % 8 = 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (addressEq : BitVec.ofNat 64 stackPointer + sign_extend (m := 64) imm =
+      BitVec.ofNat 64 (stackPointer + offset))
+    (writeRun : ∀ premise, Runs (wX_bits rd (BitVec.ofNat 64 value)) premise
+      { premise with regs := premise.regs.insert destination result } ())
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (imm, .Regidx 2#5, rd, false, 8)))
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3 := by native_decide)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by native_decide)
+    (destinationNotNextPc : destination ≠ nextPC := by decide)
+    (destinationNotHart : destination ≠ hart_state := by decide)
+    (destinationNotIncrement : destination ≠ minstret_increment := by decide)
+    (destinationNotRetired : destination ≠ minstret := by decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination result) false := by
+  exact configuredDwordLoadStep stepNo pc state imm (.Regidx 2#5) rd destination
+    stackPointer offset value result byte0 byte1 byte2 byte3 configured atPc rep pma notMMIO
+    sumFits aligned loaded addressEq
+    (fun premise writes =>
+      rX_x2_run premise (BitVec.ofNat 64 stackPointer)
+        ((writes.get x2 (by decide)).trans stackRead))
+    writeRun decode (pcFits := site.pcFits) (pcAligned := site.pcAligned) (base := base)
+    (destinationNotNextPc := destinationNotNextPc)
+    (destinationNotHart := destinationNotHart)
+    (destinationNotIncrement := destinationNotIncrement)
+    (destinationNotRetired := destinationNotRetired)
+    (read0 := site.read0) (read1 := site.read1) (read2 := site.read2) (read3 := site.read3)
+
 /-- Retire one exact generated double-word store. -/
 theorem configuredDwordStoreStep (stepNo pc : Nat) (state afterWrite : State)
     (imm : BitVec 12) (rs1 rs2 : regidx) (byte0 byte1 byte2 byte3 : UInt8)
@@ -387,6 +430,77 @@ theorem configuredDwordStoreStep (stepNo pc : Nat) (state afterWrite : State)
   · simpa [tryStepStoreAfterIncrement, tryStepControlFlowAfterIncrement] using noFetchMMIO
   · simpa [tryStepStoreAfterIncrement, tryStepControlFlowAfterIncrement] using interrupts
   · simpa [tryStepStoreAfterIncrement, tryStepControlFlowAfterIncrement] using notExpected
+
+/-- Retire one exact `sd offset(sp)` with a generated source-register witness. -/
+theorem configuredStackDwordStoreStep (stepNo pc stackPointer offset : Nat)
+    (state : State) (value : BitVec 64) (imm : BitVec 12) (rs2 : regidx)
+    (byte0 byte1 byte2 byte3 : UInt8)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (stackRead : state.regs.get? x2 = some (BitVec.ofNat 64 stackPointer))
+    (pma : StorePmaAllows state (BitVec.ofNat 64 (stackPointer + offset)) 8)
+    (notMMIO : StoreMMIOAddressExcluded (BitVec.ofNat 64 (stackPointer + offset)) 8)
+    (aligned : (stackPointer + offset) % 8 = 0)
+    (fits : stackPointer + offset + 8 ≤ 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (addressEq : BitVec.ofNat 64 stackPointer + sign_extend (m := 64) imm =
+      BitVec.ofNat 64 (stackPointer + offset))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
+      (.STORE (imm, rs2, .Regidx 2#5, 8)))
+    (dataRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits rs2) premise premise value)
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3 := by native_decide)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by native_decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement state) (BitVec.ofNat 64 pc))
+          (stackPointer + offset) value)
+        (BitVec.ofNat 64 pc) retired) false := by
+  let premise := coreStoreNextState
+    (tryStepStoreAfterIncrement state) (BitVec.ofNat 64 pc)
+  have agree : Agree platformPreserved state premise :=
+    (stepPremiseState_writes state (BitVec.ofNat 64 pc)).agree platformPreserved_disjoint
+  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := configured.mstatusStoreMode
+  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := configured.seccfgPresent
+  have mstatusPremise := (agree mstatus (by simp [platformPreserved])).trans mstatusRead
+  have privilegePremise :=
+    (agree cur_privilege (by simp [platformPreserved])).trans configured.normal.2.1
+  have mseccfgPremise := (agree mseccfg (by simp [platformPreserved])).trans mseccfgRead
+  have stackPremise := (stepPremiseState_writes state (BitVec.ofNat 64 pc)).get x2
+    (by decide) |>.trans stackRead
+  have addressRun : Runs
+      (get_transformed_data_addr (.Regidx 2#5) (sign_extend (m := 64) imm) (Store Data) 8)
+      premise premise (.Ext_DataAddr_OK
+        (virtaddr.Virtaddr (BitVec.ofNat 64 (stackPointer + offset)))) := by
+    simpa [addressEq] using get_transformed_data_addr_machine_data_run .store premise
+      (.Regidx 2#5) 8 (BitVec.ofNat 64 stackPointer) (sign_extend (m := 64) imm)
+      mstatusBits mseccfgBits (rX_x2_run premise (BitVec.ofNat 64 stackPointer) stackPremise)
+      mstatusPremise privilegePremise mprvZero mseccfgPremise pmmDisabled
+  have physical := phys_access_check_machine_store_allowed premise
+    (BitVec.ofNat 64 (stackPointer + offset)) 8
+    (fetchPmpDisabled_of_normal (normalExecutionState_of_platformPreserved agree configured.normal))
+    (storePmaAllows_of_agree agree pma)
+    (configuredOfNatAlignedEight (stackPointer + offset) (by omega) aligned).2
+  have noMMIO := storeMemoryNoMMIO_of_state_layout_excluded premise
+    (BitVec.ofNat 64 (stackPointer + offset)) 8 notMMIO
+    ((agree htif_tohost_base (by simp [platformPreserved])).trans configured.htifDisabled)
+  let afterWrite := afterWriteBytes (width := 8) premise (stackPointer + offset) value
+  have access : ConfiguredDwordStoreAccess state afterWrite (BitVec.ofNat 64 pc) imm
+      (.Regidx 2#5) rs2 :=
+    ⟨_, mstatusBits, _, mstatusPremise, privilegePremise, mprvZero,
+      dataRun premise (stepPremiseState_writes state (BitVec.ofNat 64 pc)), addressRun,
+      (configuredOfNatAlignedEight (stackPointer + offset) (by omega) aligned).1,
+      physical, noMMIO, by
+        rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+        exact writeBytes_run_exact premise (stackPointer + offset) value⟩
+  simpa [afterWrite] using configuredDwordStoreStep stepNo pc state afterWrite imm
+    (.Regidx 2#5) rs2 byte0 byte1 byte2 byte3 configured atPc loaded decode access
+    (pcFits := site.pcFits) (pcAligned := site.pcAligned) (base := base)
+    (read0 := site.read0) (read1 := site.read1) (read2 := site.read2) (read3 := site.read3)
 
 /-- Retire a production unconditional `j target` (`jal x0, target`) from a configured state. -/
 theorem configuredJStep (stepNo pc target : Nat) (state : State) (imm : BitVec 21)
@@ -461,6 +575,14 @@ theorem configuredJStep (stepNo pc target : Nat) (state : State) (imm : BitVec 2
     (_get_Misa_C misaBits == 1#1) platform noMMIO bytes interrupts base decode notExpected
     linkRead pcRun aligned0 aligned1 zca counters.1 counters.2.1
     counters.2.2.1 counters.2.2.2.1 counters.2.2.2.2.1 counters.2.2.2.2.2
+
+/-- Evaluate the unsigned comparison used by one exact `BLTU` branch. -/
+theorem bltuConditionRun (state : State) (rs2 rs1 : regidx) (right left : BitVec 64)
+    (rightRun : Runs (rX_bits rs2) state state right)
+    (leftRun : Runs (rX_bits rs1) state state left) :
+    Runs (bTypeTaken rs1 rs2 .BLTU) state state (zopz0zI_u right left) := by
+  unfold bTypeTaken
+  exact Runs.bind rightRun (Runs.bind leftRun rfl)
 
 /-- Retire one exact taken conditional branch from a configured state. -/
 theorem configuredBranchTakenStep (stepNo pc target : Nat) (state : State)
