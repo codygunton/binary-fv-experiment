@@ -137,6 +137,7 @@ let
     mkdir -p compiled/BinaryFv/ProofProgress
     export LEAN_PATH=$PWD/compiled:${leanExtraction}/.lake/build/lib/lean:${leanExtraction}/.lake/packages/Sail/.lake/build/lib/lean
     cp ${repo}/BinaryFv/Specs/SSZ/Decode.lean Decode.lean
+    cp ${repo}/BinaryFv/Option.lean Option.lean
     cp ${repo}/BinaryFv/Zesu/DecodedValue/Observers.lean Observers.lean
     cp ${repo}/BinaryFv/Zesu/DecodedValue/Encoder.lean Encoder.lean
     cp ${repo}/BinaryFv/Zesu/DecodedValue/Representation.lean Representation.lean

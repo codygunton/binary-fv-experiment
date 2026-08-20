@@ -1,4 +1,5 @@
 # module	source	output	optional Lean arguments
+BinaryFv.Option	Option.lean	compiled/BinaryFv/Option.olean
 BinaryFv.Specs.SSZ.Decode	Decode.lean	compiled/BinaryFv/Specs/SSZ/Decode.olean
 BinaryFv.Zesu.DecodedValue.Observers	Observers.lean	compiled/BinaryFv/Zesu/DecodedValue/Observers.olean
 BinaryFv.Zesu.DecodedValue.Encoder	Encoder.lean	compiled/BinaryFv/Zesu/DecodedValue/Encoder.olean
