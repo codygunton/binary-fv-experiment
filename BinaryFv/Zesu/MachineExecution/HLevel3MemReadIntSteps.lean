@@ -21,7 +21,8 @@ private theorem memReadIntOfNatAdd (base offset : Nat) (_fits : base + offset < 
   rw [BitVec.toNat_add, BitVec.toNat_ofNat, BitVec.toNat_ofNat, BitVec.toNat_ofNat]
   omega
 
-private theorem memReadIntByteLoadStep (stepNo pc offset : Nat) (state : State)
+/-- One exact unsigned-byte load through `x18`, shared by inlined integer readers. -/
+theorem configuredByteLoadFromX18Step (stepNo pc offset : Nat) (state : State)
     (rd : regidx) (destination : Register) (result : RegisterType destination)
     (byte0 byte1 byte2 byte3 : UInt8) (baseAddress value : Nat)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -76,7 +77,7 @@ theorem memReadIntLoadOffsetOne (stepNo : Nat) (state : State) (baseAddress valu
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x121c4) retired x10
         (zero_extend (m := 64) (BitVec.ofNat 8 value))) false := by
-  apply memReadIntByteLoadStep stepNo 0x121c4 1 state (.Regidx 10#5) x10
+  apply configuredByteLoadFromX18Step stepNo 0x121c4 1 state (.Regidx 10#5) x10
     (zero_extend (m := 64) (BitVec.ofNat 8 value))
     0x03 0x45 0x19 0x00 baseAddress value configured atPc base rep pma notMMIO sumFits loaded
   · configured_decode configured
@@ -103,7 +104,7 @@ theorem memReadIntLoadOffsetZero (stepNo : Nat) (state : State) (baseAddress val
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x121c8) retired x12
         (zero_extend (m := 64) (BitVec.ofNat 8 value))) false := by
-  apply memReadIntByteLoadStep stepNo 0x121c8 0 state (.Regidx 12#5) x12
+  apply configuredByteLoadFromX18Step stepNo 0x121c8 0 state (.Regidx 12#5) x12
     (zero_extend (m := 64) (BitVec.ofNat 8 value))
     0x03 0x46 0x09 0x00 baseAddress value configured atPc base (by simpa using rep)
     (by simpa using pma) (by simpa using notMMIO) (by simpa using sumFits) loaded
@@ -131,7 +132,7 @@ theorem memReadIntLoadOffsetTwo (stepNo : Nat) (state : State) (baseAddress valu
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x121cc) retired x14
         (zero_extend (m := 64) (BitVec.ofNat 8 value))) false := by
-  apply memReadIntByteLoadStep stepNo 0x121cc 2 state (.Regidx 14#5) x14
+  apply configuredByteLoadFromX18Step stepNo 0x121cc 2 state (.Regidx 14#5) x14
     (zero_extend (m := 64) (BitVec.ofNat 8 value))
     0x03 0x47 0x29 0x00 baseAddress value configured atPc base rep pma notMMIO sumFits loaded
   · configured_decode configured
@@ -158,7 +159,7 @@ theorem memReadIntLoadOffsetThree (stepNo : Nat) (state : State) (baseAddress va
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x121d0) retired x15
         (zero_extend (m := 64) (BitVec.ofNat 8 value))) false := by
-  apply memReadIntByteLoadStep stepNo 0x121d0 3 state (.Regidx 15#5) x15
+  apply configuredByteLoadFromX18Step stepNo 0x121d0 3 state (.Regidx 15#5) x15
     (zero_extend (m := 64) (BitVec.ofNat 8 value))
     0x83 0x47 0x39 0x00 baseAddress value configured atPc base rep pma notMMIO sumFits loaded
   · configured_decode configured
