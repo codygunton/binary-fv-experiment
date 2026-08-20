@@ -243,11 +243,24 @@ let
     python -m unittest discover -s tools -p 'test_*.py'
     gcc -shared -fPIC -O2 -Wall -Wextra -Werror -I${pkgs.qemu-user}/include $(pkg-config --cflags glib-2.0) tools/qemu_trace_plugin.c -o trace.so
     snapshots=$(python -c 'import json; rows=json.load(open("${zesuSszDecodeLevel3Manifest}/level3-manifest.json"))["instances"]; pcs=sorted({pc for row in rows for pc in row["executionPcs"]} | {row["entryPc"] for row in rows} | {pc for row in rows for pc in row["exitPcs"]}); print(",".join("snapshot="+str(pc) for pc in pcs))')
+    for schema in $(seq 0 22); do
+      cp ${targets.public.zesuSszDecodeSmoke}/minimal.ssz "fork-schema-$schema.ssz"
+      chmod u+w "fork-schema-$schema.ssz"
+      python -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); b=bytearray(p.read_bytes()); b[0]=int(sys.argv[2]); p.write_bytes(b)' \
+        "fork-schema-$schema.ssz" "$schema"
+    done
     for vector in minimal block-number chain-id-zero legacy-requests legacy-payload \
         future-activation extra-data-33 public-key-overflow versioned-hash-overflow \
         one-transaction one-withdrawal activation-timestamp blob-transaction invalid; do
       ${rv64.qemuRiscv64} -plugin ./trace.so,out="$vector.trace",input=${targets.public.zesuSszDecodeSmoke}/"$vector.ssz",input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,capture_window=0x14d30,capture_window_width=848,"$snapshots" \
         ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
+    done
+    fork_traces=()
+    for schema in $(seq 0 22); do
+      label=$(printf 'fork-schema-%02x' "$schema")
+      ${rv64.qemuRiscv64} -plugin ./trace.so,out="$label.trace",input="fork-schema-$schema.ssz",input_address=0x2001a000,context_address=0x2401a0b8,terminal=0x101d0,capture_write=0x10190,capture_window=0x14d30,capture_window_width=848,"$snapshots" \
+        ${zesuSszDecodeRv64Elf}/bin/zesu-ssz-decode
+      fork_traces+=(--trace "$label=$label.trace")
     done
     mkdir -p "$out"
     # This pre-work records unobserved proposed contracts. It does not admit them.
@@ -266,6 +279,7 @@ let
       --trace activation-timestamp=activation-timestamp.trace \
       --trace blob-transaction=blob-transaction.trace \
       --trace invalid=invalid.trace \
+      "''${fork_traces[@]}" \
       --output "$out/level3-evidence.json"
   '';
 

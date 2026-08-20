@@ -66,10 +66,35 @@ def schema_index(registry: dict) -> dict[str, tuple[str, dict]]:
     return result
 
 
+def validate_fork_dispatch(proposed: list[dict], evidence: dict) -> None:
+    contract = next(row for row in proposed
+                    if row["qualified"] == "ssz.forkNameFromSchemaByte")
+    cases = contract.get("jumpTableTargets", [])
+    rejected = sorted(set(contract["exitPcs"]) - set(cases))
+    if len(cases) != 21 or len(rejected) != 1:
+        raise ValueError("fork-name dispatch does not have 21 cases and one rejection exit")
+    rejection = rejected[0]
+    vectors = {row["label"]: row for row in evidence["vectors"]}
+    for schema in range(23):
+        label = f"fork-schema-{schema:02x}"
+        if label not in vectors:
+            raise ValueError(f"missing fork-name evidence vector {label}")
+        row = next(instance for instance in vectors[label]["instances"]
+                   if instance["id"] == contract["instanceId"])
+        expected = ([contract["entryPc"] + 8, rejection] if schema in {0, 22}
+                    else [contract["entryPc"] + 44, cases[schema - 1]])
+        if row["observedExitTransitions"] != [expected]:
+            raise ValueError(f"fork-name evidence route mismatch for {label}")
+        if not row["entryRegisters"] or any(
+                snapshot["values"][10] != schema for snapshot in row["entryRegisters"]):
+            raise ValueError(f"fork-name entry byte mismatch for {label}")
+
+
 def build(inventory: dict, evidence: dict, bindings: dict, registry: dict) -> dict:
     if inventory["artifact"] != evidence["artifact"] or inventory["artifact"] != bindings["artifact"]:
         raise ValueError("hLevel3 admission inputs describe different ELFs")
     proposed = inventory["proposedLevel3Contracts"]
+    validate_fork_dispatch(proposed, evidence)
     expected_count = inventory["summary"]["level3ContractCount"]
     if len(proposed) != expected_count:
         raise ValueError("hLevel3 admission contract count disagrees with its inventory")

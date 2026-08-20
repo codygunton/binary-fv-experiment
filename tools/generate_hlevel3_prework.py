@@ -271,6 +271,8 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
         if row["id"] in absorbed_attributions:
             continue
         capture = level3_observed[row["id"]]
+        jump_table = next((table for table in cfg.get("resolvedJumpTables", [])
+                           if table["source"] in row["executionPcs"]), None)
         proposed.append({
             "field": lean_field(row["id"], row["qualified"]),
             "instanceId": row["id"], "qualified": row["qualified"], "entryPc": row["entryPc"],
@@ -279,6 +281,7 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
             "inlineStack": row["functionInstanceIdentity"]["inlineStack"],
             "ownedPcs": row["instructionPcs"], "executionPcs": row["executionPcs"],
             "exitPcs": row["exitPcs"],
+            "jumpTableTargets": jump_table["targets"] if jump_table else [],
             "evidence": {"entryCount": capture["entries"],
                          "vectors": sorted(capture["vectors"]),
                          "observedOwnedPcs": sorted(capture["owned"]),

@@ -76,15 +76,9 @@ class AdmissionTests(unittest.TestCase):
     def test_forged_exit_is_rejected(self):
         evidence = copy.deepcopy(self.evidence)
         contract = self.inventory["proposedLevel3Contracts"][0]
-        evidence["vectors"] = [{
-            "label": "mutation", "instances": [{
-                "id": contract["instanceId"], "entryReached": True,
-                "entryRegisters": [], "observedExitTransitions": [[contract["entryPc"], 0xDEAD]],
-                "executedOwnedPcs": [], "executedExtentPcs": [],
-                "memoryAccessSummary": {"loads": 0, "stores": 0},
-                "hostWrites": [], "occurrences": [],
-            }],
-        }]
+        instance = next(row for vector in evidence["vectors"] for row in vector["instances"]
+                        if row["id"] == contract["instanceId"] and row["entryReached"])
+        instance["observedExitTransitions"] = [[contract["entryPc"], 0xDEAD]]
         with self.assertRaisesRegex(ValueError, "observed exits disagree"):
             build(self.inventory, evidence, self.bindings, self.registry)
 
@@ -125,6 +119,21 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual({clause["id"] for row in rows for clause in row["clauses"]
                           if clause["id"] == "checked-slice-result"},
                          {"checked-slice-result"})
+
+    def test_missing_fork_case_is_rejected(self):
+        evidence = copy.deepcopy(self.evidence)
+        evidence["vectors"] = [row for row in evidence["vectors"]
+                               if row["label"] != "fork-schema-0a"]
+        with self.assertRaisesRegex(ValueError, "missing fork-name evidence vector"):
+            build(self.inventory, evidence, self.bindings, self.registry)
+
+    def test_wrong_fork_case_target_is_rejected(self):
+        evidence = copy.deepcopy(self.evidence)
+        vector = next(row for row in evidence["vectors"] if row["label"] == "fork-schema-0a")
+        instance = next(row for row in vector["instances"] if row["id"] == "fi:1:2fe4")
+        instance["observedExitTransitions"][0][1] += 4
+        with self.assertRaisesRegex(ValueError, "fork-name evidence route mismatch"):
+            build(self.inventory, evidence, self.bindings, self.registry)
 
 
 if __name__ == "__main__":

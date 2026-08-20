@@ -85,6 +85,15 @@ class LiveArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "absorbed inline attribution disagrees"):
             build(*documents)
 
+    def test_fork_dispatch_keeps_linked_jump_table_order(self):
+        result = build(*self.documents)
+        row = next(contract for contract in result["proposedLevel3Contracts"]
+                   if contract["instanceId"] == "fi:1:2fe4")
+        table = next(table for table in self.documents[0]["resolvedJumpTables"]
+                     if table["source"] == 0x12248)
+        self.assertEqual(row["jumpTableTargets"], table["targets"])
+        self.assertEqual(len(row["jumpTableTargets"]), 21)
+
 
 if __name__ == "__main__":
     unittest.main()
