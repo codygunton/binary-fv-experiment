@@ -343,6 +343,11 @@ def forkNameOwnPc (pc : BitVec 64) : Prop :=
   pcInList [0x1221c, 0x12220, 0x12224, 0x12228, 0x1222c, 0x12230,
     0x12234, 0x12238, 0x1223c, 0x12240, 0x12244, 0x12248] pc
 
+def forkNameExitPc (pc : BitVec 64) : Prop :=
+  pcInList [0x126a4, 0x1224c, 0x125cc, 0x125ec, 0x1259c, 0x12628, 0x12658,
+    0x125fc, 0x12688, 0x125bc, 0x12678, 0x1258c, 0x125ac, 0x12648, 0x12580,
+    0x125dc, 0x12570, 0x12608, 0x12668, 0x12698, 0x12618, 0x12638] pc
+
 def forkNameWrites (register : Register) : Prop :=
   stepBookkeeping register ∨ register = x10 ∨ register = x12 ∨
     register = x29 ∨ register = x30
@@ -378,50 +383,53 @@ theorem forkNameAcceptedRun (fromStep schema tableAddress target : Nat) (state :
     (targetUpdate : Sail.BitVec.update (BitVec.ofNat 64 target) 0 0#1 =
       BitVec.ofNat 64 target)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
-    ∃ after, Seg forkNameOwnPc (fun _ => False)
+    ∃ after, Seg forkNameOwnPc forkNameExitPc
       (fun _ _ _ _ _ => False) forkNameWrites noMemory [] fromStep 12 state after
       (BitVec.ofNat 64 target) := by
   obtain ⟨retired, retiredRead⟩ := configured.retiredCounter
-  have seg0 := Seg.nil forkNameOwnPc (fun _ => False)
+  have seg0 := Seg.nil forkNameOwnPc forkNameExitPc
     (fun _ _ _ _ _ => False) forkNameWrites noMemory fromStep ⟨retired, retiredRead⟩ atPc
   have configuredOfSeg {kv n cur pc}
-      (seg : Seg forkNameOwnPc (fun _ => False)
+      (seg : Seg forkNameOwnPc forkNameExitPc
         (fun _ _ _ _ _ => False) forkNameWrites noMemory kv fromStep n state cur pc) :
       ConfiguredMachinePre EndpointMachinePc cur :=
     configured.mono (seg.agree forkNameInstructionDisjoint) seg.retired
   have loadedOfSeg {kv n cur pc}
-      (seg : Seg forkNameOwnPc (fun _ => False)
+      (seg : Seg forkNameOwnPc forkNameExitPc
         (fun _ _ _ _ _ => False) forkNameWrites noMemory kv fromStep n state cur pc) :
       Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
     rw [seg.memEq noMemory_empty]
     exact loaded
   obtain ⟨s1, seg1⟩ := seg0.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x10 (forkNameSchemaIndex schema) 0x12220
+    (by unfold forkNameExitPc pcInList; native_decide) x10
+    (forkNameSchemaIndex schema) 0x12220
     (forkNameSubtractOneStep fromStep schema state configured atPc schemaAt loaded)
     (by native_decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   obtain ⟨s2, seg2⟩ := seg1.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x12 20 0x12224
+    (by unfold forkNameExitPc pcInList; native_decide) x12 20 0x12224
     (forkNameLoadLimitStep (fromStep + 1) s1 (configuredOfSeg seg1) seg1.atPc
       (loadedOfSeg seg1))
     (by native_decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   obtain ⟨s3, seg3⟩ := seg2.stepFallThrough 0x12228
-    (by owned_pc [forkNameOwnPc, pcInList]) (by simp)
+    (by owned_pc [forkNameOwnPc, pcInList])
+    (by unfold forkNameExitPc pcInList; native_decide)
     (forkNameBoundsAcceptedStep (fromStep + 2) s2 (forkNameSchemaIndex schema)
       (configuredOfSeg seg2) seg2.atPc
       (seg2.reg x10 _ (by simp)) (seg2.reg x12 _ (by simp)) accepted (loadedOfSeg seg2))
     (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
   have seg3' := seg3.forget (kv' := []) (by simp)
   obtain ⟨s4, seg4⟩ := seg3'.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x10 (forkNameTableOffset (forkNameSchemaIndex schema)) 0x1222c
+    (by unfold forkNameExitPc pcInList; native_decide) x10
+    (forkNameTableOffset (forkNameSchemaIndex schema)) 0x1222c
     (forkNameScaleIndexStep (fromStep + 3) s3 (forkNameSchemaIndex schema)
       (configuredOfSeg seg3') seg3'.atPc
       ((seg3.reg x10 _ (by simp)).trans rfl) (loadedOfSeg seg3'))
     (by native_decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   obtain ⟨s5, seg5⟩ := seg4.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x12 0x1722c 0x12230
+    (by unfold forkNameExitPc pcInList; native_decide) x12 0x1722c 0x12230
     (forkNameTableBaseHighStep (fromStep + 4) s4 (configuredOfSeg seg4) seg4.atPc
       (loadedOfSeg seg4))
     (by native_decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
@@ -429,14 +437,15 @@ theorem forkNameAcceptedRun (fromStep schema tableAddress target : Nat) (state :
   have seg5' := seg5.forget (kv' := [⟨x10,
       forkNameTableOffset (forkNameSchemaIndex schema)⟩]) (by simp)
   obtain ⟨s6, seg6⟩ := seg5'.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x12 0x17228 0x12234
+    (by unfold forkNameExitPc pcInList; native_decide) x12 0x17228 0x12234
     (forkNameTableBaseLowStep (fromStep + 5) s5 (configuredOfSeg seg5') seg5'.atPc
       (seg5.reg x12 _ (by simp)) (loadedOfSeg seg5'))
     (by native_decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have seg6' := seg6.forget (kv' := [⟨x12, 0x17228⟩]) (by simp)
   obtain ⟨s7, seg7⟩ := seg6'.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x10 (0x17228 + forkNameTableOffset (forkNameSchemaIndex schema)) 0x12238
+    (by unfold forkNameExitPc pcInList; native_decide) x10
+    (0x17228 + forkNameTableOffset (forkNameSchemaIndex schema)) 0x12238
     (forkNameTableAddressStep (fromStep + 6) s6
       (forkNameTableOffset (forkNameSchemaIndex schema)) (configuredOfSeg seg6') seg6'.atPc
       (seg6.reg x10 _ (by simp)) (seg6.reg x12 _ (by simp)) (loadedOfSeg seg6'))
@@ -449,7 +458,8 @@ theorem forkNameAcceptedRun (fromStep schema tableAddress target : Nat) (state :
     loadPmaAllows_of_agree (seg7.agree forkNamePlatformDisjoint) targetPma
   have seg7' := seg7.forget (kv' := [⟨x12, 0x17228⟩]) (by simp)
   obtain ⟨s8, seg8⟩ := seg7'.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x10 (BitVec.ofNat 64 target) 0x1223c
+    (by unfold forkNameExitPc pcInList; native_decide) x10
+    (BitVec.ofNat 64 target) 0x1223c
     (forkNameLoadTargetStep (fromStep + 7) tableAddress target s7
       (configuredOfSeg seg7') seg7'.atPc
       (by simpa [tableAddressEq] using seg7.reg x10 _ (by simp)) targetRep7 targetPma7
@@ -457,7 +467,7 @@ theorem forkNameAcceptedRun (fromStep schema tableAddress target : Nat) (state :
     (by native_decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   obtain ⟨s9, seg9⟩ := seg8.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x29 8 0x12240
+    (by unfold forkNameExitPc pcInList; native_decide) x29 8 0x12240
     (forkNameLoadElementSizeStep (fromStep + 8) s8 (configuredOfSeg seg8) seg8.atPc
       (loadedOfSeg seg8))
     (by native_decide) (by intro r h; exact Or.inl h)
@@ -466,13 +476,13 @@ theorem forkNameAcceptedRun (fromStep schema tableAddress target : Nat) (state :
   have seg9' := seg9.forget
     (kv' := [⟨x29, 8⟩, ⟨x10, BitVec.ofNat 64 target⟩]) (by simp)
   obtain ⟨s10, seg10⟩ := seg9'.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x12 0x17240 0x12244
+    (by unfold forkNameExitPc pcInList; native_decide) x12 0x17240 0x12244
     (forkNameNamesBaseHighStep (fromStep + 9) s9 (configuredOfSeg seg9') seg9'.atPc
       (loadedOfSeg seg9'))
     (by native_decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   obtain ⟨s11, seg11⟩ := seg10.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x30 0x17906 0x12248
+    (by unfold forkNameExitPc pcInList; native_decide) x30 0x17906 0x12248
     (forkNameNamesBaseLowStep (fromStep + 10) s10 (configuredOfSeg seg10) seg10.atPc
       (seg10.reg x12 _ (by simp)) (loadedOfSeg seg10))
     (by native_decide) (by intro r h; exact Or.inl h)
@@ -482,7 +492,8 @@ theorem forkNameAcceptedRun (fromStep schema tableAddress target : Nat) (state :
     (BitVec.ofNat 64 target) (configuredOfSeg seg11) seg11.atPc
     (seg11.reg x10 _ (by simp)) targetAligned (loadedOfSeg seg11)
   obtain ⟨s12, seg12⟩ := seg11.stepJump (BitVec.ofNat 64 target)
-    (by owned_pc [forkNameOwnPc, pcInList]) (by simp)
+    (by owned_pc [forkNameOwnPc, pcInList])
+    (by unfold forkNameExitPc pcInList; native_decide)
     (by simpa only [targetUpdate, Nat.zero_add, Nat.add_assoc] using jumpRun)
     (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
   exact ⟨s12, seg12.forget (kv' := []) (by simp)⟩
@@ -494,35 +505,37 @@ theorem forkNameRejectedRun (fromStep schema : Nat) (state : State)
     (schemaAt : state.regs.get? x10 = some (BitVec.ofNat 64 schema))
     (rejected : zopz0zI_u 20 (forkNameSchemaIndex schema) = true)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
-    ∃ after, Seg forkNameOwnPc (fun _ => False) (fun _ _ _ _ _ => False)
+    ∃ after, Seg forkNameOwnPc forkNameExitPc (fun _ _ _ _ _ => False)
       forkNameWrites noMemory [] fromStep 3 state after 0x12638 := by
   obtain ⟨retired, retiredRead⟩ := configured.retiredCounter
-  have seg0 := Seg.nil forkNameOwnPc (fun _ => False) (fun _ _ _ _ _ => False)
+  have seg0 := Seg.nil forkNameOwnPc forkNameExitPc (fun _ _ _ _ _ => False)
     forkNameWrites noMemory fromStep ⟨retired, retiredRead⟩ atPc
   have configuredOfSeg {kv n cur pc}
-      (seg : Seg forkNameOwnPc (fun _ => False) (fun _ _ _ _ _ => False)
+      (seg : Seg forkNameOwnPc forkNameExitPc (fun _ _ _ _ _ => False)
         forkNameWrites noMemory kv fromStep n state cur pc) :
       ConfiguredMachinePre EndpointMachinePc cur :=
     configured.mono (seg.agree forkNameInstructionDisjoint) seg.retired
   have loadedOfSeg {kv n cur pc}
-      (seg : Seg forkNameOwnPc (fun _ => False) (fun _ _ _ _ _ => False)
+      (seg : Seg forkNameOwnPc forkNameExitPc (fun _ _ _ _ _ => False)
         forkNameWrites noMemory kv fromStep n state cur pc) :
       Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
     rw [seg.memEq noMemory_empty]
     exact loaded
   obtain ⟨s1, seg1⟩ := seg0.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x10 (forkNameSchemaIndex schema) 0x12220
+    (by unfold forkNameExitPc pcInList; native_decide) x10
+    (forkNameSchemaIndex schema) 0x12220
     (forkNameSubtractOneStep fromStep schema state configured atPc schemaAt loaded)
     (by native_decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   obtain ⟨s2, seg2⟩ := seg1.step (by owned_pc [forkNameOwnPc, pcInList])
-    (by simp) x12 20 0x12224
+    (by unfold forkNameExitPc pcInList; native_decide) x12 20 0x12224
     (forkNameLoadLimitStep (fromStep + 1) s1 (configuredOfSeg seg1) seg1.atPc
       (loadedOfSeg seg1))
     (by native_decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   obtain ⟨s3, seg3⟩ := seg2.stepJump 0x12638
-    (by owned_pc [forkNameOwnPc, pcInList]) (by simp)
+    (by owned_pc [forkNameOwnPc, pcInList])
+    (by unfold forkNameExitPc pcInList; native_decide)
     (forkNameBoundsRejectedStep (fromStep + 2) s2 (forkNameSchemaIndex schema)
       (configuredOfSeg seg2) seg2.atPc
       (seg2.reg x10 _ (by simp)) (seg2.reg x12 _ (by simp)) rejected (loadedOfSeg seg2))

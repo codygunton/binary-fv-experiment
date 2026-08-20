@@ -15,6 +15,11 @@
       "field": "ssz_readU32_fi_1_3335",
       "theorem": "BinaryFv.Zesu.Staging.proposed_readU32_3335_proved",
       "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_readU32_fi_1_3335_Contract"
+    },
+    {
+      "field": "ssz_forkNameFromSchemaByte_fi_1_2fe4",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_forkNameFromSchemaByte_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_forkNameFromSchemaByte_fi_1_2fe4_Contract"
     }
   ]
 }
