@@ -27,7 +27,8 @@ class LeanStagingTests(unittest.TestCase):
         cls.source = generate(cls.inventory, cls.guidance, cls.admission, cls.catalogue)
 
     def test_exact_typed_holes(self):
-        self.assertEqual(self.source.count("  sorry"), 72 - len(DIRECT_PROOFS))
+        contract_hole_proofs = set(DIRECT_PROOFS) - {"mem_writeInt_fi_1_45b2"}
+        self.assertEqual(self.source.count("  sorry"), 72 - len(contract_hole_proofs))
         self.assertEqual(self.source.count("def Proposed_"), 58)
         self.assertEqual(self.source.count("private theorem resolve_"), 17)
         self.assertIn(

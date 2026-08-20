@@ -1207,8 +1207,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_ssz_decode_observation_Encoder_int_fi_1_43a9_Contract
   ssz_decode_observation_Encoder_int_fi_1_4494 :
     Proposed_ssz_decode_observation_Encoder_int_fi_1_4494_Contract
-  mem_writeInt_fi_1_45b2 :
-    Proposed_mem_writeInt_fi_1_45b2_Contract
   ssz_decode_observation_Encoder_raw_fi_1_45f6 :
     Proposed_ssz_decode_observation_Encoder_raw_fi_1_45f6_Contract
   extern_io_write_output_fi_1_49b1 :
@@ -2210,9 +2208,9 @@ private theorem resolve_writeSuccessFeeRecipient
 
 /--
 Resolve Level 2 field `writeSuccessInt` for `fi:1:4578`.
-Level 3 contracts: `mem_writeInt_fi_1_45b2`, `ssz_decode_observation_Encoder_raw_fi_1_45f6`.
+Level 3 contracts: `ssz_decode_observation_Encoder_raw_fi_1_45f6`.
 Earlier Level 2 results: none.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_memWriteInt_proved`.
 Parent glue: 5 instructions in 2 block fragments.
 Fragment `0x15d10` (2 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
@@ -2228,7 +2226,6 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessInt
-    (mem_writeInt_fi_1_45b2 : Proposed_mem_writeInt_fi_1_45b2_Contract)
     (ssz_decode_observation_Encoder_raw_fi_1_45f6 : Proposed_ssz_decode_observation_Encoder_raw_fi_1_45f6_Contract)
     : WriteSuccessIntInstanceContract := by
   sorry
@@ -2670,7 +2667,6 @@ theorem level2Contracts_of_level3_staged
       hLevel3.extern_io_write_output_fi_1_3db4
   have resolved_writeSuccessInt : WriteSuccessIntInstanceContract :=
     resolve_writeSuccessInt
-      hLevel3.mem_writeInt_fi_1_45b2
       hLevel3.ssz_decode_observation_Encoder_raw_fi_1_45f6
   have resolved_writeSuccessBytes : WriteSuccessBytesInstanceContract :=
     resolve_writeSuccessBytes

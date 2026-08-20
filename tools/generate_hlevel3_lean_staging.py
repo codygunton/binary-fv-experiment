@@ -11,11 +11,15 @@ from pathlib import Path
 DIRECT_PROOFS = {
     "mem_readInt_fi_1_2fa7":
         "BinaryFv.Zesu.Staging.proposed_memReadInt_proved",
+    "mem_writeInt_fi_1_45b2":
+        "BinaryFv.Zesu.Staging.proposed_memWriteInt_proved",
 }
 
 DIRECT_CONTRACTS = {
     "mem_readInt_fi_1_2fa7":
         "BinaryFv.Zesu.Staging.Proposed_mem_readInt_fi_1_2fa7_Contract",
+    "mem_writeInt_fi_1_45b2":
+        "BinaryFv.Zesu.Staging.Proposed_mem_writeInt_fi_1_45b2_Contract",
 }
 
 
@@ -135,8 +139,6 @@ def read_u32_schema() -> list[str]:
 def contract_body(field: str) -> list[str]:
     if field in DIRECT_PROOFS:
         return [f"  exact {DIRECT_CONTRACTS[field]}"]
-    if field == "mem_writeInt_fi_1_45b2":
-        return ["  exact BinaryFv.Zesu.Staging.Proposed_mem_writeInt_fi_1_45b2_Contract"]
     if field not in {"ssz_readU32_fi_1_3335", "ssz_readU32_fi_1_33a1"}:
         return ["  sorry"]
     if field == "ssz_readU32_fi_1_3335":
