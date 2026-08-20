@@ -58,4 +58,63 @@ theorem forkNameLoadLimitStep (stepNo : Nat) (state : State)
     configured atPc loaded (by configured_decode configured) execute
     (pcFits := by native_decide) (base := by rfl)
 
+private theorem forkNameBltuCondition (state : State) (index limit : BitVec 64)
+    (indexAt : state.regs.get? x10 = some index)
+    (limitAt : state.regs.get? x12 = some limit) :
+    Runs (bTypeTaken (.Regidx 10#5) (.Regidx 12#5) .BLTU) state state
+      (zopz0zI_u limit index) := by
+  unfold bTypeTaken
+  refine Runs.bind (rX_x12_run state limit limitAt) ?_
+  refine Runs.bind (rX_x10_run state index indexAt) ?_
+  rfl
+
+/-- Exact not-taken `0x12224: bltu a2,a0,0x12638`. -/
+theorem forkNameBoundsAcceptedStep (stepNo : Nat) (state : State) (index : BitVec 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x12224))
+    (indexAt : state.regs.get? x10 = some index)
+    (limitAt : state.regs.get? x12 = some 20)
+    (accepted : zopz0zI_u 20 index = false)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12224)
+        0x12228 retired) false := by
+  apply configuredBranchNotTakenStep stepNo 0x12224 state 0x414 (.Regidx 10#5)
+    (.Regidx 12#5) .BLTU 0x63 0x6a 0xa6 0x40 configured atPc loaded
+  · configured_decode configured
+  · simpa only [accepted] using forkNameBltuCondition
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12224)
+      index 20
+      ((stepPremiseState_writes state 0x12224).get x10 (by decide) |>.trans indexAt)
+      ((stepPremiseState_writes state 0x12224).get x12 (by decide) |>.trans limitAt)
+  · native_decide
+  · rfl
+
+/-- Exact taken `0x12224: bltu a2,a0,0x12638`. -/
+theorem forkNameBoundsRejectedStep (stepNo : Nat) (state : State) (index : BitVec 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x12224))
+    (indexAt : state.regs.get? x10 = some index)
+    (limitAt : state.regs.get? x12 = some 20)
+    (rejected : zopz0zI_u 20 index = true)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x12224 0x12638)
+        0x12638 retired) false := by
+  apply configuredBranchTakenStep stepNo 0x12224 0x12638 state 0x414 (.Regidx 10#5)
+    (.Regidx 12#5) .BLTU 0x63 0x6a 0xa6 0x40 configured atPc loaded
+  · configured_decode configured
+  · simpa only [rejected] using forkNameBltuCondition
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12224)
+      index 20
+      ((stepPremiseState_writes state 0x12224).get x10 (by decide) |>.trans indexAt)
+      ((stepPremiseState_writes state 0x12224).get x12 (by decide) |>.trans limitAt)
+  · native_decide
+  · native_decide
+  · native_decide
+  · native_decide
+  · rfl
+
 end BinaryFv.Zesu.MachineExecution
