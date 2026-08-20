@@ -487,4 +487,46 @@ theorem forkNameAcceptedRun (fromStep schema tableAddress target : Nat) (state :
     (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
   exact ⟨s12, seg12.forget (kv' := []) (by simp)⟩
 
+/-- Exact rejected fork-name dispatch from `0x1221c` to the bounds-error block at `0x12638`. -/
+theorem forkNameRejectedRun (fromStep schema : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1221c))
+    (schemaAt : state.regs.get? x10 = some (BitVec.ofNat 64 schema))
+    (rejected : zopz0zI_u 20 (forkNameSchemaIndex schema) = true)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ after, Seg forkNameOwnPc (fun _ => False) (fun _ _ _ _ _ => False)
+      forkNameWrites noMemory [] fromStep 3 state after 0x12638 := by
+  obtain ⟨retired, retiredRead⟩ := configured.retiredCounter
+  have seg0 := Seg.nil forkNameOwnPc (fun _ => False) (fun _ _ _ _ _ => False)
+    forkNameWrites noMemory fromStep ⟨retired, retiredRead⟩ atPc
+  have configuredOfSeg {kv n cur pc}
+      (seg : Seg forkNameOwnPc (fun _ => False) (fun _ _ _ _ _ => False)
+        forkNameWrites noMemory kv fromStep n state cur pc) :
+      ConfiguredMachinePre EndpointMachinePc cur :=
+    configured.mono (seg.agree forkNameInstructionDisjoint) seg.retired
+  have loadedOfSeg {kv n cur pc}
+      (seg : Seg forkNameOwnPc (fun _ => False) (fun _ _ _ _ _ => False)
+        forkNameWrites noMemory kv fromStep n state cur pc) :
+      Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
+    rw [seg.memEq noMemory_empty]
+    exact loaded
+  obtain ⟨s1, seg1⟩ := seg0.step (by owned_pc [forkNameOwnPc, pcInList])
+    (by simp) x10 (forkNameSchemaIndex schema) 0x12220
+    (forkNameSubtractOneStep fromStep schema state configured atPc schemaAt loaded)
+    (by native_decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨s2, seg2⟩ := seg1.step (by owned_pc [forkNameOwnPc, pcInList])
+    (by simp) x12 20 0x12224
+    (forkNameLoadLimitStep (fromStep + 1) s1 (configuredOfSeg seg1) seg1.atPc
+      (loadedOfSeg seg1))
+    (by native_decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨s3, seg3⟩ := seg2.stepJump 0x12638
+    (by owned_pc [forkNameOwnPc, pcInList]) (by simp)
+    (forkNameBoundsRejectedStep (fromStep + 2) s2 (forkNameSchemaIndex schema)
+      (configuredOfSeg seg2) seg2.atPc
+      (seg2.reg x10 _ (by simp)) (seg2.reg x12 _ (by simp)) rejected (loadedOfSeg seg2))
+    (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
+  exact ⟨s3, seg3.forget (kv' := []) (by simp)⟩
+
 end BinaryFv.Zesu.MachineExecution
