@@ -42,6 +42,11 @@ class LeanStagingTests(unittest.TestCase):
             "sszReadU32Contract 0x12ca4 58 x10 x15 x13 x14 stepBound",
             self.source)
 
+    def test_read_u32_entry_requires_nonwrapping_source_window(self):
+        self.assertIn(
+            "args.sourceAddress + sourceOffset + 4 ≤ 2 ^ 64 ∧",
+            self.source)
+
     def test_every_level3_field_is_passed_to_a_parent(self):
         for row in self.inventory["proposedLevel3Contracts"]:
             self.assertIn(f"hLevel3.{row['field']}", self.source)

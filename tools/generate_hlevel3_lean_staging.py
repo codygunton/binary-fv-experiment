@@ -63,6 +63,7 @@ def read_u32_schema() -> list[str]:
         "  state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧",
         "  state.machine.regs.get? x18 = some (BitVec.ofNat 64 args.sourceAddress) ∧",
         "  args.sourceBytes.size = 4 ∧",
+        "  args.sourceAddress + sourceOffset + 4 ≤ 2 ^ 64 ∧",
         "  BytesRep state.machine.mem (args.sourceAddress + sourceOffset) args.sourceBytes ∧",
         "  (∀ index, index < 4 →",
         "    LoadPmaAllows state.machine",
