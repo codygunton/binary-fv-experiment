@@ -58,5 +58,7 @@ BinaryFv.Zesu.TrustAudit	TrustAudit.lean	compiled/BinaryFv/Zesu/TrustAudit.olean
 BinaryFv.Zesu.Staging.MemWriteInt	MemWriteInt.lean	compiled/BinaryFv/Zesu/Staging/MemWriteInt.olean
 BinaryFv.Zesu.MachineExecution.HLevel3MemReadIntSteps	HLevel3MemReadIntSteps.lean	compiled/BinaryFv/Zesu/MachineExecution/HLevel3MemReadIntSteps.olean
 BinaryFv.Zesu.Staging.MemReadInt	MemReadInt.lean	compiled/BinaryFv/Zesu/Staging/MemReadInt.olean
+BinaryFv.Zesu.MachineExecution.HLevel3ReadU32Steps	HLevel3ReadU32Steps.lean	compiled/BinaryFv/Zesu/MachineExecution/HLevel3ReadU32Steps.olean
+BinaryFv.Zesu.Staging.ReadU32	ReadU32.lean	compiled/BinaryFv/Zesu/Staging/ReadU32.olean
 BinaryFv.Zesu.Staging.HLevel3	HLevel3.lean	compiled/BinaryFv/Zesu/Staging/HLevel3.olean
 BinaryFv.Zesu.Staging.HLevel3IdiomChecks	HLevel3IdiomChecks.lean	compiled/BinaryFv/Zesu/Staging/HLevel3IdiomChecks.olean
