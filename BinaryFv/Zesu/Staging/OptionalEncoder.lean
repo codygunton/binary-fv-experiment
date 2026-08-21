@@ -12,7 +12,9 @@ so this file keeps those bindings separate and shares the route and exit proof.
 namespace BinaryFv.Zesu.Staging
 
 open BinaryFv.RiscV
+open BinaryFv.RiscV.Elfling
 open BinaryFv.Zesu
+open BinaryFv.Zesu.MachineExecution
 open PreSail LeanRV64DExecutable.Functions Register
 
 structure OptionalEncoderArgs (Value : Type) where
@@ -63,6 +65,459 @@ structure OptionalEncoderMachineAccess (localFrameSize scratchOffset scratchSize
   scratchNotCode : ∀ address, args.stackPointer + scratchOffset ≤ address →
     address < args.stackPointer + scratchOffset + scratchSize →
       Artifacts.programImage.readFileByte? address = none
+
+def optionalBooleanCallWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x1 ∨ register = x10
+
+private theorem encoderInlinePreserved_disjoint_optionalBooleanCallWrites :
+    RegSet.Disjoint encoderInlinePreserved optionalBooleanCallWrites := by
+  intro register preserved written
+  simp [encoderInlinePreserved, optionalBooleanCallWrites, instructionPreserved,
+    platformPreserved, stepBookkeeping] at preserved written
+  grind
+
+private theorem instructionPreserved_disjoint_optionalBooleanCallWrites :
+    RegSet.Disjoint instructionPreserved optionalBooleanCallWrites := by
+  intro register preserved written
+  exact encoderInlinePreserved_disjoint_optionalBooleanCallWrites register (Or.inl preserved)
+    written
+
+private theorem OptionalEncoderMachineAccess.ofWrites
+    {writes : RegSet}
+    (access : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args before)
+    (frame : WritesOnlyRegs writes before after) (pmaOutside : ¬writes pma_regions)
+    (configured : ConfiguredMachinePre EndpointMachinePc after) :
+    OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args after := by
+  have pmaEq := frame.get pma_regions pmaOutside
+  exact
+    { output :=
+        { configured := configured
+          outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq
+            access.output.outputBufferStore
+          outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq
+            access.output.outputLengthStore
+          outputBufferNoMMIO := access.output.outputBufferNoMMIO
+          outputLengthNoMMIO := access.output.outputLengthNoMMIO }
+      stackAligned := access.stackAligned
+      frameFits := access.frameFits
+      scratchFits := access.scratchFits
+      frameLoad := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width bound)
+      frameStore := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width bound)
+      frameLoadNoMMIO := access.frameLoadNoMMIO
+      frameStoreNoMMIO := access.frameStoreNoMMIO
+      scratchLoad := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.scratchLoad offset width bound)
+      scratchStore := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.scratchStore offset width bound)
+      scratchLoadNoMMIO := access.scratchLoadNoMMIO
+      scratchStoreNoMMIO := access.scratchStoreNoMMIO
+      frameOutputDisjoint := access.frameOutputDisjoint
+      scratchOutputDisjoint := access.scratchOutputDisjoint
+      frameNotCode := access.frameNotCode
+      scratchNotCode := access.scratchNotCode }
+
+private theorem OptionalEncoderMachineAccess.encoderCall
+    (access : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args state)
+    (frameLower : 16 ≤ localFrameSize) (tag : Bool) :
+    EncoderCallMachineAccess 16
+      { returnAddress := returnPc
+        callerStack := args.stackPointer
+        inputSize := args.inputSize
+        value := tag }
+      state := by
+  let childArgs : EncoderCallArgs Bool :=
+    { returnAddress := returnPc
+      callerStack := args.stackPointer
+      inputSize := args.inputSize
+      value := tag }
+  have frameFits := access.frameFits
+  refine
+    { output := access.output
+      stackAligned := access.stackAligned
+      frameOutputDisjoint := ?_
+      frameLoad := ?_
+      frameStore := ?_
+      frameLoadNoMMIO := ?_
+      frameStoreNoMMIO := ?_
+      frameNotCode := ?_ }
+  · intro address inside output
+    apply access.frameOutputDisjoint address
+    · change byteRange (args.stackPointer - 16) 16 address at inside
+      unfold byteRange at inside ⊢
+      omega
+    · exact output
+  · intro offset width bound
+    have addressEq : args.stackPointer - 16 + offset =
+        args.stackPointer - localFrameSize + (localFrameSize - 16 + offset) := by
+      omega
+    rw [addressEq]
+    exact access.frameLoad (localFrameSize - 16 + offset) width (by omega)
+  · intro offset width bound
+    have addressEq : args.stackPointer - 16 + offset =
+        args.stackPointer - localFrameSize + (localFrameSize - 16 + offset) := by
+      omega
+    rw [addressEq]
+    exact access.frameStore (localFrameSize - 16 + offset) width (by omega)
+  · intro offset width bound
+    have addressEq : args.stackPointer - 16 + offset =
+        args.stackPointer - localFrameSize + (localFrameSize - 16 + offset) := by
+      omega
+    rw [addressEq]
+    exact access.frameLoadNoMMIO (localFrameSize - 16 + offset) width (by omega)
+  · intro offset width bound
+    have addressEq : args.stackPointer - 16 + offset =
+        args.stackPointer - localFrameSize + (localFrameSize - 16 + offset) := by
+      omega
+    rw [addressEq]
+    exact access.frameStoreNoMMIO (localFrameSize - 16 + offset) width (by omega)
+  · intro address lower upper
+    change args.stackPointer - 16 ≤ address at lower
+    exact access.frameNotCode address (by omega) upper
+
+private theorem instructionPreserved_abiCalleePreserved_optional (register : Register)
+    (preserved : instructionPreserved register) : abiCalleePreserved register := by
+  rcases preserved with ⟨platform, notLink⟩
+  rcases platform with
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl
+  · exact (notLink rfl).elim
+  all_goals simp [abiCalleePreserved]
+
+private theorem OptionalEncoderMachineAccess.ofEncoderFrame
+    (template : EndpointState)
+    (access : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args before)
+    (frame : EncoderInlineFrame { template with machine := before }
+      { template with machine := after }) :
+    OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args after := by
+  have instructionAgree : Agree instructionPreserved before after :=
+    frame.1.weaken (fun _ preserved => Or.inl preserved)
+  have pmaEq := instructionAgree pma_regions
+    (by simp [instructionPreserved, platformPreserved])
+  exact
+    { output :=
+        { configured := access.output.configured.mono instructionAgree frame.2.1
+          outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq
+            access.output.outputBufferStore
+          outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq
+            access.output.outputLengthStore
+          outputBufferNoMMIO := access.output.outputBufferNoMMIO
+          outputLengthNoMMIO := access.output.outputLengthNoMMIO }
+      stackAligned := access.stackAligned
+      frameFits := access.frameFits
+      scratchFits := access.scratchFits
+      frameLoad := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width bound)
+      frameStore := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width bound)
+      frameLoadNoMMIO := access.frameLoadNoMMIO
+      frameStoreNoMMIO := access.frameStoreNoMMIO
+      scratchLoad := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.scratchLoad offset width bound)
+      scratchStore := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.scratchStore offset width bound)
+      scratchLoadNoMMIO := access.scratchLoadNoMMIO
+      scratchStoreNoMMIO := access.scratchStoreNoMMIO
+      frameOutputDisjoint := access.frameOutputDisjoint
+      scratchOutputDisjoint := access.scratchOutputDisjoint
+      frameNotCode := access.frameNotCode
+      scratchNotCode := access.scratchNotCode }
+
+private theorem liftOptionalParentTrace (template : EndpointState)
+    {owned exit : BitVec 64 → Prop} {fromStep count : Nat} {before after : State}
+    (notHost : ∀ pc, owned pc → ¬BareMetalHostTransitionPc pc)
+    (trace : ScopedTrace owned exit (fun _ _ _ _ _ => False)
+      fromStep count before after) :
+    ConfinedTrace EndpointStep EndpointPc owned fromStep count
+      { template with machine := before } { template with machine := after } := by
+  induction trace with
+  | exitAt fromStep state pc atPc exitPc => exact .refl fromStep { template with machine := state }
+  | ownStep fromStep count pc before middle after atPc inside notExit machineStep rest ih =>
+      refine ConfinedTrace.step fromStep count pc
+        { template with machine := before } { template with machine := middle }
+        { template with machine := after } atPc inside ?_ (by simpa using ih)
+      exact endpointStep_sail fromStep { template with machine := before } middle
+        (fun observed observedPc => by
+          change before.regs.get? PC = some observed at observedPc
+          rw [atPc] at observedPc
+          cases Option.some.inj observedPc
+          exact notHost pc inside)
+        machineStep
+  | childBody fromStep used count child before middle after body rest ih => exact body.elim
+  | inlineStep fromStep used count boundary program parent child before resume after transfer rest ih =>
+      exact transfer.body.elim
+  | inlineCallStep fromStep childUsed calleeUsed count boundary program parent child callee before
+      resume after transfer rest ih => exact transfer.body.elim
+  | callStep fromStep used count callSite program parent callee before resume after transfer rest ih =>
+      exact transfer.body.elim
+
+/-- The exact three parent instructions that prepare and enter one shared Boolean encoder call. -/
+def optionalBooleanParentPc (pc : Nat) (parentPc : BitVec 64) : Prop :=
+  parentPc = BitVec.ofNat 64 pc ∨ parentPc = BitVec.ofNat 64 (pc + 4) ∨
+    parentPc = BitVec.ofNat 64 (pc + 8)
+
+structure OptionalBooleanCallSite (pc returnPc callBase : Nat)
+    (executionPcs : List Elflings.PcRange) where
+  literalStep : ∀ stepNo state (tag : Bool),
+    ConfiguredMachinePre EndpointMachinePc state →
+    state.regs.get? PC = some (BitVec.ofNat 64 pc) →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x10
+        (if tag then 1 else 0)) false
+  baseStep : ∀ stepNo state,
+    ConfiguredMachinePre EndpointMachinePc state →
+    state.regs.get? PC = some (BitVec.ofNat 64 (pc + 4)) →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 (pc + 4)) retired x1
+        (BitVec.ofNat 64 callBase)) false
+  callStep : ∀ stepNo state,
+    ConfiguredMachinePre EndpointMachinePc state →
+    state.regs.get? PC = some (BitVec.ofNat 64 (pc + 8)) →
+    state.regs.get? x1 = some (BitVec.ofNat 64 callBase) →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state)
+          (BitVec.ofNat 64 (pc + 8)) 0x15b9c x1 (BitVec.ofNat 64 returnPc))
+        0x15b9c retired) false
+  owned0 : pcInRanges executionPcs (BitVec.ofNat 64 pc)
+  owned1 : pcInRanges executionPcs (BitVec.ofNat 64 (pc + 4))
+  owned2 : pcInRanges executionPcs (BitVec.ofNat 64 (pc + 8))
+  notExit0 : BitVec.ofNat 64 pc ≠ 0x15b9c
+  notExit1 : BitVec.ofNat 64 (pc + 4) ≠ 0x15b9c
+  notExit2 : BitVec.ofNat 64 (pc + 8) ≠ 0x15b9c
+  next0 : Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 = BitVec.ofNat 64 (pc + 4)
+  next1 : Sail.BitVec.addInt (BitVec.ofNat 64 (pc + 4)) 4 = BitVec.ofNat 64 (pc + 8)
+  returnListed : returnPc ∈ Elflings.writeSuccessBooleanExitPcs
+  childInside : ∀ {childPc},
+    pcInRanges Elflings.writeSuccessBooleanExecutionPcRanges childPc →
+    pcInRanges executionPcs childPc
+  notHost0 : ¬BareMetalHostTransitionPc (BitVec.ofNat 64 pc)
+  notHost1 : ¬BareMetalHostTransitionPc (BitVec.ofNat 64 (pc + 4))
+  notHost2 : ¬BareMetalHostTransitionPc (BitVec.ofNat 64 (pc + 8))
+
+set_option genInjectivity false in
+/-- Shared result of the Boolean tag call used by both optional encoders. -/
+structure OptionalBooleanCallHandoff (localFrameSize scratchOffset scratchSize fromStep : Nat)
+    (childUsed returnPc : Nat) (executionPcs : List Elflings.PcRange)
+    (args : OptionalEncoderArgs Value)
+    (tag : Bool) (before after : EndpointState) where
+  trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
+    fromStep (3 + childUsed) before after
+  atPc : after.machine.regs.get? PC = some (BitVec.ofNat 64 returnPc)
+  stack : after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer)
+  stdout : after.stdout = before.stdout ++ #[if tag then 1 else 0]
+  stdin : after.stdin = before.stdin
+  stdinCursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  memory : WritesOnlyWithin
+    (optionalEncoderMemory localFrameSize scratchOffset scratchSize args.stackPointer)
+    before.machine after.machine
+  frame : EncoderInlineFrame before after
+  access : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args after.machine
+
+private theorem encoderInlinePreserved_abiCalleePreserved_optional (register : Register)
+    (preserved : encoderInlinePreserved register) : abiCalleePreserved register := by
+  rcases preserved with instruction | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl
+  · exact instructionPreserved_abiCalleePreserved_optional register instruction
+  all_goals simp [abiCalleePreserved]
+
+/-- Compose the one Boolean-tag call shared by both optional encoder instances. -/
+theorem optionalBooleanCallHandoff
+    (child : WriteSuccessBooleanInstanceContract)
+    (site : OptionalBooleanCallSite pc returnPc callBase executionPcs)
+    (frameLower : 16 ≤ localFrameSize) (fromStep : Nat)
+    (args : OptionalEncoderArgs Value) (tag : Bool) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (stack : before.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer))
+    (access : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args
+      before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem) :
+    ∃ childUsed after, OptionalBooleanCallHandoff localFrameSize scratchOffset scratchSize fromStep
+      childUsed returnPc executionPcs args tag before after := by
+  let tagBits : BitVec 64 := if tag then 1 else 0
+  have seg0 : Seg (optionalBooleanParentPc pc) (fun target => target = 0x15b9c)
+      (fun _ _ _ _ _ => False) optionalBooleanCallWrites (fun _ => False)
+      [⟨x2, BitVec.ofNat 64 args.stackPointer⟩]
+      fromStep 0 before.machine before.machine (BitVec.ofNat 64 pc) := {
+    trace := .refl _ _
+    confined := .nil
+    writes := .refl _ _
+    mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
+    retired := access.output.configured.retiredCounter
+    atPc
+    regs := by
+      intro pair member
+      simp at member
+      rcases member with rfl
+      exact stack }
+  obtain ⟨retired0, run0⟩ :=
+    site.literalStep fromStep before.machine tag access.output.configured atPc loaded
+  have seg1 := seg0.stepKnown (by simp [optionalBooleanParentPc]) site.notExit0 x10 tagBits
+    (BitVec.ofNat 64 (pc + 4)) retired0 run0 site.next0
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [optionalBooleanCallWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have configured1 := access.output.configured.mono
+    (seg1.agree instructionPreserved_disjoint_optionalBooleanCallWrites) seg1.retired
+  have access1 := access.ofWrites seg1.writes
+    (by simp [optionalBooleanCallWrites, stepBookkeeping]) configured1
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully
+      (afterRegisterWrite before.machine (BitVec.ofNat 64 pc) retired0 x10 tagBits).mem := by
+    simpa [seg1.memEq (by simp)] using loaded
+  obtain ⟨baseMachine, seg2⟩ := seg1.step (by simp [optionalBooleanParentPc]) site.notExit1 x1
+    (BitVec.ofNat 64 callBase) (BitVec.ofNat 64 (pc + 8))
+    (site.baseStep (fromStep + 1) _ configured1 seg1.atPc loaded1)
+    site.next1 (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [optionalBooleanCallWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have configured2 := access.output.configured.mono
+    (seg2.agree instructionPreserved_disjoint_optionalBooleanCallWrites) seg2.retired
+  have access2 := access.ofWrites seg2.writes
+    (by simp [optionalBooleanCallWrites, stepBookkeeping]) configured2
+  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully baseMachine.mem := by
+    simpa [seg2.memEq (by simp)] using loaded
+  obtain ⟨retired2, callRun⟩ := site.callStep (fromStep + 2) baseMachine configured2
+    seg2.atPc (seg2.reg x1 (BitVec.ofNat 64 callBase) (by simp)) loaded2
+  let callMachine := tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement baseMachine)
+      (BitVec.ofNat 64 (pc + 8)) 0x15b9c x1 (BitVec.ofNat 64 returnPc)) 0x15b9c retired2
+  let callState : EndpointState := { before with machine := callMachine }
+  have callWrites := callRetirement_writes baseMachine (BitVec.ofNat 64 (pc + 8))
+    0x15b9c retired2 x1 (BitVec.ofNat 64 returnPc)
+  have callAtPc : callMachine.regs.get? PC = some 0x15b9c := by
+    simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      Std.ExtDHashMap.get?_insert]
+  have callMemEq : callMachine.mem = before.machine.mem := by
+    have one : callMachine.mem = baseMachine.mem := by
+      change
+        (tryStepControlFlowAfterRetired
+          (callLinkState (tryStepControlFlowAfterIncrement baseMachine)
+            (BitVec.ofNat 64 (pc + 8)) 0x15b9c x1 (BitVec.ofNat 64 returnPc))
+          0x15b9c retired2).mem = baseMachine.mem
+      rw [tryStepControlFlowAfterRetired_mem]
+      change (controlFlowJumpState (tryStepControlFlowAfterIncrement baseMachine)
+        (BitVec.ofNat 64 (pc + 8)) 0x15b9c).mem = baseMachine.mem
+      rw [controlFlowJumpState_mem]
+      rfl
+    exact one.trans (seg2.memEq (by simp))
+  let childArgs : EncoderCallArgs Bool :=
+    { returnAddress := returnPc
+      callerStack := args.stackPointer
+      inputSize := args.inputSize
+      value := tag }
+  have callConfigured := configuredAfterWriteSuccessCall (BitVec.ofNat 64 (pc + 8)) 0x15b9c
+    (BitVec.ofNat 64 returnPc) retired2 configured2
+  have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
+  have callAccess : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args
+      callMachine := access2.ofWrites callWrites (by simp [stepBookkeeping]) callConfigured
+  have childEntry : EncoderCallEntry Elflings.writeSuccessBooleanEntry
+      Elflings.writeSuccessBooleanExitPcs 16 BooleanEncoderBinding childArgs callState := by
+    have localFrameFits : localFrameSize ≤ args.stackPointer := access.frameFits
+    refine ⟨site.returnListed, ?_, args.stackFits, ?_, ?_, ?_, ?_, ?_⟩
+    · change 16 ≤ args.stackPointer
+      omega
+    · simpa [callState] using callAtPc
+    · simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert, childArgs]
+    · exact (callWrites.get x2 (by decide)).trans
+        (seg2.reg x2 (BitVec.ofNat 64 args.stackPointer) (by simp))
+    · exact (callWrites.get x10 (by decide)).trans
+        (seg2.reg x10 tagBits (by simp [tagBits]))
+    · exact ⟨by simpa [callState, callMemEq] using loaded,
+        callAccess.encoderCall frameLower tag⟩
+  have callPrefix : ConfinedPrefix (optionalBooleanParentPc pc)
+      (fun target => target = 0x15b9c) (fun _ _ _ _ _ => False)
+      (fromStep + 2) 1 baseMachine callMachine :=
+    ConfinedPrefix.ownStep seg2.atPc (by simp [optionalBooleanParentPc]) site.notExit2 callRun
+  have callEnd : ScopedTrace (optionalBooleanParentPc pc) (fun target => target = 0x15b9c)
+      (fun _ _ _ _ _ => False) (fromStep + 3) 0 callMachine callMachine :=
+    .exitAt _ _ 0x15b9c callAtPc rfl
+  have parentMachineTrace := seg2.confined.trans callPrefix 0 callMachine callEnd
+  have parentTraceExact := liftOptionalParentTrace before (fun parentPc inside => by
+    rcases inside with rfl | rfl | rfl
+    · exact site.notHost0
+    · exact site.notHost1
+    · exact site.notHost2) parentMachineTrace
+  have parentTrace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
+      fromStep 3 before callState := by
+    simpa [callState] using parentTraceExact.weaken (fun _ inside => by
+      rcases inside with rfl | rfl | rfl
+      · exact site.owned0
+      · exact site.owned1
+      · exact site.owned2)
+  obtain ⟨childUsed, after, _unit, positive, bounded, childTrace, exitPc, allowed,
+      childExit⟩ := EncoderCallInstanceContract.implements child childArgs
+        (fromStep + 3) callState childEntry
+  rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, childFits, childMemory,
+    childFrame⟩
+  have childTrace' := childTrace.weaken (fun _ childPc => site.childInside childPc)
+  have trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
+      fromStep (3 + childUsed) before after := by
+    simpa [Nat.add_assoc] using parentTrace.append childTrace'
+  have memory : WritesOnlyWithin
+      (optionalEncoderMemory localFrameSize scratchOffset scratchSize args.stackPointer)
+      before.machine after.machine := by
+    intro address outside
+    rw [childMemory address (by
+      intro inside
+      apply outside
+      rcases inside with childFrameInside | outputInside
+      · left
+        change byteRange (args.stackPointer - 16) 16 address at childFrameInside
+        unfold byteRange at childFrameInside ⊢
+        omega
+      · right
+        exact Or.inr outputInside), callMemEq]
+  have parentAgree : Agree encoderInlinePreserved before.machine callMachine :=
+    (seg2.writes.agree encoderInlinePreserved_disjoint_optionalBooleanCallWrites).trans
+      (callWrites.agree (by
+        intro register preserved written
+        apply encoderInlinePreserved_disjoint_optionalBooleanCallWrites register preserved
+        rcases written with bookkeeping | rfl
+        · exact Or.inl bookkeeping
+        · exact Or.inr (Or.inl rfl)))
+  have allAgree : Agree encoderInlinePreserved before.machine after.machine :=
+    parentAgree.trans
+      (childFrame.1.weaken encoderInlinePreserved_abiCalleePreserved_optional)
+  have callChoice : callMachine.choiceState = before.machine.choiceState := by
+    change baseMachine.choiceState = before.machine.choiceState
+    exact seg2.aux.1
+  have callTags : callMachine.tags = before.machine.tags := by
+    change baseMachine.tags = before.machine.tags
+    exact seg2.aux.2.1
+  have callOutput : callMachine.sailOutput = before.machine.sailOutput := by
+    change baseMachine.sailOutput = before.machine.sailOutput
+    exact seg2.aux.2.2
+  have aux : EndpointMachineAuxAgree before.machine after.machine := by
+    refine ⟨?_, ?_, ?_⟩
+    · exact childFrame.2.2.2.1.trans callChoice
+    · exact childFrame.2.2.2.2.1.trans callTags
+    · exact childFrame.2.2.2.2.2.trans callOutput
+  have frame : EncoderInlineFrame before after :=
+    ⟨allAgree, childFrame.2.1, childFrame.2.2.1, aux⟩
+  have childInlineFrame : EncoderInlineFrame callState after := by
+    exact ⟨childFrame.1.weaken encoderInlinePreserved_abiCalleePreserved_optional,
+      childFrame.2.1, childFrame.2.2.1,
+      childFrame.2.2.2.1, childFrame.2.2.2.2.1, childFrame.2.2.2.2.2⟩
+  exact ⟨childUsed, after, {
+    trace
+    atPc := by simpa [childArgs] using afterPc
+    stack := by
+      simpa [childArgs] using
+        (childFrame.1 x2 (by simp [abiCalleePreserved])).trans childEntry.2.2.2.2.2.1
+    stdout := by simpa [childArgs] using stdout
+    stdin := by simpa [callState] using stdin
+    stdinCursor := by simpa [callState] using cursor
+    exitCode := by simpa [callState] using exitCode
+    memory
+    frame
+    access := callAccess.ofEncoderFrame callState childInlineFrame }⟩
 
 def OptionalEncoderEntry (entry localFrameSize scratchOffset scratchSize : Nat)
     (bindValue : OptionalEncoderArgs Value → EndpointState → Prop)
