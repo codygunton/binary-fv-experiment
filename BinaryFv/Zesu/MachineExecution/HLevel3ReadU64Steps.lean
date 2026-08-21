@@ -70,6 +70,48 @@ theorem standardReadU64PlatformDisjoint (r0 r1 r2 r3 r4 r5 : Register)
   · exact h4 preserved
   · exact h5 preserved
 
+/-- Compose one byte load followed by one stack spill, then forget the temporary load register.
+The exact instruction theorems remain site data. This theorem owns the repeated `Seg` shape. -/
+theorem readU64LoadSpillPair
+    {own exit : BitVec 64 → Prop}
+    {childSummary : Binary.Elfling.FunctionInstanceId → Nat → Nat → State → State → Prop}
+    {W : RegSet} {M : Region} {kv : List RegVal} {a n : Nat}
+    {base cur : State} {pc : BitVec 64}
+    (seg : Seg own exit childSummary W M kv a n base cur pc)
+    (destination : Register) (value : RegisterType destination) (stored : BitVec 64)
+    (loadNext storeNext : BitVec 64) (address : Nat)
+    (loadInRegion : own pc) (loadNotExit : ¬exit pc)
+    (loadRun : ∃ retired, Runs (try_step (a + n) false) cur
+      (afterRegisterWrite cur pc retired destination value) false)
+    (loadAdvance : Sail.BitVec.addInt pc 4 = loadNext)
+    (bookkeeping : ∀ register, stepBookkeeping register → W register)
+    (destinationWrites : W destination)
+    (destinationNotPc : destination ≠ PC) (destinationNotRetired : destination ≠ minstret)
+    (loadKeeps : RegsOutside (RegSet.union stepBookkeeping (RegSet.only destination)) kv)
+    (storeInRegion : own loadNext) (storeNotExit : ¬exit loadNext)
+    (storeRun : ∀ retired, ∃ storeRetired, Runs (try_step (a + (n + 1)) false)
+      (afterRegisterWrite cur pc retired destination value)
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreControlFlowNextState
+            (tryStepControlFlowAfterIncrement
+              (afterRegisterWrite cur pc retired destination value)) loadNext)
+          address stored)
+        (Sail.BitVec.addInt loadNext 4) storeRetired) false)
+    (storeAdvance : Sail.BitVec.addInt loadNext 4 = storeNext)
+    (storeInside : ∀ other, address ≤ other → other < address + 8 → M other)
+    (storeKeeps : RegsOutside stepBookkeeping (⟨destination, value⟩ :: kv)) :
+    ∃ next, Seg own exit childSummary W M kv a (n + 2) base next storeNext := by
+  obtain ⟨retired, loaded, loadedEq, loadedSeg⟩ := seg.stepWitness loadInRegion loadNotExit
+    destination value loadNext loadRun loadAdvance bookkeeping destinationWrites
+    destinationNotPc destinationNotRetired loadKeeps
+  subst loaded
+  obtain ⟨storedState, storedSeg⟩ := loadedSeg.stepStore address stored storeNext
+    storeInRegion storeNotExit (storeRun retired) storeAdvance storeInside bookkeeping storeKeeps
+  exact ⟨storedState, by
+    simpa [Nat.add_assoc] using storedSeg.forget (kv' := kv)
+      (fun _ member => List.mem_cons_of_mem _ member)⟩
+
 /-! ## Exact site data for the two complete schedules -/
 
 def readU64_3203OwnPc (pc : BitVec 64) : Prop := standardReadU64OwnPc 0x12a4c pc
