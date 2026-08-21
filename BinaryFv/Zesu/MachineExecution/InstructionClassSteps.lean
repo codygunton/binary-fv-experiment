@@ -519,6 +519,49 @@ theorem configuredDwordStoreStep (stepNo pc : Nat) (state afterWrite : State)
   · simpa [tryStepStoreAfterIncrement, tryStepControlFlowAfterIncrement] using interrupts
   · simpa [tryStepStoreAfterIncrement, tryStepControlFlowAfterIncrement] using notExpected
 
+/-- Retire one exact generated immediate arithmetic instruction that writes one register. -/
+theorem configuredITypeRegisterStep (stepNo pc : Nat) (state : State) (immediate : BitVec 12)
+    (rs1 rd : regidx) (destination : Register) (operation : iop) (source : BitVec 64)
+    (result : RegisterType destination)
+    (byte0 byte1 byte2 byte3 : UInt8)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (baseRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits rs1) premise premise source)
+    (writeRun : ∀ premise, Runs (wX_bits rd
+      (iTypeResult operation immediate source)) premise
+      { premise with regs := premise.regs.insert destination result } ())
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (immediate, rs1, rd, operation)))
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3 := by native_decide)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by native_decide)
+    (destinationNotNextPc : destination ≠ nextPC)
+    (destinationNotHart : destination ≠ hart_state)
+    (destinationNotIncrement : destination ≠ minstret_increment)
+    (destinationNotRetired : destination ≠ minstret) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination result) false := by
+  let premise := coreControlFlowNextState
+    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+  have execute : Runs (execute (.ITYPE (immediate, rs1, rd, operation))) premise
+      { premise with regs := premise.regs.insert destination result } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE immediate rs1 rd operation) _ _ _
+    exact execute_ITYPE_run premise _ immediate rs1 rd operation source
+      (baseRun premise (stepPremiseState_writes state (BitVec.ofNat 64 pc)))
+      (writeRun premise)
+  exact configuredRegisterWriteStep stepNo pc state destination result
+    (.ITYPE (immediate, rs1, rd, operation)) byte0 byte1 byte2 byte3
+    configured atPc loaded decode
+    execute (pcFits := site.pcFits) (pcAligned := site.pcAligned) (base := base)
+    (read0 := site.read0) (read1 := site.read1) (read2 := site.read2) (read3 := site.read3)
+    (destinationNotNextPc := destinationNotNextPc) (destinationNotHart := destinationNotHart)
+    (destinationNotIncrement := destinationNotIncrement)
+    (destinationNotRetired := destinationNotRetired)
+
 /-- Retire one exact generated immediate arithmetic instruction that writes `a0`. -/
 theorem configuredITypeX10Step (stepNo pc : Nat) (state : State) (immediate : BitVec 12)
     (rs1 : regidx) (operation : iop) (source result : BitVec 64)
@@ -540,21 +583,35 @@ theorem configuredITypeX10Step (stepNo pc : Nat) (state : State) (immediate : Bi
     (site : ExactInstructionSite pc byte0 byte1 byte2 byte3 := by native_decide)
     (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
-      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x10 result) false := by
-  let premise := coreControlFlowNextState
-    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
-  have execute : Runs (execute (.ITYPE (immediate, rs1, .Regidx 10#5, operation))) premise
-      { premise with regs := premise.regs.insert x10 result } (.Retire_Success ()) := by
-    change Runs (execute_ITYPE immediate rs1 (.Regidx 10#5) operation) _ _ _
-    rw [resultEq]
-    exact execute_ITYPE_run premise _ immediate rs1 (.Regidx 10#5) operation source
-      (baseRun premise (stepPremiseState_writes state (BitVec.ofNat 64 pc)))
-      (by simpa [resultEq] using writeRun premise)
-  exact configuredRegisterWriteStep stepNo pc state x10 result
-    (.ITYPE (immediate, rs1, .Regidx 10#5, operation)) byte0 byte1 byte2 byte3
-    configured atPc loaded decode
-    execute (pcFits := site.pcFits) (pcAligned := site.pcAligned) (base := base)
-    (read0 := site.read0) (read1 := site.read1) (read2 := site.read2) (read3 := site.read3)
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x10 result) false :=
+  configuredITypeRegisterStep stepNo pc state immediate rs1 (.Regidx 10#5) x10 operation
+    source result byte0 byte1 byte2 byte3 configured atPc loaded baseRun writeRun decode site base
+    (by decide) (by decide) (by decide) (by decide)
+
+/-- Retire one exact generated immediate arithmetic instruction that writes `a1`. -/
+theorem configuredITypeX11Step (stepNo pc : Nat) (state : State) (immediate : BitVec 12)
+    (rs1 : regidx) (operation : iop) (source result : BitVec 64)
+    (byte0 byte1 byte2 byte3 : UInt8)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (baseRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits rs1) premise premise source)
+    (writeRun : ∀ premise, Runs (wX_bits (.Regidx 11#5)
+      (iTypeResult operation immediate source)) premise
+      { premise with regs := premise.regs.insert x11 result } ())
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (immediate, rs1, .Regidx 11#5, operation)))
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3 := by native_decide)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by native_decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x11 result) false :=
+  configuredITypeRegisterStep stepNo pc state immediate rs1 (.Regidx 11#5) x11 operation
+    source result byte0 byte1 byte2 byte3 configured atPc loaded baseRun writeRun decode site base
+    (by decide) (by decide) (by decide) (by decide)
 
 /-- Retire one exact `addi sp, sp, immediate`. -/
 theorem configuredAddiX2Step (stepNo pc : Nat) (state : State) (immediate : BitVec 12)
