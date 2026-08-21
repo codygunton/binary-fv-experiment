@@ -70,6 +70,41 @@
       "field": "ssz_decode__struct_1051_f_fi_1_358b",
       "theorem": "BinaryFv.Zesu.Staging.proposed_checkedSlice_358b_proved",
       "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode__struct_1051_f_fi_1_358b_Contract"
+    },
+    {
+      "field": "extern_io_write_output_fi_1_3d8b",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3d8b_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3d8b_Contract"
+    },
+    {
+      "field": "extern_io_write_output_fi_1_3db4",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3db4_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3db4_Contract"
+    },
+    {
+      "field": "extern_io_write_output_fi_1_3ddd",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3ddd_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3ddd_Contract"
+    },
+    {
+      "field": "extern_io_write_output_fi_1_3e06",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3e06_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3e06_Contract"
+    },
+    {
+      "field": "extern_io_write_output_fi_1_3e2f",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3e2f_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3e2f_Contract"
+    },
+    {
+      "field": "extern_io_write_output_fi_1_3e81",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3e81_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3e81_Contract"
+    },
+    {
+      "field": "extern_io_write_output_fi_1_4101",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_4101_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_4101_Contract"
     }
   ]
 }

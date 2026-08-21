@@ -67,6 +67,7 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
         "import BinaryFv.Zesu.Staging.ReadU32",
         "import BinaryFv.Zesu.Staging.ForkName",
         "import BinaryFv.Zesu.Staging.CheckedSlice",
+        "import BinaryFv.Zesu.Staging.WriteOutput",
         "",
         "/-!",
         "# Generated hLevel3 staging",

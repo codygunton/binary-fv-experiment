@@ -323,7 +323,8 @@ private theorem instructionPreserved_inlineEncoderPreserved (register : Register
   · exact (preserved.2 rfl).elim
   all_goals simp [inlineEncoderPreserved]
 
-private theorem configuredAfterWriteSuccessCall {state : State} (callPc target returnPc : BitVec 64)
+/-- Transport the configured endpoint facts through a direct call retirement. -/
+theorem configuredAfterWriteSuccessCall {state : State} (callPc target returnPc : BitVec 64)
     (retired : BitVec 64)
     (configured : ConfiguredMachinePre EndpointMachinePc state) :
     ConfiguredMachinePre EndpointMachinePc
@@ -415,7 +416,8 @@ private theorem WriteSuccessAmbientFrame.ofSeg
     WriteSuccessAmbientFrame before after :=
   ⟨seg.agree disjoint, seg.aux⟩
 
-private theorem AuxStateAgree.callRetirement (state : State) (pc target retired : BitVec 64)
+/-- A retired direct call preserves the auxiliary machine state. -/
+theorem AuxStateAgree.callRetirement (state : State) (pc target retired : BitVec 64)
     (linkReg : Register) (linkValue : RegisterType linkReg) :
     AuxStateAgree state
       (tryStepControlFlowAfterRetired
@@ -1704,7 +1706,8 @@ private theorem writeSuccessAddiX12FromZeroStep (stepNo pc value : Nat) (imm : B
     (read0 := read0) (read1 := read1) (read2 := read2) (read3 := read3)
     (pcAligned := pcAligned)
 
-private theorem writeSuccessAddiX11FromZeroStep (stepNo pc value : Nat) (imm : BitVec 12)
+/-- Retire an exact `li a1, value` instruction in the observation writer. -/
+theorem writeSuccessAddiX11FromZeroStep (stepNo pc value : Nat) (imm : BitVec 12)
     (byte0 byte1 byte2 byte3 : UInt8) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))

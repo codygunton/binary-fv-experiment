@@ -8,6 +8,7 @@ import BinaryFv.Zesu.Staging.MemReadInt
 import BinaryFv.Zesu.Staging.ReadU32
 import BinaryFv.Zesu.Staging.ForkName
 import BinaryFv.Zesu.Staging.CheckedSlice
+import BinaryFv.Zesu.Staging.WriteOutput
 
 /-!
 # Generated hLevel3 staging
@@ -341,7 +342,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_extern_io_write_output_fi_1_3d8b_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3d8b_Contract
 
 /--
 Contract design hole for `fi:1:3db4` at `0x14e3c`.
@@ -359,7 +360,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_extern_io_write_output_fi_1_3db4_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3db4_Contract
 
 /--
 Contract design hole for `fi:1:3ddd` at `0x14e4c`.
@@ -377,7 +378,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_extern_io_write_output_fi_1_3ddd_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3ddd_Contract
 
 /--
 Contract design hole for `fi:1:3e06` at `0x14e5c`.
@@ -395,7 +396,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_extern_io_write_output_fi_1_3e06_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3e06_Contract
 
 /--
 Contract design hole for `fi:1:3e2f` at `0x14e6c`.
@@ -413,7 +414,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_extern_io_write_output_fi_1_3e2f_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3e2f_Contract
 
 /--
 Contract design hole for `fi:1:3e81` at `0x14ed8`.
@@ -431,7 +432,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_extern_io_write_output_fi_1_3e81_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3e81_Contract
 
 /--
 Contract design hole for `fi:1:3ec4` at `0x150dc`.
@@ -559,7 +560,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_extern_io_write_output_fi_1_4101_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_4101_Contract
 
 /--
 Contract design hole for `fi:1:412a` at `0x158c4`.
@@ -739,18 +740,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_mem_Allocator_alloc__anon_1432_fi_1_39b7_Contract
   ssz_decodeWithdrawal_fi_1_3a74 :
     Proposed_ssz_decodeWithdrawal_fi_1_3a74_Contract
-  extern_io_write_output_fi_1_3d8b :
-    Proposed_extern_io_write_output_fi_1_3d8b_Contract
-  extern_io_write_output_fi_1_3db4 :
-    Proposed_extern_io_write_output_fi_1_3db4_Contract
-  extern_io_write_output_fi_1_3ddd :
-    Proposed_extern_io_write_output_fi_1_3ddd_Contract
-  extern_io_write_output_fi_1_3e06 :
-    Proposed_extern_io_write_output_fi_1_3e06_Contract
-  extern_io_write_output_fi_1_3e2f :
-    Proposed_extern_io_write_output_fi_1_3e2f_Contract
-  extern_io_write_output_fi_1_3e81 :
-    Proposed_extern_io_write_output_fi_1_3e81_Contract
   ssz_decode_observation_Encoder_int_fi_1_3ec4 :
     Proposed_ssz_decode_observation_Encoder_int_fi_1_3ec4_Contract
   ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b :
@@ -765,8 +754,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_ssz_decode_observation_Encoder_authorizations_fi_1_406f_Contract
   ssz_decode_observation_Encoder_raw_fi_1_40c3 :
     Proposed_ssz_decode_observation_Encoder_raw_fi_1_40c3_Contract
-  extern_io_write_output_fi_1_4101 :
-    Proposed_extern_io_write_output_fi_1_4101_Contract
   ssz_decode_observation_Encoder_raw_fi_1_412a :
     Proposed_ssz_decode_observation_Encoder_raw_fi_1_412a_Contract
   ssz_decode_observation_Encoder_raw_fi_1_42a2 :
@@ -1707,16 +1694,15 @@ private theorem resolve_writeFailureRecord
 
 /--
 Resolve Level 2 field `writeSuccessBlockHash` for `fi:1:3e6d`.
-Level 3 contracts: `extern_io_write_output_fi_1_3e81`.
+Level 3 contracts: none.
 Earlier Level 2 results: none.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_writeOutput_3e81_proved`.
 Parent-composed inline instances: none.
 Parent glue: 0 instructions in 0 block fragments.
 Frame rule: choose the complete register and memory write regions before `Seg` starts.
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessBlockHash
-    (extern_io_write_output_fi_1_3e81 : Proposed_extern_io_write_output_fi_1_3e81_Contract)
     : WriteSuccessBlockHashInstanceContract := by
   sorry
 
@@ -1747,16 +1733,15 @@ private theorem resolve_writeSuccessBoolean
 
 /--
 Resolve Level 2 field `writeSuccessFeeRecipient` for `fi:1:3da0`.
-Level 3 contracts: `extern_io_write_output_fi_1_3db4`.
+Level 3 contracts: none.
 Earlier Level 2 results: none.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_writeOutput_3db4_proved`.
 Parent-composed inline instances: none.
 Parent glue: 0 instructions in 0 block fragments.
 Frame rule: choose the complete register and memory write regions before `Seg` starts.
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessFeeRecipient
-    (extern_io_write_output_fi_1_3db4 : Proposed_extern_io_write_output_fi_1_3db4_Contract)
     : WriteSuccessFeeRecipientInstanceContract := by
   sorry
 
@@ -1882,16 +1867,15 @@ private theorem resolve_writeSuccessHashes
 
 /--
 Resolve Level 2 field `writeSuccessLogsBloom` for `fi:1:3e1b`.
-Level 3 contracts: `extern_io_write_output_fi_1_3e2f`.
+Level 3 contracts: none.
 Earlier Level 2 results: none.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_writeOutput_3e2f_proved`.
 Parent-composed inline instances: none.
 Parent glue: 0 instructions in 0 block fragments.
 Frame rule: choose the complete register and memory write regions before `Seg` starts.
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessLogsBloom
-    (extern_io_write_output_fi_1_3e2f : Proposed_extern_io_write_output_fi_1_3e2f_Contract)
     : WriteSuccessLogsBloomInstanceContract := by
   sorry
 
@@ -1934,61 +1918,57 @@ private theorem resolve_writeSuccessOptionalU64
 
 /--
 Resolve Level 2 field `writeSuccessParentBeaconRoot` for `fi:1:40ed`.
-Level 3 contracts: `extern_io_write_output_fi_1_4101`.
+Level 3 contracts: none.
 Earlier Level 2 results: none.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_writeOutput_4101_proved`.
 Parent-composed inline instances: none.
 Parent glue: 0 instructions in 0 block fragments.
 Frame rule: choose the complete register and memory write regions before `Seg` starts.
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessParentBeaconRoot
-    (extern_io_write_output_fi_1_4101 : Proposed_extern_io_write_output_fi_1_4101_Contract)
     : WriteSuccessParentBeaconRootInstanceContract := by
   sorry
 
 /--
 Resolve Level 2 field `writeSuccessParentHash` for `fi:1:3d77`.
-Level 3 contracts: `extern_io_write_output_fi_1_3d8b`.
+Level 3 contracts: none.
 Earlier Level 2 results: none.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_writeOutput_3d8b_proved`.
 Parent-composed inline instances: none.
 Parent glue: 0 instructions in 0 block fragments.
 Frame rule: choose the complete register and memory write regions before `Seg` starts.
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessParentHash
-    (extern_io_write_output_fi_1_3d8b : Proposed_extern_io_write_output_fi_1_3d8b_Contract)
     : WriteSuccessParentHashInstanceContract := by
   sorry
 
 /--
 Resolve Level 2 field `writeSuccessReceiptsRoot` for `fi:1:3df2`.
-Level 3 contracts: `extern_io_write_output_fi_1_3e06`.
+Level 3 contracts: none.
 Earlier Level 2 results: none.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_writeOutput_3e06_proved`.
 Parent-composed inline instances: none.
 Parent glue: 0 instructions in 0 block fragments.
 Frame rule: choose the complete register and memory write regions before `Seg` starts.
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessReceiptsRoot
-    (extern_io_write_output_fi_1_3e06 : Proposed_extern_io_write_output_fi_1_3e06_Contract)
     : WriteSuccessReceiptsRootInstanceContract := by
   sorry
 
 /--
 Resolve Level 2 field `writeSuccessStateRoot` for `fi:1:3dc9`.
-Level 3 contracts: `extern_io_write_output_fi_1_3ddd`.
+Level 3 contracts: none.
 Earlier Level 2 results: none.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_writeOutput_3ddd_proved`.
 Parent-composed inline instances: none.
 Parent glue: 0 instructions in 0 block fragments.
 Frame rule: choose the complete register and memory write regions before `Seg` starts.
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessStateRoot
-    (extern_io_write_output_fi_1_3ddd : Proposed_extern_io_write_output_fi_1_3ddd_Contract)
     : WriteSuccessStateRootInstanceContract := by
   sorry
 
@@ -2196,13 +2176,11 @@ theorem level2Contracts_of_level3_staged
       hLevel3.extern_io_write_output_fi_1_49b1
   have resolved_writeSuccessBlockHash : WriteSuccessBlockHashInstanceContract :=
     resolve_writeSuccessBlockHash
-      hLevel3.extern_io_write_output_fi_1_3e81
   have resolved_writeSuccessBoolean : WriteSuccessBooleanInstanceContract :=
     resolve_writeSuccessBoolean
       hLevel3.ssz_decode_observation_Encoder_raw_fi_1_42a2
   have resolved_writeSuccessFeeRecipient : WriteSuccessFeeRecipientInstanceContract :=
     resolve_writeSuccessFeeRecipient
-      hLevel3.extern_io_write_output_fi_1_3db4
   have resolved_writeSuccessInt : WriteSuccessIntInstanceContract :=
     resolve_writeSuccessInt
       hLevel3.ssz_decode_observation_Encoder_raw_fi_1_45f6
@@ -2220,23 +2198,18 @@ theorem level2Contracts_of_level3_staged
       resolved_writeSuccessInt
   have resolved_writeSuccessLogsBloom : WriteSuccessLogsBloomInstanceContract :=
     resolve_writeSuccessLogsBloom
-      hLevel3.extern_io_write_output_fi_1_3e2f
   have resolved_writeSuccessOptionalU64 : WriteSuccessOptionalU64InstanceContract :=
     resolve_writeSuccessOptionalU64
       resolved_writeSuccessBoolean
       resolved_writeSuccessInt
   have resolved_writeSuccessParentBeaconRoot : WriteSuccessParentBeaconRootInstanceContract :=
     resolve_writeSuccessParentBeaconRoot
-      hLevel3.extern_io_write_output_fi_1_4101
   have resolved_writeSuccessParentHash : WriteSuccessParentHashInstanceContract :=
     resolve_writeSuccessParentHash
-      hLevel3.extern_io_write_output_fi_1_3d8b
   have resolved_writeSuccessReceiptsRoot : WriteSuccessReceiptsRootInstanceContract :=
     resolve_writeSuccessReceiptsRoot
-      hLevel3.extern_io_write_output_fi_1_3e06
   have resolved_writeSuccessStateRoot : WriteSuccessStateRootInstanceContract :=
     resolve_writeSuccessStateRoot
-      hLevel3.extern_io_write_output_fi_1_3ddd
   have resolved_writeSuccessTransactions : WriteSuccessTransactionsInstanceContract :=
     resolve_writeSuccessTransactions
       hLevel3.ssz_decode_observation_Encoder_int_fi_1_4494
