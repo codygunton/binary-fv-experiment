@@ -199,6 +199,34 @@ theorem BytesRep.existsUIntRepEight {mem : Std.ExtHashMap Nat (BitVec 8)} {addre
       have h7 := bytes[7].toNat_lt
       omega
 
+/-- Any initialized four-byte window represents one bounded little-endian natural value. -/
+theorem BytesRep.existsUIntRepFour {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat}
+    {bytes : Array UInt8} (rep : BytesRep mem address bytes) (size : bytes.size = 4) :
+    ∃ value, UIntRep 4 mem address value := by
+  let value := bytes[0].toNat + bytes[1].toNat * 256 + bytes[2].toNat * 65536 +
+    bytes[3].toNat * 16777216
+  refine ⟨value, ?_, ?_, ?_⟩
+  · dsimp [value]
+    have h0 := bytes[0].toNat_lt
+    have h1 := bytes[1].toNat_lt
+    have h2 := bytes[2].toNat_lt
+    have h3 := bytes[3].toNat_lt
+    omega
+  · simpa [size] using rep.1
+  · intro index bound
+    have cases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 := by omega
+    rcases cases with rfl | rfl | rfl | rfl
+    all_goals rw [rep.2 _ (by omega)]
+    all_goals congr 1
+    all_goals apply BitVec.eq_of_toNat_eq
+    all_goals simp [byteAt, value]
+    all_goals
+      have h0 := bytes[0].toNat_lt
+      have h1 := bytes[1].toNat_lt
+      have h2 := bytes[2].toNat_lt
+      have h3 := bytes[3].toNat_lt
+      omega
+
 theorem BytesRep.of_mem_eq {before after : Std.ExtHashMap Nat (BitVec 8)}
     {address : Nat} {bytes : Array UInt8} (rep : BytesRep before address bytes)
     (memEq : after = before) : BytesRep after address bytes := by
