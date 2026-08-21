@@ -106,6 +106,25 @@ theorem uintRep_afterWriteBytes_one (state : BinaryFv.RiscV.State) (address valu
   apply BitVec.eq_of_toNat_eq
   simp [Nat.mod_eq_of_lt valueFits]
 
+/-- An exact four-byte Sail store establishes the corresponding little-endian integer
+representation. -/
+theorem uintRep_afterWriteBytes_four (state : BinaryFv.RiscV.State) (address value : Nat)
+    (valueFits : value < 2 ^ 32) (addressFits : address + 4 ≤ 2 ^ 64) :
+    UIntRep 4
+      (BinaryFv.RiscV.afterWriteBytes (width := 4) state address
+        (BitVec.ofNat 64 value)).mem address value := by
+  refine ⟨valueFits, addressFits, ?_⟩
+  intro index indexBound
+  have cases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 := by omega
+  rcases cases with rfl | rfl | rfl | rfl <;>
+    simp [BinaryFv.RiscV.afterWriteBytes, BinaryFv.RiscV.afterByteWrites, byteAt,
+      Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem_insert]
+  all_goals apply BitVec.eq_of_toNat_eq
+  all_goals simp only [byteAt, BitVec.extractLsb'_toNat, BitVec.toNat_ofNat,
+    Nat.shiftRight_eq_div_pow, Nat.mod_eq_of_lt valueFits]
+  all_goals simp [show 2 ^ 8 = 256 by decide, show 2 ^ 16 = 65536 by decide,
+    show 2 ^ 24 = 16777216 by decide]
+
 /-- An exact eight-byte Sail store establishes the corresponding little-endian integer
 representation. -/
 theorem uintRep_afterWriteBytes_eight (state : BinaryFv.RiscV.State)
@@ -267,6 +286,28 @@ theorem ByteWindowRelocation.atOffset {before after : Std.ExtHashMap Nat (BitVec
   intro index inBounds
   simpa [ByteWindowRelocation, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
     relocation (offset + index) (by omega)
+
+/-- Join adjacent byte-window relocations. -/
+theorem ByteWindowRelocation.append {before after : Std.ExtHashMap Nat (BitVec 8)}
+    {source destination left right : Nat}
+    (first : ByteWindowRelocation before after source destination left)
+    (second : ByteWindowRelocation before after (source + left) (destination + left) right) :
+    ByteWindowRelocation before after source destination (left + right) := by
+  intro index bound
+  by_cases inFirst : index < left
+  · exact first index inFirst
+  · have rightBound : index - left < right := by omega
+    have indexEq : left + (index - left) = index := by omega
+    simpa [Nat.add_assoc, indexEq] using second (index - left) rightBound
+
+/-- Equal integer representations give a pointwise relocation between their byte windows. -/
+theorem UIntRep.relocation {before after : Std.ExtHashMap Nat (BitVec 8)}
+    {width source destination value : Nat}
+    (sourceRep : UIntRep width before source value)
+    (destinationRep : UIntRep width after destination value) :
+    ByteWindowRelocation before after source destination width := by
+  intro index bound
+  rw [sourceRep.leBytes index bound, destinationRep.leBytes index bound]
 
 theorem BytesRep.rebase {before after : Std.ExtHashMap Nat (BitVec 8)}
     {source destination : Nat} {bytes : Array UInt8}
