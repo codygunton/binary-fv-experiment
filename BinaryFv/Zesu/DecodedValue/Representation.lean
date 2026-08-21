@@ -19,6 +19,10 @@ open PreSail
 private def byteAt (value index : Nat) : BitVec 8 :=
   BitVec.ofNat 8 ((value / 2 ^ (8 * index)) % 256)
 
+/-- Expose the byte formula used by `UIntRep` without exposing its private helper name. -/
+theorem UIntRep.byteAt_eq (value index : Nat) :
+    byteAt value index = BitVec.ofNat 8 ((value / 2 ^ (8 * index)) % 256) := rfl
+
 private theorem byteAt_zero (value : Nat) : byteAt value 0 = BitVec.ofNat 8 value := by
   apply BitVec.eq_of_toNat_eq
   simp [byteAt]

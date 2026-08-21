@@ -68,6 +68,54 @@ def reviewedForkNameTarget : ReviewedForkName → Nat
   | .bpo2 => 0x12698
   | .amsterdam => 0x12618
 
+def reviewedForkNameSchema : ReviewedForkName → Nat
+  | .frontier => 0x01
+  | .homestead => 0x02
+  | .daoFork => 0x03
+  | .tangerineWhistle => 0x04
+  | .spuriousDragon => 0x05
+  | .byzantium => 0x06
+  | .stPetersburg => 0x07
+  | .istanbul => 0x08
+  | .muirGlacier => 0x09
+  | .berlin => 0x0a
+  | .london => 0x0b
+  | .arrowGlacier => 0x0c
+  | .grayGlacier => 0x0d
+  | .paris => 0x0e
+  | .shanghai => 0x0f
+  | .cancun => 0x10
+  | .prague => 0x11
+  | .osaka => 0x12
+  | .bpo1 => 0x13
+  | .bpo2 => 0x14
+  | .amsterdam => 0x15
+
+def reviewedForkNameTableAddress (fork : ReviewedForkName) : Nat :=
+  0x17228 + 8 * (reviewedForkNameSchema fork - 1)
+
+/-- The pinned file bytes contain every reviewed fork-name jump-table target. -/
+theorem reviewedForkNameTableRep (fork : ReviewedForkName)
+    {memory : Std.ExtHashMap Nat (BitVec 8)}
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully memory) :
+    UIntRep 8 memory (reviewedForkNameTableAddress fork) (reviewedForkNameTarget fork) := by
+  refine ⟨?_, ?_, ?_⟩
+  · cases fork <;> native_decide
+  · cases fork <;> native_decide
+  · intro index bound
+    have indexCases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨
+        index = 5 ∨ index = 6 ∨ index = 7 := by omega
+    let address := reviewedForkNameTableAddress fork + index
+    let byte := (Artifacts.programImage.readFileByte? address).getD 0
+    have read : Artifacts.programImage.readFileByte? address = some byte := by
+      cases fork <;>
+        rcases indexCases with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+        native_decide
+    rw [loaded address byte read, UIntRep.byteAt_eq]
+    cases fork <;>
+      rcases indexCases with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+      native_decide
+
 structure ForkNameArgs where
   schema : Nat
   selected : Option ReviewedForkName
