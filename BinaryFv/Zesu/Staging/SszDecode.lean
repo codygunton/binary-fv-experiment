@@ -173,6 +173,16 @@ theorem sszDecodeCleanupFirstStoresFromReady (fromStep : Nat) (args : DecodeInli
   sszDecodeCleanupFirstStores fromStep args before ready.atPc ready.atStack ready.stackFits
     ready.stackAligned ready.stackUpper ready.access ready.configured ready.code
 
+/-- The cleanup handoff reaches `0x12268` and retains the computed template page in `x10`. -/
+theorem sszDecodeCleanupBaseHighFromReady (fromStep : Nat) (args : DecodeInlineArgs)
+    (before : State) (ready : SszDecodeCleanupReady args before) :
+    ∃ after,
+      Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+        (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+        [⟨x10, 0x17264⟩] fromStep 3 before after 0x12268 :=
+  sszDecodeCleanupBaseHighAfterFirstStores fromStep args before ready.atPc ready.atStack
+    ready.stackFits ready.stackAligned ready.stackUpper ready.access ready.configured ready.code
+
 private theorem iTypeResult_addi_four_ofNat (value : Nat) :
     iTypeResult .ADDI 4 (BitVec.ofNat 64 value) = BitVec.ofNat 64 (value + 4) := by
   unfold iTypeResult
