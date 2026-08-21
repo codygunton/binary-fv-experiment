@@ -116,7 +116,7 @@ class ProofMapTest(unittest.TestCase):
                                 if parent["proofStatus"] == "proved"]
             self.assertEqual({parent["field"] for parent in resolved_parents}, {
                 "writeFailureRecord", "writeSuccessBlockHash", "writeSuccessBoolean",
-                "writeSuccessFeeRecipient", "writeSuccessLogsBloom",
+                "writeSuccessFeeRecipient", "writeSuccessInt", "writeSuccessLogsBloom",
                 "writeSuccessParentBeaconRoot", "writeSuccessParentHash",
                 "writeSuccessReceiptsRoot", "writeSuccessStateRoot"})
             parent_composed = [item for parent in prepared["parents"]
