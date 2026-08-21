@@ -72,6 +72,8 @@ structure DecodeInlineFrame (args : DecodeInlineArgs) (values : DecodeCalleeSave
   savedReturn : UIntRep 8 state.machine.mem (args.boundary.stackPointer + 0x378)
     args.boundary.savedReturnAddress
   input : BytesRep state.machine.mem args.boundary.inputAddress args.boundary.input
+  inputSeparated : args.boundary.stackPointer + 0x380 ≤ args.boundary.inputAddress ∨
+    args.boundary.inputAddress + args.boundary.input.size ≤ args.boundary.stackPointer - 0xbb0
   code : Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
   configured : ConfiguredMachinePre EndpointMachinePc state.machine
   access : DecodeBoundaryMachineAccess args.boundary state.machine
@@ -92,7 +94,8 @@ def DecodeInlineInitialEntry (args : DecodeInlineArgs) (state : EndpointState) :
     state.machine.regs.get? x11 =
       some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x10)) ∧
     state.machine.regs.get? x12 = some (BitVec.ofNat 64 args.boundary.inputAddress) ∧
-    state.machine.regs.get? x13 = some (BitVec.ofNat 64 args.boundary.input.size)
+    state.machine.regs.get? x13 = some (BitVec.ofNat 64 args.boundary.input.size) ∧
+    state.machine.regs.get? x18 = some (BitVec.ofNat 64 args.boundary.inputAddress)
 
 inductive DecodeInlineInitialOutcome where
   | final (outcome : DecodeBoundaryOutcome)

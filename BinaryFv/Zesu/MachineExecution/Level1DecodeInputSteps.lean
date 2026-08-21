@@ -1150,6 +1150,7 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
         allocatorVtable := allocatorVtableFinal
         savedReturn := savedReturnFinal
         input := inputFinal
+        inputSeparated := separated
         code := codeFinal
         configured := configuredFinal
         access := accessFinal
@@ -1161,7 +1162,8 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
   · exact (finalSeg.get x10 (by simp [decodeInputParentWrites])).trans resultReg
   · exact (finalSeg.get x11 (by simp [decodeInputParentWrites])).trans allocatorReg
   · exact (finalSeg.get x12 (by simp [decodeInputParentWrites])).trans inputReg
-  · exact (finalSeg.get x13 (by simp [decodeInputParentWrites])).trans sizeReg
+  · exact ⟨(finalSeg.get x13 (by simp [decodeInputParentWrites])).trans sizeReg,
+      finalSeg.reg x18 (BitVec.ofNat 64 args.boundary.inputAddress) (by simp)⟩
 
 /-- The two parent-owned error instructions connect the initial child exit to its resume entry. -/
 theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
@@ -1236,6 +1238,7 @@ theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
         allocatorVtable := ?_
         savedReturn := ?_
         input := ?_
+        inputSeparated := frame.inputSeparated
         code := ?_
         configured := frame.configured.mono
           (seg2.agree instructionPreserved_disjoint_decodeInputParentWrites) seg2.retired

@@ -5,6 +5,7 @@ import BinaryFv.Zesu.MachineExecution.Level0MainSteps
 import BinaryFv.RiscV.Elfling.Seg
 import BinaryFv.Zesu.Staging.MemWriteInt
 import BinaryFv.Zesu.Staging.MemReadInt
+import BinaryFv.Zesu.Staging.SszDecode
 import BinaryFv.Zesu.Staging.ReadU32
 import BinaryFv.Zesu.Staging.ForkName
 import BinaryFv.Zesu.Staging.CheckedSlice

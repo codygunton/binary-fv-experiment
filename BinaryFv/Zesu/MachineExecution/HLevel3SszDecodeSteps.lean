@@ -341,6 +341,16 @@ private theorem sszDecodeFieldCountBgeuRun (state : State) (inputSize : Nat)
   exact Runs.bind (rX_x14_run state 3 fieldCountAt)
     (Runs.bind (rX_x13_run state (BitVec.ofNat 64 inputSize) inputSizeAt) rfl)
 
+/-- The fall-through branch implies that the four-byte schema word exists. -/
+theorem sszDecodeInputLengthAtLeastFour (inputSize : Nat)
+    (fits : inputSize < 2 ^ 64)
+    (comparison : zopz0zKzJ_u 3 (BitVec.ofNat 64 inputSize) = false) :
+    4 ≤ inputSize := by
+  simp only [zopz0zKzJ_u, Sail.BitVec.toNatInt, BitVec.toNat_ofNat] at comparison
+  rw [Nat.mod_eq_of_lt fits] at comparison
+  simp at comparison
+  omega
+
 /-- Exact taken or not-taken `0x121c0: bgeu a4,a3,0x12200`. -/
 theorem sszDecodeFieldCountBranchStep (stepNo inputSize : Nat) (args : DecodeInlineArgs)
     (state : State)
@@ -438,5 +448,48 @@ theorem sszDecodeAllocatorBranchSeg (fromStep : Nat) (args : DecodeInlineArgs)
       exact storedState.of_mem_eq (jumpRetirement_mem branched 0x121c0 0x12200 retired)
     · rw [afterEq]
       exact storedVtable.of_mem_eq (jumpRetirement_mem branched 0x121c0 0x12200 retired)
+
+/-- Typed entry facts for the first four-byte read after the allocator prefix. -/
+structure SszDecodeSchemaWordEntry (args : DecodeInlineArgs) (state : State) : Prop where
+  atPc : state.regs.get? PC = some 0x121c4
+  sourceAt : state.regs.get? x18 = some (BitVec.ofNat 64 args.boundary.inputAddress)
+  sizeAt : state.regs.get? x13 = some (BitVec.ofNat 64 args.boundary.input.size)
+  input : BytesRep state.mem args.boundary.inputAddress args.boundary.input
+  inputAtLeastFour : 4 ≤ args.boundary.input.size
+  access : DecodeBoundaryMachineAccess args.boundary state
+  code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
+
+/-- The fall-through route produces the exact typed entry for `mem.readInt`. -/
+theorem sszDecodeAllocatorFallThroughHandoff (fromStep : Nat) (args : DecodeInlineArgs)
+    (values : DecodeCalleeSavedValues) (before : EndpointState)
+    (frame : DecodeInlineFrame args values before)
+    (atPc : before.machine.regs.get? PC = some 0x121ac)
+    (allocatorAt : before.machine.regs.get? x11 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x10)))
+    (inputSizeAt : before.machine.regs.get? x13 =
+      some (BitVec.ofNat 64 args.boundary.input.size))
+    (sourceAt : before.machine.regs.get? x18 =
+      some (BitVec.ofNat 64 args.boundary.inputAddress))
+    (comparison : zopz0zKzJ_u 3 (BitVec.ofNat 64 args.boundary.input.size) = false) :
+    ∃ after,
+      Seg sszDecodeAllocatorPrefixOwnPc sszDecodeAllocatorPrefixExitPc
+        (fun _ _ _ _ _ => False) sszDecodeAllocatorPrefixWrites
+        (sszDecodeAllocatorPrefixMemory (args.boundary.stackPointer - 0xbb0))
+        [⟨x14, 3⟩, ⟨x12, BitVec.ofNat 64 args.boundary.allocatorVtableAddress⟩,
+          ⟨x10, BitVec.ofNat 64 args.boundary.allocatorStateAddress⟩]
+        fromStep 6 before.machine after 0x121c4 ∧
+      SszDecodeSchemaWordEntry args after := by
+  obtain ⟨after, seg, _storedState, _storedVtable⟩ :=
+    sszDecodeAllocatorBranchSeg fromStep args values before frame atPc allocatorAt inputSizeAt
+      comparison
+  have inputAfter := frame.input.of_writesOnlyWithin seg.mem (by
+    intro index bound inside
+    have inFrame := sszDecodeAllocatorPrefixMemory_in_frame frame.stackFits inside
+    rcases frame.inputSeparated with above | below <;> omega)
+  refine ⟨after, seg, seg.atPc, ?_, ?_, inputAfter,
+    sszDecodeInputLengthAtLeastFour args.boundary.input.size frame.inputSize.1 comparison,
+    sszDecodeAllocatorAccessOfSeg frame seg, sszDecodeAllocatorCodeOfSeg frame seg⟩
+  · exact (seg.get x18 (by simp [sszDecodeAllocatorPrefixWrites])).trans sourceAt
+  · exact (seg.get x13 (by simp [sszDecodeAllocatorPrefixWrites])).trans inputSizeAt
 
 end BinaryFv.Zesu.MachineExecution

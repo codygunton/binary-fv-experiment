@@ -164,6 +164,8 @@ let
     cp ${repo}/BinaryFv/Zesu/Staging/MemWriteInt.lean MemWriteInt.lean
     cp ${repo}/BinaryFv/Zesu/MachineExecution/HLevel3MemReadIntSteps.lean HLevel3MemReadIntSteps.lean
     cp ${repo}/BinaryFv/Zesu/Staging/MemReadInt.lean MemReadInt.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/HLevel3SszDecodeSteps.lean HLevel3SszDecodeSteps.lean
+    cp ${repo}/BinaryFv/Zesu/Staging/SszDecode.lean SszDecode.lean
     cp ${repo}/BinaryFv/Zesu/MachineExecution/HLevel3ReadU32Steps.lean HLevel3ReadU32Steps.lean
     cp ${repo}/BinaryFv/Zesu/MachineExecution/HLevel3ReadU64Steps.lean HLevel3ReadU64Steps.lean
     cp ${repo}/BinaryFv/Zesu/Staging/ReadU32.lean ReadU32.lean
