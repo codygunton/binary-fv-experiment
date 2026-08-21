@@ -1195,6 +1195,87 @@ private def optionalAddressAbsentBooleanSite :
     0x97 0x10 0x00 0x00 0xe7 0x80 0x80 0xa0 optionalAddressExecutionPcs
     (0x15158, 0x1519c)
 
+private theorem optionalU128PresenceCondition (state : State) (value : BitVec 64)
+    (valueAt : state.regs.get? x27 = some value) :
+    Runs (bTypeTaken (.Regidx 0#5) (.Regidx 27#5) .BEQ) state state (value == 0) := by
+  unfold bTypeTaken
+  refine Runs.bind (rX_x27_run state value valueAt) ?_
+  refine Runs.bind (rX_x0_run state) ?_
+  rfl
+
+/-- Execute the shared U128 presence branch for either reviewed semantic route. -/
+private theorem optionalU128PresenceBranchStep (stepNo : Nat) (state : State)
+    (present : Bool) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15118)
+    (presenceAt : state.regs.get? x27 = some (if present then 1 else 0))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    if present then
+      ∃ retired, Runs (try_step stepNo false) state
+        (tryStepControlFlowAfterRetired
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15118)
+          0x1511c retired) false
+    else
+      ∃ retired, Runs (try_step stepNo false) state
+        (tryStepControlFlowAfterRetired
+          (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x15118 0x1513c)
+          0x1513c retired) false := by
+  cases present
+  · simp only [Bool.false_eq_true, ↓reduceIte] at presenceAt ⊢
+    apply configuredBranchTakenStep stepNo 0x15118 0x1513c state 0x024 (.Regidx 0#5)
+      (.Regidx 27#5) .BEQ 0x63 0x82 0x0d 0x02 configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode configured
+    · simpa using optionalU128PresenceCondition
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15118) 0
+        ((stepPremiseState_writes state 0x15118).get x27 (by decide) |>.trans presenceAt)
+    all_goals native_decide
+  · simp only [↓reduceIte] at presenceAt ⊢
+    apply configuredBranchNotTakenStep stepNo 0x15118 state 0x024 (.Regidx 0#5)
+      (.Regidx 27#5) .BEQ 0x63 0x82 0x0d 0x02 configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode configured
+    · simpa using optionalU128PresenceCondition
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15118) 1
+        ((stepPremiseState_writes state 0x15118).get x27 (by decide) |>.trans presenceAt)
+
+/-- Execute either exact Boolean tag literal used by the U128 routes. -/
+private theorem optionalU128TagStep (stepNo pc value : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (site : ExactInstructionSite pc 0x13 0x05 (if value = 0 then 0x00 else 0x10) 0x00 := by
+      native_decide)
+    (valueCase : value = 0 ∨ value = 1) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x10 (BitVec.ofNat 64 value)) false := by
+  rcases valueCase with rfl | rfl
+  · exact configuredITypeX10Step stepNo pc state 0 (.Regidx 0#5) .ADDI 0 0
+      0x13 0x05 0x00 0x00 configured atPc loaded
+      (by native_decide)
+      (by intro premise _; exact rX_x0_run premise)
+      (by intro premise; exact wX_x10_run premise 0)
+      (by write_success_decode configured) (base := by rfl) (site := site)
+  · exact configuredITypeX10Step stepNo pc state 1 (.Regidx 0#5) .ADDI 0 1
+      0x13 0x05 0x10 0x00 configured atPc loaded
+      (by native_decide)
+      (by intro premise _; exact rX_x0_run premise)
+      (by intro premise; exact wX_x10_run premise 1)
+      (by write_success_decode configured) (base := by rfl) (site := site)
+
+/-- Exact U128 present-route jump from the integer return to the shared join. -/
+private theorem optionalU128JoinJumpStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15138)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x15138 0x15148)
+        0x15148 retired) false := by
+  exact configuredJStep stepNo 0x15138 0x15148 state 0x10
+    0x6f 0x00 0x00 0x01 configured atPc loaded
+    (by configured_decode configured) (by native_decide) (by native_decide) (by native_decide)
+    (base := by rfl)
+
 private theorem optionalU128MoveLowStep (stepNo : Nat) (state : State) (source : BitVec 64)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x15128)
