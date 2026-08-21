@@ -108,6 +108,10 @@ structure DecodeBoundaryMachineAccess (args : DecodeBoundaryArgs) (state : Machi
     LoadPmaAllows state (BitVec.ofNat 64 (args.inputAddress + offset)) width
   inputNoMMIO : ∀ offset width, offset + width ≤ args.input.size →
     LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.inputAddress + offset)) width
+  forkNameTableLoad : ∀ offset width, offset + width ≤ 21 * 8 →
+    LoadPmaAllows state (BitVec.ofNat 64 (0x17228 + offset)) width
+  forkNameTableNoMMIO : ∀ offset width, offset + width ≤ 21 * 8 →
+    LoadMMIOAddressExcluded (BitVec.ofNat 64 (0x17228 + offset)) width
   frameLoad : ∀ offset width, offset + width ≤ 0xbb0 →
     LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer - 0xbb0 + offset)) width
   frameStore : ∀ offset width, offset + width ≤ 0xbb0 →
@@ -132,6 +136,9 @@ theorem of_pma_regions_eq {args : DecodeBoundaryArgs} {before after : MachineSta
   inputLoad offset width bound :=
     dataPmaAllows_of_pma_regions_eq regions (access.inputLoad offset width bound)
   inputNoMMIO := access.inputNoMMIO
+  forkNameTableLoad offset width bound :=
+    dataPmaAllows_of_pma_regions_eq regions (access.forkNameTableLoad offset width bound)
+  forkNameTableNoMMIO := access.forkNameTableNoMMIO
   frameLoad offset width bound :=
     dataPmaAllows_of_pma_regions_eq regions (access.frameLoad offset width bound)
   frameStore offset width bound :=

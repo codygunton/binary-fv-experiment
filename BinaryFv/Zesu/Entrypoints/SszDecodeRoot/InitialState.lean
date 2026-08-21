@@ -278,6 +278,18 @@ private theorem endpointDataNoMMIOAtNat (address width : Nat)
   · rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt addressFits]
     exact fits
 
+private theorem endpointStaticNoMMIOAtNat (address width : Nat)
+    (addressFits : address < 2 ^ 64) (fits : address + width < 0x2000000) :
+    DataMMIOAddressExcluded (BitVec.ofNat 64 address) width := by
+  unfold DataMMIOAddressExcluded Sail.BitVec.toNatInt
+  rw [show plat_clint_base = (33554432 : BitVec 64) by native_decide,
+    show plat_clint_size = (786432 : BitVec 64) by native_decide,
+    show plat_sig_base = (201326592 : BitVec 64) by native_decide,
+    show plat_sig_size = (32 : BitVec 64) by native_decide]
+  rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt addressFits]
+  simp
+  constructor <;> intro _ <;> omega
+
 def canonicalMainArgs (input : Array UInt8) : MainArgs :=
   { input, stackPointer := canonicalStackPointer, returnAddress := 0 }
 
@@ -417,7 +429,7 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
   have regions : finalMachine.regs.get? pma_regions = some [endpointPmaRegion] :=
     (agree pma_regions (by simp [instructionPreserved, platformPreserved])).trans endpointBaseRegions
   have dataAccess : MainDataAccess (canonicalMainArgs input) finalMachine := by
-    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro offset width bound
       apply endpointPmaAllowsAtNat regions <;>
         simp [canonicalMainArgs, canonicalStackPointer,
@@ -434,6 +446,8 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
         omega
       · rw [show Elflings.inputBufferAddress = 536977408 by native_decide]
         omega
+    · intro offset width bound
+      apply endpointPmaAllowsAtNat regions <;> omega
     · exact endpointPmaAllowsAtNat regions _ _ (by native_decide) (by native_decide)
     · exact endpointPmaAllowsAtNat regions _ _ (by native_decide) (by native_decide)
     · exact endpointPmaAllowsAtNat regions _ _ (by native_decide) (by native_decide)
@@ -515,6 +529,9 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
         omega
       · rw [show Elflings.inputBufferAddress = 536977408 by native_decide]
         omega
+    forkNameTableNoMMIO := by
+      intro offset width bound
+      apply endpointStaticNoMMIOAtNat <;> omega
     decodeFrameNoMMIO := by
       intro offset width bound
       apply endpointDataNoMMIOAtNat
