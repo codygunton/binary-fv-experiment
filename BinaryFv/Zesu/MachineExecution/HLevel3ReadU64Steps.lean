@@ -112,6 +112,61 @@ theorem readU64LoadSpillPair
     simpa [Nat.add_assoc] using storedSeg.forget (kv' := kv)
       (fun _ member => List.mem_cons_of_mem _ member)⟩
 
+/-- Compose four consecutive byte loads while retaining all four loaded register values. -/
+theorem readU64FourLiveLoads
+    {own exit : BitVec 64 → Prop}
+    {childSummary : Binary.Elfling.FunctionInstanceId → Nat → Nat → State → State → Prop}
+    {W : RegSet} {M : Region} {kv : List RegVal} {a n : Nat}
+    {base cur : State} {pc0 pc1 pc2 pc3 pc4 : BitVec 64}
+    (seg : Seg own exit childSummary W M kv a n base cur pc0)
+    (d0 d1 d2 d3 : Register)
+    (v0 : RegisterType d0) (v1 : RegisterType d1)
+    (v2 : RegisterType d2) (v3 : RegisterType d3)
+    (run0 : ∃ retired, Runs (try_step (a + n) false) cur
+      (afterRegisterWrite cur pc0 retired d0 v0) false)
+    (run1 : ∀ {next}, Seg own exit childSummary W M (⟨d0, v0⟩ :: kv)
+      a (n + 1) base next pc1 →
+      ∃ retired, Runs (try_step (a + (n + 1)) false) next
+        (afterRegisterWrite next pc1 retired d1 v1) false)
+    (run2 : ∀ {next}, Seg own exit childSummary W M (⟨d1, v1⟩ :: ⟨d0, v0⟩ :: kv)
+      a (n + 2) base next pc2 →
+      ∃ retired, Runs (try_step (a + (n + 2)) false) next
+        (afterRegisterWrite next pc2 retired d2 v2) false)
+    (run3 : ∀ {next}, Seg own exit childSummary W M
+      (⟨d2, v2⟩ :: ⟨d1, v1⟩ :: ⟨d0, v0⟩ :: kv)
+      a (n + 3) base next pc3 →
+      ∃ retired, Runs (try_step (a + (n + 3)) false) next
+        (afterRegisterWrite next pc3 retired d3 v3) false)
+    (in0 : own pc0) (in1 : own pc1) (in2 : own pc2) (in3 : own pc3)
+    (not0 : ¬exit pc0) (not1 : ¬exit pc1) (not2 : ¬exit pc2) (not3 : ¬exit pc3)
+    (advance0 : Sail.BitVec.addInt pc0 4 = pc1)
+    (advance1 : Sail.BitVec.addInt pc1 4 = pc2)
+    (advance2 : Sail.BitVec.addInt pc2 4 = pc3)
+    (advance3 : Sail.BitVec.addInt pc3 4 = pc4)
+    (bookkeeping : ∀ register, stepBookkeeping register → W register)
+    (writes0 : W d0) (writes1 : W d1) (writes2 : W d2) (writes3 : W d3)
+    (notPc0 : d0 ≠ PC) (notPc1 : d1 ≠ PC) (notPc2 : d2 ≠ PC) (notPc3 : d3 ≠ PC)
+    (notRetired0 : d0 ≠ minstret) (notRetired1 : d1 ≠ minstret)
+    (notRetired2 : d2 ≠ minstret) (notRetired3 : d3 ≠ minstret)
+    (keep0 : RegsOutside (RegSet.union stepBookkeeping (RegSet.only d0)) kv)
+    (keep1 : RegsOutside (RegSet.union stepBookkeeping (RegSet.only d1)) (⟨d0, v0⟩ :: kv))
+    (keep2 : RegsOutside (RegSet.union stepBookkeeping (RegSet.only d2))
+      (⟨d1, v1⟩ :: ⟨d0, v0⟩ :: kv))
+    (keep3 : RegsOutside (RegSet.union stepBookkeeping (RegSet.only d3))
+      (⟨d2, v2⟩ :: ⟨d1, v1⟩ :: ⟨d0, v0⟩ :: kv)) :
+    ∃ next, Seg own exit childSummary W M
+      (⟨d3, v3⟩ :: ⟨d2, v2⟩ :: ⟨d1, v1⟩ :: ⟨d0, v0⟩ :: kv)
+      a (n + 4) base next pc4 := by
+  obtain ⟨s1, seg1⟩ := seg.step in0 not0 d0 v0 pc1 run0 advance0 bookkeeping writes0
+    notPc0 notRetired0 keep0
+  obtain ⟨s2, seg2⟩ := seg1.step in1 not1 d1 v1 pc2 (run1 seg1) advance1
+    bookkeeping writes1 notPc1 notRetired1 keep1
+  obtain ⟨s3, seg3⟩ := seg2.step in2 not2 d2 v2 pc3 (run2 (by simpa [Nat.add_assoc] using seg2))
+    advance2 bookkeeping writes2 notPc2 notRetired2 keep2
+  obtain ⟨s4, seg4⟩ := seg3.step in3 not3 d3 v3 pc4 (run3 (by
+    simpa [Nat.add_assoc] using seg3)) advance3 bookkeeping writes3 notPc3 notRetired3 keep3
+  exact ⟨s4, by simpa [Nat.add_assoc] using seg4⟩
+
 /-- Declare one exact eight-byte spill used by a split `readU64` schedule. -/
 macro "readU64SpillSite(" name:ident ";" pc:term "," immediate:term ";"
     baseIndex:term "," sourceIndex:term ";"
