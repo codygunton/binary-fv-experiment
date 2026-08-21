@@ -110,7 +110,7 @@ class ProofMapTest(unittest.TestCase):
             self.assertEqual(len(prepared["parents"]), 17)
             self.assertEqual(prepared["summary"]["level3ContractCount"], 43)
             self.assertEqual(prepared["proofProgress"], {
-                "directProofCount": 21, "remainingContractCount": 22,
+                "directProofCount": 22, "remainingContractCount": 21,
                 "parentComposedInlineCount": 14})
             parent_composed = [item for parent in prepared["parents"]
                                for item in parent["parentComposedInlineInstances"]]
@@ -141,7 +141,8 @@ class ProofMapTest(unittest.TestCase):
                               "extern_io_write_output_fi_1_3e06",
                               "extern_io_write_output_fi_1_3e2f",
                               "extern_io_write_output_fi_1_3e81",
-                              "extern_io_write_output_fi_1_4101"})
+                              "extern_io_write_output_fi_1_4101",
+                              "extern_io_write_output_fi_1_49b1"})
             self.assertTrue(all(child["contractStatus"] == "proved_unconditionally"
                                 for child in proved))
             self.assertEqual(sum(len(row["glueObligations"])

@@ -454,6 +454,379 @@ def rawWriteOutputSiteOfLiterals (entry expectedSize successPc : Nat)
   exitInExitPcs
 }
 
+/-- Production `0x161c0: auipc a0,1` for the constant failure record. -/
+theorem writeFailureRecordAddressHighStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x161c0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x161c0 retired x10 0x171c0) false := by
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x161c0
+  have pcRead : Runs (readReg PC) premise premise 0x161c0 := by
+    apply readReg_run
+    simp [premise, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, atPc]
+  have execute : Runs (execute (.UTYPE (1, .Regidx 10#5, .AUIPC))) premise
+      { premise with regs := premise.regs.insert x10 0x171c0 } (.Retire_Success ()) := by
+    change Runs (execute_UTYPE 1 (.Regidx 10#5) .AUIPC) _ _ _
+    simpa using execute_UTYPE_auipc_run premise _ 1 (.Regidx 10#5) 0x161c0 pcRead
+      (wX_x10_run premise 0x171c0)
+  exact configuredRegisterWriteStep stepNo 0x161c0 state x10 0x171c0
+    (.UTYPE (1, .Regidx 10#5, .AUIPC)) 0x17 0x15 0x00 0x00 configured atPc loaded
+    (by decode_run) execute (base := by rfl)
+
+/-- Production `0x161c4: addi a0,a0,1544` for the constant failure record. -/
+theorem writeFailureRecordAddressLowStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x161c4)
+    (source : state.regs.get? x10 = some 0x171c0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x161c4 retired x10 0x177c8) false := by
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x161c4
+  have sourceAtPremise : premise.regs.get? x10 = some 0x171c0 :=
+    (stepPremiseState_writes state 0x161c4).get x10 (by decide) |>.trans source
+  have execute : Runs (execute (.ITYPE (0x608, .Regidx 10#5, .Regidx 10#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x10 0x177c8 } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 0x608 (.Regidx 10#5) (.Regidx 10#5) .ADDI) _ _ _
+    simpa using execute_ITYPE_run premise _ 0x608 (.Regidx 10#5) (.Regidx 10#5) .ADDI
+      0x171c0 (rX_x10_run premise 0x171c0 sourceAtPremise)
+      (wX_x10_run premise 0x177c8)
+  exact configuredRegisterWriteStep stepNo 0x161c4 state x10 0x177c8
+    (.ITYPE (0x608, .Regidx 10#5, .Regidx 10#5, .ADDI)) 0x13 0x05 0x85 0x60
+    configured atPc loaded (by decode_run) execute (base := by rfl)
+
+/-- Production `0x161c8: li a1,6` for the constant failure record. -/
+theorem writeFailureRecordLengthStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x161c8)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x161c8 retired x11 6) false := by
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
+  exact configuredRawWriteOutputLengthStep stepNo 0x161c8 6 6
+    0x93 0x05 0x60 0x00 state configured atPc loaded (by native_decide) (by rfl)
+    (by native_decide) (by decode_run)
+
+/-- Production `0x161cc: auipc t1,-6` for the constant failure tail jump. -/
+theorem writeFailureRecordJumpBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x161cc)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x161cc retired x6 0x101cc) false := by
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x161cc
+  have pcRead : Runs (readReg PC) premise premise 0x161cc := by
+    apply readReg_run
+    simp [premise, coreControlFlowNextState, tryStepControlFlowAfterIncrement,
+      Std.ExtDHashMap.get?_insert, atPc]
+  have execute : Runs (execute (.UTYPE (0xffffa, .Regidx 6#5, .AUIPC))) premise
+      { premise with regs := premise.regs.insert x6 0x101cc } (.Retire_Success ()) := by
+    change Runs (execute_UTYPE 0xffffa (.Regidx 6#5) .AUIPC) _ _ _
+    simpa using execute_UTYPE_auipc_run premise _ 0xffffa (.Regidx 6#5) 0x161cc pcRead
+      (wX_x6_run premise 0x101cc)
+  exact configuredRegisterWriteStep stepNo 0x161cc state x6 0x101cc
+    (.UTYPE (0xffffa, .Regidx 6#5, .AUIPC)) 0x17 0xa3 0xff 0xff configured atPc loaded
+    (by decode_run) execute (base := by rfl)
+
+/-- Production `0x161d0: jr -60(t1)` tail-jumps to `write_output`. -/
+theorem writeFailureRecordTailJumpStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x161d0)
+    (source : state.regs.get? x6 = some 0x101cc)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x161d0 0x10190)
+        0x10190 retired) false := by
+  obtain ⟨seccfgBits, seccfgRead, _, privilegeAfter, seccfgAfter⟩ :=
+    configured.decodeContext
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x161d0
+  have sourceAtPremise : premise.regs.get? x6 = some 0x101cc :=
+    (stepPremiseState_writes state 0x161d0).get x6 (by decide) |>.trans source
+  exact configuredJrOffsetStep stepNo 0x161d0 state 0xfc4 (.Regidx 6#5) 0x101cc 0x10190
+    0x67 0x00 0x43 0xfc configured atPc loaded (by decode_run)
+    (by simpa using rX_x6_run premise 0x101cc sourceAtPremise) (by native_decide)
+    (by native_decide) (by native_decide) (by rfl)
+
+def writeFailureTailPc (pc : BitVec 64) : Prop :=
+  pcInRanges [(0x161c0, 0x161d4)] pc
+
+def writeFailureTailWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x6 ∨ register = x10 ∨ register = x11
+
+private theorem instructionPreserved_disjoint_writeFailureTailWrites :
+    RegSet.Disjoint instructionPreserved writeFailureTailWrites := by
+  intro register preserved written
+  simp [instructionPreserved, platformPreserved, writeFailureTailWrites,
+    stepBookkeeping] at preserved written
+  grind
+
+set_option genInjectivity false in
+/-- The shared five-step failure-record tail schedule, before the output leaf executes. -/
+structure WriteFailureTailHandoff (fromStep : Nat) (before after : State) : Prop where
+  trace : ConfinedPrefix writeFailureTailPc (fun pc => pc = 0x10190)
+    (fun _ _ _ _ _ => False) fromStep 5 before after
+  atPc : after.regs.get? PC = some 0x10190
+  link : after.regs.get? x1 = some 0x14d24
+  buffer : after.regs.get? x10 = some 0x177c8
+  count : after.regs.get? x11 = some 6
+  writes : WritesOnlyRegs writeFailureTailWrites before after
+  memEq : after.mem = before.mem
+  aux : AuxStateAgree before after
+  retired : RetiredCounterPresent after
+  configured : ConfiguredMachinePre EndpointMachinePc after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
+
+/-- Compose the constant failure address, length, and tail jump once for the failure family. -/
+theorem writeFailureTailHandoff (fromStep : Nat) (before : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc before)
+    (atPc : before.regs.get? PC = some 0x161c0)
+    (link : before.regs.get? x1 = some 0x14d24)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.mem) :
+    ∃ after, WriteFailureTailHandoff fromStep before after := by
+  have seg0 := (Seg.nil writeFailureTailPc (fun pc => pc = 0x10190)
+    writeFailureTailWrites (fun _ => False) fromStep
+    (childSummary := fun _ _ _ _ _ => False) configured.retiredCounter atPc).know
+      x1 0x14d24 link
+  obtain ⟨r0, run0⟩ := writeFailureRecordAddressHighStep fromStep before configured atPc loaded
+  obtain ⟨s1, seg1⟩ := seg0.step (by
+      unfold writeFailureTailPc pcInRanges
+      exact ⟨(0x161c0, 0x161d4), by simp, by native_decide, by native_decide⟩)
+    (by native_decide) x10 0x171c0 0x161c4 ⟨r0, run0⟩
+    (by native_decide) (by intro r h; exact Or.inl h)
+    (Or.inr (Or.inr (Or.inl rfl))) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have cfg1 := configured.mono
+    (seg1.agree instructionPreserved_disjoint_writeFailureTailWrites) seg1.retired
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully s1.mem := by
+    simpa [seg1.memEq (by simp)] using loaded
+  have seg1' := seg1.forget (kv' := [⟨x1, 0x14d24⟩]) (by simp)
+  obtain ⟨r1, run1⟩ := writeFailureRecordAddressLowStep (fromStep + 1) s1 cfg1 seg1.atPc
+    (seg1.reg x10 0x171c0 (by simp)) loaded1
+  obtain ⟨s2, seg2⟩ := seg1'.step (by
+      unfold writeFailureTailPc pcInRanges
+      exact ⟨(0x161c0, 0x161d4), by simp, by native_decide, by native_decide⟩)
+    (by native_decide) x10 0x177c8 0x161c8 ⟨r1, run1⟩
+    (by native_decide) (by intro r h; exact Or.inl h)
+    (Or.inr (Or.inr (Or.inl rfl))) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have cfg2 := configured.mono
+    (seg2.agree instructionPreserved_disjoint_writeFailureTailWrites) seg2.retired
+  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully s2.mem := by
+    simpa [seg2.memEq (by simp)] using loaded
+  obtain ⟨r2, run2⟩ := writeFailureRecordLengthStep (fromStep + 2) s2 cfg2 seg2.atPc loaded2
+  obtain ⟨s3, seg3⟩ := seg2.step (by
+      unfold writeFailureTailPc pcInRanges
+      exact ⟨(0x161c0, 0x161d4), by simp, by native_decide, by native_decide⟩)
+    (by native_decide) x11 6 0x161cc ⟨r2, run2⟩
+    (by native_decide) (by intro r h; exact Or.inl h)
+    (Or.inr (Or.inr (Or.inr rfl))) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have cfg3 := configured.mono
+    (seg3.agree instructionPreserved_disjoint_writeFailureTailWrites) seg3.retired
+  have loaded3 : Artifacts.programImage.fileBytesLoadedFaithfully s3.mem := by
+    simpa [seg3.memEq (by simp)] using loaded
+  obtain ⟨r3, run3⟩ := writeFailureRecordJumpBaseStep (fromStep + 3) s3 cfg3 seg3.atPc loaded3
+  obtain ⟨s4, seg4⟩ := seg3.step (by
+      unfold writeFailureTailPc pcInRanges
+      exact ⟨(0x161c0, 0x161d4), by simp, by native_decide, by native_decide⟩)
+    (by native_decide) x6 0x101cc 0x161d0 ⟨r3, run3⟩
+    (by native_decide) (by intro r h; exact Or.inl h)
+    (Or.inr (Or.inl rfl)) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have cfg4 := configured.mono
+    (seg4.agree instructionPreserved_disjoint_writeFailureTailWrites) seg4.retired
+  have loaded4 : Artifacts.programImage.fileBytesLoadedFaithfully s4.mem := by
+    simpa [seg4.memEq (by simp)] using loaded
+  obtain ⟨s5, seg5⟩ := seg4.stepJump 0x10190
+    (by
+      unfold writeFailureTailPc pcInRanges
+      exact ⟨(0x161c0, 0x161d4), by simp, by native_decide, by native_decide⟩)
+    (by native_decide)
+    (writeFailureRecordTailJumpStep (fromStep + 4) s4 cfg4 seg4.atPc
+      (seg4.reg x6 0x101cc (by simp)) loaded4)
+    (by intro r h; exact Or.inl h) (by simp [RegsOutside, stepBookkeeping])
+  refine ⟨s5, (by simpa using seg5.confined), seg5.atPc, seg5.reg x1 0x14d24 (by simp),
+    seg5.reg x10 0x177c8 (by simp), seg5.reg x11 6 (by simp), seg5.writes,
+    seg5.memEq (by simp), seg5.aux, seg5.retired, ?_, ?_⟩
+  · exact configured.mono
+      (seg5.agree instructionPreserved_disjoint_writeFailureTailWrites) seg5.retired
+  · simpa [seg5.memEq (by simp)] using loaded
+
+private theorem encoderInlinePreserved_disjoint_writeFailureTailWrites :
+    RegSet.Disjoint encoderInlinePreserved writeFailureTailWrites := by
+  intro register preserved written
+  simp [encoderInlinePreserved, instructionPreserved, platformPreserved,
+    writeFailureTailWrites, stepBookkeeping] at preserved written
+  grind
+
+private theorem abiCalleePreserved_disjoint_writeFailureTailWrites :
+    RegSet.Disjoint abiCalleePreserved writeFailureTailWrites := by
+  intro register preserved written
+  simp [abiCalleePreserved, writeFailureTailWrites, stepBookkeeping] at preserved written
+  grind
+
+private theorem encoderInlinePreserved_disjoint_writeOutputWrites :
+    RegSet.Disjoint encoderInlinePreserved writeOutputWrites := by
+  intro register preserved written
+  simp [encoderInlinePreserved, instructionPreserved, platformPreserved, writeOutputWrites]
+    at preserved written
+  grind
+
+private theorem abiCalleePreserved_disjoint_writeOutputWrites :
+    RegSet.Disjoint abiCalleePreserved writeOutputWrites := by
+  intro register preserved written
+  simp [abiCalleePreserved, writeOutputWrites] at preserved written
+  grind
+
+private theorem writeFailureTailPc_in_execution {pc : BitVec 64}
+    (inside : writeFailureTailPc pc) :
+    pcInRanges Elflings.writeFailureRawLine127ExecutionPcRanges pc := by
+  unfold writeFailureTailPc at inside
+  unfold pcInRanges at inside ⊢
+  rcases inside with ⟨range, member, lower, upper⟩
+  simp at member
+  subst range
+  exact ⟨(0x161c0, 0x161d4), by
+    simp [Elflings.writeFailureRawLine127ExecutionPcRanges], lower, upper⟩
+
+private theorem writeFailureTailPc_not_host {pc : BitVec 64}
+    (inside : writeFailureTailPc pc) : ¬BareMetalHostTransitionPc pc := by
+  intro host
+  unfold writeFailureTailPc pcInRanges at inside
+  rcases inside with ⟨range, member, lower, upper⟩
+  simp at member
+  subst range
+  unfold BareMetalHostTransitionPc readContextReturnPc writeContextReturnPc
+    exitContextStorePc at host
+  rcases host with equal | equal | equal <;>
+    rw [equal] at lower upper <;> simp at lower upper
+
+private theorem writeFailureOutputPc_in_execution {pc : BitVec 64}
+    (inside : writeOutputTracePc pc) :
+    pcInRanges Elflings.writeFailureRawLine127ExecutionPcRanges pc := by
+  unfold writeOutputTracePc writeOutputPc at inside
+  rcases inside with (rfl | rfl | rfl | rfl) | rfl <;>
+    exact ⟨(0x10190, 0x101c4), by
+      simp [Elflings.writeFailureRawLine127ExecutionPcRanges],
+      by native_decide, by native_decide⟩
+
+private theorem liftWriteFailureTailTrace (template : EndpointState)
+    {fromStep count : Nat} {before after : State}
+    (trace : ScopedTrace writeFailureTailPc (fun pc => pc = 0x10190)
+      (fun _ _ _ _ _ => False) fromStep count before after) :
+    ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeFailureRawLine127ExecutionPcRanges)
+      fromStep count { template with machine := before } { template with machine := after } := by
+  induction trace with
+  | exitAt fromStep state pc atPc exitPc => exact .refl fromStep { template with machine := state }
+  | ownStep fromStep count pc before middle after atPc inside notExit machineStep rest ih =>
+      refine ConfinedTrace.step fromStep count pc
+        { template with machine := before } { template with machine := middle }
+        { template with machine := after } atPc (writeFailureTailPc_in_execution inside)
+        ?_ (by simpa using ih)
+      exact endpointStep_sail fromStep { template with machine := before } middle
+        (fun observed observedPc => by
+          change before.regs.get? PC = some observed at observedPc
+          rw [atPc] at observedPc
+          cases Option.some.inj observedPc
+          exact writeFailureTailPc_not_host inside)
+        machineStep
+  | childBody fromStep used count child before middle after body rest ih => exact body.elim
+  | inlineStep fromStep used count boundary program parent child before resume after transfer rest ih =>
+      exact transfer.body.elim
+  | inlineCallStep fromStep childUsed calleeUsed count boundary program parent child callee before
+      resume after transfer rest ih => exact transfer.body.elim
+  | callStep fromStep used count call program parent callee before resume after transfer rest ih =>
+      exact transfer.body.elim
+
+/-- Prove the failure writer from one shared tail schedule and the exact output leaf. -/
+theorem writeFailureRecordInstanceContract_of_tailSchedule :
+    WriteFailureRecordInstanceContract := by
+  refine ⟨10, (by simp [level2ContractFuel]), ?_⟩
+  intro args fromStep before entry
+  rcases entry with ⟨⟨atPc, loaded, access⟩, link⟩
+  obtain ⟨callMachine, tail⟩ :=
+    writeFailureTailHandoff fromStep before.machine access.configured atPc link loaded
+  let callState : EndpointState := { before with machine := callMachine }
+  have parentScoped : ScopedTrace writeFailureTailPc (fun pc => pc = 0x10190)
+      (fun _ _ _ _ _ => False) fromStep 5 before.machine callMachine := by
+    simpa using tail.trace 0 callMachine
+      (ScopedTrace.exitAt (fromStep + 5) callMachine 0x10190 tail.atPc rfl)
+  have parentTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeFailureRawLine127ExecutionPcRanges)
+      fromStep 5 before callState := by
+    simpa [callState] using liftWriteFailureTailTrace before parentScoped
+  have staticRep : BytesRep callMachine.mem 0x177c8 failureRecordBytes := by
+    refine ⟨by native_decide, ?_⟩
+    intro index inBounds
+    have cases : index = 0 ∨ index = 1 ∨ index = 2 ∨ index = 3 ∨ index = 4 ∨
+        index = 5 := by
+      simp [failureRecordBytes] at inBounds
+      omega
+    rcases cases with rfl | rfl | rfl | rfl | rfl | rfl <;>
+      simpa [failureRecordBytes] using tail.loaded _ _ (by native_decide)
+  have outside : ∀ index, index < failureRecordBytes.size →
+      ¬writeOutputMemory (0x177c8 + index) := by
+    intro index inBounds inside
+    unfold writeOutputMemory Region.union byteRange at inside
+    simp [failureRecordBytes] at inBounds
+    simp [Elflings.ioContextAddress] at inside
+    rcases inside with inside | inside <;> omega
+  have pmaEq := tail.writes.get pma_regions (by
+    simp [writeFailureTailWrites, stepBookkeeping])
+  obtain ⟨after, output⟩ := writeOutputHandoff (fromStep + 5) 0x177c8 failureRecordBytes
+    0x14d24 callState (by simpa [callState] using tail.atPc)
+    (by simpa [callState] using tail.link) (by simpa [callState] using tail.buffer)
+    (by simpa [callState, failureRecordBytes] using tail.count)
+    (by native_decide) (by native_decide) (by simpa [callState] using staticRep) outside
+    (dataPmaAllows_of_pma_regions_eq pmaEq access.outputBufferStore)
+    (dataPmaAllows_of_pma_regions_eq pmaEq access.outputLengthStore)
+    (by native_decide) tail.configured tail.loaded
+  have outputTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeFailureRawLine127ExecutionPcRanges)
+      (fromStep + 5) 5 callState after :=
+    output.trace.weaken (fun _ h => writeFailureOutputPc_in_execution h)
+  have wholeTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges Elflings.writeFailureRawLine127ExecutionPcRanges)
+      fromStep 10 before after := by
+    simpa [Nat.add_assoc] using parentTrace.append outputTrace
+  have parentInlineAgree : Agree encoderInlinePreserved before.machine callMachine :=
+    tail.writes.agree encoderInlinePreserved_disjoint_writeFailureTailWrites
+  have outputInlineAgree : Agree encoderInlinePreserved callMachine after.machine :=
+    output.writes.agree encoderInlinePreserved_disjoint_writeOutputWrites
+  have parentCallAgree : Agree abiCalleePreserved before.machine callMachine :=
+    tail.writes.agree abiCalleePreserved_disjoint_writeFailureTailWrites
+  have outputCallAgree : Agree abiCalleePreserved callMachine after.machine :=
+    output.writes.agree abiCalleePreserved_disjoint_writeOutputWrites
+  have outputAtPc : EndpointPc after = some 0x14d24 := by
+    simpa [EndpointPc] using output.atPc
+  refine ⟨10, after, (), by omega, Nat.le_refl 10, wholeTrace,
+    ⟨0x14d24, outputAtPc, ?_⟩, trivial, ?_⟩
+  · unfold pcInList
+    simpa [Elflings.writeFailureRawLine127ExitPcs]
+  · refine ⟨⟨outputAtPc, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_⟩
+    · simpa [callState] using output.stdout
+    · simpa [callState] using output.stdin
+    · simpa [callState] using output.cursor
+    · simpa [callState] using output.exitCode
+    · intro address outsideMemory
+      exact (output.memory address outsideMemory).trans
+        (congrArg (fun mem => mem.get? address) tail.memEq)
+    · exact ⟨parentInlineAgree.trans outputInlineAgree, output.configured.retiredCounter,
+        output.loaded, tail.aux.trans output.aux⟩
+    · exact ⟨parentCallAgree.trans outputCallAgree, output.configured.retiredCounter,
+        output.loaded, (tail.aux.trans output.aux).1, (tail.aux.trans output.aux).2.1,
+        (tail.aux.trans output.aux).2.2⟩
+
 private def parentHashWriteOutputSite : RawWriteOutputSite 0x14e2c 32 0x14e38
     Elflings.writeSuccessRawLine135ExecutionPcRanges Elflings.writeSuccessRawLine135ExitPcs :=
   rawWriteOutputSiteOfLiterals 0x14e2c 32 0x14e38 0xfe30 32 0xffffb 0x360

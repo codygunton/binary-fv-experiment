@@ -694,7 +694,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_extern_io_write_output_fi_1_49b1_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_49b1_Contract
 
 /--
 Contract design hole for `fi:1:5a81` at `0x170b4`.
@@ -766,8 +766,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_ssz_decode_observation_Encoder_int_fi_1_4494_Contract
   ssz_decode_observation_Encoder_raw_fi_1_45f6 :
     Proposed_ssz_decode_observation_Encoder_raw_fi_1_45f6_Contract
-  extern_io_write_output_fi_1_49b1 :
-    Proposed_extern_io_write_output_fi_1_49b1_Contract
   mem_Allocator_alloc__anon_1151_fi_1_5a81 :
     Proposed_mem_Allocator_alloc__anon_1151_fi_1_5a81_Contract
   mem_Allocator_dupe__anon_1128_fi_1_5b8d :
@@ -1679,16 +1677,15 @@ private theorem resolve_sszDecode
 
 /--
 Resolve Level 2 field `writeFailureRecord` for `fi:1:499d`.
-Level 3 contracts: `extern_io_write_output_fi_1_49b1`.
+Level 3 contracts: none.
 Earlier Level 2 results: none.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_writeOutput_49b1_proved`.
 Parent-composed inline instances: none.
 Parent glue: 0 instructions in 0 block fragments.
 Frame rule: choose the complete register and memory write regions before `Seg` starts.
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeFailureRecord
-    (extern_io_write_output_fi_1_49b1 : Proposed_extern_io_write_output_fi_1_49b1_Contract)
     : WriteFailureRecordInstanceContract := by
   sorry
 
@@ -2173,7 +2170,6 @@ theorem level2Contracts_of_level3_staged
       hLevel3.ssz_decodeWithdrawal_fi_1_3a74
   have resolved_writeFailureRecord : WriteFailureRecordInstanceContract :=
     resolve_writeFailureRecord
-      hLevel3.extern_io_write_output_fi_1_49b1
   have resolved_writeSuccessBlockHash : WriteSuccessBlockHashInstanceContract :=
     resolve_writeSuccessBlockHash
   have resolved_writeSuccessBoolean : WriteSuccessBooleanInstanceContract :=

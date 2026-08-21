@@ -105,6 +105,11 @@
       "field": "extern_io_write_output_fi_1_4101",
       "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_4101_proved",
       "contract": "BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_4101_Contract"
+    },
+    {
+      "field": "extern_io_write_output_fi_1_49b1",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_49b1_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_49b1_Contract"
     }
   ]
 }

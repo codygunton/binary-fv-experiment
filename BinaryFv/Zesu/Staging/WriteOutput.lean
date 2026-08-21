@@ -3,8 +3,8 @@ import BinaryFv.Zesu.MachineExecution.HLevel3WriteOutputSteps
 /-!
 # Level 3 `extern_io.write_output` contracts
 
-Seven inlined success sites share one exact machine theorem. The eighth source instance is a
-different tail-call schedule and remains separate.
+Seven inlined success sites share one exact machine theorem. The eighth source instance uses one
+separate shared theorem for its five-step tail-call schedule.
 -/
 
 namespace BinaryFv.Zesu.Staging
@@ -32,6 +32,9 @@ abbrev Proposed_extern_io_write_output_fi_1_3e81_Contract : Prop :=
 abbrev Proposed_extern_io_write_output_fi_1_4101_Contract : Prop :=
   WriteSuccessParentBeaconRootInstanceContract
 
+abbrev Proposed_extern_io_write_output_fi_1_49b1_Contract : Prop :=
+  WriteFailureRecordInstanceContract
+
 theorem proposed_writeOutput_3d8b_proved : Proposed_extern_io_write_output_fi_1_3d8b_Contract :=
   writeSuccessParentHashInstanceContract
 
@@ -52,5 +55,8 @@ theorem proposed_writeOutput_3e81_proved : Proposed_extern_io_write_output_fi_1_
 
 theorem proposed_writeOutput_4101_proved : Proposed_extern_io_write_output_fi_1_4101_Contract :=
   writeSuccessParentBeaconRootInstanceContract
+
+theorem proposed_writeOutput_49b1_proved : Proposed_extern_io_write_output_fi_1_49b1_Contract :=
+  writeFailureRecordInstanceContract_of_tailSchedule
 
 end BinaryFv.Zesu.Staging
