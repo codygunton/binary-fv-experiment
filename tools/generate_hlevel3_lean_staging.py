@@ -11,9 +11,14 @@ from pathlib import Path
 
 DIRECT_PROOF_PATH = Path(os.environ.get(
     "HLEVEL3_DIRECT_PROOFS", Path(__file__).with_name("hlevel3_direct_proofs.json")))
-DIRECT_PROOF_ROWS = json.loads(DIRECT_PROOF_PATH.read_text())["proofs"]
+DIRECT_PROOF_DOCUMENT = json.loads(DIRECT_PROOF_PATH.read_text())
+DIRECT_PROOF_ROWS = DIRECT_PROOF_DOCUMENT["proofs"]
 DIRECT_PROOFS = {row["field"]: row["theorem"] for row in DIRECT_PROOF_ROWS}
 DIRECT_CONTRACTS = {row["field"]: row["contract"] for row in DIRECT_PROOF_ROWS}
+RESOLVED_PARENT_PROOFS = {
+    row["field"]: row["theorem"]
+    for row in DIRECT_PROOF_DOCUMENT.get("resolvedParents", [])
+}
 DESIGNED_CONTRACTS = {
     "ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b":
         "BinaryFv.Zesu.Staging."
@@ -80,6 +85,7 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
         "import BinaryFv.Zesu.Staging.WriteOutput",
         "import BinaryFv.Zesu.Staging.RawEncoder",
         "import BinaryFv.Zesu.Staging.IntegerEncoder",
+        "import BinaryFv.Zesu.Staging.BooleanEncoder",
         "import BinaryFv.Zesu.Staging.OptionalEncoder",
         "",
         "/-!",
@@ -188,11 +194,20 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
                 f"    ({child_field} : {contract_name(child_field)})")
         for sibling in siblings:
             lines.append(f"    ({sibling} : {parent_type(sibling)})")
-        lines.extend([
-            f"    : {parent_type(field)} := by",
-            "  sorry",
-            "",
-        ])
+        if field in RESOLVED_PARENT_PROOFS:
+            if child_fields or siblings:
+                raise ValueError(f"resolved parent {field} still requires contract arguments")
+            lines.extend([
+                f"    : {parent_type(field)} :=",
+                f"  {RESOLVED_PARENT_PROOFS[field]}",
+                "",
+            ])
+        else:
+            lines.extend([
+                f"    : {parent_type(field)} := by",
+                "  sorry",
+                "",
+            ])
 
     lines.extend([
         "/-- The staged Level 3 to Level 2 refinement edge. Production code does not import it. -/",

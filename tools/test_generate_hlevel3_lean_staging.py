@@ -5,7 +5,8 @@ import os
 import unittest
 from pathlib import Path
 
-from generate_hlevel3_lean_staging import DESIGNED_CONTRACTS, DIRECT_PROOFS, generate, idiom_checks
+from generate_hlevel3_lean_staging import (
+    DESIGNED_CONTRACTS, DIRECT_PROOFS, RESOLVED_PARENT_PROOFS, generate, idiom_checks)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,8 +37,14 @@ class LeanStagingTests(unittest.TestCase):
             self.source.count(": Prop := by\n  sorry"), contract_count - len(external_contracts))
         self.assertEqual(self.source.count("private theorem resolve_"), 17)
         self.assertEqual(
-            self.source.count("  sorry"), contract_count - len(external_contracts) + 17)
+            self.source.count("  sorry"),
+            contract_count - len(external_contracts) + 17 - len(RESOLVED_PARENT_PROOFS))
         self.assertEqual(self.source.count("def Proposed_"), contract_count)
+
+    def test_resolved_parent_uses_registered_theorem(self):
+        for field, theorem in RESOLVED_PARENT_PROOFS.items():
+            self.assertIn(f"private theorem resolve_{field}", self.source)
+            self.assertIn(f"  {theorem}", self.source)
 
     def test_read_u32_destination_tuple_is_instance_specific(self):
         self.assertIn(

@@ -91,6 +91,21 @@ theorem UIntRep.leBytes {n address value : Nat} {mem : Std.ExtHashMap Nat (BitVe
   simp [byteAt, BinaryFv.RiscV.Sep.leBytes, Nat.shiftRight_eq_div_pow]
   rw [Nat.mod_eq_of_lt rep.1]
 
+/-- An exact one-byte Sail store establishes the corresponding integer representation. -/
+theorem uintRep_afterWriteBytes_one (state : BinaryFv.RiscV.State) (address value : Nat)
+    (valueFits : value < 2 ^ 8) (addressFits : address + 1 ≤ 2 ^ 64) :
+    UIntRep 1
+      (BinaryFv.RiscV.afterWriteBytes (width := 1) state address
+        (BitVec.ofNat 64 value)).mem address value := by
+  refine ⟨valueFits, addressFits, ?_⟩
+  intro index indexBound
+  have indexZero : index = 0 := by omega
+  subst index
+  simp [BinaryFv.RiscV.afterWriteBytes, BinaryFv.RiscV.afterByteWrites, byteAt,
+    Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem_insert]
+  apply BitVec.eq_of_toNat_eq
+  simp [Nat.mod_eq_of_lt valueFits]
+
 /-- An exact eight-byte Sail store establishes the corresponding little-endian integer
 representation. -/
 theorem uintRep_afterWriteBytes_eight (state : BinaryFv.RiscV.State)
@@ -119,6 +134,19 @@ def BytesRep (mem : Std.ExtHashMap Nat (BitVec 8)) (address : Nat)
   address + bytes.size ≤ 2 ^ 64 ∧
     ∀ index (inBounds : index < bytes.size),
       mem.get? (address + index) = some (BitVec.ofNat 8 bytes[index].toNat)
+
+/-- A represented byte is the matching singleton byte array. -/
+theorem UIntRep.bytesRepSingleton {mem : Std.ExtHashMap Nat (BitVec 8)}
+    {address value : Nat} (rep : UIntRep 1 mem address value) :
+    BytesRep mem address #[UInt8.ofNat value] := by
+  refine ⟨by simpa using rep.2.1, ?_⟩
+  intro index bound
+  have indexZero : index = 0 := by simpa using bound
+  subst index
+  rw [rep.2.2 0 (by omega)]
+  congr 1
+  apply BitVec.eq_of_toNat_eq
+  simp [byteAt, Nat.mod_eq_of_lt rep.1]
 
 /-- Extract one represented byte as the one-byte integer window used by an exact load proof. -/
 theorem BytesRep.uintRepAt {mem : Std.ExtHashMap Nat (BitVec 8)} {address : Nat}

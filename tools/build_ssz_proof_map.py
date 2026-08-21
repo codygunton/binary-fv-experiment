@@ -226,10 +226,14 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         guide_by_id = {row["id"]: row for row in hlevel3_guidance["obligations"]}
         admission_by_id = {row["instanceId"]: row for row in hlevel3_admission["instances"]}
         direct_rows = hlevel3_direct_proofs["proofs"] if hlevel3_direct_proofs else []
+        resolved_parent_rows = (hlevel3_direct_proofs.get("resolvedParents", [])
+                                if hlevel3_direct_proofs else [])
         direct_by_field = {row["field"]: row for row in direct_rows}
+        resolved_parent_by_field = {row["field"]: row for row in resolved_parent_rows}
         if len(direct_by_field) != len(direct_rows):
             raise ValueError("duplicate hLevel3 direct-proof field")
         inventory_fields = {row["field"] for row in hlevel3_inventory["proposedLevel3Contracts"]}
+        parent_fields = {row["field"] for row in hlevel3_inventory["parents"]}
         parent_composed = [
             row
             for parent in hlevel3_inventory["parents"]
@@ -238,6 +242,10 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         unknown_direct = sorted(set(direct_by_field) - inventory_fields)
         if unknown_direct:
             raise ValueError(f"unknown hLevel3 direct-proof fields: {unknown_direct}")
+        unknown_resolved_parents = sorted(set(resolved_parent_by_field) - parent_fields)
+        if unknown_resolved_parents:
+            raise ValueError(
+                f"unknown hLevel3 resolved-parent fields: {unknown_resolved_parents}")
         hlevel3_preparation = {
             "summary": hlevel3_inventory["summary"],
             "admissionSummary": hlevel3_admission["summary"],
@@ -245,10 +253,12 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
                 "directProofCount": len(direct_by_field),
                 "remainingContractCount": len(inventory_fields) - len(direct_by_field),
                 "parentComposedInlineCount": len(parent_composed),
+                "resolvedParentCount": len(resolved_parent_by_field),
             },
             "parents": [],
         }
         for parent in hlevel3_inventory["parents"]:
+            resolved_parent = resolved_parent_by_field.get(parent["field"])
             children = []
             for child in parent["children"]:
                 prepared = admission_by_id.get(child.get("instanceId"))
@@ -271,6 +281,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
                 "parentComposedInlineInstances": parent.get(
                     "parentComposedInlineInstances", []),
                 "stagingTheorem": f"resolve_{parent['field']}",
+                "proofStatus": "proved" if resolved_parent else "not_proved",
+                "proofTheorem": resolved_parent["theorem"] if resolved_parent else None,
             })
 
     regions.append({

@@ -146,5 +146,11 @@
       "theorem": "BinaryFv.Zesu.Staging.proposed_integerEncoder_4494_proved",
       "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_int_fi_1_4494_Contract"
     }
+  ],
+  "resolvedParents": [
+    {
+      "field": "writeSuccessBoolean",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_booleanEncoder_4276_proved"
+    }
   ]
 }

@@ -11,6 +11,7 @@ import BinaryFv.Zesu.Staging.CheckedSlice
 import BinaryFv.Zesu.Staging.WriteOutput
 import BinaryFv.Zesu.Staging.RawEncoder
 import BinaryFv.Zesu.Staging.IntegerEncoder
+import BinaryFv.Zesu.Staging.BooleanEncoder
 import BinaryFv.Zesu.Staging.OptionalEncoder
 
 /-!
@@ -1675,8 +1676,8 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessBoolean
-    : WriteSuccessBooleanInstanceContract := by
-  sorry
+    : WriteSuccessBooleanInstanceContract :=
+  BinaryFv.Zesu.Staging.proposed_booleanEncoder_4276_proved
 
 /--
 Resolve Level 2 field `writeSuccessFeeRecipient` for `fi:1:3da0`.
