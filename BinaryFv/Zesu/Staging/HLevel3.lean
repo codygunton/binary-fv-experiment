@@ -7,6 +7,7 @@ import BinaryFv.Zesu.Staging.MemWriteInt
 import BinaryFv.Zesu.Staging.MemReadInt
 import BinaryFv.Zesu.Staging.SszDecode
 import BinaryFv.Zesu.Staging.ReadU32
+import BinaryFv.Zesu.MachineExecution.HLevel3ReadU64Steps
 import BinaryFv.Zesu.Staging.ForkName
 import BinaryFv.Zesu.Staging.CheckedSlice
 import BinaryFv.Zesu.Staging.WriteOutput
