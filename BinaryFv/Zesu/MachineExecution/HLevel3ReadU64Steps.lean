@@ -834,6 +834,70 @@ readU32UnsignedLoadSite(readU64_37a5Load447; 0x13a50, 447;
   .Regidx 23#5, x23, rX_x23_run;
   .Regidx 25#5, x25, wX_x25_run; 0x83, 0xcc, 0xfb, 0x1b)
 
+/-! `fi:1:3823` has parent instructions between these shared reader operations. -/
+
+readU32UnsignedLoadSite(readU64_3823Load532; 0x13cf0, 532;
+  .Regidx 30#5, x30, rX_x30_run;
+  .Regidx 6#5, x6, wX_x6_run; 0x03, 0x43, 0x4f, 0x21)
+readU32UnsignedLoadSite(readU64_3823Load533; 0x13cf4, 533;
+  .Regidx 30#5, x30, rX_x30_run;
+  .Regidx 7#5, x7, wX_x7_run; 0x83, 0x43, 0x5f, 0x21)
+readU32UnsignedLoadSite(readU64_3823Load534; 0x13cf8, 534;
+  .Regidx 30#5, x30, rX_x30_run;
+  .Regidx 28#5, x28, wX_x28_run; 0x03, 0x4e, 0x6f, 0x21)
+readU32UnsignedLoadSite(readU64_3823Load535; 0x13cfc, 535;
+  .Regidx 30#5, x30, rX_x30_run;
+  .Regidx 29#5, x29, wX_x29_run; 0x83, 0x4e, 0x7f, 0x21)
+readU32SlliSite(readU64_3823Shift533; 0x13d0c, 8;
+  .Regidx 7#5, x7, rX_x7_run, wX_x7_run; 0x93, 0x93, 0x83, 0x00)
+readU32SlliSite(readU64_3823Shift534; 0x13d10, 16;
+  .Regidx 28#5, x28, rX_x28_run, wX_x28_run; 0x13, 0x1e, 0x0e, 0x01)
+readU32SlliSite(readU64_3823Shift535; 0x13d14, 24;
+  .Regidx 29#5, x29, rX_x29_run, wX_x29_run; 0x93, 0x9e, 0x8e, 0x01)
+readU32OrSite(readU64_3823OrLow0; 0x13d20;
+  .Regidx 7#5, x7, rX_x7_run; .Regidx 6#5, x6, rX_x6_run;
+  .Regidx 17#5, x17, wX_x17_run; 0xb3, 0xe8, 0x63, 0x00)
+readU32OrSite(readU64_3823OrLow1; 0x13d24;
+  .Regidx 29#5, x29, rX_x29_run; .Regidx 28#5, x28, rX_x28_run;
+  .Regidx 5#5, x5, wX_x5_run; 0xb3, 0xe2, 0xce, 0x01)
+readU32UnsignedLoadSite(readU64_3823Load537; 0x13d28, 537;
+  .Regidx 30#5, x30, rX_x30_run;
+  .Regidx 6#5, x6, wX_x6_run; 0x03, 0x43, 0x9f, 0x21)
+readU32UnsignedLoadSite(readU64_3823Load536; 0x13d2c, 536;
+  .Regidx 30#5, x30, rX_x30_run;
+  .Regidx 7#5, x7, wX_x7_run; 0x83, 0x43, 0x8f, 0x21)
+readU32UnsignedLoadSite(readU64_3823Load538; 0x13d30, 538;
+  .Regidx 30#5, x30, rX_x30_run;
+  .Regidx 28#5, x28, wX_x28_run; 0x03, 0x4e, 0xaf, 0x21)
+readU32UnsignedLoadSite(readU64_3823Load539; 0x13d34, 539;
+  .Regidx 30#5, x30, rX_x30_run;
+  .Regidx 29#5, x29, wX_x29_run; 0x83, 0x4e, 0xbf, 0x21)
+readU32SlliSite(readU64_3823Shift537; 0x13d38, 8;
+  .Regidx 6#5, x6, rX_x6_run, wX_x6_run; 0x13, 0x13, 0x83, 0x00)
+readU32OrSite(readU64_3823OrHigh0; 0x13d3c;
+  .Regidx 6#5, x6, rX_x6_run; .Regidx 7#5, x7, rX_x7_run;
+  .Regidx 6#5, x6, wX_x6_run; 0x33, 0x63, 0x73, 0x00)
+readU32SlliSite(readU64_3823Shift538; 0x13d40, 16;
+  .Regidx 28#5, x28, rX_x28_run, wX_x28_run; 0x13, 0x1e, 0x0e, 0x01)
+readU32SlliSite(readU64_3823Shift539; 0x13d44, 24;
+  .Regidx 29#5, x29, rX_x29_run, wX_x29_run; 0x93, 0x9e, 0x8e, 0x01)
+readU32OrSite(readU64_3823OrHigh1; 0x13d48;
+  .Regidx 29#5, x29, rX_x29_run; .Regidx 28#5, x28, rX_x28_run;
+  .Regidx 7#5, x7, wX_x7_run; 0xb3, 0xe3, 0xce, 0x01)
+readU32OrSite(readU64_3823Low; 0x13d54;
+  .Regidx 5#5, x5, rX_x5_run; .Regidx 17#5, x17, rX_x17_run;
+  .Regidx 15#5, x15, wX_x15_run; 0xb3, 0xe7, 0x12, 0x01)
+readU32LiSite(readU64_3823Tag; 0x13d58, 1;
+  .Regidx 16#5, x16, wX_x16_run; 0x13, 0x08, 0x10, 0x00)
+readU32OrSite(readU64_3823High; 0x13d5c;
+  .Regidx 7#5, x7, rX_x7_run; .Regidx 6#5, x6, rX_x6_run;
+  .Regidx 17#5, x17, wX_x17_run; 0xb3, 0xe8, 0x63, 0x00)
+readU32SlliSite(readU64_3823ShiftHigh; 0x13d60, 32;
+  .Regidx 17#5, x17, rX_x17_run, wX_x17_run; 0x93, 0x98, 0x08, 0x02)
+readU32OrSite(readU64_3823Result; 0x13d64;
+  .Regidx 17#5, x17, rX_x17_run; .Regidx 15#5, x15, rX_x15_run;
+  .Regidx 15#5, x15, wX_x15_run; 0xb3, 0xe7, 0xf8, 0x00)
+
 /-- Shared low-word fragment instantiated at `fi:1:3203`. -/
 theorem readU64_3203LowRun (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
