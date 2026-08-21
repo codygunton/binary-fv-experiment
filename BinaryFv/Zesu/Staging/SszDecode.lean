@@ -138,6 +138,7 @@ structure SszDecodeMarkerReady (args : DecodeInlineArgs) (machine : State) : Pro
   atPc : machine.regs.get? PC = some 0x1220c
   sourceAt : machine.regs.get? x18 =
     some (BitVec.ofNat 64 (args.boundary.inputAddress + 4))
+  inputAtLeastFour : 4 ≤ args.boundary.input.size
   input : BytesRep machine.mem args.boundary.inputAddress args.boundary.input
   access : DecodeBoundaryMachineAccess args.boundary machine
   configured : ConfiguredMachinePre EndpointMachinePc machine
@@ -149,6 +150,24 @@ private theorem iTypeResult_addi_four_ofNat (value : Nat) :
   have immediate : sign_extend (m := 64) (4#12) = (4#64) := by native_decide
   change BitVec.ofNat 64 value + sign_extend (m := 64) (4#12) = _
   rw [immediate, ← BitVec.ofNat_add]
+
+private theorem inputAtLeastSix_of_minimumComparison (size : Nat) (atLeastFour : 4 ≤ size)
+    (sizeFits : size < 2 ^ 64)
+    (minimum : zopz0zI_u (iTypeResult .ADDI 0xffc (BitVec.ofNat 64 size)) 2 = false) :
+    6 ≤ size := by
+  have subtractFour :
+      iTypeResult .ADDI 0xffc (BitVec.ofNat 64 size) = BitVec.ofNat 64 (size - 4) := by
+    simp only [iTypeResult]
+    have immediate : sign_extend (m := 64) (0xffc#12) =
+        BitVec.ofNat 64 (2 ^ 64 - 4) := by native_decide
+    change BitVec.ofNat 64 size + sign_extend (m := 64) (0xffc#12) = _
+    rw [immediate, ← BitVec.ofNat_add]
+    apply BitVec.eq_of_toNat_eq
+    simp
+    omega
+  rw [subtractFour] at minimum
+  simp [zopz0zI_u, Sail.BitVec.toNatInt] at minimum
+  omega
 
 private theorem sszDecodeLengthValidatedOwnPc_in_initial {pc : BitVec 64}
     (inside : sszDecodeLengthValidatedOwnPc pc) : DecodeInlineInitialExecutionPc pc := by
@@ -464,6 +483,42 @@ theorem sszDecodeForkNameTraceFromMarker (fromStep baseAddress schema : Nat)
   have bounded' : used ≤ 12 := by simpa [forkNameSelectionContract] using bounded
   exact ⟨used, childBefore, after, outcome, bounded', combined', childExit⟩
 
+/-- The marker-ready frame supplies every machine fact for the accepted marker and fork-name child. -/
+theorem sszDecodeAcceptedForkNameTrace (fromStep : Nat) (args : DecodeInlineArgs)
+    (before : EndpointState) (ready : SszDecodeMarkerReady args before.machine)
+    (inputAtLeastSix : 6 ≤ args.boundary.input.size)
+    (acceptedMarker : args.boundary.input[5].toNat = 1) :
+    ∃ used childBefore after outcome,
+      used ≤ 12 ∧
+      ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep (4 + used)
+        before after ∧
+      forkNameSelectionExit
+        (forkNameArgsForSchema args.boundary.input[4].toNat) outcome childBefore after := by
+  have schemaRep := ready.input.uintRepAt 4 (by omega)
+  have markerRep := ready.input.uintRepAt 5 (by omega)
+  have markerRep' : UIntRep 1 before.machine.mem (args.boundary.inputAddress + 4 + 1) 1 := by
+    have repValue : UIntRep 1 before.machine.mem (args.boundary.inputAddress + 5) 1 :=
+      acceptedMarker ▸ markerRep
+    simpa only [Nat.reduceAdd, Nat.add_assoc] using repValue
+  have markerPma := ready.access.inputLoad 5 1 (by omega)
+  have schemaPma := ready.access.inputLoad 4 1 (by omega)
+  have markerNoMMIO := ready.access.inputNoMMIO 5 1 (by omega)
+  have schemaNoMMIO := ready.access.inputNoMMIO 4 1 (by omega)
+  have sumFits : args.boundary.inputAddress + 4 + 1 < 2 ^ 64 := by
+    have inputFits := ready.input.1
+    omega
+  apply sszDecodeForkNameTraceFromMarker fromStep (args.boundary.inputAddress + 4)
+    args.boundary.input[4].toNat before ready.atPc ready.sourceAt markerRep' schemaRep
+  · simpa only [Nat.add_assoc] using markerPma
+  · exact schemaPma
+  · simpa only [Nat.add_assoc] using markerNoMMIO
+  · exact schemaNoMMIO
+  · exact sumFits
+  · exact ready.configured
+  · exact ready.code
+  · exact ready.access.forkNameTableLoad
+  · exact ready.access.forkNameTableNoMMIO
+
 /-- The parent prefix and the proved four-byte child form one initial decoder trace. -/
 theorem sszDecodeSchemaWordPrefixAndChild (fromStep : Nat) (args : DecodeInlineArgs)
     (values : DecodeCalleeSavedValues) (before : EndpointState)
@@ -655,11 +710,55 @@ theorem sszDecodeValidatedLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
       apply SszDecodeMarkerReady.mk
       · exact finalAtPc
       · exact finalSource'
+      · exact bound
       · exact finalInput
       · exact minimumAccess
       · exact minimumAccess.configured
       · exact finalCode
     exact markerReady
+
+/-- The validated length route and accepted marker append the proved fork-name child trace. -/
+theorem sszDecodeValidatedForkNameTrace (fromStep : Nat) (args : DecodeInlineArgs)
+    (values : DecodeCalleeSavedValues) (before : EndpointState)
+    (frame : DecodeInlineFrame args values before)
+    (atPc : before.machine.regs.get? PC = some 0x121ac)
+    (allocatorAt : before.machine.regs.get? x11 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x10)))
+    (inputSizeAt : before.machine.regs.get? x13 =
+      some (BitVec.ofNat 64 args.boundary.input.size))
+    (sourceAt : before.machine.regs.get? x18 =
+      some (BitVec.ofNat 64 args.boundary.inputAddress))
+    (fieldComparison : zopz0zKzJ_u 3 (BitVec.ofNat 64 args.boundary.input.size) = false)
+    (lengthEqual : ∀ (bound : 4 ≤ args.boundary.input.size)
+      (fits : args.boundary.inputAddress + args.boundary.input.size ≤ 2 ^ 64),
+      iTypeResult .ADDI 0xffc (BitVec.ofNat 64 args.boundary.input.size) =
+        memReadIntResult (sszDecodeSchemaWordArgs args bound fits))
+    (minimumComparison : zopz0zI_u
+      (iTypeResult .ADDI 0xffc (BitVec.ofNat 64 args.boundary.input.size)) 2 = false)
+    (inputAtLeastSix : 6 ≤ args.boundary.input.size)
+    (acceptedMarker : args.boundary.input[5].toNat = 1) :
+    ∃ parentUsed childUsed childBefore after outcome,
+      parentUsed ≤ 10 ∧ childUsed ≤ 12 ∧
+      ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep
+        (17 + parentUsed + childUsed) before after ∧
+      forkNameSelectionExit
+        (forkNameArgsForSchema args.boundary.input[4].toNat) outcome childBefore after := by
+  obtain ⟨parentUsed, markerState, parentBound, parentTrace, markerPc, markerReady⟩ :=
+    sszDecodeValidatedLengthTrace fromStep args values before frame atPc allocatorAt inputSizeAt
+      sourceAt fieldComparison lengthEqual minimumComparison
+  have ready := markerReady rfl
+  obtain ⟨childUsed, childBefore, after, outcome, childBound, childTrace, childExit⟩ :=
+    sszDecodeAcceptedForkNameTrace (fromStep + (13 + parentUsed)) args markerState ready
+      inputAtLeastSix acceptedMarker
+  have childTrace' : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      (fromStep + (13 + parentUsed)) (4 + childUsed) markerState after := childTrace
+  have parentTrace' : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      fromStep (13 + parentUsed) before markerState := by
+    simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using parentTrace
+  have combined := parentTrace'.append childTrace'
+  refine ⟨parentUsed, childUsed, childBefore, after, outcome, parentBound, childBound, ?_,
+    childExit⟩
+  simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using combined
 
 /-- The first taken branch and shared minimum check form the complete short-input trace. -/
 theorem sszDecodeShortLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
