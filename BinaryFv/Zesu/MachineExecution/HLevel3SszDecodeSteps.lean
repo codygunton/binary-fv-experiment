@@ -1126,6 +1126,59 @@ theorem sszDecodeZeroDwordStoreStep (stepNo pc offset : Nat) (imm : BitVec 12)
     aligned fits loaded addressEq decode (by intro premise _; exact rX_x0_run premise)
     (site := site) (base := base)
 
+/-- Declare one exact double-word zero store from the shared cleanup theorem. -/
+macro "sszDecodeZeroDwordSite(" name:ident ";" pc:term "," offset:term ";"
+    byte0:term "," byte1:term "," byte2:term "," byte3:term ")" : command =>
+  `(private theorem $name (stepNo : Nat) (args : DecodeInlineArgs) (state : State)
+      (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+      (stackAligned : args.boundary.stackPointer % 16 = 0)
+      (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+      (access : DecodeBoundaryMachineAccess args.boundary state)
+      (atPc : state.regs.get? PC = some (BitVec.ofNat 64 $pc))
+      (atStack : state.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+      (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+      ∃ retired, Runs (try_step stepNo false) state
+        (tryStepStoreAfterRetired
+          (afterWriteBytes (width := 8)
+            (coreStoreNextState (tryStepStoreAfterIncrement state) (BitVec.ofNat 64 $pc))
+            (args.boundary.stackPointer - 0xbb0 + $offset) 0)
+          (BitVec.ofNat 64 $pc) retired) false := by
+      apply sszDecodeZeroDwordStoreStep stepNo $pc $offset (BitVec.ofNat 12 $offset)
+        $byte0 $byte1 $byte2 $byte3 args state access atPc atStack
+        (by omega) (by omega) (by omega) loaded
+      · change BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) +
+          BitVec.ofNat 64 $offset = _
+        rw [← BitVec.ofNat_add]
+      · configured_store_decode access.configured
+      · native_decide
+      · rfl)
+
+sszDecodeZeroDwordSite(sszDecodeCleanupStore4a8; 0x1225c, 0x4a8;
+  0x23, 0x34, 0x01, 0x4a)
+sszDecodeZeroDwordSite(sszDecodeCleanupStore4b0; 0x12260, 0x4b0;
+  0x23, 0x38, 0x01, 0x4a)
+sszDecodeZeroDwordSite(sszDecodeCleanupStore488; 0x12268, 0x488;
+  0x23, 0x34, 0x01, 0x48)
+sszDecodeZeroDwordSite(sszDecodeCleanupStore490; 0x1226c, 0x490;
+  0x23, 0x38, 0x01, 0x48)
+sszDecodeZeroDwordSite(sszDecodeCleanupStore498; 0x12270, 0x498;
+  0x23, 0x3c, 0x01, 0x48)
+sszDecodeZeroDwordSite(sszDecodeCleanupStore4a0; 0x12274, 0x4a0;
+  0x23, 0x30, 0x01, 0x4a)
+sszDecodeZeroDwordSite(sszDecodeCleanupStore470; 0x12278, 0x470;
+  0x23, 0x38, 0x01, 0x46)
+sszDecodeZeroDwordSite(sszDecodeCleanupStore478; 0x1227c, 0x478;
+  0x23, 0x3c, 0x01, 0x46)
+sszDecodeZeroDwordSite(sszDecodeCleanupStore450; 0x12284, 0x450;
+  0x23, 0x38, 0x01, 0x44)
+sszDecodeZeroDwordSite(sszDecodeCleanupStore458; 0x12288, 0x458;
+  0x23, 0x3c, 0x01, 0x44)
+sszDecodeZeroDwordSite(sszDecodeCleanupStore460; 0x1228c, 0x460;
+  0x23, 0x30, 0x01, 0x46)
+sszDecodeZeroDwordSite(sszDecodeCleanupStore468; 0x12290, 0x468;
+  0x23, 0x34, 0x01, 0x46)
+
 def sszDecodeForkNameByteOwnPc (pc : BitVec 64) : Prop := pc = 0x12218
 
 def sszDecodeForkNameByteExitPc (pc : BitVec 64) : Prop := pc = 0x1221c
