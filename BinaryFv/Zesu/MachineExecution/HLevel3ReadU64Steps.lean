@@ -112,6 +112,22 @@ theorem readU64LoadSpillPair
     simpa [Nat.add_assoc] using storedSeg.forget (kv' := kv)
       (fun _ member => List.mem_cons_of_mem _ member)⟩
 
+/-- Declare one exact eight-byte spill used by a split `readU64` schedule. -/
+macro "readU64SpillSite(" name:ident ";" pc:term "," immediate:term ";"
+    baseIndex:term "," sourceIndex:term ";"
+    byte0:term "," byte1:term "," byte2:term "," byte3:term ")" : command =>
+  `(private theorem $name (stepNo : Nat) (state afterWrite : State)
+      (configured : ConfiguredMachinePre EndpointMachinePc state)
+      (atPc : state.regs.get? PC = some (BitVec.ofNat 64 $pc))
+      (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+      (access : ConfiguredDwordStoreAccess state afterWrite (BitVec.ofNat 64 $pc)
+        (BitVec.ofNat 12 $immediate) $baseIndex $sourceIndex) :
+      ∃ retired, Runs (try_step stepNo false) state
+        (tryStepStoreAfterRetired afterWrite (BitVec.ofNat 64 $pc) retired) false := by
+      exact configuredDwordStoreStep stepNo $pc state afterWrite (BitVec.ofNat 12 $immediate)
+        $baseIndex $sourceIndex $byte0 $byte1 $byte2 $byte3 configured atPc loaded
+        (by configured_store_decode configured) access (base := by rfl))
+
 /-! ## Exact site data for the two complete schedules -/
 
 def readU64_3203OwnPc (pc : BitVec 64) : Prop := standardReadU64OwnPc 0x12a4c pc
@@ -627,6 +643,47 @@ readU32OrSite(readU64_327bResult; 0x12e4c;
   .Regidx 17#5, x17, wX_x17_run; 0xb3, 0x68, 0xd6, 0x00)
 readU32LiSite(readU64_327bTag; 0x12e50, 1;
   .Regidx 16#5, x16, wX_x16_run; 0x13, 0x08, 0x10, 0x00)
+
+/-! ## Exact site data for split load-spill schedules -/
+
+readU32UnsignedLoadSite(readU64_35abLoad404; 0x138b8, 404;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 27#5, x27, wX_x27_run; 0x83, 0xcd, 0x4b, 0x19)
+readU32UnsignedLoadSite(readU64_35abLoad405; 0x138bc, 405;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0x5b, 0x19)
+readU64SpillSite(readU64_35abSpill405; 0x138c0, 0x230;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x38, 0xa1, 0x22)
+readU32UnsignedLoadSite(readU64_35abLoad406; 0x138c4, 406;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0x6b, 0x19)
+readU64SpillSite(readU64_35abSpill406; 0x138c8, 0x240;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x30, 0xa1, 0x24)
+readU32UnsignedLoadSite(readU64_35abLoad407; 0x138cc, 407;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0x7b, 0x19)
+readU64SpillSite(readU64_35abSpill407; 0x138d0, 0x238;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x3c, 0xa1, 0x22)
+readU32UnsignedLoadSite(readU64_35abLoad408; 0x138d4, 408;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0x8b, 0x19)
+readU64SpillSite(readU64_35abSpill408; 0x138d8, 0x208;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x34, 0xa1, 0x20)
+readU32UnsignedLoadSite(readU64_35abLoad409; 0x138dc, 409;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0x9b, 0x19)
+readU64SpillSite(readU64_35abSpill409; 0x138e0, 0x168;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x34, 0xa1, 0x16)
+readU32UnsignedLoadSite(readU64_35abLoad410; 0x138e4, 410;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0xab, 0x19)
+readU64SpillSite(readU64_35abSpill410; 0x138e8, 0x200;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x30, 0xa1, 0x20)
+readU32UnsignedLoadSite(readU64_35abLoad411; 0x138ec, 411;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0xbb, 0x19)
+readU64SpillSite(readU64_35abSpill411; 0x138f0, 0x1f8;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x3c, 0xa1, 0x1e)
 
 /-- Shared low-word fragment instantiated at `fi:1:3203`. -/
 theorem readU64_3203LowRun (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
