@@ -1126,6 +1126,110 @@ theorem sszDecodeZeroDwordStoreStep (stepNo pc offset : Nat) (imm : BitVec 12)
     aligned fits loaded addressEq decode (by intro premise _; exact rX_x0_run premise)
     (site := site) (base := base)
 
+/-- Execute one exact decoder-frame `sw zero, offset(sp)` cleanup instruction. -/
+theorem sszDecodeZeroWordStoreStep (stepNo pc offset : Nat) (imm : BitVec 12)
+    (byte0 byte1 byte2 byte3 : UInt8) (args : DecodeInlineArgs) (state : State)
+    (access : DecodeBoundaryMachineAccess args.boundary state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (atStack : state.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+    (aligned : (args.boundary.stackPointer - 0xbb0 + offset) % 4 = 0)
+    (fits : args.boundary.stackPointer - 0xbb0 + offset + 4 ≤ 2 ^ 64)
+    (frameBound : offset + 4 ≤ 0xbb0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (addressEq : BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) +
+      sign_extend (m := 64) imm =
+        BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + offset))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.STORE (imm, .Regidx 0#5, .Regidx 2#5, 4)))
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat)) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (width := 4)
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pc))
+          (args.boundary.stackPointer - 0xbb0 + offset) 0)
+        (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
+  apply configuredStackWordStoreStep stepNo pc
+    (args.boundary.stackPointer - 0xbb0) offset state 0 imm (.Regidx 0#5)
+    byte0 byte1 byte2 byte3 access.configured atPc atStack
+    (access.frameStore offset 4 frameBound) (access.frameNoMMIO offset 4 frameBound)
+    aligned fits loaded addressEq decode (by intro premise _; exact rX_x0_run premise)
+    (site := site) (base := base)
+
+/-- Execute one exact decoder-frame `sh zero, offset(sp)` cleanup instruction. -/
+theorem sszDecodeZeroHalfStoreStep (stepNo pc offset : Nat) (imm : BitVec 12)
+    (byte0 byte1 byte2 byte3 : UInt8) (args : DecodeInlineArgs) (state : State)
+    (access : DecodeBoundaryMachineAccess args.boundary state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (atStack : state.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+    (aligned : (args.boundary.stackPointer - 0xbb0 + offset) % 2 = 0)
+    (fits : args.boundary.stackPointer - 0xbb0 + offset + 2 ≤ 2 ^ 64)
+    (frameBound : offset + 2 ≤ 0xbb0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (addressEq : BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) +
+      sign_extend (m := 64) imm =
+        BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + offset))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.STORE (imm, .Regidx 0#5, .Regidx 2#5, 2)))
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat)) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (width := 2)
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pc))
+          (args.boundary.stackPointer - 0xbb0 + offset) 0)
+        (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
+  apply configuredStackHalfStoreStep stepNo pc
+    (args.boundary.stackPointer - 0xbb0) offset state 0 imm (.Regidx 0#5)
+    byte0 byte1 byte2 byte3 access.configured atPc atStack
+    (access.frameStore offset 2 frameBound) (access.frameNoMMIO offset 2 frameBound)
+    aligned fits loaded addressEq decode (by intro premise _; exact rX_x0_run premise)
+    (site := site) (base := base)
+
+/-- Execute one exact decoder-frame `sb zero, offset(sp)` cleanup instruction. -/
+theorem sszDecodeZeroByteStoreStep (stepNo pc offset : Nat) (imm : BitVec 12)
+    (byte0 byte1 byte2 byte3 : UInt8) (args : DecodeInlineArgs) (state : State)
+    (access : DecodeBoundaryMachineAccess args.boundary state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (atStack : state.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+    (fits : args.boundary.stackPointer - 0xbb0 + offset + 1 ≤ 2 ^ 64)
+    (frameBound : offset + 1 ≤ 0xbb0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (addressEq : BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) +
+      sign_extend (m := 64) imm =
+        BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + offset))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.STORE (imm, .Regidx 0#5, .Regidx 2#5, 1)))
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat)) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (width := 1)
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pc))
+          (args.boundary.stackPointer - 0xbb0 + offset) 0)
+        (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
+  apply configuredStackByteStoreStep stepNo pc
+    (args.boundary.stackPointer - 0xbb0) offset state 0 imm (.Regidx 0#5)
+    byte0 byte1 byte2 byte3 access.configured atPc atStack
+    (access.frameStore offset 1 frameBound) (access.frameNoMMIO offset 1 frameBound)
+    fits loaded addressEq decode (by intro premise _; exact rX_x0_run premise)
+    (site := site) (base := base)
+
 /-- Declare one exact double-word zero store from the shared cleanup theorem. -/
 macro "sszDecodeZeroDwordSite(" name:ident ";" pc:term "," offset:term ";"
     byte0:term "," byte1:term "," byte2:term "," byte3:term ")" : command =>
