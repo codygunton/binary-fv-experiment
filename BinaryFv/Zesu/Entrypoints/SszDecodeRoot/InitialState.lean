@@ -417,7 +417,7 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
   have regions : finalMachine.regs.get? pma_regions = some [endpointPmaRegion] :=
     (agree pma_regions (by simp [instructionPreserved, platformPreserved])).trans endpointBaseRegions
   have dataAccess : MainDataAccess (canonicalMainArgs input) finalMachine := by
-    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro offset width bound
       apply endpointPmaAllowsAtNat regions <;>
         simp [canonicalMainArgs, canonicalStackPointer,
@@ -427,6 +427,13 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
         simp [canonicalMainArgs, canonicalStackPointer,
           show Elflings.inputBufferAddress = 536977408 by native_decide] <;> omega
     · exact endpointPmaAllowsAtNat regions _ _ (by native_decide) (by native_decide)
+    · intro offset width bound
+      change offset + width ≤ input.size at bound
+      apply endpointPmaAllowsAtNat regions
+      · rw [show Elflings.inputBufferAddress = 536977408 by native_decide]
+        omega
+      · rw [show Elflings.inputBufferAddress = 536977408 by native_decide]
+        omega
     · exact endpointPmaAllowsAtNat regions _ _ (by native_decide) (by native_decide)
     · exact endpointPmaAllowsAtNat regions _ _ (by native_decide) (by native_decide)
     · exact endpointPmaAllowsAtNat regions _ _ (by native_decide) (by native_decide)
@@ -498,6 +505,16 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
       simp [canonicalMainArgs, canonicalStackPointer,
         show Elflings.inputBufferAddress = 536977408 by native_decide]
       omega
+    inputNoMMIO := by
+      intro offset width bound
+      change offset + width ≤ input.size at bound
+      apply endpointDataNoMMIOAtNat
+      · rw [show Elflings.inputBufferAddress = 536977408 by native_decide]
+        omega
+      · rw [show Elflings.inputBufferAddress = 536977408 by native_decide]
+        omega
+      · rw [show Elflings.inputBufferAddress = 536977408 by native_decide]
+        omega
     decodeFrameNoMMIO := by
       intro offset width bound
       apply endpointDataNoMMIOAtNat

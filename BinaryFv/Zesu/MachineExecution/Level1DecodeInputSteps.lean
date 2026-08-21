@@ -1116,6 +1116,9 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
   have codeFinal := decodeInputCodeOfSeg access loaded finalSeg rfl stackLower
   have configuredFinal := access.configured.mono
     (finalSeg.agree instructionPreserved_disjoint_decodeInputParentWrites) finalSeg.retired
+  have accessFinal := access.of_pma_regions_eq
+    (finalSeg.agree instructionPreserved_disjoint_decodeInputParentWrites) finalSeg.retired
+    (finalSeg.get pma_regions (by simp [decodeInputParentWrites, stepBookkeeping]))
   have endTrace : ScopedTrace decodeInputParentPc DecodeInlineInitialExecutionPc
       (fun _ _ _ _ _ => False) (fromStep + 17) 0 final final :=
     .exitAt (fromStep + 17) final 0x121ac finalSeg.atPc (by
@@ -1137,6 +1140,7 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
         input := inputFinal
         code := codeFinal
         configured := configuredFinal
+        access := accessFinal
         stdin := rfl
         stdinCursor := rfl
         stdout := rfl
@@ -1219,6 +1223,9 @@ theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
         code := ?_
         configured := frame.configured.mono
           (seg2.agree instructionPreserved_disjoint_decodeInputParentWrites) seg2.retired
+        access := frame.access.of_pma_regions_eq
+          (seg2.agree instructionPreserved_disjoint_decodeInputParentWrites) seg2.retired
+          (seg2.get pma_regions (by simp [decodeInputParentWrites, stepBookkeeping]))
         stdin := frame.stdin
         stdinCursor := frame.stdinCursor
         stdout := frame.stdout

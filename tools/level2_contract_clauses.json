@@ -36,8 +36,8 @@
       "clauses": [
         {
           "id": "entry-execution-access",
-          "requirement": "The entry supplies the configured machine and the represented input and stack frame.",
-          "support": {"kind": "entry", "declaration": "DecodeInlineFrame"}
+          "requirement": "The entry supplies the configured machine, stack and input load access, local-frame load and store access, MMIO exclusion, and code separation.",
+          "support": {"kind": "entry", "declaration": "DecodeBoundaryMachineAccess"}
         },
         {
           "id": "entry-input-result-separation",
