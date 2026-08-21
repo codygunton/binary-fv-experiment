@@ -1168,11 +1168,20 @@ def OptionalU128Binding (args : OptionalEncoderArgs OptionalU128Words)
     state.machine.regs.get? x9 = some (BitVec.ofNat 64 value.low) ∧
     state.machine.regs.get? x23 = some (BitVec.ofNat 64 value.high)
 
+/-- Read permissions for the caller-owned 20-byte optional-address value. -/
+structure OptionalAddressSourceAccess (args : OptionalEncoderArgs (Array UInt8))
+    (state : EndpointState) : Prop where
+  load : ∀ offset width, offset + width ≤ 20 →
+    LoadPmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x668 + offset)) width
+  noMMIO : ∀ offset width, offset + width ≤ 20 →
+    LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x668 + offset)) width
+
 def OptionalAddressBinding (args : OptionalEncoderArgs (Array UInt8))
     (state : EndpointState) : Prop :=
   state.machine.regs.get? x10 = some (if args.value.isSome then 1 else 0) ∧
   ∀ value, args.value = some value → value.size = 20 ∧
-    BytesRep state.machine.mem (args.stackPointer + 0x668) value
+    BytesRep state.machine.mem (args.stackPointer + 0x668) value ∧
+    OptionalAddressSourceAccess args state
 
 def optionalU128ExecutionPcs : List Elflings.PcRange :=
   [(0x10190, 0x101c4), (0x15118, 0x15148), (0x15b9c, 0x15bc8), (0x15ce4, 0x15d10)]
