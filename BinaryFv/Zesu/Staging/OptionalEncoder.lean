@@ -1276,6 +1276,210 @@ private theorem optionalU128JoinJumpStep (stepNo : Nat) (state : State)
     (by configured_decode configured) (by native_decide) (by native_decide) (by native_decide)
     (base := by rfl)
 
+def optionalU128TagWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x10
+
+private theorem encoderInlinePreserved_disjoint_optionalU128TagWrites :
+    RegSet.Disjoint encoderInlinePreserved optionalU128TagWrites := by
+  intro register preserved written
+  simp [encoderInlinePreserved, optionalU128TagWrites, instructionPreserved,
+    platformPreserved, stepBookkeeping] at preserved written
+  grind
+
+set_option genInjectivity false in
+/-- The shared two-step prefix leaves one Boolean tag ready for its child call. -/
+private structure OptionalU128TagReady (fromStep tag booleanPc : Nat)
+    (args : OptionalEncoderArgs OptionalU128Words) (before ready : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges optionalU128ExecutionPcs)
+    fromStep 2 before ready
+  atPc : ready.machine.regs.get? PC = some (BitVec.ofNat 64 booleanPc)
+  stack : ready.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer)
+  tagReg : ready.machine.regs.get? x10 = some (BitVec.ofNat 64 tag)
+  lowReg : ∀ value, args.value = some value →
+    ready.machine.regs.get? x9 = some (BitVec.ofNat 64 value.low)
+  highReg : ∀ value, args.value = some value →
+    ready.machine.regs.get? x23 = some (BitVec.ofNat 64 value.high)
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully ready.machine.mem
+  access : OptionalEncoderMachineAccess 32 0 0 args ready.machine
+  stdout : ready.stdout = before.stdout
+  stdin : ready.stdin = before.stdin
+  stdinCursor : ready.stdinCursor = before.stdinCursor
+  exitCode : ready.exitCode = before.exitCode
+  memory : WritesOnlyWithin (optionalEncoderMemory 32 0 0 args.stackPointer)
+    before.machine ready.machine
+  frame : EncoderInlineFrame before ready
+
+/-- Convert the shared two-step U128 `Seg` into the endpoint handoff used by both routes. -/
+private theorem optionalU128TagReadyOfSeg
+    (fromStep tag booleanPc : Nat) (args : OptionalEncoderArgs OptionalU128Words)
+    (before : EndpointState) (access : OptionalEncoderMachineAccess 32 0 0 args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (lowReg : ∀ value, args.value = some value →
+      afterMachine.regs.get? x9 = some (BitVec.ofNat 64 value.low))
+    (highReg : ∀ value, args.value = some value →
+      afterMachine.regs.get? x23 = some (BitVec.ofNat 64 value.high))
+    (seg : Seg (fun pc => pcInRanges [(0x15118, 0x15148)] pc)
+      (fun pc => pc = BitVec.ofNat 64 booleanPc)
+      (fun _ _ _ _ _ => False) optionalU128TagWrites (fun _ => False)
+      [⟨x10, BitVec.ofNat 64 tag⟩, ⟨x2, BitVec.ofNat 64 args.stackPointer⟩]
+      fromStep 2 before.machine afterMachine (BitVec.ofNat 64 booleanPc)) :
+    OptionalU128TagReady fromStep tag booleanPc args before
+      { before with machine := afterMachine } := by
+  have frame : EncoderInlineFrame before { before with machine := afterMachine } :=
+    ⟨seg.agree encoderInlinePreserved_disjoint_optionalU128TagWrites, seg.retired,
+      by simpa [seg.memEq (by simp)] using loaded, seg.aux⟩
+  exact {
+    trace := by
+      have terminal : ScopedTrace (fun pc => pcInRanges [(0x15118, 0x15148)] pc)
+          (fun pc => pc = BitVec.ofNat 64 booleanPc) (fun _ _ _ _ _ => False)
+          (fromStep + 2) 0 afterMachine afterMachine :=
+        .exitAt _ _ _ seg.atPc rfl
+      have parentScoped := seg.confined 0 afterMachine terminal
+      exact (liftOptionalParentTrace before (fun pc inside => by
+        unfold pcInRanges at inside
+        rcases inside with ⟨range, member, lower, upper⟩
+        simp at member
+        subst range
+        simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+          exitContextStorePc]
+        omega) parentScoped).weaken (fun pc inside => by
+          unfold pcInRanges at inside ⊢
+          rcases inside with ⟨range, member, lower, upper⟩
+          simp at member
+          subst range
+          exact ⟨(0x15118, 0x15148), by simp [optionalU128ExecutionPcs], lower, upper⟩)
+    atPc := seg.atPc
+    stack := seg.reg x2 _ (by simp)
+    tagReg := seg.reg x10 _ (by simp)
+    lowReg
+    highReg
+    loaded := frame.2.2.1
+    access := access.ofEncoderFrame before frame
+    stdout := rfl
+    stdin := rfl
+    stdinCursor := rfl
+    exitCode := rfl
+    memory := by intro address outside; simpa [seg.memEq (by simp)]
+    frame }
+
+/-- Compose the common branch and Boolean tag for the present U128 route. -/
+private theorem optionalU128PresentTagReady (fromStep : Nat)
+    (args : OptionalEncoderArgs OptionalU128Words) (value : OptionalU128Words)
+    (before : EndpointState) (atPc : before.machine.regs.get? PC = some 0x15118)
+    (stack : before.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer))
+    (valueEq : args.value = some value)
+    (presenceAt : before.machine.regs.get? x27 = some 1)
+    (lowAt : before.machine.regs.get? x9 = some (BitVec.ofNat 64 value.low))
+    (highAt : before.machine.regs.get? x23 = some (BitVec.ofNat 64 value.high))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (access : OptionalEncoderMachineAccess 32 0 0 args before.machine) :
+    ∃ ready, OptionalU128TagReady fromStep 1 0x15120 args before ready := by
+  have seg0 : Seg (fun pc => pcInRanges [(0x15118, 0x15148)] pc)
+      (fun pc => pc = 0x15120) (fun _ _ _ _ _ => False) optionalU128TagWrites
+      (fun _ => False)
+      [⟨x2, BitVec.ofNat 64 args.stackPointer⟩, ⟨x9, BitVec.ofNat 64 value.low⟩,
+        ⟨x23, BitVec.ofNat 64 value.high⟩]
+      fromStep 0 before.machine before.machine 0x15118 := {
+    trace := .refl _ _
+    confined := .nil
+    writes := .refl _ _
+    mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
+    retired := access.output.configured.retiredCounter
+    atPc
+    regs := by
+      intro pair member
+      simp at member
+      rcases member with rfl | rfl | rfl
+      · exact stack
+      · exact lowAt
+      · exact highAt }
+  obtain ⟨machine1, seg1⟩ := seg0.stepFallThrough 0x1511c
+    (by owned_pc [pcInRanges]) (by native_decide)
+    (optionalU128PresenceBranchStep fromStep before.machine true access.output.configured atPc
+      presenceAt loaded)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have configured1 := access.output.configured.mono
+    (seg1.agree (fun register preserved written =>
+      encoderInlinePreserved_disjoint_optionalU128TagWrites register (Or.inl preserved) written))
+    seg1.retired
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully machine1.mem := by
+    simpa [seg1.memEq (by simp)] using loaded
+  obtain ⟨machine2, seg2⟩ := seg1.step (by owned_pc [pcInRanges]) (by native_decide)
+    x10 1 0x15120
+    (optionalU128TagStep (fromStep + 1) 0x1511c 1 machine1 configured1 seg1.atPc loaded1
+      (valueCase := Or.inr rfl))
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr rfl) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  refine ⟨{ before with machine := machine2 }, ?_⟩
+  apply optionalU128TagReadyOfSeg fromStep 1 0x15120 args before access loaded
+  · intro current currentEq
+    rw [valueEq] at currentEq
+    cases Option.some.inj currentEq
+    exact (seg2.get x9 (by simp [optionalU128TagWrites])).trans lowAt
+  · intro current currentEq
+    rw [valueEq] at currentEq
+    cases Option.some.inj currentEq
+    exact (seg2.get x23 (by simp [optionalU128TagWrites])).trans highAt
+  · exact seg2.forget (kv' :=
+      [⟨x10, 1⟩, ⟨x2, BitVec.ofNat 64 args.stackPointer⟩]) (by simp)
+
+/-- Compose the common branch and Boolean tag for the absent U128 route. -/
+private theorem optionalU128AbsentTagReady (fromStep : Nat)
+    (args : OptionalEncoderArgs OptionalU128Words) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x15118)
+    (stack : before.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer))
+    (valueEq : args.value = none) (presenceAt : before.machine.regs.get? x27 = some 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (access : OptionalEncoderMachineAccess 32 0 0 args before.machine) :
+    ∃ ready, OptionalU128TagReady fromStep 0 0x15140 args before ready := by
+  have seg0 : Seg (fun pc => pcInRanges [(0x15118, 0x15148)] pc)
+      (fun pc => pc = 0x15140) (fun _ _ _ _ _ => False) optionalU128TagWrites
+      (fun _ => False) [⟨x2, BitVec.ofNat 64 args.stackPointer⟩]
+      fromStep 0 before.machine before.machine 0x15118 := {
+    trace := .refl _ _
+    confined := .nil
+    writes := .refl _ _
+    mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
+    retired := access.output.configured.retiredCounter
+    atPc
+    regs := by
+      intro pair member
+      simp at member
+      cases member
+      exact stack }
+  obtain ⟨machine1, seg1⟩ := seg0.stepJump 0x1513c
+    (by owned_pc [pcInRanges]) (by native_decide)
+    (optionalU128PresenceBranchStep fromStep before.machine false access.output.configured atPc
+      presenceAt loaded)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have configured1 := access.output.configured.mono
+    (seg1.agree (fun register preserved written =>
+      encoderInlinePreserved_disjoint_optionalU128TagWrites register (Or.inl preserved) written))
+    seg1.retired
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully machine1.mem := by
+    simpa [seg1.memEq (by simp)] using loaded
+  obtain ⟨machine2, seg2⟩ := seg1.step (by owned_pc [pcInRanges]) (by native_decide)
+    x10 0 0x15140
+    (optionalU128TagStep (fromStep + 1) 0x1513c 0 machine1 configured1 seg1.atPc loaded1
+      (valueCase := Or.inl rfl))
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr rfl) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  refine ⟨{ before with machine := machine2 }, ?_⟩
+  apply optionalU128TagReadyOfSeg fromStep 0 0x15140 args before access loaded
+  · intro current currentEq
+    rw [valueEq] at currentEq
+    contradiction
+  · intro current currentEq
+    rw [valueEq] at currentEq
+    contradiction
+  · exact seg2
+
 private theorem optionalU128MoveLowStep (stepNo : Nat) (state : State) (source : BitVec 64)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x15128)
