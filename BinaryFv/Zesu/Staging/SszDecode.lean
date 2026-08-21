@@ -231,6 +231,49 @@ private theorem instructionPreserved_disjoint_sszDecodeSchemaMarkerWrites_for_st
   · exact platformPreserved_disjoint register preserved.1 bookkeeping
   all_goals simp [instructionPreserved, platformPreserved] at preserved
 
+private theorem sszDecodeSchemaMarkerOwnPc_in_initial {pc : BitVec 64}
+    (inside : sszDecodeSchemaMarkerOwnPc pc) : DecodeInlineInitialExecutionPc pc := by
+  simp [sszDecodeSchemaMarkerOwnPc, pcInList] at inside
+  rcases inside with inside | inside | inside
+  all_goals
+    unfold DecodeInlineInitialExecutionPc pcInRanges
+    exact ⟨(0x121ac, 0x14ca8), by simp [Elflings.sszDecodeExecutionPcRanges], by omega,
+      by omega⟩
+
+private theorem sszDecodeForkNameByteOwnPc_in_initial {pc : BitVec 64}
+    (inside : sszDecodeForkNameByteOwnPc pc) : DecodeInlineInitialExecutionPc pc := by
+  unfold sszDecodeForkNameByteOwnPc at inside
+  subst pc
+  unfold DecodeInlineInitialExecutionPc pcInRanges
+  exact ⟨(0x121ac, 0x14ca8), by simp [Elflings.sszDecodeExecutionPcRanges], by native_decide,
+    by native_decide⟩
+
+private theorem forkNameOwnPc_in_initial {pc : BitVec 64}
+    (inside : forkNameOwnPc pc) : DecodeInlineInitialExecutionPc pc := by
+  simp [forkNameOwnPc, pcInList] at inside
+  rcases inside with inside | inside | inside | inside | inside | inside | inside | inside |
+    inside | inside | inside | inside
+  all_goals
+    unfold DecodeInlineInitialExecutionPc pcInRanges
+    exact ⟨(0x121ac, 0x14ca8), by simp [Elflings.sszDecodeExecutionPcRanges], by omega,
+      by omega⟩
+
+private theorem sszDecodeSchemaMarkerOwnPc_not_observed {pc : BitVec 64}
+    (inside : sszDecodeSchemaMarkerOwnPc pc) : ¬BareMetalHostTransitionPc pc := by
+  intro observed
+  simp [sszDecodeSchemaMarkerOwnPc, pcInList] at inside
+  unfold BareMetalHostTransitionPc readContextReturnPc writeContextReturnPc exitContextStorePc
+    at observed
+  rcases observed with observed | observed | observed
+  all_goals omega
+
+private theorem sszDecodeForkNameByteOwnPc_not_observed {pc : BitVec 64}
+    (inside : sszDecodeForkNameByteOwnPc pc) : ¬BareMetalHostTransitionPc pc := by
+  unfold sszDecodeForkNameByteOwnPc at inside
+  subst pc
+  unfold BareMetalHostTransitionPc readContextReturnPc writeContextReturnPc exitContextStorePc
+  native_decide
+
 /-- The parent byte load constructs the exact entry of the proved fork-name child. -/
 theorem sszDecodeForkNameChildHandoff (fromStep baseAddress schema : Nat)
     (args : ForkNameArgs) (before : EndpointState)
@@ -301,16 +344,17 @@ theorem sszDecodeForkNameEntryFromMarker (fromStep baseAddress schema : Nat)
       LoadPmaAllows before.machine (BitVec.ofNat 64 (0x17228 + offset)) width)
     (tableNoMMIO : ∀ offset width, offset + width ≤ 21 * 8 →
       LoadMMIOAddressExcluded (BitVec.ofNat 64 (0x17228 + offset)) width) :
-    ∃ (markerAfter childAfter : EndpointState),
+    ∃ (markerMachine childMachine : State),
       Seg sszDecodeSchemaMarkerOwnPc sszDecodeSchemaMarkerExitPc
         (fun _ _ _ _ _ => False) sszDecodeSchemaMarkerWrites noMemory
         [⟨x12, 1⟩, ⟨x10, zero_extend (m := 64) (BitVec.ofNat 8 1)⟩]
-        fromStep 3 before.machine markerAfter.machine 0x12218 ∧
+        fromStep 3 before.machine markerMachine 0x12218 ∧
       Seg sszDecodeForkNameByteOwnPc sszDecodeForkNameByteExitPc
         (fun _ _ _ _ _ => False) sszDecodeForkNameByteWrites noMemory
         [⟨x10, zero_extend (m := 64) (BitVec.ofNat 8 schema)⟩]
-        (fromStep + 3) 1 markerAfter.machine childAfter.machine 0x1221c ∧
-      forkNameSelectionEntry (forkNameArgsForSchema schema) childAfter := by
+        (fromStep + 3) 1 markerMachine childMachine 0x1221c ∧
+      forkNameSelectionEntry (forkNameArgsForSchema schema)
+        { before with machine := childMachine } := by
   obtain ⟨markerMachine, markerSeg⟩ := sszDecodeSchemaMarkerSeg fromStep baseAddress 1
     before.machine configured atPc base markerRep markerPma markerNoMMIO sumFits
     (rejected := false) (by native_decide) loaded
@@ -334,7 +378,64 @@ theorem sszDecodeForkNameEntryFromMarker (fromStep baseAddress schema : Nat)
     (schemaRep.of_mem_eq memory)
     (loadPmaAllows_of_agree platformAgree schemaPma) schemaNoMMIO markerConfigured markerLoaded rfl
     selection
-  exact ⟨markerAfter, childAfter, by simpa [markerAfter] using markerSeg, childSeg, childEntry⟩
+  exact ⟨markerMachine, childAfter.machine, markerSeg, childSeg, by simpa [markerAfter] using childEntry⟩
+
+/-- The accepted marker route and the proved fork-name child form one parent-owned trace. -/
+theorem sszDecodeForkNameTraceFromMarker (fromStep baseAddress schema : Nat)
+    (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x1220c)
+    (base : before.machine.regs.get? x18 = some (BitVec.ofNat 64 baseAddress))
+    (markerRep : UIntRep 1 before.machine.mem (baseAddress + 1) 1)
+    (schemaRep : UIntRep 1 before.machine.mem baseAddress schema)
+    (markerPma : LoadPmaAllows before.machine (BitVec.ofNat 64 (baseAddress + 1)) 1)
+    (schemaPma : LoadPmaAllows before.machine (BitVec.ofNat 64 baseAddress) 1)
+    (markerNoMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + 1)) 1)
+    (schemaNoMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 baseAddress) 1)
+    (sumFits : baseAddress + 1 < 2 ^ 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (tablePma : ∀ offset width, offset + width ≤ 21 * 8 →
+      LoadPmaAllows before.machine (BitVec.ofNat 64 (0x17228 + offset)) width)
+    (tableNoMMIO : ∀ offset width, offset + width ≤ 21 * 8 →
+      LoadMMIOAddressExcluded (BitVec.ofNat 64 (0x17228 + offset)) width) :
+    ∃ used childBefore after outcome,
+      used ≤ 12 ∧
+      ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep (4 + used)
+        before after ∧
+      forkNameSelectionExit (forkNameArgsForSchema schema) outcome childBefore after := by
+  obtain ⟨markerMachine, childMachine, markerSeg, byteSeg, childEntry⟩ :=
+    sszDecodeForkNameEntryFromMarker fromStep baseAddress schema before atPc base markerRep
+      schemaRep markerPma schemaPma markerNoMMIO schemaNoMMIO sumFits configured loaded tablePma
+      tableNoMMIO
+  let markerAfter : EndpointState := { before with machine := markerMachine }
+  let childBefore : EndpointState := { before with machine := childMachine }
+  obtain ⟨used, after, outcome, positive, bounded, childTrace, childExitPc, allowed, childExit⟩ :=
+    forkNameSelectionContract_implements (forkNameArgsForSchema schema) (fromStep + 4)
+      childBefore (by simpa [childBefore] using childEntry)
+  have markerMachineTrace := scopedTraceOfSegAtExit markerSeg (by
+    simp [sszDecodeSchemaMarkerExitPc, pcInList])
+  have markerTrace : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      fromStep 3 before markerAfter := by
+    simpa using liftSszDecodeParentTrace sszDecodeSchemaMarkerOwnPc
+      sszDecodeSchemaMarkerExitPc sszDecodeSchemaMarkerOwnPc_in_initial
+      sszDecodeSchemaMarkerOwnPc_not_observed before markerMachineTrace
+  have byteMachineTrace := scopedTraceOfSegAtExit byteSeg (by
+    simp [sszDecodeForkNameByteExitPc])
+  have byteTrace : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      (fromStep + 3) 1 markerAfter childBefore := by
+    simpa using liftSszDecodeParentTrace sszDecodeForkNameByteOwnPc
+      sszDecodeForkNameByteExitPc sszDecodeForkNameByteOwnPc_in_initial
+      sszDecodeForkNameByteOwnPc_not_observed markerAfter byteMachineTrace
+  have childTrace' : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      (fromStep + 4) used childBefore after :=
+    childTrace.weaken (fun _ inside => forkNameOwnPc_in_initial inside)
+  have markerAndByte := markerTrace.append byteTrace
+  have combined := markerAndByte.append childTrace'
+  have combined' : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      fromStep (4 + used) before after := by
+    simpa only [Nat.reduceAdd] using combined
+  have bounded' : used ≤ 12 := by simpa [forkNameSelectionContract] using bounded
+  exact ⟨used, childBefore, after, outcome, bounded', combined', childExit⟩
 
 /-- The parent prefix and the proved four-byte child form one initial decoder trace. -/
 theorem sszDecodeSchemaWordPrefixAndChild (fromStep : Nat) (args : DecodeInlineArgs)
