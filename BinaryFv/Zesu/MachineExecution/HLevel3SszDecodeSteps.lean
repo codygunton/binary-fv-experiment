@@ -1493,6 +1493,75 @@ private theorem sszDecodeCleanupBaseLowStep (stepNo : Nat) (state : State)
     (by intro premise; rw [← resultEq]; exact wX_x11_run premise 0x1755c)
     (by configured_decode configured) (base := by rfl)
 
+/-- Exact `0x122a8: addi a0,sp,816`. -/
+private theorem sszDecodeCleanupDestinationStep (stepNo : Nat) (args : DecodeInlineArgs)
+    (state : State) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x122a8)
+    (atStack : state.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+    (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+    (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x122a8 retired x10
+        (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330))) false := by
+  let source := BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)
+  let result := BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330)
+  have resultEq : result = iTypeResult .ADDI 0x330 source := by
+    change BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330) =
+      BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) + sign_extend (m := 64) (0x330#12)
+    rw [show sign_extend (m := 64) (0x330#12) = 0x330#64 by native_decide,
+      ← BitVec.ofNat_add]
+  apply configuredITypeX10Step stepNo 0x122a8 state 0x330 (.Regidx 2#5) .ADDI
+    source result 0x13 0x05 0x01 0x33 configured atPc loaded (base := by rfl)
+  · exact resultEq
+  · intro premise writes
+    exact rX_x2_run premise source ((writes.get x2 (by decide)).trans atStack)
+  · intro premise
+    rw [← resultEq]
+    exact wX_x10_run premise result
+  · configured_decode configured
+
+/-- Exact `0x122ac: li a2,256`. -/
+private theorem sszDecodeCleanupSizeStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x122ac)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x122ac retired x12 256) false := by
+  have resultEq : (256 : BitVec 64) = iTypeResult .ADDI 0x100 0 := by native_decide
+  exact configuredITypeRegisterStep stepNo 0x122ac state 0x100 (.Regidx 0#5)
+    (.Regidx 12#5) x12 .ADDI 0 256 0x13 0x06 0x00 0x10 configured atPc loaded
+    (by intro premise _; exact rX_x0_run premise)
+    (by intro premise; rw [← resultEq]; exact wX_x12_run premise 256)
+    (by configured_decode configured) (by native_decide) (by rfl)
+    (by decide) (by decide) (by decide) (by decide)
+
+/-- Exact `0x122b0: auipc ra,0xffffe`. -/
+private theorem sszDecodeCleanupCallBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x122b0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x122b0 retired x1 0x102b0) false := by
+  simpa using configuredAuipcStep stepNo state 0x122b0 0xffffe
+    0x97 0xe0 0xff 0xff configured atPc loaded
+    (base := by rfl) (decode := by configured_decode configured)
+
+/-- Exact `0x122b4: jalr -220(ra)`, entering the proved `memcpy`. -/
+private theorem sszDecodeCleanupMemcpyCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x122b4)
+    (baseAt : state.regs.get? x1 = some 0x102b0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x122b4 0x101d4 x1 0x122b8)
+        0x101d4 retired) false := by
+  exact configuredJalrCallStep stepNo state 0x122b4 0x102b0 0xf24 0x101d4 0x122b8
+    0xe7 0x80 0x40 0xf2 configured atPc baseAt loaded
+    (base := by rfl) (decode := by configured_decode configured)
+
 def sszDecodeForkNameByteOwnPc (pc : BitVec 64) : Prop := pc = 0x12218
 
 def sszDecodeForkNameByteExitPc (pc : BitVec 64) : Prop := pc = 0x1221c
