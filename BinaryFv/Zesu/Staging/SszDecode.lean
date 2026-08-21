@@ -255,6 +255,10 @@ theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
           ⟨x11, 0x1755c⟩]
         fromStep 22 before callReady 0x122b4 ∧
       Runs (try_step (fromStep + 22) false) callReady callState.machine false ∧
+      callState.machine.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) ∧
+      Agree instructionPreserved before callState.machine ∧
+      callState.machine.regs.get? pma_regions = before.regs.get? pma_regions ∧
       MemcpyEntry (sszDecodeCleanupMemcpyArgs args) callState := by
   obtain ⟨callReady, seg⟩ := sszDecodeCleanupMemcpyCallReadyFromReady fromStep args before ready
   obtain ⟨retired, callRun⟩ := sszDecodeCleanupMemcpyCallRun seg ready.stackFits
@@ -362,7 +366,20 @@ theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
         simp only [sszDecodeCleanupMemcpyArgs, sszDecodeCleanupTemplateBytes, Array.size_ofFn]
           at indexBound ⊢
         exact ready.access.frameNotCode _ (by omega) (by omega)
-  exact ⟨callReady, callState, seg, by simpa [callState, callMachine] using callRun, entry⟩
+  have callStack : callState.machine.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) := by
+    exact (callWrites.get x2 (by decide)).trans
+      ((seg.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans ready.atStack)
+  have callAgree : Agree instructionPreserved before callState.machine := by
+    have parentAgree := seg.agree instructionPreserved_disjoint_sszDecodeCleanupWrites
+    have stepAgree := callWrites.agree (by
+      intro register (preserved : instructionPreserved register) written
+      rcases written with bookkeeping | rfl
+      · exact platformPreserved_disjoint register preserved.1 bookkeeping
+      · exact preserved.2 rfl)
+    simpa only [callState] using parentAgree.trans stepAgree
+  exact ⟨callReady, callState, seg, by simpa [callState, callMachine] using callRun,
+    callStack, callAgree, by simpa [callState] using pmaEq, entry⟩
 
 /-- Apply the unconditional `memcpy` contract at the cleanup call boundary. -/
 theorem sszDecodeCleanupMemcpyChild (fromStep : Nat) (args : DecodeInlineArgs)
@@ -375,15 +392,70 @@ theorem sszDecodeCleanupMemcpyChild (fromStep : Nat) (args : DecodeInlineArgs)
           ⟨x11, 0x1755c⟩]
         fromStep 22 before callReady 0x122b4 ∧
       Runs (try_step (fromStep + 22) false) callReady callState.machine false ∧
+      callState.machine.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) ∧
+      Agree instructionPreserved before callState.machine ∧
+      callState.machine.regs.get? pma_regions = before.regs.get? pma_regions ∧
+      MemcpyEntry (sszDecodeCleanupMemcpyArgs args) callState ∧
       ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
         (fromStep + 23) used callState after ∧
       MemcpyExit (sszDecodeCleanupMemcpyArgs args) () callState after := by
-  obtain ⟨callReady, callState, seg, callRun, entry⟩ :=
+  obtain ⟨callReady, callState, seg, callRun, callStack, callAgree, callPma, entry⟩ :=
     sszDecodeCleanupMemcpyEntry fromStep args template before ready
   obtain ⟨used, after, _outcome, _positive, _bounded, childTrace, _childExitPc, _allowed,
     childExit⟩ := MemcpyInstanceContract.implements memcpyInstanceContract
       (sszDecodeCleanupMemcpyArgs args) (fromStep + 23) callState entry
-  exact ⟨callReady, callState, used, after, seg, callRun, childTrace, childExit⟩
+  exact ⟨callReady, callState, used, after, seg, callRun, callStack, callAgree, callPma,
+    entry, childTrace, childExit⟩
+
+private theorem instructionPreserved_abiCalleePreserved_cleanup (register : Register)
+    (preserved : instructionPreserved register) : abiCalleePreserved register := by
+  rcases preserved.1 with
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl
+  · exact (preserved.2 rfl).elim
+  all_goals simp [abiCalleePreserved]
+
+/-- Machine facts restored by the proved `memcpy` return to `0x122b8`. -/
+structure SszDecodeCleanupResume (args : DecodeInlineArgs) (machine : State) : Prop where
+  atPc : machine.regs.get? PC = some 0x122b8
+  atStack : machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
+  stackFits : 0xbb0 ≤ args.boundary.stackPointer
+  stackAligned : args.boundary.stackPointer % 16 = 0
+  stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64
+  access : DecodeBoundaryMachineAccess args.boundary machine
+  code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
+
+/-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
+theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
+    (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
+    ∃ (callState : EndpointState) (used : Nat) (after : EndpointState),
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
+        (fromStep + 23) used callState after ∧
+      SszDecodeCleanupResume args after.machine := by
+  obtain ⟨callReady, callState, used, after, _seg, _callRun, callStack, callAgree, callPma,
+    entry, childTrace, childExit⟩ := sszDecodeCleanupMemcpyChild fromStep args template before ready
+  rcases childExit with ⟨childPc, _stdin, _cursor, _stdout, _exitCode, _destination,
+    _source, codeAfter, _childMem, childFrame⟩
+  unfold MemcpyEntry at entry
+  rcases entry with ⟨_return, _size, _destinationFits, _sourceFits, _disjoint, _atPc,
+    _atLink, _atDestination, _atSource, _atSize, _sourceRep, _callCode, memcpyAccess⟩
+  have childAgree : Agree instructionPreserved callState.machine after.machine :=
+    childFrame.1.weaken instructionPreserved_abiCalleePreserved_cleanup
+  have wholeAgree := callAgree.trans childAgree
+  have childPma : after.machine.regs.get? pma_regions = before.regs.get? pma_regions :=
+    (childFrame.1 pma_regions (by simp [abiCalleePreserved])).trans callPma
+  have resume : SszDecodeCleanupResume args after.machine :=
+    { atPc := by simpa [sszDecodeCleanupMemcpyArgs] using childPc
+      atStack := (childFrame.1 x2 (by simp [abiCalleePreserved])).trans callStack
+      stackFits := ready.stackFits
+      stackAligned := ready.stackAligned
+      stackUpper := ready.stackUpper
+      access := ready.access.of_pma_regions_eq wholeAgree childFrame.2.1 childPma
+      code := codeAfter }
+  exact ⟨callState, used, after, by
+    simpa only using childTrace, resume⟩
 
 private theorem iTypeResult_addi_four_ofNat (value : Nat) :
     iTypeResult .ADDI 4 (BitVec.ofNat 64 value) = BitVec.ofNat 64 (value + 4) := by
@@ -446,6 +518,21 @@ private theorem sszDecodeLengthMinimumOwnPc_not_observed {pc : BitVec 64}
   rcases inside with inside | inside
   all_goals rcases observed with observed | observed | observed <;> omega
 
+private theorem sszDecodeCleanupOwnPc_in_initial {pc : BitVec 64}
+    (inside : sszDecodeCleanupOwnPc pc) : DecodeInlineInitialExecutionPc pc := by
+  unfold sszDecodeCleanupOwnPc at inside
+  unfold DecodeInlineInitialExecutionPc pcInRanges
+  exact ⟨(0x121ac, 0x14ca8), by simp [Elflings.sszDecodeExecutionPcRanges], by omega,
+    by omega⟩
+
+private theorem sszDecodeCleanupOwnPc_not_observed {pc : BitVec 64}
+    (inside : sszDecodeCleanupOwnPc pc) : ¬BareMetalHostTransitionPc pc := by
+  intro observed
+  unfold sszDecodeCleanupOwnPc at inside
+  unfold BareMetalHostTransitionPc readContextReturnPc writeContextReturnPc exitContextStorePc
+    at observed
+  rcases observed with observed | observed | observed <;> omega
+
 private theorem scopedTraceOfSegAtExit {own exit : BitVec 64 → Prop} {W : RegSet} {M : Region}
     {kv : List RegVal} {a n : Nat} {base cur : State} {pc : BitVec 64}
     (seg : Seg own exit (fun _ _ _ _ _ => False) W M kv a n base cur pc)
@@ -453,6 +540,39 @@ private theorem scopedTraceOfSegAtExit {own exit : BitVec 64 → Prop} {W : RegS
   have endTrace : ScopedTrace own exit (fun _ _ _ _ _ => False) (a + n) 0 cur cur :=
     .exitAt (a + n) cur pc seg.atPc atExit
   simpa using seg.confined 0 cur endTrace
+
+/-- The restored child frame supports all twenty stores and the final success-tag write. -/
+theorem sszDecodeCleanupResumeTrace (fromStep : Nat) (args : DecodeInlineArgs)
+    (template : EndpointState) (before : State) (resume : SszDecodeCleanupResume args before) :
+    ∃ after,
+      ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep 21
+        { template with machine := before } { template with machine := after } ∧
+      after.regs.get? x22 = some 1 := by
+  obtain ⟨after, seg⟩ := sszDecodeCleanupAfterMemcpyComplete fromStep args before resume.atPc
+    resume.atStack resume.stackFits resume.stackAligned resume.stackUpper resume.access
+    resume.access.configured resume.code
+  have localTrace := scopedTraceOfSegAtExit seg (by simp [sszDecodeCleanupExitPc])
+  have lifted := liftSszDecodeParentTrace sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+    sszDecodeCleanupOwnPc_in_initial sszDecodeCleanupOwnPc_not_observed template localTrace
+  exact ⟨after, by simpa using lifted, seg.reg x22 1 (by simp)⟩
+
+/-- The proved `memcpy` body and the 21-step cleanup tail execute in dependency order. -/
+theorem sszDecodeCleanupChildAndTail (fromStep : Nat) (args : DecodeInlineArgs)
+    (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
+    ∃ (callState : EndpointState) (childUsed : Nat) (childAfter : EndpointState)
+        (after : State),
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
+        (fromStep + 23) childUsed callState childAfter ∧
+      ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+        (fromStep + 23 + childUsed) 21 childAfter
+        { childAfter with machine := after } ∧
+      after.regs.get? x22 = some 1 := by
+  obtain ⟨callState, childUsed, childAfter, childTrace, resume⟩ :=
+    sszDecodeCleanupAfterMemcpy fromStep args template before ready
+  obtain ⟨after, tailTrace, tag⟩ :=
+    sszDecodeCleanupResumeTrace (fromStep + 23 + childUsed) args childAfter
+      childAfter.machine resume
+  exact ⟨callState, childUsed, childAfter, after, childTrace, by simpa using tailTrace, tag⟩
 
 private theorem instructionPreserved_disjoint_sszDecodeLengthValidatedWrites_for_staging :
     RegSet.Disjoint instructionPreserved sszDecodeLengthValidatedWrites := by
