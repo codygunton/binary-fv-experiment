@@ -13,6 +13,60 @@ open BinaryFv.RiscV
 open BinaryFv.RiscV.Elfling
 open PreSail LeanRV64DExecutable.Functions Register
 
+/-! ## Shared integer-reader segment transport -/
+
+/-- Transport the configured machine facts through a register-only integer-reader segment. -/
+theorem configuredMachinePre_of_readSeg {own exit : BitVec 64 → Prop}
+    {W : RegSet} {kv : List RegVal} {fromStep count : Nat} {base cur : State}
+    {pc : BitVec 64}
+    (configured : ConfiguredMachinePre EndpointMachinePc base)
+    (disjoint : RegSet.Disjoint instructionPreserved W)
+    (seg : Seg own exit (fun _ _ _ _ _ => False) W noMemory kv
+      fromStep count base cur pc) :
+    ConfiguredMachinePre EndpointMachinePc cur :=
+  configured.mono (seg.agree disjoint) seg.retired
+
+/-- Transport an unchanged source-register value through an integer-reader segment. -/
+theorem registerValue_of_readSeg {own exit : BitVec 64 → Prop}
+    {W : RegSet} {kv : List RegVal} {fromStep count : Nat} {base cur : State}
+    {pc : BitVec 64} {register : Register} {value : RegisterType register}
+    (seg : Seg own exit (fun _ _ _ _ _ => False) W noMemory kv
+      fromStep count base cur pc)
+    (notWritten : ¬W register) (holds : base.regs.get? register = some value) :
+    cur.regs.get? register = some value :=
+  (seg.get register notWritten).trans holds
+
+/-- Transport one byte representation through an integer-reader segment. -/
+theorem uintRep_of_readSeg {own exit : BitVec 64 → Prop}
+    {W : RegSet} {kv : List RegVal} {fromStep count address value : Nat}
+    {base cur : State} {pc : BitVec 64}
+    (seg : Seg own exit (fun _ _ _ _ _ => False) W noMemory kv
+      fromStep count base cur pc)
+    (rep : UIntRep 1 base.mem address value) : UIntRep 1 cur.mem address value := by
+  rw [seg.memEq noMemory_empty]
+  exact rep
+
+/-- Transport one load-PMA fact through an integer-reader segment. -/
+theorem loadPmaAllows_of_readSeg {own exit : BitVec 64 → Prop}
+    {W : RegSet} {kv : List RegVal} {fromStep count width : Nat}
+    {base cur : State} {pc address : BitVec 64}
+    (seg : Seg own exit (fun _ _ _ _ _ => False) W noMemory kv
+      fromStep count base cur pc)
+    (disjoint : RegSet.Disjoint platformPreserved W)
+    (allows : LoadPmaAllows base address width) : LoadPmaAllows cur address width :=
+  loadPmaAllows_of_agree (seg.agree disjoint) allows
+
+/-- Transport the pinned program bytes through an integer-reader segment. -/
+theorem loadedFaithfully_of_readSeg {own exit : BitVec 64 → Prop}
+    {W : RegSet} {kv : List RegVal} {fromStep count : Nat} {base cur : State}
+    {pc : BitVec 64}
+    (seg : Seg own exit (fun _ _ _ _ _ => False) W noMemory kv
+      fromStep count base cur pc)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully base.mem) :
+    Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
+  rw [seg.memEq noMemory_empty]
+  exact loaded
+
 def readU32_3335OwnPc (pc : BitVec 64) : Prop :=
   pcInList [0x12c18, 0x12c1c, 0x12c20, 0x12c24] pc
 
@@ -179,31 +233,29 @@ theorem readU32_3335Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
       (seg : Seg readU32_3335OwnPc readU32_3335ExitPc (fun _ _ _ _ _ => False)
         readU32_3335Writes noMemory kv fromStep n state cur pc) :
       ConfiguredMachinePre EndpointMachinePc cur :=
-    configured.mono (seg.agree instructionPreserved_disjoint) seg.retired
+    configuredMachinePre_of_readSeg configured instructionPreserved_disjoint seg
   have baseOfSeg {kv n cur pc}
       (seg : Seg readU32_3335OwnPc readU32_3335ExitPc (fun _ _ _ _ _ => False)
         readU32_3335Writes noMemory kv fromStep n state cur pc) :
       cur.regs.get? x18 = some (BitVec.ofNat 64 baseAddress) :=
-    (seg.get x18 (by simp [readU32_3335Writes, stepBookkeeping])).trans base
+    registerValue_of_readSeg seg (by simp [readU32_3335Writes, stepBookkeeping]) base
   have repOfSeg {kv n cur pc offset value}
       (seg : Seg readU32_3335OwnPc readU32_3335ExitPc (fun _ _ _ _ _ => False)
         readU32_3335Writes noMemory kv fromStep n state cur pc)
       (rep : UIntRep 1 state.mem (baseAddress + offset) value) :
-      UIntRep 1 cur.mem (baseAddress + offset) value := by
-    rw [seg.memEq noMemory_empty]
-    exact rep
+      UIntRep 1 cur.mem (baseAddress + offset) value :=
+    uintRep_of_readSeg seg rep
   have pmaOfSeg {kv n cur pc offset}
       (seg : Seg readU32_3335OwnPc readU32_3335ExitPc (fun _ _ _ _ _ => False)
         readU32_3335Writes noMemory kv fromStep n state cur pc)
       (bound : offset < 4) :
       LoadPmaAllows cur (BitVec.ofNat 64 (baseAddress + 22 + offset)) 1 :=
-    loadPmaAllows_of_agree (seg.agree platformDisjointWrites) (pma offset bound)
+    loadPmaAllows_of_readSeg seg platformDisjointWrites (pma offset bound)
   have loadedOfSeg {kv n cur pc}
       (seg : Seg readU32_3335OwnPc readU32_3335ExitPc (fun _ _ _ _ _ => False)
         readU32_3335Writes noMemory kv fromStep n state cur pc) :
-      Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
-    rw [seg.memEq noMemory_empty]
-    exact loaded
+      Artifacts.programImage.fileBytesLoadedFaithfully cur.mem :=
+    loadedFaithfully_of_readSeg seg loaded
   obtain ⟨m1, seg1⟩ := seg0.step (by owned_pc [readU32_3335OwnPc, pcInList])
     (by owned_pc [readU32_3335ExitPc, pcInList]) x10
     (zero_extend (m := 64) (BitVec.ofNat 8 v0)) 0x12c1c
@@ -456,31 +508,29 @@ theorem readU32_2ff8Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
       (seg : Seg readU32_2ff8OwnPc readU32_2ff8ExitPc (fun _ _ _ _ _ => False)
         readU32_2ff8Writes noMemory kv fromStep n state cur pc) :
       ConfiguredMachinePre EndpointMachinePc cur :=
-    configured.mono (seg.agree readU32_2ff8InstructionDisjoint) seg.retired
+    configuredMachinePre_of_readSeg configured readU32_2ff8InstructionDisjoint seg
   have baseOfSeg {kv n cur pc}
       (seg : Seg readU32_2ff8OwnPc readU32_2ff8ExitPc (fun _ _ _ _ _ => False)
         readU32_2ff8Writes noMemory kv fromStep n state cur pc) :
       cur.regs.get? x18 = some (BitVec.ofNat 64 baseAddress) :=
-    (seg.get x18 (by simp [readU32_2ff8Writes, stepBookkeeping])).trans base
+    registerValue_of_readSeg seg (by simp [readU32_2ff8Writes, stepBookkeeping]) base
   have repOfSeg {kv n cur pc offset value}
       (seg : Seg readU32_2ff8OwnPc readU32_2ff8ExitPc (fun _ _ _ _ _ => False)
         readU32_2ff8Writes noMemory kv fromStep n state cur pc)
       (rep : UIntRep 1 state.mem (baseAddress + offset) value) :
-      UIntRep 1 cur.mem (baseAddress + offset) value := by
-    rw [seg.memEq noMemory_empty]
-    exact rep
+      UIntRep 1 cur.mem (baseAddress + offset) value :=
+    uintRep_of_readSeg seg rep
   have pmaOfSeg {kv n cur pc offset}
       (seg : Seg readU32_2ff8OwnPc readU32_2ff8ExitPc (fun _ _ _ _ _ => False)
         readU32_2ff8Writes noMemory kv fromStep n state cur pc)
       (bound : offset < 4) :
       LoadPmaAllows cur (BitVec.ofNat 64 (baseAddress + 2 + offset)) 1 :=
-    loadPmaAllows_of_agree (seg.agree readU32_2ff8PlatformDisjoint) (pma offset bound)
+    loadPmaAllows_of_readSeg seg readU32_2ff8PlatformDisjoint (pma offset bound)
   have loadedOfSeg {kv n cur pc}
       (seg : Seg readU32_2ff8OwnPc readU32_2ff8ExitPc (fun _ _ _ _ _ => False)
         readU32_2ff8Writes noMemory kv fromStep n state cur pc) :
-      Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
-    rw [seg.memEq noMemory_empty]
-    exact loaded
+      Artifacts.programImage.fileBytesLoadedFaithfully cur.mem :=
+    loadedFaithfully_of_readSeg seg loaded
   obtain ⟨m1, seg1⟩ := seg0.step (by owned_pc [readU32_2ff8OwnPc, pcInList])
     (by owned_pc [readU32_2ff8ExitPc, pcInList]) x10 z1 0x12738
     (readU32LoadUnsignedStep fromStep 0x12734 3 state (.Regidx 18#5) (.Regidx 10#5) x10 z1 v1
