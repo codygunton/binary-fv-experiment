@@ -685,6 +685,47 @@ readU32UnsignedLoadSite(readU64_35abLoad411; 0x138ec, 411;
 readU64SpillSite(readU64_35abSpill411; 0x138f0, 0x1f8;
   .Regidx 2#5, .Regidx 10#5; 0x23, 0x3c, 0xa1, 0x1e)
 
+readU32UnsignedLoadSite(readU64_361fLoad412; 0x138f4, 412;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0xcb, 0x19)
+readU64SpillSite(readU64_361fSpill412; 0x138f8, 0x228;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x34, 0xa1, 0x22)
+readU32UnsignedLoadSite(readU64_361fLoad413; 0x138fc, 413;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0xdb, 0x19)
+readU64SpillSite(readU64_361fSpill413; 0x13900, 0x210;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x38, 0xa1, 0x20)
+readU32UnsignedLoadSite(readU64_361fLoad414; 0x13904, 414;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0xeb, 0x19)
+readU64SpillSite(readU64_361fSpill414; 0x13908, 0x220;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x30, 0xa1, 0x22)
+readU32UnsignedLoadSite(readU64_361fLoad415; 0x1390c, 415;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0xfb, 0x19)
+readU64SpillSite(readU64_361fSpill415; 0x13910, 0x218;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x3c, 0xa1, 0x20)
+readU32UnsignedLoadSite(readU64_361fLoad416; 0x13914, 416;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0x0b, 0x1a)
+readU64SpillSite(readU64_361fSpill416; 0x13918, 0x160;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x30, 0xa1, 0x16)
+readU32UnsignedLoadSite(readU64_361fLoad417; 0x1391c, 417;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0x1b, 0x1a)
+readU64SpillSite(readU64_361fSpill417; 0x13920, 0x148;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x34, 0xa1, 0x14)
+readU32UnsignedLoadSite(readU64_361fLoad418; 0x13924, 418;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0x2b, 0x1a)
+readU64SpillSite(readU64_361fSpill418; 0x13928, 0x158;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x3c, 0xa1, 0x14)
+readU32UnsignedLoadSite(readU64_361fLoad419; 0x1392c, 419;
+  .Regidx 23#5, x23, rX_x23_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x03, 0xc5, 0x3b, 0x1a)
+readU64SpillSite(readU64_361fSpill419; 0x13930, 0x150;
+  .Regidx 2#5, .Regidx 10#5; 0x23, 0x38, 0xa1, 0x14)
+
 /-- Shared low-word fragment instantiated at `fi:1:3203`. -/
 theorem readU64_3203LowRun (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
