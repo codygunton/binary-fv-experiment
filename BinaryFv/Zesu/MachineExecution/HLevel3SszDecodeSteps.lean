@@ -1388,6 +1388,52 @@ sszDecodeZeroWordSite(sszDecodeCleanupWord2b8; 0x12300, 0x2b8;
 sszDecodeZeroHalfSite(sszDecodeCleanupHalf2bc; 0x12304, 0x2bc;
   0x23, 0x1e, 0x01, 0x2a)
 
+/-- Exact `0x12264: auipc a0,5`, using the shared register-write step. -/
+private theorem sszDecodeCleanupBaseHighStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x12264)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x12264 retired x10 0x17264) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12264
+  have pcAtPremise : premise.regs.get? PC = some (0x12264 : BitVec 64) := by
+    calc
+      premise.regs.get? PC = (tryStepControlFlowAfterIncrement state).regs.get? PC := by
+        simpa [premise, coreControlFlowNextState] using
+          writeReg_read_unchanged (tryStepControlFlowAfterIncrement state) nextPC PC 0x12268
+            (by decide)
+      _ = state.regs.get? PC := by
+        simpa [tryStepControlFlowAfterIncrement] using
+          writeReg_read_unchanged state minstret_increment PC true (by decide)
+      _ = some 0x12264 := atPc
+  have execute : Runs (execute (.UTYPE (5, .Regidx 10#5, .AUIPC))) premise
+      { premise with regs := premise.regs.insert x10 0x17264 } (.Retire_Success ()) := by
+    change Runs (execute_UTYPE 5 (.Regidx 10#5) .AUIPC) _ _ _
+    simpa using execute_UTYPE_auipc_run premise _ 5 (.Regidx 10#5) 0x12264
+      (readReg_run premise PC _ pcAtPremise) (wX_x10_run premise _)
+  exact configuredRegisterWriteStep stepNo 0x12264 state x10 0x17264
+    (.UTYPE (5, .Regidx 10#5, .AUIPC)) 0x17 0x55 0x00 0x00
+    configured atPc loaded (by configured_decode configured) execute
+    (pcFits := by native_decide) (base := by rfl)
+
+/-- Exact `0x12294: addi a1,a0,760`, using the shared I-type step. -/
+private theorem sszDecodeCleanupBaseLowStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x12294)
+    (baseAt : state.regs.get? x10 = some 0x17264)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x12294 retired x11 0x1755c) false := by
+  have resultEq : (0x1755c : BitVec 64) = iTypeResult .ADDI 0x2f8 0x17264 := by
+    native_decide
+  exact configuredITypeX11Step stepNo 0x12294 state 0x2f8 (.Regidx 10#5) .ADDI
+    0x17264 0x1755c 0x93 0x05 0x85 0x2f configured atPc loaded
+    (by
+      intro premise writes
+      exact rX_x10_run premise 0x17264 ((writes.get x10 (by decide)).trans baseAt))
+    (by intro premise; rw [← resultEq]; exact wX_x11_run premise 0x1755c)
+    (by configured_decode configured) (base := by rfl)
+
 def sszDecodeForkNameByteOwnPc (pc : BitVec 64) : Prop := pc = 0x12218
 
 def sszDecodeForkNameByteExitPc (pc : BitVec 64) : Prop := pc = 0x1221c
