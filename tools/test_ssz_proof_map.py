@@ -111,7 +111,7 @@ class ProofMapTest(unittest.TestCase):
             self.assertEqual(prepared["summary"]["level3ContractCount"], 41)
             self.assertEqual(prepared["proofProgress"], {
                 "directProofCount": 29, "remainingContractCount": 12,
-                "parentComposedInlineCount": 16, "resolvedParentCount": 9})
+            "parentComposedInlineCount": 16, "resolvedParentCount": 10})
             resolved_parents = [parent for parent in prepared["parents"]
                                 if parent["proofStatus"] == "proved"]
             self.assertEqual({parent["field"] for parent in resolved_parents}, {
