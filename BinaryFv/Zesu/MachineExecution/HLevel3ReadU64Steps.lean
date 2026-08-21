@@ -167,6 +167,80 @@ theorem readU64FourLiveLoads
     simpa [Nat.add_assoc] using seg3)) advance3 bookkeeping writes3 notPc3 notRetired3 keep3
   exact ⟨s4, by simpa [Nat.add_assoc] using seg4⟩
 
+/-- Compose one five-step half-word assembly while handling each overwritten register once. -/
+theorem readU64HalfAssemblyFromSteps
+    {own exit : BitVec 64 → Prop}
+    {childSummary : Binary.Elfling.FunctionInstanceId → Nat → Nat → State → State → Prop}
+    {W : RegSet} {M : Region} {kv : List RegVal} {a n : Nat} {base cur : State}
+    {pc0 pc1 pc2 pc3 pc4 pc5 : BitVec 64}
+    (r0 r1 r2 r3 : Register)
+    (z0 : RegisterType r0) (z1 sh1 lo0 : RegisterType r1)
+    (z2 sh2 lo1 : RegisterType r2) (z3 sh3 : RegisterType r3)
+    (seg : Seg own exit childSummary W M
+      (⟨r3, z3⟩ :: ⟨r2, z2⟩ :: ⟨r1, z1⟩ :: ⟨r0, z0⟩ :: kv)
+      a n base cur pc0)
+    (shift1 : ∀ {current}, Seg own exit childSummary W M
+      (⟨r3, z3⟩ :: ⟨r2, z2⟩ :: ⟨r0, z0⟩ :: kv) a n base current pc0 →
+      ∃ next, Seg own exit childSummary W M
+        (⟨r1, sh1⟩ :: ⟨r3, z3⟩ :: ⟨r2, z2⟩ :: ⟨r0, z0⟩ :: kv)
+        a (n + 1) base next pc1)
+    (shift2 : ∀ {current}, Seg own exit childSummary W M
+      (⟨r1, sh1⟩ :: ⟨r3, z3⟩ :: ⟨r0, z0⟩ :: kv) a (n + 1) base current pc1 →
+      ∃ next, Seg own exit childSummary W M
+        (⟨r2, sh2⟩ :: ⟨r1, sh1⟩ :: ⟨r3, z3⟩ :: ⟨r0, z0⟩ :: kv)
+        a (n + 2) base next pc2)
+    (shift3 : ∀ {current}, Seg own exit childSummary W M
+      (⟨r2, sh2⟩ :: ⟨r1, sh1⟩ :: ⟨r0, z0⟩ :: kv) a (n + 2) base current pc2 →
+      ∃ next, Seg own exit childSummary W M
+        (⟨r3, sh3⟩ :: ⟨r2, sh2⟩ :: ⟨r1, sh1⟩ :: ⟨r0, z0⟩ :: kv)
+        a (n + 3) base next pc3)
+    (or0 : ∀ {current}, Seg own exit childSummary W M
+      (⟨r3, sh3⟩ :: ⟨r2, sh2⟩ :: ⟨r0, z0⟩ :: kv) a (n + 3) base current pc3 →
+      ∃ next, Seg own exit childSummary W M
+        (⟨r1, lo0⟩ :: ⟨r3, sh3⟩ :: ⟨r2, sh2⟩ :: ⟨r0, z0⟩ :: kv)
+        a (n + 4) base next pc4)
+    (or1 : ∀ {current}, Seg own exit childSummary W M
+      (⟨r1, lo0⟩ :: ⟨r3, sh3⟩ :: ⟨r0, z0⟩ :: kv) a (n + 4) base current pc4 →
+      ∃ next, Seg own exit childSummary W M
+        (⟨r2, lo1⟩ :: ⟨r1, lo0⟩ :: ⟨r3, sh3⟩ :: ⟨r0, z0⟩ :: kv)
+        a (n + 5) base next pc5) :
+    ∃ next, Seg own exit childSummary W M
+      (⟨r2, lo1⟩ :: ⟨r1, lo0⟩ :: kv) a (n + 5) base next pc5 := by
+  have before1 := seg.forget
+    (kv' := ⟨r3, z3⟩ :: ⟨r2, z2⟩ :: ⟨r0, z0⟩ :: kv) (by
+      intro p hp
+      simp only [List.mem_cons] at hp ⊢
+      grind)
+  obtain ⟨s1, seg1⟩ := shift1 before1
+  have before2 := seg1.forget
+    (kv' := ⟨r1, sh1⟩ :: ⟨r3, z3⟩ :: ⟨r0, z0⟩ :: kv) (by
+      intro p hp
+      simp only [List.mem_cons] at hp ⊢
+      grind)
+  obtain ⟨s2, seg2⟩ := shift2 before2
+  have before3 := seg2.forget
+    (kv' := ⟨r2, sh2⟩ :: ⟨r1, sh1⟩ :: ⟨r0, z0⟩ :: kv) (by
+      intro p hp
+      simp only [List.mem_cons] at hp ⊢
+      grind)
+  obtain ⟨s3, seg3⟩ := shift3 before3
+  have before4 := seg3.forget
+    (kv' := ⟨r3, sh3⟩ :: ⟨r2, sh2⟩ :: ⟨r0, z0⟩ :: kv) (by
+      intro p hp
+      simp only [List.mem_cons] at hp ⊢
+      grind)
+  obtain ⟨s4, seg4⟩ := or0 before4
+  have before5 := seg4.forget
+    (kv' := ⟨r1, lo0⟩ :: ⟨r3, sh3⟩ :: ⟨r0, z0⟩ :: kv) (by
+      intro p hp
+      simp only [List.mem_cons] at hp ⊢
+      grind)
+  obtain ⟨s5, seg5⟩ := or1 before5
+  exact ⟨s5, seg5.forget (kv' := ⟨r2, lo1⟩ :: ⟨r1, lo0⟩ :: kv) (by
+    intro p hp
+    simp only [List.mem_cons] at hp ⊢
+    grind)⟩
+
 /-- Declare one exact eight-byte spill used by a split `readU64` schedule. -/
 macro "readU64SpillSite(" name:ident ";" pc:term "," immediate:term ";"
     baseIndex:term "," sourceIndex:term ";"
