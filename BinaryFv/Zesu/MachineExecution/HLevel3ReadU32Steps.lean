@@ -532,6 +532,35 @@ macro "readU32OrSite(" name:ident ";" pc:term ";"
         (by configured_decode configured) (by constructor <;> native_decide)
         (by decide) (by decide) (by decide) (by decide) (by rfl))
 
+/-- Declare one exact positive `li` instruction that follows a standard `readU32` schedule. -/
+macro "readU32LiSite(" name:ident ";" pc:term "," value:term ";"
+    destinationIndex:term "," destination:term "," destinationWrite:term ";"
+    byte0:term "," byte1:term "," byte2:term "," byte3:term ")" : command =>
+  `(private theorem $name (stepNo : Nat) (state : State)
+      (configured : ConfiguredMachinePre EndpointMachinePc state)
+      (atPc : state.regs.get? PC = some (BitVec.ofNat 64 $pc))
+      (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+      ∃ retired, Runs (try_step stepNo false) state
+        (afterRegisterWrite state (BitVec.ofNat 64 $pc) retired $destination
+          (BitVec.ofNat 64 $value)) false := by
+      let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+        (BitVec.ofNat 64 $pc)
+      have execute : Runs
+          (execute (.ITYPE (BitVec.ofNat 12 $value, .Regidx 0#5,
+            $destinationIndex, .ADDI))) premise
+          { premise with regs := premise.regs.insert $destination (BitVec.ofNat 64 $value) }
+          (.Retire_Success ()) := by
+        change Runs (execute_ITYPE (BitVec.ofNat 12 $value) (.Regidx 0#5)
+          $destinationIndex .ADDI) _ _ _
+        simpa using execute_ITYPE_addi_run premise _ (BitVec.ofNat 64 $value)
+          (.Regidx 0#5) $destinationIndex 0 (rX_x0_run premise)
+          ($destinationWrite premise (BitVec.ofNat 64 $value))
+      exact configuredRegisterWriteStep stepNo $pc state $destination
+        (BitVec.ofNat 64 $value)
+        (.ITYPE (BitVec.ofNat 12 $value, .Regidx 0#5, $destinationIndex, .ADDI))
+        $byte0 $byte1 $byte2 $byte3 configured atPc loaded
+        (by configured_decode configured) execute (base := by rfl))
+
 private theorem readU32_2ff8InstructionDisjoint :
     RegSet.Disjoint instructionPreserved readU32_2ff8Writes := by
   intro register preserved writes
@@ -899,7 +928,7 @@ readU32OrSite(readU32_3064OrResult; 0x128f0;
 /-- Compose one standard unsigned `readU32` schedule from its ten exact site theorems. -/
 macro "standard_read_u32_compose " own:ident "," exit:ident "," writes:ident ","
     instructionDisjoint:ident "," platformDisjoint:ident ";"
-    start:term "," finish:term "," baseOffset:term ";"
+    start:term "," finish:term "," baseOffset:term ";" sourceRegister:term ";"
     first:term "," second:term "," third:term "," fourth:term ","
     highRegister:term "," resultRegister:term ";"
     load1:ident "," load0:ident "," load2:ident "," load3:ident ","
@@ -924,17 +953,18 @@ macro "standard_read_u32_compose " own:ident "," exit:ident "," writes:ident ","
     let hi := sh3 ||| sh2
     let result := hi ||| lo
     obtain ⟨retired, retiredRead⟩ := ($configured).retiredCounter
-    have seg0 := Seg.nil $own $exit (fun _ _ _ _ _ => False) $writes noMemory
-      $fromStep ⟨retired, retiredRead⟩ $atPc
+    have seg0 := (Seg.nil $own $exit (fun _ _ _ _ _ => False) $writes noMemory
+      $fromStep ⟨retired, retiredRead⟩ $atPc).know $sourceRegister
+        (BitVec.ofNat 64 $baseAddress) $base
     have configuredOfSeg {kv n cur pc}
         (seg : Seg $own $exit (fun _ _ _ _ _ => False) $writes noMemory kv
           $fromStep n $state cur pc) :=
       configuredMachinePre_of_readSeg $configured $instructionDisjoint seg
     have baseOfSeg {kv n cur pc}
         (seg : Seg $own $exit (fun _ _ _ _ _ => False) $writes noMemory kv
-          $fromStep n $state cur pc) :=
-      registerValue_of_readSeg seg
-        (by unfold $writes; simp [standardReadU32Writes, stepBookkeeping]) $base
+          $fromStep n $state cur pc)
+        (present : (⟨$sourceRegister, BitVec.ofNat 64 $baseAddress⟩ : RegVal) ∈ kv) :=
+      seg.reg $sourceRegister (BitVec.ofNat 64 $baseAddress) present
     have pmaOfSeg {kv n cur pc} (relative : Nat)
         (seg : Seg $own $exit (fun _ _ _ _ _ => False) $writes noMemory kv
           $fromStep n $state cur pc)
@@ -951,7 +981,8 @@ macro "standard_read_u32_compose " own:ident "," exit:ident "," writes:ident ","
       (by unfold $own standardReadU32OwnPc pcInList; native_decide)
       (by unfold $exit standardReadU32ExitPc pcInList; native_decide)
       $first z1 ($start + 4)
-      ($load1 $fromStep $state $baseAddress $v1 $configured $atPc $base $rep1
+      ($load1 $fromStep $state $baseAddress $v1 $configured $atPc
+        (baseOfSeg seg0 (by simp)) $rep1
         ($pma 1 (by omega)) ($notMMIO 1 (by omega))
         (by have := $sourceFits; omega) $loaded)
       (by decide) (by intro r h; exact Or.inl h)
@@ -962,7 +993,7 @@ macro "standard_read_u32_compose " own:ident "," exit:ident "," writes:ident ","
       (by unfold $exit standardReadU32ExitPc pcInList; native_decide)
       $second z0 ($start + 8)
       ($load0 ($fromStep + 1) m1 $baseAddress $v0 (configuredOfSeg seg1)
-        seg1.atPc (baseOfSeg seg1)
+        seg1.atPc (baseOfSeg seg1 (by simp))
         (by simpa using uintRep_of_readSeg seg1 $rep0)
         (pmaOfSeg 0 seg1 (by omega)) ($notMMIO 0 (by omega))
         (by have := $sourceFits; omega) (loadedOfSeg seg1))
@@ -974,20 +1005,24 @@ macro "standard_read_u32_compose " own:ident "," exit:ident "," writes:ident ","
       (by unfold $exit standardReadU32ExitPc pcInList; native_decide)
       $third z2 ($start + 12)
       ($load2 ($fromStep + 2) m2 $baseAddress $v2 (configuredOfSeg seg2)
-        seg2.atPc (baseOfSeg seg2) (by simpa using uintRep_of_readSeg seg2 $rep2)
+        seg2.atPc (baseOfSeg seg2 (by simp))
+        (by simpa using uintRep_of_readSeg seg2 $rep2)
         (pmaOfSeg 2 seg2 (by omega)) ($notMMIO 2 (by omega))
         (by have := $sourceFits; omega) (loadedOfSeg seg2))
       (by decide) (by intro r h; exact Or.inl h)
       (by unfold $writes; simp [standardReadU32Writes]) (by decide) (by decide)
       (by simp [RegsOutside, stepBookkeeping])
-    obtain ⟨m4, seg4⟩ := seg3.step
+    obtain ⟨r4, run4⟩ := $load3 ($fromStep + 3) m3 $baseAddress $v3
+      (configuredOfSeg seg3) seg3.atPc (baseOfSeg seg3 (by simp))
+      (by simpa using uintRep_of_readSeg seg3 $rep3)
+      (pmaOfSeg 3 seg3 (by omega)) ($notMMIO 3 (by omega))
+      (by have := $sourceFits; omega) (loadedOfSeg seg3)
+    have seg3' := seg3.forget
+      (kv' := [⟨$third, z2⟩, ⟨$second, z0⟩, ⟨$first, z1⟩]) (by simp)
+    obtain ⟨m4, seg4⟩ := seg3'.step
       (by unfold $own standardReadU32OwnPc pcInList; native_decide)
       (by unfold $exit standardReadU32ExitPc pcInList; native_decide)
-      $fourth z3 ($start + 16)
-      ($load3 ($fromStep + 3) m3 $baseAddress $v3 (configuredOfSeg seg3)
-        seg3.atPc (baseOfSeg seg3) (by simpa using uintRep_of_readSeg seg3 $rep3)
-        (pmaOfSeg 3 seg3 (by omega)) ($notMMIO 3 (by omega))
-        (by have := $sourceFits; omega) (loadedOfSeg seg3))
+      $fourth z3 ($start + 16) ⟨r4, run4⟩
       (by decide) (by intro r h; exact Or.inl h)
       (by unfold $writes; simp [standardReadU32Writes]) (by decide) (by decide)
       (by simp [RegsOutside, stepBookkeeping])
@@ -1083,7 +1118,7 @@ theorem readU32_3064Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
       fromStep 10 state after (BitVec.ofNat 64 0x128f4) :=
   standard_read_u32_compose readU32_3064OwnPc, readU32_3064ExitPc, readU32_3064Writes,
     readU32_3064InstructionDisjoint, readU32_3064PlatformDisjoint;
-    0x128cc, 0x128f4, 8; x13, x14, x15, x16, x14, x13;
+    0x128cc, 0x128f4, 8; x10; x13, x14, x15, x16, x14, x13;
     readU32_3064Load1, readU32_3064Load0, readU32_3064Load2, readU32_3064Load3,
     readU32_3064Shift1, readU32_3064OrLow, readU32_3064Shift2, readU32_3064Shift3,
     readU32_3064OrHigh, readU32_3064OrResult;
@@ -1144,7 +1179,7 @@ theorem readU32_30e2Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
       fromStep 10 state after (BitVec.ofNat 64 0x1296c) :=
   standard_read_u32_compose readU32_30e2OwnPc, readU32_30e2ExitPc, readU32_30e2Writes,
     readU32_30e2InstructionDisjoint, readU32_30e2PlatformDisjoint;
-    0x12944, 0x1296c, 0; x12, x14, x16, x17, x14, x14;
+    0x12944, 0x1296c, 0; x15; x12, x14, x16, x17, x14, x14;
     readU32_30e2Load1, readU32_30e2Load0, readU32_30e2Load2, readU32_30e2Load3,
     readU32_30e2Shift1, readU32_30e2OrLow, readU32_30e2Shift2, readU32_30e2Shift3,
     readU32_30e2OrHigh, readU32_30e2OrResult;
@@ -1206,11 +1241,111 @@ theorem readU32_3457Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
       fromStep 10 state after (BitVec.ofNat 64 0x13018) :=
   standard_read_u32_compose readU32_3457OwnPc, readU32_3457ExitPc, readU32_3457Writes,
     readU32_3457InstructionDisjoint, readU32_3457PlatformDisjoint;
-    0x12ff0, 0x13018, 0; x11, x12, x13, x14, x13, x11;
+    0x12ff0, 0x13018, 0; x9; x11, x12, x13, x14, x13, x11;
     readU32_3457Load1, readU32_3457Load0, readU32_3457Load2, readU32_3457Load3,
     readU32_3457Shift1, readU32_3457OrLow, readU32_3457Shift2, readU32_3457Shift3,
     readU32_3457OrHigh, readU32_3457OrResult;
     fromStep, baseAddress, v0, v1, v2, v3, state, configured, atPc, base,
     rep0, rep1, rep2, rep3, pma, notMMIO, sourceFits, loaded
+
+/-! ## `fi:1:3b27`: standard unsigned schedule followed by `li a1, 12` -/
+
+def readU32_3b27OwnPc (pc : BitVec 64) : Prop :=
+  standardReadU32OwnPc 0x1484c pc ∨ pcInList [0x14874] pc
+
+def readU32_3b27ExitPc (pc : BitVec 64) : Prop :=
+  standardReadU32ExitPc 0x14850 pc
+
+def readU32_3b27Writes (register : Register) : Prop :=
+  standardReadU32Writes x10 x11 x12 x13 register
+
+private theorem readU32_3b27InstructionDisjoint :
+    RegSet.Disjoint instructionPreserved readU32_3b27Writes :=
+  standardReadU32InstructionDisjoint x10 x11 x12 x13
+    (by simp [instructionPreserved, platformPreserved])
+    (by simp [instructionPreserved, platformPreserved])
+    (by simp [instructionPreserved, platformPreserved])
+    (by simp [instructionPreserved, platformPreserved])
+
+private theorem readU32_3b27PlatformDisjoint :
+    RegSet.Disjoint platformPreserved readU32_3b27Writes :=
+  standardReadU32PlatformDisjoint x10 x11 x12 x13
+    (by simp [platformPreserved]) (by simp [platformPreserved])
+    (by simp [platformPreserved]) (by simp [platformPreserved])
+
+readU32UnsignedLoadSite(readU32_3b27Load1; 0x1484c, 1;
+  .Regidx 13#5, x13, rX_x13_run; .Regidx 10#5, x10, wX_x10_run;
+  0x03, 0xc5, 0x16, 0x00)
+readU32UnsignedLoadSite(readU32_3b27Load0; 0x14850, 0;
+  .Regidx 13#5, x13, rX_x13_run; .Regidx 11#5, x11, wX_x11_run;
+  0x83, 0xc5, 0x06, 0x00)
+readU32UnsignedLoadSite(readU32_3b27Load2; 0x14854, 2;
+  .Regidx 13#5, x13, rX_x13_run; .Regidx 12#5, x12, wX_x12_run;
+  0x03, 0xc6, 0x26, 0x00)
+readU32UnsignedLoadSite(readU32_3b27Load3; 0x14858, 3;
+  .Regidx 13#5, x13, rX_x13_run; .Regidx 13#5, x13, wX_x13_run;
+  0x83, 0xc6, 0x36, 0x00)
+readU32SlliSite(readU32_3b27Shift1; 0x1485c, 8;
+  .Regidx 10#5, x10, rX_x10_run, wX_x10_run; 0x13, 0x15, 0x85, 0x00)
+readU32OrSite(readU32_3b27OrLow; 0x14860;
+  .Regidx 10#5, x10, rX_x10_run; .Regidx 11#5, x11, rX_x11_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x33, 0x65, 0xb5, 0x00)
+readU32SlliSite(readU32_3b27Shift2; 0x14864, 16;
+  .Regidx 12#5, x12, rX_x12_run, wX_x12_run; 0x13, 0x16, 0x06, 0x01)
+readU32SlliSite(readU32_3b27Shift3; 0x14868, 24;
+  .Regidx 13#5, x13, rX_x13_run, wX_x13_run; 0x93, 0x96, 0x86, 0x01)
+readU32OrSite(readU32_3b27OrHigh; 0x1486c;
+  .Regidx 13#5, x13, rX_x13_run; .Regidx 12#5, x12, rX_x12_run;
+  .Regidx 12#5, x12, wX_x12_run; 0x33, 0xe6, 0xc6, 0x00)
+readU32OrSite(readU32_3b27OrResult; 0x14870;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 10#5, x10, rX_x10_run;
+  .Regidx 10#5, x10, wX_x10_run; 0x33, 0x65, 0xa6, 0x00)
+readU32LiSite(readU32_3b27LiWidth; 0x14874, 12;
+  .Regidx 11#5, x11, wX_x11_run; 0x93, 0x05, 0xc0, 0x00)
+
+/-- Exact standard `readU32` trace plus the width binding for `fi:1:3b27`. -/
+theorem readU32_3b27Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x1484c))
+    (base : state.regs.get? x13 = some (BitVec.ofNat 64 baseAddress))
+    (rep0 : UIntRep 1 state.mem baseAddress v0)
+    (rep1 : UIntRep 1 state.mem (baseAddress + 1) v1)
+    (rep2 : UIntRep 1 state.mem (baseAddress + 2) v2)
+    (rep3 : UIntRep 1 state.mem (baseAddress + 3) v3)
+    (pma : ∀ offset, offset < 4 →
+      LoadPmaAllows state (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (notMMIO : ∀ offset, offset < 4 →
+      LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (sourceFits : baseAddress + 4 ≤ 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ after, Seg readU32_3b27OwnPc readU32_3b27ExitPc (fun _ _ _ _ _ => False)
+      readU32_3b27Writes noMemory
+      [⟨x11, BitVec.ofNat 64 12⟩, ⟨x10, readU32UnsignedMachineValue v0 v1 v2 v3⟩]
+      fromStep 11 state after (BitVec.ofNat 64 0x14878) := by
+  have prefixRun : ∃ m10, Seg readU32_3b27OwnPc readU32_3b27ExitPc
+      (fun _ _ _ _ _ => False) readU32_3b27Writes noMemory
+      [⟨x10, readU32UnsignedMachineValue v0 v1 v2 v3⟩]
+      fromStep 10 state m10 (BitVec.ofNat 64 0x14874) :=
+    standard_read_u32_compose
+    readU32_3b27OwnPc, readU32_3b27ExitPc, readU32_3b27Writes,
+    readU32_3b27InstructionDisjoint, readU32_3b27PlatformDisjoint;
+    0x1484c, 0x14874, 0; x13; x10, x11, x12, x13, x12, x10;
+    readU32_3b27Load1, readU32_3b27Load0, readU32_3b27Load2, readU32_3b27Load3,
+    readU32_3b27Shift1, readU32_3b27OrLow, readU32_3b27Shift2, readU32_3b27Shift3,
+    readU32_3b27OrHigh, readU32_3b27OrResult;
+    fromStep, baseAddress, v0, v1, v2, v3, state, configured, atPc, base,
+    rep0, rep1, rep2, rep3, pma, notMMIO, sourceFits, loaded
+  obtain ⟨m10, seg10⟩ := prefixRun
+  obtain ⟨after, seg11⟩ := seg10.step
+    (by unfold readU32_3b27OwnPc standardReadU32OwnPc pcInList; native_decide)
+    (by unfold readU32_3b27ExitPc standardReadU32ExitPc pcInList; native_decide)
+    x11 (BitVec.ofNat 64 12) 0x14878
+    (readU32_3b27LiWidth (fromStep + 10) m10
+      (configuredMachinePre_of_readSeg configured readU32_3b27InstructionDisjoint seg10)
+      seg10.atPc (loadedFaithfully_of_readSeg seg10 loaded))
+    (by decide) (by intro r h; exact Or.inl h)
+    (by unfold readU32_3b27Writes; simp [standardReadU32Writes])
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  exact ⟨after, seg11⟩
 
 end BinaryFv.Zesu.MachineExecution

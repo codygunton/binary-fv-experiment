@@ -579,7 +579,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_readU32_fi_1_3b27_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_readU32_fi_1_3b27_Contract
 
 /--
 Contract design hole for `fi:1:3d8b` at `0x14e2c`.
@@ -1023,8 +1023,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_mem_Allocator_alloc__anon_1432_fi_1_39b7_Contract
   ssz_decodeWithdrawal_fi_1_3a74 :
     Proposed_ssz_decodeWithdrawal_fi_1_3a74_Contract
-  ssz_readU32_fi_1_3b27 :
-    Proposed_ssz_readU32_fi_1_3b27_Contract
   extern_io_write_output_fi_1_3d8b :
     Proposed_extern_io_write_output_fi_1_3d8b_Contract
   extern_io_write_output_fi_1_3db4 :
@@ -1082,8 +1080,7 @@ Level 3 contracts: `mem_Allocator_dupe__anon_1128_fi_1_5b8d`,
 `ssz_readU32_fi_1_3693`, `ssz_readU64_fi_1_36dd`, `ssz_readU64_fi_1_3731`,
 `ssz_readU64_fi_1_37a5`, `ssz_readU32_fi_1_37cf`, `ssz_readU64_fi_1_3823`,
 `mem_Allocator_alloc__anon_1173_fi_1_386d`, `rlp_decode_decodeSingleTx_fi_1_3940`,
-`mem_Allocator_alloc__anon_1432_fi_1_39b7`, `ssz_decodeWithdrawal_fi_1_3a74`,
-`ssz_readU32_fi_1_3b27`.
+`mem_Allocator_alloc__anon_1432_fi_1_39b7`, `ssz_decodeWithdrawal_fi_1_3a74`.
 Earlier Level 2 results: none.
 Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContract`,
 `BinaryFv.Zesu.Staging.proposed_memReadInt_proved`,
@@ -1097,7 +1094,8 @@ Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContra
 `BinaryFv.Zesu.Staging.proposed_checkedSlice_351c_proved`,
 `BinaryFv.Zesu.Staging.proposed_checkedSlice_3541_proved`,
 `BinaryFv.Zesu.Staging.proposed_checkedSlice_3566_proved`,
-`BinaryFv.Zesu.Staging.proposed_checkedSlice_358b_proved`.
+`BinaryFv.Zesu.Staging.proposed_checkedSlice_358b_proved`,
+`BinaryFv.Zesu.Staging.proposed_readU32_3b27_proved`.
 Parent glue: 1935 instructions in 183 block fragments.
 Fragment `0x121ac` (6 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
@@ -1985,7 +1983,6 @@ private theorem resolve_sszDecode
     (rlp_decode_decodeSingleTx_fi_1_3940 : Proposed_rlp_decode_decodeSingleTx_fi_1_3940_Contract)
     (mem_Allocator_alloc__anon_1432_fi_1_39b7 : Proposed_mem_Allocator_alloc__anon_1432_fi_1_39b7_Contract)
     (ssz_decodeWithdrawal_fi_1_3a74 : Proposed_ssz_decodeWithdrawal_fi_1_3a74_Contract)
-    (ssz_readU32_fi_1_3b27 : Proposed_ssz_readU32_fi_1_3b27_Contract)
     : SszDecodeLevel2InstanceContract := by
   sorry
 
@@ -2489,7 +2486,6 @@ theorem level2Contracts_of_level3_staged
       hLevel3.rlp_decode_decodeSingleTx_fi_1_3940
       hLevel3.mem_Allocator_alloc__anon_1432_fi_1_39b7
       hLevel3.ssz_decodeWithdrawal_fi_1_3a74
-      hLevel3.ssz_readU32_fi_1_3b27
   have resolved_writeFailureRecord : WriteFailureRecordInstanceContract :=
     resolve_writeFailureRecord
       hLevel3.extern_io_write_output_fi_1_49b1
