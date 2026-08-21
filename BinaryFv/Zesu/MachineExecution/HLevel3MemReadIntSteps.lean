@@ -65,6 +65,50 @@ theorem configuredByteLoadFromX18Step (stepNo pc offset : Nat) (state : State)
     (destinationNotRetired := destinationNotRetired) (base := baseEncoding)
     (read0 := site.read0) (read1 := site.read1) (read2 := site.read2) (read3 := site.read3)
 
+/-- One exact signed-byte load through `x18`, shared by inlined integer readers. -/
+theorem configuredSignedByteLoadFromX18Step (stepNo pc offset : Nat) (state : State)
+    (rd : regidx) (destination : Register) (result : RegisterType destination)
+    (byte0 byte1 byte2 byte3 : UInt8) (baseAddress value : Nat)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (base : state.regs.get? x18 = some (BitVec.ofNat 64 baseAddress))
+    (rep : UIntRep 1 state.mem (baseAddress + offset) value)
+    (pma : LoadPmaAllows state (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (notMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (sumFits : baseAddress + offset < 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.LOAD (BitVec.ofNat 12 offset, .Regidx 18#5, rd, false, 1)))
+    (writeRun : ∀ premise,
+      Runs (wX_bits rd (sign_extend (m := 64) (BitVec.ofNat 8 value))) premise
+        { premise with regs := premise.regs.insert destination result } ())
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3)
+    (destinationNotNextPc : destination ≠ nextPC)
+    (destinationNotHart : destination ≠ hart_state)
+    (destinationNotIncrement : destination ≠ minstret_increment)
+    (destinationNotRetired : destination ≠ minstret)
+    (baseEncoding : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat))
+    (addressEq : BitVec.ofNat 64 baseAddress +
+      sign_extend (m := 64) (BitVec.ofNat 12 offset) =
+        BitVec.ofNat 64 (baseAddress + offset)) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination result) false := by
+  have baseRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits (.Regidx 18#5)) premise premise (BitVec.ofNat 64 baseAddress) := by
+    intro premise writes
+    exact rX_x18_run premise _ ((writes x18 (by simp [stepBookkeeping])).trans base)
+  exact configuredSignedByteLoadStep stepNo pc state (BitVec.ofNat 12 offset) (.Regidx 18#5) rd
+    destination baseAddress offset value result
+    byte0 byte1 byte2 byte3 configured atPc rep pma notMMIO sumFits loaded
+    addressEq baseRun writeRun decode (pcFits := site.pcFits) (pcAligned := site.pcAligned)
+    (destinationNotNextPc := destinationNotNextPc) (destinationNotHart := destinationNotHart)
+    (destinationNotIncrement := destinationNotIncrement)
+    (destinationNotRetired := destinationNotRetired) (base := baseEncoding)
+    (read0 := site.read0) (read1 := site.read1) (read2 := site.read2) (read3 := site.read3)
+
 theorem memReadIntLoadOffsetOne (stepNo : Nat) (state : State) (baseAddress value : Nat)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x121c4))
@@ -174,7 +218,8 @@ theorem memReadIntLoadOffsetThree (stepNo : Nat) (state : State) (baseAddress va
   · rw [show sign_extend (m := 64) (3#12) = 3#64 by native_decide]
     exact memReadIntOfNatAdd baseAddress 3 sumFits
 
-private theorem memReadIntSlliStep (stepNo pc : Nat) (state : State) (shamt : BitVec 6)
+/-- Retire one exact configured `slli` instruction. -/
+theorem configuredSlliStep (stepNo pc : Nat) (state : State) (shamt : BitVec 6)
     (rs1 rd : regidx) (destination : Register) (result : RegisterType destination)
     (source : BitVec 64)
     (byte0 byte1 byte2 byte3 : UInt8)
@@ -228,7 +273,7 @@ theorem memReadIntShiftA0ByEight (stepNo : Nat) (state : State) (source : BitVec
         (Sail.shift_bits_left source
           (Sail.BitVec.extractLsb (8#6) (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
         false := by
-  apply memReadIntSlliStep stepNo 0x121d4 state 8#6 (.Regidx 10#5) (.Regidx 10#5)
+  apply configuredSlliStep stepNo 0x121d4 state 8#6 (.Regidx 10#5) (.Regidx 10#5)
     x10 _ source 0x13 0x15 0x85 0x00 configured atPc loaded
   · configured_decode configured
   · intro premise writes
@@ -252,7 +297,7 @@ theorem memReadIntShiftA4BySixteen (stepNo : Nat) (state : State) (source : BitV
         (Sail.shift_bits_left source
           (Sail.BitVec.extractLsb (16#6) (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
         false := by
-  apply memReadIntSlliStep stepNo 0x121dc state 16#6 (.Regidx 14#5) (.Regidx 14#5)
+  apply configuredSlliStep stepNo 0x121dc state 16#6 (.Regidx 14#5) (.Regidx 14#5)
     x14 _ source 0x13 0x17 0x07 0x01 configured atPc loaded
   · configured_decode configured
   · intro premise writes
@@ -276,7 +321,7 @@ theorem memReadIntShiftA5ByTwentyFour (stepNo : Nat) (state : State) (source : B
         (Sail.shift_bits_left source
           (Sail.BitVec.extractLsb (24#6) (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)))
         false := by
-  apply memReadIntSlliStep stepNo 0x121e0 state 24#6 (.Regidx 15#5) (.Regidx 15#5)
+  apply configuredSlliStep stepNo 0x121e0 state 24#6 (.Regidx 15#5) (.Regidx 15#5)
     x15 _ source 0x93 0x97 0x87 0x01 configured atPc loaded
   · configured_decode configured
   · intro premise writes
@@ -290,7 +335,8 @@ theorem memReadIntShiftA5ByTwentyFour (stepNo : Nat) (state : State) (source : B
   · decide
   · rfl
 
-private theorem memReadIntOrStep (stepNo pc : Nat) (state : State) (rs2 rs1 rd : regidx)
+/-- Retire one exact configured register `or` instruction. -/
+theorem configuredOrStep (stepNo pc : Nat) (state : State) (rs2 rs1 rd : regidx)
     (destination : Register) (result : RegisterType destination) (left right : BitVec 64)
     (byte0 byte1 byte2 byte3 : UInt8)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -340,7 +386,7 @@ theorem memReadIntOrA0A2 (stepNo : Nat) (state : State) (left right : BitVec 64)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x121d8) retired x10 (left ||| right)) false := by
-  apply memReadIntOrStep stepNo 0x121d8 state (.Regidx 12#5) (.Regidx 10#5)
+  apply configuredOrStep stepNo 0x121d8 state (.Regidx 12#5) (.Regidx 10#5)
     (.Regidx 10#5) x10 (left ||| right) left right 0x33 0x65 0xc5 0x00
     configured atPc loaded
   · configured_decode configured
@@ -365,7 +411,7 @@ theorem memReadIntOrA5A4 (stepNo : Nat) (state : State) (left right : BitVec 64)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x121e4) retired x14 (left ||| right)) false := by
-  apply memReadIntOrStep stepNo 0x121e4 state (.Regidx 14#5) (.Regidx 15#5)
+  apply configuredOrStep stepNo 0x121e4 state (.Regidx 14#5) (.Regidx 15#5)
     (.Regidx 14#5) x14 (left ||| right) left right 0x33 0xe7 0xe7 0x00
     configured atPc loaded
   · configured_decode configured
@@ -390,7 +436,7 @@ theorem memReadIntOrA4A0 (stepNo : Nat) (state : State) (left right : BitVec 64)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 0x121e8) retired x14 (left ||| right)) false := by
-  apply memReadIntOrStep stepNo 0x121e8 state (.Regidx 10#5) (.Regidx 14#5)
+  apply configuredOrStep stepNo 0x121e8 state (.Regidx 10#5) (.Regidx 14#5)
     (.Regidx 14#5) x14 (left ||| right) left right 0x33 0x67 0xa7 0x00
     configured atPc loaded
   · configured_decode configured

@@ -83,7 +83,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_readU32_fi_1_2ff8_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_readU32_fi_1_2ff8_Contract
 
 /--
 Contract design hole for `fi:1:3064` at `0x128cc`.
@@ -985,8 +985,6 @@ def Proposed_mem_Allocator_dupe__anon_1128_fi_1_5b8d_Contract : Prop := by
 structure Level3ContractAssumptions : Prop where
   ssz_decodeByteListList_fi_1_1999 :
     Proposed_ssz_decodeByteListList_fi_1_1999_Contract
-  ssz_readU32_fi_1_2ff8 :
-    Proposed_ssz_readU32_fi_1_2ff8_Contract
   ssz_readU32_fi_1_3064 :
     Proposed_ssz_readU32_fi_1_3064_Contract
   ssz_readU32_fi_1_30e2 :
@@ -1084,19 +1082,20 @@ structure Level3ContractAssumptions : Prop where
 Resolve Level 2 field `sszDecode` for `fi:1:2e0f`.
 Level 3 contracts: `mem_Allocator_dupe__anon_1128_fi_1_5b8d`,
 `ssz_decodeByteListList_fi_1_1999`, `mem_Allocator_alloc__anon_1151_fi_1_5a81`,
-`ssz_readU32_fi_1_2ff8`, `ssz_readU32_fi_1_3064`, `ssz_readU32_fi_1_30e2`,
-`ssz_readU32_fi_1_3167`, `ssz_readU32_fi_1_31b1`, `ssz_readU64_fi_1_3203`,
-`ssz_readU64_fi_1_327b`, `ssz_readU32_fi_1_32f5`, `mem_Allocator_alloc__anon_1045_fi_1_340d`,
-`ssz_readU32_fi_1_3457`, `ssz_readU32_fi_1_34c1`, `ssz_readU64_fi_1_35ab`,
-`ssz_readU64_fi_1_361f`, `ssz_readU32_fi_1_3693`, `ssz_readU64_fi_1_36dd`,
-`ssz_readU64_fi_1_3731`, `ssz_readU64_fi_1_37a5`, `ssz_readU32_fi_1_37cf`,
-`ssz_readU64_fi_1_3823`, `mem_Allocator_alloc__anon_1173_fi_1_386d`,
-`rlp_decode_decodeSingleTx_fi_1_3940`, `mem_Allocator_alloc__anon_1432_fi_1_39b7`,
-`ssz_decodeWithdrawal_fi_1_3a74`, `ssz_readU32_fi_1_3b27`.
+`ssz_readU32_fi_1_3064`, `ssz_readU32_fi_1_30e2`, `ssz_readU32_fi_1_3167`,
+`ssz_readU32_fi_1_31b1`, `ssz_readU64_fi_1_3203`, `ssz_readU64_fi_1_327b`,
+`ssz_readU32_fi_1_32f5`, `mem_Allocator_alloc__anon_1045_fi_1_340d`, `ssz_readU32_fi_1_3457`,
+`ssz_readU32_fi_1_34c1`, `ssz_readU64_fi_1_35ab`, `ssz_readU64_fi_1_361f`,
+`ssz_readU32_fi_1_3693`, `ssz_readU64_fi_1_36dd`, `ssz_readU64_fi_1_3731`,
+`ssz_readU64_fi_1_37a5`, `ssz_readU32_fi_1_37cf`, `ssz_readU64_fi_1_3823`,
+`mem_Allocator_alloc__anon_1173_fi_1_386d`, `rlp_decode_decodeSingleTx_fi_1_3940`,
+`mem_Allocator_alloc__anon_1432_fi_1_39b7`, `ssz_decodeWithdrawal_fi_1_3a74`,
+`ssz_readU32_fi_1_3b27`.
 Earlier Level 2 results: none.
 Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContract`,
 `BinaryFv.Zesu.Staging.proposed_memReadInt_proved`,
 `BinaryFv.Zesu.Staging.proposed_forkNameFromSchemaByte_proved`,
+`BinaryFv.Zesu.Staging.proposed_readU32_2ff8_proved`,
 `BinaryFv.Zesu.Staging.proposed_readU32_3335_proved`,
 `BinaryFv.Zesu.Staging.proposed_checkedSlice_34fd_proved`,
 `BinaryFv.Zesu.Staging.proposed_checkedSlice_351c_proved`,
@@ -1971,7 +1970,6 @@ private theorem resolve_sszDecode
     (mem_Allocator_dupe__anon_1128_fi_1_5b8d : Proposed_mem_Allocator_dupe__anon_1128_fi_1_5b8d_Contract)
     (ssz_decodeByteListList_fi_1_1999 : Proposed_ssz_decodeByteListList_fi_1_1999_Contract)
     (mem_Allocator_alloc__anon_1151_fi_1_5a81 : Proposed_mem_Allocator_alloc__anon_1151_fi_1_5a81_Contract)
-    (ssz_readU32_fi_1_2ff8 : Proposed_ssz_readU32_fi_1_2ff8_Contract)
     (ssz_readU32_fi_1_3064 : Proposed_ssz_readU32_fi_1_3064_Contract)
     (ssz_readU32_fi_1_30e2 : Proposed_ssz_readU32_fi_1_30e2_Contract)
     (ssz_readU32_fi_1_3167 : Proposed_ssz_readU32_fi_1_3167_Contract)
@@ -2479,7 +2477,6 @@ theorem level2Contracts_of_level3_staged
       hLevel3.mem_Allocator_dupe__anon_1128_fi_1_5b8d
       hLevel3.ssz_decodeByteListList_fi_1_1999
       hLevel3.mem_Allocator_alloc__anon_1151_fi_1_5a81
-      hLevel3.ssz_readU32_fi_1_2ff8
       hLevel3.ssz_readU32_fi_1_3064
       hLevel3.ssz_readU32_fi_1_30e2
       hLevel3.ssz_readU32_fi_1_3167

@@ -701,4 +701,41 @@ theorem execute_LOAD_lbu_run (s s' : State) (imm : BitVec 12) (rs1 rd : regidx)
     exact hwrite
   case tail => exact run_pure s' _
 
+/-! ## Aligned signed-byte load instruction (`lb`) -/
+
+/-- `lb rd, imm(rs1)` reads one byte and writes its sign-extension to 64 bits. -/
+theorem execute_LOAD_lb_run (s s' : State) (imm : BitVec 12) (rs1 rd : regidx)
+    (srcBits mstatusBits : BitVec 64) (v : BitVec (8 * 1))
+    (mstatusRead : s.regs.get? mstatus = some mstatusBits)
+    (privRead : s.regs.get? cur_privilege = some .Machine)
+    (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
+    (addrReg : Runs (get_transformed_data_addr rs1 (sign_extend (m := 64) imm) (Load Data) 1) s s
+      (.Ext_DataAddr_OK (virtaddr.Virtaddr srcBits)))
+    (aligned : is_aligned_vaddr (virtaddr.Virtaddr srcBits) 1 = true)
+    (physAccess : Runs (phys_access_check (Load Data) PBMT_PMA .Machine
+      (physaddr.Physaddr srcBits) 1 false) s s none)
+    (noMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) 1) s s false)
+    (hmem : ∀ (i : Nat) (h : i < (leBytes 1 v).length),
+      s.mem.get? (srcBits.toNat + i) = some (leBytes 1 v)[i])
+    (hwrite : Runs (wX_bits rd (sign_extend (m := 64) v)) s s' ()) :
+    Runs (execute_LOAD imm rs1 rd false 1) s s' (.Retire_Success ()) := by
+  have hread : Runs (mem_read (Load Data) PBMT_PMA (physaddr.Physaddr srcBits) 1 false false false)
+      s s (Sail.Ok v) := by
+    have h := mem_read_load_run s srcBits mstatusBits (leBytes 1 v) mstatusRead privRead mprvZero
+      hmem physAccess noMMIO
+    rw [leWord_leBytes_id1] at h
+    exact h
+  unfold execute_LOAD
+  refine Runs.bind (assert_true_run s _) ?_
+  refine Runs.bind
+    (vmem_read_byte_run s rs1 (sign_extend (m := 64) imm) srcBits mstatusBits v
+      mstatusRead privRead mprvZero addrReg aligned hread) ?_
+  refine Runs.bind (middle := s') (value := ()) ?hw ?tail
+  case hw =>
+    show Runs (wX_bits rd (extend_value false v)) s s' ()
+    unfold extend_value
+    simp only [Bool.false_eq_true, ↓reduceIte]
+    exact hwrite
+  case tail => exact run_pure s' _
+
 end BinaryFv.RiscV

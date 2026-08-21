@@ -97,10 +97,10 @@ private theorem readU32OwnPc_not_observed {pc : BitVec 64}
   all_goals omega
 
 private theorem liftReadU32Trace (template : EndpointState)
-    {fromStep count : Nat} {before after : State}
-    (trace : ScopedTrace readU32_3335OwnPc readU32_3335ExitPc
-      (fun _ _ _ _ _ => False) fromStep count before after) :
-    ConfinedTrace EndpointStep EndpointPc readU32_3335OwnPc fromStep count
+    {own exit : BitVec 64 → Prop} {fromStep count : Nat} {before after : State}
+    (ownNotObserved : ∀ {pc}, own pc → ¬BareMetalHostTransitionPc pc)
+    (trace : ScopedTrace own exit (fun _ _ _ _ _ => False) fromStep count before after) :
+    ConfinedTrace EndpointStep EndpointPc own fromStep count
       { template with machine := before } { template with machine := after } := by
   induction trace with
   | exitAt fromStep state pc atPc exitPc => exact .refl fromStep { template with machine := state }
@@ -113,7 +113,7 @@ private theorem liftReadU32Trace (template : EndpointState)
             change before.regs.get? PC = some observed at observedPc
             rw [atPc] at observedPc
             cases Option.some.inj observedPc
-            exact readU32OwnPc_not_observed inside)
+            exact ownNotObserved inside)
           machineStep
       · simpa using ih
   | childBody fromStep used count child before middle after body rest ih => exact body.elim
@@ -166,7 +166,7 @@ theorem readU32_3335Contract_implements : Proposed_ssz_readU32_fi_1_3335_Contrac
     simp [sszReadU32Byte, size]
   refine ⟨4, after, sszReadU32Value args.sourceBytes, by omega,
     by simp [sszReadU32Contract], ?_, ?_, ?_, ?_⟩
-  · simpa [after] using liftReadU32Trace before machineTrace
+  · simpa [after] using liftReadU32Trace before readU32OwnPc_not_observed machineTrace
   · exact ⟨0x12c28, seg.atPc, by unfold readU32_3335ExitPc pcInList; native_decide⟩
   · exact ⟨size, rfl⟩
   · refine ⟨rfl, ?_, seg.writes.agree preservedDisjoint, seg.retired, ?_,
@@ -189,5 +189,93 @@ theorem readU32_3335Contract_implements : Proposed_ssz_readU32_fi_1_3335_Contrac
 
 theorem proposed_readU32_3335_proved : Proposed_ssz_readU32_fi_1_3335_Contract :=
   readU32_3335Contract_implements
+
+/-! ## Complete `fi:1:2ff8` wrapper -/
+
+def sszReadU32Preserved2ff8 (register : Register) : Prop :=
+  instructionPreserved register ∧ register ≠ x10 ∧ register ≠ x12 ∧
+    register ≠ x13 ∧ register ≠ x14
+
+def sszReadU32Bindings2ff8 (bytes : Array UInt8) (state : EndpointState) : Prop :=
+  state.machine.regs.get? x10 = some (readU32MachineValue
+    (sszReadU32Byte bytes 0).toNat (sszReadU32Byte bytes 1).toNat
+    (sszReadU32Byte bytes 2).toNat (sszReadU32Byte bytes 3).toNat) ∧
+  state.machine.regs.get? x12 = some 16
+
+def Proposed_ssz_readU32_fi_1_2ff8_Contract : Prop :=
+  ∃ stepBound : SszReadU32Args → Nat,
+    (∀ args, stepBound args < level2ContractFuel) ∧
+    (sszReadU32Contract 0x12734 2 sszReadU32Bindings2ff8
+      sszReadU32Preserved2ff8 stepBound).Implements EndpointStep EndpointPc
+      readU32_2ff8OwnPc readU32_2ff8ExitPc
+
+private theorem readU32_2ff8OwnPc_not_observed {pc : BitVec 64}
+    (inside : readU32_2ff8OwnPc pc) : ¬BareMetalHostTransitionPc pc := by
+  intro observed
+  unfold readU32_2ff8OwnPc pcInList at inside
+  unfold BareMetalHostTransitionPc at observed
+  unfold readContextReturnPc writeContextReturnPc exitContextStorePc at observed
+  simp at inside
+  rcases observed with observed | observed | observed
+  all_goals omega
+
+private theorem preserved2ff8Disjoint :
+    RegSet.Disjoint sszReadU32Preserved2ff8 readU32_2ff8Writes := by
+  intro register preserved written
+  rcases preserved with ⟨instruction, ne10, ne12, ne13, ne14⟩
+  rcases written with bookkeeping | rfl | rfl | rfl | rfl
+  · exact platformPreserved_disjoint register instruction.1 bookkeeping
+  all_goals contradiction
+
+/-- The complete production `fi:1:2ff8` wrapper satisfies the shared `readU32` contract. -/
+theorem readU32_2ff8Contract_implements : Proposed_ssz_readU32_fi_1_2ff8_Contract := by
+  refine ⟨fun _ => 11, by intro; simp [level2ContractFuel], ?_⟩
+  intro args fromStep before entry
+  rcases entry with ⟨atPc, base, size, sourceFits, bytesRep, pma, notMMIO, loaded, configured⟩
+  have rep0 := bytesRep.uintRepAt 0 (by omega)
+  have rep1 := bytesRep.uintRepAt 1 (by omega)
+  have rep2 := bytesRep.uintRepAt 2 (by omega)
+  have rep3 := bytesRep.uintRepAt 3 (by omega)
+  obtain ⟨finalMachine, seg⟩ := readU32_2ff8Run fromStep args.sourceAddress
+    args.sourceBytes[0].toNat args.sourceBytes[1].toNat args.sourceBytes[2].toNat
+    args.sourceBytes[3].toNat before.machine configured atPc base
+    (by simpa [Nat.add_assoc] using rep0) (by simpa [Nat.add_assoc] using rep1)
+    (by simpa [Nat.add_assoc] using rep2) (by simpa [Nat.add_assoc] using rep3)
+    pma notMMIO sourceFits loaded
+  let after : EndpointState := { before with machine := finalMachine }
+  have endTrace : ScopedTrace readU32_2ff8OwnPc readU32_2ff8ExitPc
+      (fun _ _ _ _ _ => False) (fromStep + 11) 0 finalMachine finalMachine :=
+    .exitAt (fromStep + 11) finalMachine 0x12760 seg.atPc (by
+      unfold readU32_2ff8ExitPc pcInList
+      native_decide)
+  have machineTrace : ScopedTrace readU32_2ff8OwnPc readU32_2ff8ExitPc
+      (fun _ _ _ _ _ => False) fromStep 11 before.machine finalMachine := by
+    simpa using seg.confined 0 finalMachine endTrace
+  have b0 : sszReadU32Byte args.sourceBytes 0 = args.sourceBytes[0] := by
+    simp [sszReadU32Byte, size]
+  have b1 : sszReadU32Byte args.sourceBytes 1 = args.sourceBytes[1] := by
+    simp [sszReadU32Byte, size]
+  have b2 : sszReadU32Byte args.sourceBytes 2 = args.sourceBytes[2] := by
+    simp [sszReadU32Byte, size]
+  have b3 : sszReadU32Byte args.sourceBytes 3 = args.sourceBytes[3] := by
+    simp [sszReadU32Byte, size]
+  refine ⟨11, after, sszReadU32Value args.sourceBytes, by omega,
+    by simp [sszReadU32Contract], ?_, ?_, ?_, ?_⟩
+  · simpa [after] using liftReadU32Trace before readU32_2ff8OwnPc_not_observed machineTrace
+  · exact ⟨0x12760, seg.atPc, by unfold readU32_2ff8ExitPc pcInList; native_decide⟩
+  · exact ⟨size, rfl⟩
+  · refine ⟨rfl, ?_, seg.writes.agree preserved2ff8Disjoint, seg.retired, ?_,
+      seg.memEq noMemory_empty, seg.aux, rfl, rfl, rfl, rfl⟩
+    · constructor
+      · have reg := seg.reg x10 (readU32MachineValue args.sourceBytes[0].toNat
+          args.sourceBytes[1].toNat args.sourceBytes[2].toNat args.sourceBytes[3].toNat) (by simp)
+        simpa [after, sszReadU32Bindings2ff8, b0, b1, b2, b3] using reg
+      · have reg := seg.reg x12 16 (by simp)
+        simpa [after] using reg
+    · rw [seg.memEq noMemory_empty]
+      exact loaded
+
+theorem proposed_readU32_2ff8_proved : Proposed_ssz_readU32_fi_1_2ff8_Contract :=
+  readU32_2ff8Contract_implements
 
 end BinaryFv.Zesu.Staging
