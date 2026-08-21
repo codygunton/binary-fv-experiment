@@ -110,7 +110,7 @@ class ProofMapTest(unittest.TestCase):
             self.assertEqual(len(prepared["parents"]), 17)
             self.assertEqual(prepared["summary"]["level3ContractCount"], 57)
             self.assertEqual(prepared["proofProgress"], {
-                "directProofCount": 8, "remainingContractCount": 49})
+                "directProofCount": 9, "remainingContractCount": 48})
             proved = [child for parent in prepared["parents"] for child in parent["children"]
                       if child["proofStatus"] == "proved"]
             self.assertEqual({child["level3Field"] for child in proved},
@@ -120,7 +120,8 @@ class ProofMapTest(unittest.TestCase):
                               "ssz_decode__struct_1051_f_fi_1_351c",
                               "ssz_decode__struct_1051_f_fi_1_34fd",
                               "ssz_decode__struct_1051_f_fi_1_3541",
-                              "ssz_decode__struct_1051_f_fi_1_3566"})
+                              "ssz_decode__struct_1051_f_fi_1_3566",
+                              "ssz_decode__struct_1051_f_fi_1_358b"})
             self.assertTrue(all(child["contractStatus"] == "proved_unconditionally"
                                 for child in proved))
             self.assertEqual(sum(len(row["glueObligations"])
