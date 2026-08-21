@@ -670,4 +670,204 @@ theorem sszDecodeLengthShortRouteSeg (fromStep : Nat) (before : State)
     (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
     (Or.inr rfl) (by decide) (by decide) (by simp [RegsOutside])
 
+def sszDecodeLengthValidatedOwnPc (pc : BitVec 64) : Prop :=
+  pcInList [0x121ec, 0x121f0, 0x121f4, 0x121f8, 0x121fc] pc
+
+def sszDecodeLengthValidatedExitPc (pc : BitVec 64) : Prop := pc = 0x12204
+
+def sszDecodeLengthValidatedWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x10 ∨ register = x18 ∨ register = x13
+
+/-- Exact `0x121ec: addi a0,a3,-4`. -/
+theorem sszDecodeLengthSubtractSchemaStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x121ec)
+    (inputSizeAt : state.regs.get? x13 = some inputSize)
+    (resultEq : candidate = iTypeResult .ADDI 0xffc inputSize)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x121ec retired x10 candidate) false := by
+  exact configuredITypeX10Step stepNo 0x121ec state 0xffc (.Regidx 13#5) .ADDI
+    inputSize candidate 0x13 0x85 0xc6 0xff configured atPc loaded resultEq
+    (by
+      intro premise writes
+      exact rX_x13_run premise inputSize ((writes.get x13 (by decide)).trans inputSizeAt))
+    (by intro premise; rw [← resultEq]; exact wX_x10_run premise candidate)
+    (by configured_decode configured) (base := by rfl)
+
+private theorem sszDecodeLengthBneRun (state : State) (candidate schema : BitVec 64)
+    (candidateAt : state.regs.get? x10 = some candidate)
+    (schemaAt : state.regs.get? x14 = some schema) :
+    Runs (bTypeTaken (.Regidx 14#5) (.Regidx 10#5) .BNE) state state
+      (candidate != schema) := by
+  unfold bTypeTaken
+  exact Runs.bind (rX_x10_run state candidate candidateAt)
+    (Runs.bind (rX_x14_run state schema schemaAt) rfl)
+
+/-- Exact equal-length fall-through at `0x121f0: bne a0,a4,0x1220c`. -/
+theorem sszDecodeLengthEqualBranchStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x121f0)
+    (candidateAt : state.regs.get? x10 = some candidate)
+    (schemaAt : state.regs.get? x14 = some schema)
+    (equal : candidate = schema)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x121f0)
+        0x121f4 retired) false := by
+  apply configuredBranchNotTakenStep stepNo 0x121f0 state 0x1c (.Regidx 14#5)
+    (.Regidx 10#5) .BNE 0x63 0x1e 0xe5 0x00 configured atPc loaded
+    (site := by native_decide) (base := by rfl)
+  · configured_decode configured
+  · simpa [equal] using sszDecodeLengthBneRun
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x121f0)
+      candidate schema
+      ((stepPremiseState_writes state 0x121f0).get x10 (by decide) |>.trans candidateAt)
+      ((stepPremiseState_writes state 0x121f0).get x14 (by decide) |>.trans schemaAt)
+
+/-- Exact `0x121f4: addi s2,s2,4`. -/
+theorem sszDecodeAdvanceSourceStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x121f4)
+    (sourceAt : state.regs.get? x18 = some source)
+    (resultEq : advanced = iTypeResult .ADDI 4 source)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x121f4 retired x18 advanced) false := by
+  exact configuredITypeRegisterStep stepNo 0x121f4 state 4 (.Regidx 18#5) (.Regidx 18#5)
+    x18 .ADDI source advanced 0x13 0x09 0x49 0x00 configured atPc loaded
+    (by
+      intro premise writes
+      exact rX_x18_run premise source ((writes.get x18 (by decide)).trans sourceAt))
+    (by intro premise; rw [← resultEq]; exact wX_x18_run premise advanced)
+    (by configured_decode configured) (base := by rfl)
+    (destinationNotNextPc := by decide) (destinationNotHart := by decide)
+    (destinationNotIncrement := by decide) (destinationNotRetired := by decide)
+
+/-- Exact `0x121f8: mv a3,a0`. -/
+theorem sszDecodeBindValidatedLengthStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x121f8)
+    (candidateAt : state.regs.get? x10 = some candidate)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x121f8 retired x13 candidate) false := by
+  have resultEq : candidate = iTypeResult .ADDI 0 candidate := by
+    change candidate = candidate + sign_extend (m := 64) (0#12)
+    rw [show sign_extend (m := 64) (0#12) = 0 by native_decide]
+    simp
+  exact configuredITypeRegisterStep stepNo 0x121f8 state 0 (.Regidx 10#5) (.Regidx 13#5)
+    x13 .ADDI candidate candidate 0x93 0x06 0x05 0x00 configured atPc loaded
+    (by
+      intro premise writes
+      exact rX_x10_run premise candidate ((writes.get x10 (by decide)).trans candidateAt))
+    (by intro premise; rw [← resultEq]; exact wX_x13_run premise candidate)
+    (by configured_decode configured) (base := by rfl)
+    (destinationNotNextPc := by decide) (destinationNotHart := by decide)
+    (destinationNotIncrement := by decide) (destinationNotRetired := by decide)
+
+/-- Exact `0x121fc: j 0x12204`. -/
+theorem sszDecodeLengthJoinStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x121fc)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x121fc 0x12204)
+        0x12204 retired) false := by
+  exact configuredJStep stepNo 0x121fc 0x12204 state 8 0x6f 0x00 0x80 0x00
+    configured atPc loaded (by configured_decode configured)
+    (by native_decide) (by native_decide) (by native_decide) (base := by rfl)
+
+private theorem instructionPreserved_disjoint_sszDecodeLengthValidatedWrites :
+    RegSet.Disjoint instructionPreserved sszDecodeLengthValidatedWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  all_goals simp [instructionPreserved, platformPreserved] at preserved
+
+private theorem sszDecodeLengthValidatedConfiguredOfSeg {before cur : State} {kv a n pc}
+    (configured : ConfiguredMachinePre EndpointMachinePc before)
+    (seg : Seg sszDecodeLengthValidatedOwnPc sszDecodeLengthValidatedExitPc
+      (fun _ _ _ _ _ => False) sszDecodeLengthValidatedWrites noMemory
+      kv a n before cur pc) : ConfiguredMachinePre EndpointMachinePc cur :=
+  configured.mono (seg.agree instructionPreserved_disjoint_sszDecodeLengthValidatedWrites)
+    seg.retired
+
+private theorem sszDecodeLengthValidatedLoadedOfSeg {before cur : State} {kv a n pc}
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.mem)
+    (seg : Seg sszDecodeLengthValidatedOwnPc sszDecodeLengthValidatedExitPc
+      (fun _ _ _ _ _ => False) sszDecodeLengthValidatedWrites noMemory
+      kv a n before cur pc) : Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
+  rw [seg.memEq noMemory_empty]
+  exact loaded
+
+/-- The validated route reaches the shared minimum-length suffix with one `Seg`. -/
+theorem sszDecodeLengthValidatedRouteSeg (fromStep : Nat) (before : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc before)
+    (atPc : before.regs.get? PC = some 0x121ec)
+    (inputSizeAt : before.regs.get? x13 = some inputSize)
+    (schemaAt : before.regs.get? x14 = some schema)
+    (sourceAt : before.regs.get? x18 = some source)
+    (candidateEq : candidate = iTypeResult .ADDI 0xffc inputSize)
+    (lengthEqual : candidate = schema)
+    (advancedEq : advanced = iTypeResult .ADDI 4 source)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.mem) :
+    ∃ after,
+      Seg sszDecodeLengthValidatedOwnPc sszDecodeLengthValidatedExitPc
+        (fun _ _ _ _ _ => False) sszDecodeLengthValidatedWrites noMemory
+        [⟨x13, candidate⟩, ⟨x18, advanced⟩, ⟨x10, candidate⟩]
+        fromStep 5 before after 0x12204 := by
+  obtain ⟨retired, retiredRead⟩ := configured.retiredCounter
+  have seg0 := (Seg.nil sszDecodeLengthValidatedOwnPc sszDecodeLengthValidatedExitPc
+    (fun _ _ _ _ _ => False) sszDecodeLengthValidatedWrites noMemory
+    fromStep ⟨retired, retiredRead⟩ atPc).know x18 source sourceAt
+  obtain ⟨s1, seg1⟩ := seg0.step
+    (by owned_pc [sszDecodeLengthValidatedOwnPc, pcInList])
+    (by simp [sszDecodeLengthValidatedExitPc]) x10 candidate 0x121f0
+    (sszDecodeLengthSubtractSchemaStep fromStep before configured atPc inputSizeAt candidateEq
+      loaded)
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr (Or.inl rfl)) (by decide) (by decide) (by simp [RegsOutside])
+  obtain ⟨_, s2, _, seg2⟩ := seg1.stepFallThroughWitness 0x121f4
+    (by owned_pc [sszDecodeLengthValidatedOwnPc, pcInList])
+    (by simp [sszDecodeLengthValidatedExitPc])
+    (sszDecodeLengthEqualBranchStep (fromStep + 1) s1
+      (sszDecodeLengthValidatedConfiguredOfSeg configured seg1) seg1.atPc
+      (seg1.reg x10 candidate (by simp))
+      ((seg1.get x14 (by simp [sszDecodeLengthValidatedWrites])).trans schemaAt)
+      lengthEqual (sszDecodeLengthValidatedLoadedOfSeg loaded seg1))
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have seg2' := seg2.forget (kv' := [⟨x10, candidate⟩]) (by simp)
+  obtain ⟨s3, seg3⟩ := seg2'.step
+    (by owned_pc [sszDecodeLengthValidatedOwnPc, pcInList])
+    (by simp [sszDecodeLengthValidatedExitPc]) x18 advanced 0x121f8
+    (sszDecodeAdvanceSourceStep (fromStep + 2) s2
+      (sszDecodeLengthValidatedConfiguredOfSeg configured seg2') seg2'.atPc
+      (seg2.reg x18 source (by simp))
+      advancedEq (sszDecodeLengthValidatedLoadedOfSeg loaded seg2'))
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr (Or.inr (Or.inl rfl))) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨s4, seg4⟩ := seg3.step
+    (by owned_pc [sszDecodeLengthValidatedOwnPc, pcInList])
+    (by simp [sszDecodeLengthValidatedExitPc]) x13 candidate 0x121fc
+    (sszDecodeBindValidatedLengthStep (fromStep + 3) s3
+      (sszDecodeLengthValidatedConfiguredOfSeg configured seg3) seg3.atPc
+      (seg3.reg x10 candidate (by simp)) (sszDecodeLengthValidatedLoadedOfSeg loaded seg3))
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr (Or.inr (Or.inr rfl))) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨_, after, _, seg5⟩ := seg4.stepJumpWitness 0x12204
+    (by owned_pc [sszDecodeLengthValidatedOwnPc, pcInList])
+    (by simp [sszDecodeLengthValidatedExitPc])
+    (sszDecodeLengthJoinStep (fromStep + 4) s4
+      (sszDecodeLengthValidatedConfiguredOfSeg configured seg4) seg4.atPc
+      (sszDecodeLengthValidatedLoadedOfSeg loaded seg4))
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  exact ⟨after, by simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using seg5⟩
+
 end BinaryFv.Zesu.MachineExecution
