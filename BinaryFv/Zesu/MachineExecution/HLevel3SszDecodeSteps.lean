@@ -1582,7 +1582,7 @@ private theorem sszDecodeCleanupSuccessTagStep (stepNo : Nat) (state : State)
 def sszDecodeCleanupOwnPc (pc : BitVec 64) : Prop :=
   0x1225c ≤ pc.toNat ∧ pc.toNat < 0x1230c
 
-def sszDecodeCleanupExitPc (pc : BitVec 64) : Prop := pc = 0x1230c
+def sszDecodeCleanupExitPc (pc : BitVec 64) : Prop := pc = 0x101d4 ∨ pc = 0x1230c
 
 def sszDecodeCleanupWrites : RegSet := fun register =>
   stepBookkeeping register ∨ register = x1 ∨ register = x10 ∨ register = x11 ∨
@@ -1649,8 +1649,7 @@ private theorem sszDecodeCleanupAppendStore {width : Nat} {args : DecodeInlineAr
     inRegion (by
       intro atExit
       unfold sszDecodeCleanupExitPc at atExit
-      subst pc
-      simp [sszDecodeCleanupOwnPc] at inRegion)
+      rcases atExit with rfl | rfl <;> simp [sszDecodeCleanupOwnPc] at inRegion)
     run advance
     (by intro other lower upper; simp [sszDecodeCleanupMemory, byteRange]; omega)
     (by intro register bookkeeping; exact Or.inl bookkeeping)
@@ -1674,8 +1673,7 @@ private theorem sszDecodeCleanupAppendRegister {args : DecodeInlineArgs}
   seg.step inRegion (by
       intro atExit
       unfold sszDecodeCleanupExitPc at atExit
-      subst pc
-      simp [sszDecodeCleanupOwnPc] at inRegion)
+      rcases atExit with rfl | rfl <;> simp [sszDecodeCleanupOwnPc] at inRegion)
     dest value nextPc run advance
     (by intro register bookkeeping; exact Or.inl bookkeeping) destination
     destNotPc destNotRetired keep

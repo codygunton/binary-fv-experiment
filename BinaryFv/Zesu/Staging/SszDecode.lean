@@ -259,6 +259,7 @@ theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
         some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) ∧
       Agree instructionPreserved before callState.machine ∧
       callState.machine.regs.get? pma_regions = before.regs.get? pma_regions ∧
+      callState = { template with machine := callState.machine } ∧
       MemcpyEntry (sszDecodeCleanupMemcpyArgs args) callState := by
   obtain ⟨callReady, seg⟩ := sszDecodeCleanupMemcpyCallReadyFromReady fromStep args before ready
   obtain ⟨retired, callRun⟩ := sszDecodeCleanupMemcpyCallRun seg ready.stackFits
@@ -379,7 +380,7 @@ theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
       · exact preserved.2 rfl)
     simpa only [callState] using parentAgree.trans stepAgree
   exact ⟨callReady, callState, seg, by simpa [callState, callMachine] using callRun,
-    callStack, callAgree, by simpa [callState] using pmaEq, entry⟩
+    callStack, callAgree, by simpa [callState] using pmaEq, by simp [callState], entry⟩
 
 /-- Apply the unconditional `memcpy` contract at the cleanup call boundary. -/
 theorem sszDecodeCleanupMemcpyChild (fromStep : Nat) (args : DecodeInlineArgs)
@@ -396,17 +397,19 @@ theorem sszDecodeCleanupMemcpyChild (fromStep : Nat) (args : DecodeInlineArgs)
         some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) ∧
       Agree instructionPreserved before callState.machine ∧
       callState.machine.regs.get? pma_regions = before.regs.get? pma_regions ∧
+      callState = { template with machine := callState.machine } ∧
       MemcpyEntry (sszDecodeCleanupMemcpyArgs args) callState ∧
       ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
         (fromStep + 23) used callState after ∧
       MemcpyExit (sszDecodeCleanupMemcpyArgs args) () callState after := by
-  obtain ⟨callReady, callState, seg, callRun, callStack, callAgree, callPma, entry⟩ :=
+  obtain ⟨callReady, callState, seg, callRun, callStack, callAgree, callPma, callStateEq,
+    entry⟩ :=
     sszDecodeCleanupMemcpyEntry fromStep args template before ready
   obtain ⟨used, after, _outcome, _positive, _bounded, childTrace, _childExitPc, _allowed,
     childExit⟩ := MemcpyInstanceContract.implements memcpyInstanceContract
       (sszDecodeCleanupMemcpyArgs args) (fromStep + 23) callState entry
   exact ⟨callReady, callState, used, after, seg, callRun, callStack, callAgree, callPma,
-    entry, childTrace, childExit⟩
+    callStateEq, entry, childTrace, childExit⟩
 
 private theorem instructionPreserved_abiCalleePreserved_cleanup (register : Register)
     (preserved : instructionPreserved register) : abiCalleePreserved register := by
@@ -430,12 +433,22 @@ structure SszDecodeCleanupResume (args : DecodeInlineArgs) (machine : State) : P
 /-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
 theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
     (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
-    ∃ (callState : EndpointState) (used : Nat) (after : EndpointState),
+    ∃ (callReady : State) (callState : EndpointState) (used : Nat) (after : EndpointState),
+      Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+        (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+        [⟨x1, 0x102b0⟩, ⟨x12, 256⟩,
+          ⟨x10, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330)⟩,
+          ⟨x11, 0x1755c⟩]
+        fromStep 22 before callReady 0x122b4 ∧
+      Runs (try_step (fromStep + 22) false) callReady callState.machine false ∧
+      callState.machine.regs.get? PC = some 0x101d4 ∧
+      callState = { template with machine := callState.machine } ∧
       ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
         (fromStep + 23) used callState after ∧
       SszDecodeCleanupResume args after.machine := by
-  obtain ⟨callReady, callState, used, after, _seg, _callRun, callStack, callAgree, callPma,
-    entry, childTrace, childExit⟩ := sszDecodeCleanupMemcpyChild fromStep args template before ready
+  obtain ⟨callReady, callState, used, after, seg, callRun, callStack, callAgree, callPma,
+    callStateEq, entry, childTrace, childExit⟩ :=
+    sszDecodeCleanupMemcpyChild fromStep args template before ready
   rcases childExit with ⟨childPc, _stdin, _cursor, _stdout, _exitCode, _destination,
     _source, codeAfter, _childMem, childFrame⟩
   unfold MemcpyEntry at entry
@@ -454,7 +467,7 @@ theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
       stackUpper := ready.stackUpper
       access := ready.access.of_pma_regions_eq wholeAgree childFrame.2.1 childPma
       code := codeAfter }
-  exact ⟨callState, used, after, by
+  exact ⟨callReady, callState, used, after, seg, callRun, by simpa using _atPc, callStateEq, by
     simpa only using childTrace, resume⟩
 
 private theorem iTypeResult_addi_four_ofNat (value : Nat) :
@@ -533,6 +546,17 @@ private theorem sszDecodeCleanupOwnPc_not_observed {pc : BitVec 64}
     at observed
   rcases observed with observed | observed | observed <;> omega
 
+private theorem memcpyPc_in_sszDecodeInitial {pc : BitVec 64}
+    (inside : pcInRanges Elflings.memcpyExecutionPcRanges pc) :
+    DecodeInlineInitialExecutionPc pc := by
+  unfold pcInRanges at inside
+  unfold DecodeInlineInitialExecutionPc pcInRanges
+  rcases inside with ⟨range, member, lower, upper⟩
+  simp [Elflings.memcpyExecutionPcRanges] at member
+  rcases member with rfl
+  exact ⟨(0x101d4, 0x12168), by simp [Elflings.sszDecodeExecutionPcRanges], lower,
+    Nat.lt_trans upper (by native_decide)⟩
+
 private theorem scopedTraceOfSegAtExit {own exit : BitVec 64 → Prop} {W : RegSet} {M : Region}
     {kv : List RegVal} {a n : Nat} {base cur : State} {pc : BitVec 64}
     (seg : Seg own exit (fun _ _ _ _ _ => False) W M kv a n base cur pc)
@@ -547,6 +571,7 @@ theorem sszDecodeCleanupResumeTrace (fromStep : Nat) (args : DecodeInlineArgs)
     ∃ after,
       ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep 21
         { template with machine := before } { template with machine := after } ∧
+      after.regs.get? PC = some 0x1230c ∧
       after.regs.get? x22 = some 1 := by
   obtain ⟨after, seg⟩ := sszDecodeCleanupAfterMemcpyComplete fromStep args before resume.atPc
     resume.atStack resume.stackFits resume.stackAligned resume.stackUpper resume.access
@@ -554,7 +579,7 @@ theorem sszDecodeCleanupResumeTrace (fromStep : Nat) (args : DecodeInlineArgs)
   have localTrace := scopedTraceOfSegAtExit seg (by simp [sszDecodeCleanupExitPc])
   have lifted := liftSszDecodeParentTrace sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
     sszDecodeCleanupOwnPc_in_initial sszDecodeCleanupOwnPc_not_observed template localTrace
-  exact ⟨after, by simpa using lifted, seg.reg x22 1 (by simp)⟩
+  exact ⟨after, by simpa using lifted, seg.atPc, seg.reg x22 1 (by simp)⟩
 
 /-- The proved `memcpy` body and the 21-step cleanup tail execute in dependency order. -/
 theorem sszDecodeCleanupChildAndTail (fromStep : Nat) (args : DecodeInlineArgs)
@@ -567,12 +592,58 @@ theorem sszDecodeCleanupChildAndTail (fromStep : Nat) (args : DecodeInlineArgs)
         (fromStep + 23 + childUsed) 21 childAfter
         { childAfter with machine := after } ∧
       after.regs.get? x22 = some 1 := by
-  obtain ⟨callState, childUsed, childAfter, childTrace, resume⟩ :=
+  obtain ⟨_callReady, callState, childUsed, childAfter, _seg, _callRun, _callAtPc,
+    _callStateEq, childTrace, resume⟩ :=
     sszDecodeCleanupAfterMemcpy fromStep args template before ready
-  obtain ⟨after, tailTrace, tag⟩ :=
+  obtain ⟨after, tailTrace, _tailPc, tag⟩ :=
     sszDecodeCleanupResumeTrace (fromStep + 23 + childUsed) args childAfter
       childAfter.machine resume
   exact ⟨callState, childUsed, childAfter, after, childTrace, by simpa using tailTrace, tag⟩
+
+/-- The cleanup parent prefix, proved `memcpy` child, and return tail form one decoder trace. -/
+theorem sszDecodeCleanupTrace (fromStep : Nat) (args : DecodeInlineArgs)
+    (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
+    ∃ (childUsed : Nat) (after : EndpointState),
+      ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep
+        (23 + childUsed + 21) { template with machine := before } after ∧
+      after.machine.regs.get? PC = some 0x1230c ∧
+      after.machine.regs.get? x22 = some 1 := by
+  obtain ⟨callReady, callState, childUsed, childAfter, seg, callRun, callAtPc,
+    callStateEq, childTrace, resume⟩ :=
+    sszDecodeCleanupAfterMemcpy fromStep args template before ready
+  have endAtCall : ScopedTrace sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+      (fun _ _ _ _ _ => False) (fromStep + 23) 0 callState.machine callState.machine :=
+    .exitAt (fromStep + 23) callState.machine 0x101d4 callAtPc (by
+      unfold sszDecodeCleanupExitPc
+      exact Or.inl rfl)
+  have callPrefix : ConfinedPrefix sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+      (fun _ _ _ _ _ => False) (fromStep + 22) 1 callReady callState.machine :=
+    ConfinedPrefix.ownStep seg.atPc (by simp [sszDecodeCleanupOwnPc])
+      (by simp [sszDecodeCleanupExitPc]) callRun
+  have parentMachineTrace := seg.confined.trans callPrefix 0 callState.machine endAtCall
+  have parentTrace := liftSszDecodeParentTrace sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+    sszDecodeCleanupOwnPc_in_initial sszDecodeCleanupOwnPc_not_observed template (by
+      simpa [Nat.add_assoc] using parentMachineTrace)
+  have childTrace' := childTrace.weaken (fun _ inside => memcpyPc_in_sszDecodeInitial inside)
+  rw [callStateEq] at childTrace'
+  obtain ⟨tailMachine, tailTrace, tailPc, tag⟩ :=
+    sszDecodeCleanupResumeTrace (fromStep + 23 + childUsed) args childAfter childAfter.machine
+      resume
+  rcases childAfter with ⟨childMachine, childStdin, childCursor, childStdout, childExitCode⟩
+  have throughChild := parentTrace.append childTrace'
+  have tailTrace' : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      (fromStep + (23 + childUsed)) 21
+      { machine := childMachine, stdin := childStdin, stdinCursor := childCursor,
+        stdout := childStdout, exitCode := childExitCode }
+      { machine := tailMachine, stdin := childStdin, stdinCursor := childCursor,
+        stdout := childStdout, exitCode := childExitCode } := by
+    simpa [Nat.add_assoc] using tailTrace
+  have fullTrace := throughChild.append tailTrace'
+  exact ⟨childUsed,
+    { machine := tailMachine, stdin := childStdin, stdinCursor := childCursor,
+      stdout := childStdout, exitCode := childExitCode },
+    by simpa [Nat.add_assoc] using fullTrace,
+    tailPc, tag⟩
 
 private theorem instructionPreserved_disjoint_sszDecodeLengthValidatedWrites_for_staging :
     RegSet.Disjoint instructionPreserved sszDecodeLengthValidatedWrites := by
