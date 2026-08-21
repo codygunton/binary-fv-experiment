@@ -241,7 +241,8 @@ macro "read_u64_low_compose " own:ident "," exit:ident "," writes:ident ","
 /-- Compose the high four loads, both half-word joins, the final join, and the success tag. -/
 macro "read_u64_high_compose " own:ident "," exit:ident "," writes:ident ","
     instructionDisjoint:ident "," platformDisjoint:ident ";"
-    start:term ";" source:term ";" r1:term "," r2:term "," r3:term "," r0:term "," r6:term "," tag:term ";"
+    start:term ";" source:term ";" r1:term "," r2:term "," r3:term "," r0:term "," r6:term ","
+    resultReg:term "," tag:term ";"
     load5:ident "," load4:ident "," load6:ident "," load7:ident ","
     shift5:ident "," or0:ident "," shift6:ident "," shift7:ident "," or1:ident ","
     low:ident "," high:ident "," shiftHigh:ident "," result:ident "," tagStep:ident ";"
@@ -425,7 +426,7 @@ macro "read_u64_high_compose " own:ident "," exit:ident "," writes:ident ","
     obtain ⟨m22, seg22⟩ := seg21'.step
       (by unfold $own standardReadU64OwnPc pcInList; native_decide)
       (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
-      $source final ($start + 52) ⟨r22, run22⟩ (by decide) (by intro r h; exact Or.inl h)
+      $resultReg final ($start + 52) ⟨r22, run22⟩ (by decide) (by intro r h; exact Or.inl h)
       (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
       (by simp [RegsOutside, stepBookkeeping])
     obtain ⟨r23, run23⟩ := $tagStep ($fromStep + 22) _ (configuredOfSeg seg22)
@@ -501,6 +502,90 @@ readU32OrSite(readU64_3203Result; 0x12aa4;
 readU32LiSite(readU64_3203Tag; 0x12aa8, 1;
   .Regidx 5#5, x5, wX_x5_run; 0x93, 0x02, 0x10, 0x00)
 
+def readU64_327bOwnPc (pc : BitVec 64) : Prop := standardReadU64OwnPc 0x12df4 pc
+def readU64_327bExitPc (pc : BitVec 64) : Prop := standardReadU64ExitPc 0x12df4 pc
+def readU64_327bWrites (register : Register) : Prop :=
+  standardReadU64Writes x12 x13 x14 x15 x16 x17 register
+
+private theorem readU64_327bInstructionDisjoint :
+    RegSet.Disjoint instructionPreserved readU64_327bWrites :=
+  standardReadU64InstructionDisjoint x12 x13 x14 x15 x16 x17
+    (by simp [instructionPreserved, platformPreserved])
+    (by simp [instructionPreserved, platformPreserved])
+    (by simp [instructionPreserved, platformPreserved])
+    (by simp [instructionPreserved, platformPreserved])
+    (by simp [instructionPreserved, platformPreserved])
+    (by simp [instructionPreserved, platformPreserved])
+
+private theorem readU64_327bPlatformDisjoint :
+    RegSet.Disjoint platformPreserved readU64_327bWrites :=
+  standardReadU64PlatformDisjoint x12 x13 x14 x15 x16 x17
+    (by simp [platformPreserved]) (by simp [platformPreserved])
+    (by simp [platformPreserved]) (by simp [platformPreserved])
+    (by simp [platformPreserved]) (by simp [platformPreserved])
+
+readU32UnsignedLoadSite(readU64_327bLoad1; 0x12df8, 1;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 13#5, x13, wX_x13_run;
+  0x83, 0x46, 0x16, 0x00)
+readU32UnsignedLoadSite(readU64_327bLoad2; 0x12dfc, 2;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 14#5, x14, wX_x14_run;
+  0x03, 0x47, 0x26, 0x00)
+readU32UnsignedLoadSite(readU64_327bLoad3; 0x12e00, 3;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 15#5, x15, wX_x15_run;
+  0x83, 0x47, 0x36, 0x00)
+readU32UnsignedLoadSite(readU64_327bLoad0; 0x12e04, 0;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 16#5, x16, wX_x16_run;
+  0x03, 0x48, 0x06, 0x00)
+readU32SlliSite(readU64_327bShift1; 0x12e08, 8;
+  .Regidx 13#5, x13, rX_x13_run, wX_x13_run; 0x93, 0x96, 0x86, 0x00)
+readU32SlliSite(readU64_327bShift2; 0x12e0c, 16;
+  .Regidx 14#5, x14, rX_x14_run, wX_x14_run; 0x13, 0x17, 0x07, 0x01)
+readU32SlliSite(readU64_327bShift3; 0x12e10, 24;
+  .Regidx 15#5, x15, rX_x15_run, wX_x15_run; 0x93, 0x97, 0x87, 0x01)
+readU32OrSite(readU64_327bOrLow0; 0x12e14;
+  .Regidx 13#5, x13, rX_x13_run; .Regidx 16#5, x16, rX_x16_run;
+  .Regidx 13#5, x13, wX_x13_run; 0xb3, 0xe6, 0x06, 0x01)
+readU32OrSite(readU64_327bOrLow1; 0x12e18;
+  .Regidx 15#5, x15, rX_x15_run; .Regidx 14#5, x14, rX_x14_run;
+  .Regidx 14#5, x14, wX_x14_run; 0x33, 0xe7, 0xe7, 0x00)
+readU32UnsignedLoadSite(readU64_327bLoad5; 0x12e1c, 5;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 15#5, x15, wX_x15_run;
+  0x83, 0x47, 0x56, 0x00)
+readU32UnsignedLoadSite(readU64_327bLoad4; 0x12e20, 4;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 16#5, x16, wX_x16_run;
+  0x03, 0x48, 0x46, 0x00)
+readU32UnsignedLoadSite(readU64_327bLoad6; 0x12e24, 6;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 17#5, x17, wX_x17_run;
+  0x83, 0x48, 0x66, 0x00)
+readU32UnsignedLoadSite(readU64_327bLoad7; 0x12e28, 7;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 12#5, x12, wX_x12_run;
+  0x03, 0x46, 0x76, 0x00)
+readU32SlliSite(readU64_327bShift5; 0x12e2c, 8;
+  .Regidx 15#5, x15, rX_x15_run, wX_x15_run; 0x93, 0x97, 0x87, 0x00)
+readU32OrSite(readU64_327bOrHigh0; 0x12e30;
+  .Regidx 15#5, x15, rX_x15_run; .Regidx 16#5, x16, rX_x16_run;
+  .Regidx 15#5, x15, wX_x15_run; 0xb3, 0xe7, 0x07, 0x01)
+readU32SlliSite(readU64_327bShift6; 0x12e34, 16;
+  .Regidx 17#5, x17, rX_x17_run, wX_x17_run; 0x93, 0x98, 0x08, 0x01)
+readU32SlliSite(readU64_327bShift7; 0x12e38, 24;
+  .Regidx 12#5, x12, rX_x12_run, wX_x12_run; 0x13, 0x16, 0x86, 0x01)
+readU32OrSite(readU64_327bOrHigh1; 0x12e3c;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 17#5, x17, rX_x17_run;
+  .Regidx 12#5, x12, wX_x12_run; 0x33, 0x66, 0x16, 0x01)
+readU32OrSite(readU64_327bLow; 0x12e40;
+  .Regidx 14#5, x14, rX_x14_run; .Regidx 13#5, x13, rX_x13_run;
+  .Regidx 13#5, x13, wX_x13_run; 0xb3, 0x66, 0xd7, 0x00)
+readU32OrSite(readU64_327bHigh; 0x12e44;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 15#5, x15, rX_x15_run;
+  .Regidx 12#5, x12, wX_x12_run; 0x33, 0x66, 0xf6, 0x00)
+readU32SlliSite(readU64_327bShiftHigh; 0x12e48, 32;
+  .Regidx 12#5, x12, rX_x12_run, wX_x12_run; 0x13, 0x16, 0x06, 0x02)
+readU32OrSite(readU64_327bResult; 0x12e4c;
+  .Regidx 12#5, x12, rX_x12_run; .Regidx 13#5, x13, rX_x13_run;
+  .Regidx 17#5, x17, wX_x17_run; 0xb3, 0x68, 0xd6, 0x00)
+readU32LiSite(readU64_327bTag; 0x12e50, 1;
+  .Regidx 16#5, x16, wX_x16_run; 0x13, 0x08, 0x10, 0x00)
+
 /-- Shared low-word fragment instantiated at `fi:1:3203`. -/
 theorem readU64_3203LowRun (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -566,7 +651,7 @@ theorem readU64_3203TailRun (fromStep baseAddress v0 v1 v2 v3 v4 v5 v6 v7 : Nat)
   exact read_u64_high_compose
     readU64_3203OwnPc, readU64_3203ExitPc, readU64_3203Writes,
     readU64_3203InstructionDisjoint, readU64_3203PlatformDisjoint;
-    0x12a74; x16; x17, x5, x6, x7, x28, x5;
+    0x12a74; x16; x17, x5, x6, x7, x28, x16, x5;
     readU64_3203Load5, readU64_3203Load4, readU64_3203Load6, readU64_3203Load7,
     readU64_3203Shift5, readU64_3203OrHigh0, readU64_3203Shift6,
     readU64_3203Shift7, readU64_3203OrHigh1, readU64_3203Low, readU64_3203High,
@@ -603,5 +688,61 @@ theorem readU64_3203Run (fromStep baseAddress v0 v1 v2 v3 v4 v5 v6 v7 : Nat)
     (fun offset bound => notMMIO offset (by omega)) (by omega) loaded
   exact readU64_3203TailRun fromStep baseAddress v0 v1 v2 v3 v4 v5 v6 v7 state
     configured low rep4 rep5 rep6 rep7 pma notMMIO sourceFits loaded
+
+/-- Exact alpha-renamed application of the shared schedule at `fi:1:327b`. -/
+theorem readU64_327bRun (fromStep baseAddress v0 v1 v2 v3 v4 v5 v6 v7 : Nat)
+    (state : State) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x12df8))
+    (base : state.regs.get? x12 = some (BitVec.ofNat 64 baseAddress))
+    (rep0 : UIntRep 1 state.mem baseAddress v0)
+    (rep1 : UIntRep 1 state.mem (baseAddress + 1) v1)
+    (rep2 : UIntRep 1 state.mem (baseAddress + 2) v2)
+    (rep3 : UIntRep 1 state.mem (baseAddress + 3) v3)
+    (rep4 : UIntRep 1 state.mem (baseAddress + 4) v4)
+    (rep5 : UIntRep 1 state.mem (baseAddress + 5) v5)
+    (rep6 : UIntRep 1 state.mem (baseAddress + 6) v6)
+    (rep7 : UIntRep 1 state.mem (baseAddress + 7) v7)
+    (pma : ∀ offset, offset < 8 →
+      LoadPmaAllows state (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (notMMIO : ∀ offset, offset < 8 →
+      LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (sourceFits : baseAddress + 8 ≤ 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ after, Seg readU64_327bOwnPc readU64_327bExitPc (fun _ _ _ _ _ => False)
+      readU64_327bWrites noMemory
+      [⟨x16, 1⟩, ⟨x17, readU64MachineValue v0 v1 v2 v3 v4 v5 v6 v7⟩]
+      fromStep 23 state after (BitVec.ofNat 64 0x12e54) := by
+  have low : ∃ after, Seg readU64_327bOwnPc readU64_327bExitPc
+      (fun _ _ _ _ _ => False) readU64_327bWrites noMemory
+      [⟨x14, (Sail.shift_bits_left
+          (zero_extend (m := 64) (BitVec.ofNat 8 v3)) 24#64) |||
+        (Sail.shift_bits_left (zero_extend (m := 64) (BitVec.ofNat 8 v2)) 16#64)⟩,
+       ⟨x13, (Sail.shift_bits_left
+          (zero_extend (m := 64) (BitVec.ofNat 8 v1)) 8#64) |||
+        zero_extend (m := 64) (BitVec.ofNat 8 v0)⟩,
+       ⟨x12, BitVec.ofNat 64 baseAddress⟩]
+      fromStep 9 state after (BitVec.ofNat 64 0x12e1c) :=
+    read_u64_low_compose
+      readU64_327bOwnPc, readU64_327bExitPc, readU64_327bWrites,
+      readU64_327bInstructionDisjoint, readU64_327bPlatformDisjoint;
+      0x12df8; x12; x13, x14, x15, x16;
+      readU64_327bLoad1, readU64_327bLoad2, readU64_327bLoad3, readU64_327bLoad0,
+      readU64_327bShift1, readU64_327bShift2, readU64_327bShift3,
+      readU64_327bOrLow0, readU64_327bOrLow1;
+      fromStep, baseAddress, v0, v1, v2, v3, state, configured, atPc, base,
+      rep0, rep1, rep2, rep3,
+      (fun offset (bound : offset < 4) => pma offset (by omega)),
+      (fun offset (bound : offset < 4) => notMMIO offset (by omega)), (by omega), loaded
+  obtain ⟨afterLow, lowSeg⟩ := low
+  exact read_u64_high_compose
+    readU64_327bOwnPc, readU64_327bExitPc, readU64_327bWrites,
+    readU64_327bInstructionDisjoint, readU64_327bPlatformDisjoint;
+    0x12e1c; x12; x13, x14, x15, x16, x17, x17, x16;
+    readU64_327bLoad5, readU64_327bLoad4, readU64_327bLoad6, readU64_327bLoad7,
+    readU64_327bShift5, readU64_327bOrHigh0, readU64_327bShift6,
+    readU64_327bShift7, readU64_327bOrHigh1, readU64_327bLow, readU64_327bHigh,
+    readU64_327bShiftHigh, readU64_327bResult, readU64_327bTag;
+    fromStep, baseAddress, v0, v1, v2, v3, v4, v5, v6, v7, state, configured, lowSeg,
+    rep4, rep5, rep6, rep7, pma, notMMIO, sourceFits, loaded
 
 end BinaryFv.Zesu.MachineExecution
