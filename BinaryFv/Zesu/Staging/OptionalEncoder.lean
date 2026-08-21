@@ -639,6 +639,138 @@ theorem optionalBooleanCallHandoff
     frame
     access := callAccess.ofEncoderFrame callState childInlineFrame }⟩
 
+set_option genInjectivity false in
+/-- Parent facts required immediately before the shared two-word integer encoder starts. -/
+structure OptionalIntegerChildReady
+    (localFrameSize scratchOffset scratchSize fromStep parentCount returnPc word0 word1 : Nat)
+    (executionPcs : List Elflings.PcRange) (args : OptionalEncoderArgs Value)
+    (before ready : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
+    fromStep parentCount before ready
+  atPc : ready.machine.regs.get? PC = some 0x15ce4
+  link : ready.machine.regs.get? x1 = some (BitVec.ofNat 64 returnPc)
+  stack : ready.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer)
+  word0Reg : ready.machine.regs.get? x10 = some (BitVec.ofNat 64 word0)
+  word1Reg : ready.machine.regs.get? x11 = some (BitVec.ofNat 64 word1)
+  returnListed : returnPc ∈ integerEncoderU128ExitPcs
+  childInside : ∀ {childPc}, pcInRanges integerEncoderU128ExecutionPcs childPc →
+    pcInRanges executionPcs childPc
+  word0Fits : word0 < 2 ^ 64
+  word1Fits : word1 < 2 ^ 64
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully ready.machine.mem
+  access : IntegerEncoderMachineAccess (args.stackPointer - 32) 32 ready.machine
+  stdout : ready.stdout = before.stdout
+  stdin : ready.stdin = before.stdin
+  stdinCursor : ready.stdinCursor = before.stdinCursor
+  exitCode : ready.exitCode = before.exitCode
+  memory : WritesOnlyWithin
+    (optionalEncoderMemory localFrameSize scratchOffset scratchSize args.stackPointer)
+    before.machine ready.machine
+  frame : EncoderInlineFrame before ready
+
+set_option genInjectivity false in
+/-- Shared result after the two-word integer child returns to one optional encoder. -/
+structure OptionalIntegerCallHandoff
+    (localFrameSize scratchOffset scratchSize fromStep parentCount childUsed returnPc word0 word1 :
+      Nat)
+    (executionPcs : List Elflings.PcRange) (args : OptionalEncoderArgs Value)
+    (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
+    fromStep (parentCount + childUsed) before after
+  atPc : after.machine.regs.get? PC = some (BitVec.ofNat 64 returnPc)
+  stack : after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer)
+  stdout : after.stdout = before.stdout ++ encodeNatLE 8 word0 ++ encodeNatLE 8 word1
+  stdin : after.stdin = before.stdin
+  stdinCursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  memory : WritesOnlyWithin
+    (optionalEncoderMemory localFrameSize scratchOffset scratchSize args.stackPointer)
+    before.machine after.machine
+  frame : EncoderInlineFrame before after
+  access : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args after.machine
+
+/-- Consume the shared two-word integer contract after any reviewed parent setup trace. -/
+theorem optionalIntegerChildHandoff
+    (child : IntegerEncoderInstanceContract 0x15ce4 32 2
+      integerEncoderU128ExecutionPcs integerEncoderU128ExitPcs)
+    (ready : OptionalIntegerChildReady localFrameSize scratchOffset scratchSize fromStep
+      parentCount returnPc word0 word1 executionPcs args before callState)
+    (outerAccess : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args
+      callState.machine)
+    (childInside : 32 ≤ localFrameSize) :
+    ∃ childUsed after,
+      OptionalIntegerCallHandoff localFrameSize scratchOffset scratchSize fromStep parentCount
+        childUsed returnPc word0 word1 executionPcs args before after := by
+  let childArgs : IntegerEncoderArgs :=
+    { stackPointer := args.stackPointer
+      returnPc
+      word0
+      word1
+      word2 := 0
+      word3 := 0
+      stackFits := args.stackFits
+      returnFits := by
+        have listed := ready.returnListed
+        simp [integerEncoderU128ExitPcs] at listed
+        omega
+      word0Fits := ready.word0Fits
+      word1Fits := ready.word1Fits
+      word2Fits := by omega
+      word3Fits := by omega }
+  have entry : IntegerEncoderEntry 0x15ce4 32 2 integerEncoderU128ExitPcs childArgs
+      callState := by
+    refine ⟨ready.atPc, ready.link, ready.stack, ?_, ?_, ?_, ?_, ready.loaded⟩
+    · exact ⟨ready.word0Reg, ready.word1Reg, Or.inl rfl⟩
+    · unfold pcInList
+      simpa [childArgs, Nat.mod_eq_of_lt childArgs.returnFits] using ready.returnListed
+    · have frameFits := outerAccess.frameFits
+      simpa [childArgs] using (show 32 ≤ args.stackPointer by omega)
+    · simpa [childArgs] using outerAccess.integerEncoder 32 childInside (by decide)
+  rcases child with ⟨stepBound, stepBoundFits, child⟩
+  obtain ⟨childUsed, after, _unit, positive, bounded, childTrace, _exitAt, _allowed,
+      childExit⟩ := child childArgs (fromStep + parentCount) callState entry
+  rcases childExit with ⟨afterPc, _link, afterStack, stdout, stdin, cursor, exitCode,
+    childMemory, childAgree, childRetired, childLoaded, childAux⟩
+  have childTrace' := childTrace.weaken (fun _ childPc => ready.childInside childPc)
+  have trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
+      fromStep (parentCount + childUsed) before after := by
+    simpa [Nat.add_assoc] using ready.trace.append childTrace'
+  have memory : WritesOnlyWithin
+      (optionalEncoderMemory localFrameSize scratchOffset scratchSize args.stackPointer)
+      before.machine after.machine := by
+    intro address outside
+    rw [childMemory address (by
+      intro inside
+      apply outside
+      rcases inside with childFrame | output
+      · left
+        change byteRange (args.stackPointer - 32) 32 address at childFrame
+        unfold byteRange at childFrame ⊢
+        have frameFits := outerAccess.frameFits
+        omega
+      · exact Or.inr (Or.inr output))]
+    exact ready.memory address outside
+  have frame : EncoderInlineFrame before after := by
+    refine ⟨ready.frame.1.trans (childAgree.weaken (fun _ preserved => Or.inl preserved)),
+      childRetired, childLoaded, ?_⟩
+    exact ⟨childAux.1.trans ready.frame.2.2.2.1,
+      childAux.2.1.trans ready.frame.2.2.2.2.1,
+      childAux.2.2.trans ready.frame.2.2.2.2.2⟩
+  have childFrame : EncoderInlineFrame callState after :=
+    ⟨childAgree.weaken (fun _ preserved => Or.inl preserved), childRetired, childLoaded,
+      childAux⟩
+  exact ⟨childUsed, after, {
+    trace
+    atPc := by simpa [childArgs] using afterPc
+    stack := by simpa [childArgs] using afterStack
+    stdout := by simpa [childArgs, integerEncoderBytes, Array.append_assoc, ready.stdout] using stdout
+    stdin := by simpa [ready.stdin] using stdin
+    stdinCursor := by simpa [ready.stdinCursor] using cursor
+    exitCode := by simpa [ready.exitCode] using exitCode
+    memory
+    frame
+    access := outerAccess.ofEncoderFrame callState childFrame }⟩
+
 def OptionalEncoderEntry (entry localFrameSize scratchOffset scratchSize : Nat)
     (bindValue : OptionalEncoderArgs Value → EndpointState → Prop)
     (args : OptionalEncoderArgs Value) (state : EndpointState) : Prop :=
