@@ -1090,6 +1090,42 @@ theorem sszDecodeSchemaMarkerSeg (fromStep baseAddress marker : Nat) (before : S
       (by simp [RegsOutside, stepBookkeeping])
     exact ⟨after, by simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using full⟩
 
+/-! ## Shared cleanup stores -/
+
+/-- Execute one exact decoder-frame `sd zero, offset(sp)` cleanup instruction. -/
+theorem sszDecodeZeroDwordStoreStep (stepNo pc offset : Nat) (imm : BitVec 12)
+    (byte0 byte1 byte2 byte3 : UInt8) (args : DecodeInlineArgs) (state : State)
+    (access : DecodeBoundaryMachineAccess args.boundary state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (atStack : state.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+    (aligned : (args.boundary.stackPointer - 0xbb0 + offset) % 8 = 0)
+    (fits : args.boundary.stackPointer - 0xbb0 + offset + 8 ≤ 2 ^ 64)
+    (frameBound : offset + 8 ≤ 0xbb0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (addressEq : BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) +
+      sign_extend (m := 64) imm =
+        BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + offset))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
+      (.STORE (imm, .Regidx 0#5, .Regidx 2#5, 8)))
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat)) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement state) (BitVec.ofNat 64 pc))
+          (args.boundary.stackPointer - 0xbb0 + offset) 0)
+        (BitVec.ofNat 64 pc) retired) false := by
+  apply configuredStackDwordStoreStep stepNo pc
+    (args.boundary.stackPointer - 0xbb0) offset state 0 imm (.Regidx 0#5)
+    byte0 byte1 byte2 byte3 access.configured atPc atStack
+    (access.frameStore offset 8 frameBound) (access.frameNoMMIO offset 8 frameBound)
+    aligned fits loaded addressEq decode (by intro premise _; exact rX_x0_run premise)
+    (site := site) (base := base)
+
 def sszDecodeForkNameByteOwnPc (pc : BitVec 64) : Prop := pc = 0x12218
 
 def sszDecodeForkNameByteExitPc (pc : BitVec 64) : Prop := pc = 0x1221c
