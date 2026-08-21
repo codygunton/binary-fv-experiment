@@ -1564,6 +1564,21 @@ private theorem sszDecodeCleanupMemcpyCallStep (stepNo : Nat) (state : State)
     0xe7 0x80 0x40 0xf2 configured atPc baseAt loaded
     (base := by rfl) (decode := by configured_decode configured)
 
+/-- Exact `0x12308: li s6,1`, after cleanup initialization. -/
+private theorem sszDecodeCleanupSuccessTagStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x12308)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x12308 retired x22 1) false := by
+  have resultEq : (1 : BitVec 64) = iTypeResult .ADDI 1 0 := by native_decide
+  exact configuredITypeRegisterStep stepNo 0x12308 state 1 (.Regidx 0#5)
+    (.Regidx 22#5) x22 .ADDI 0 1 0x13 0x0b 0x10 0x00 configured atPc loaded
+    (by intro premise _; exact rX_x0_run premise)
+    (by intro premise; rw [← resultEq]; exact wX_x22_run premise 1)
+    (by configured_decode configured) (by native_decide) (by rfl)
+    (by decide) (by decide) (by decide) (by decide)
+
 def sszDecodeForkNameByteOwnPc (pc : BitVec 64) : Prop := pc = 0x12218
 
 def sszDecodeForkNameByteExitPc (pc : BitVec 64) : Prop := pc = 0x1221c
