@@ -69,6 +69,7 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
         "import BinaryFv.Zesu.Staging.CheckedSlice",
         "import BinaryFv.Zesu.Staging.WriteOutput",
         "import BinaryFv.Zesu.Staging.RawEncoder",
+        "import BinaryFv.Zesu.Staging.IntegerEncoder",
         "",
         "/-!",
         "# Generated hLevel3 staging",

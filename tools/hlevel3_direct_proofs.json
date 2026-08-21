@@ -135,6 +135,16 @@
       "field": "ssz_decode_observation_Encoder_raw_fi_1_45f6",
       "theorem": "BinaryFv.Zesu.Staging.proposed_rawEncoder_45f6_proved",
       "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_45f6_Contract"
+    },
+    {
+      "field": "ssz_decode_observation_Encoder_int_fi_1_43a9",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_integerEncoder_43a9_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_int_fi_1_43a9_Contract"
+    },
+    {
+      "field": "ssz_decode_observation_Encoder_int_fi_1_4494",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_integerEncoder_4494_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_int_fi_1_4494_Contract"
     }
   ]
 }

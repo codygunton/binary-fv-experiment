@@ -10,6 +10,7 @@ import BinaryFv.Zesu.Staging.ForkName
 import BinaryFv.Zesu.Staging.CheckedSlice
 import BinaryFv.Zesu.Staging.WriteOutput
 import BinaryFv.Zesu.Staging.RawEncoder
+import BinaryFv.Zesu.Staging.IntegerEncoder
 
 /-!
 # Generated hLevel3 staging
@@ -594,7 +595,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_decode_observation_Encoder_int_fi_1_43a9_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_int_fi_1_43a9_Contract
 
 /--
 Contract design hole for `fi:1:4494` at `0x15ce4`.
@@ -609,7 +610,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_decode_observation_Encoder_int_fi_1_4494_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_int_fi_1_4494_Contract
 
 /--
 Contract design hole for `fi:1:45b2` at `0x15d18`.
@@ -714,10 +715,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_ssz_decode_observation_Encoder_accessList_fi_1_3fdd_Contract
   ssz_decode_observation_Encoder_authorizations_fi_1_406f :
     Proposed_ssz_decode_observation_Encoder_authorizations_fi_1_406f_Contract
-  ssz_decode_observation_Encoder_int_fi_1_43a9 :
-    Proposed_ssz_decode_observation_Encoder_int_fi_1_43a9_Contract
-  ssz_decode_observation_Encoder_int_fi_1_4494 :
-    Proposed_ssz_decode_observation_Encoder_int_fi_1_4494_Contract
   mem_Allocator_alloc__anon_1151_fi_1_5a81 :
     Proposed_mem_Allocator_alloc__anon_1151_fi_1_5a81_Contract
   mem_Allocator_dupe__anon_1128_fi_1_5b8d :
@@ -1940,14 +1937,14 @@ private theorem resolve_writeSuccessStateRoot
 
 /--
 Resolve Level 2 field `writeSuccessTransactions` for `fi:1:3e96`.
-Level 3 contracts: `ssz_decode_observation_Encoder_int_fi_1_4494`,
-`ssz_decode_observation_Encoder_int_fi_1_43a9`,
-`ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b`,
+Level 3 contracts: `ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b`,
 `ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94`,
 `ssz_decode_observation_Encoder_accessList_fi_1_3fdd`,
 `ssz_decode_observation_Encoder_authorizations_fi_1_406f`.
 Earlier Level 2 results: `writeSuccessInt`, `writeSuccessOptionalU64`, `writeSuccessBytes`.
-Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_rawEncoder_4045_proved`.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_integerEncoder_4494_proved`,
+`BinaryFv.Zesu.Staging.proposed_integerEncoder_43a9_proved`,
+`BinaryFv.Zesu.Staging.proposed_rawEncoder_4045_proved`.
 Parent-composed inline instances: `fi:1:3ec4`.
 Parent glue: 289 instructions in 24 block fragments.
 Inline `fi:1:3ec4` (`ssz_decode_observation.Encoder.int__anon_1642`) contributes 18 scheduled
@@ -2075,8 +2072,6 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessTransactions
-    (ssz_decode_observation_Encoder_int_fi_1_4494 : Proposed_ssz_decode_observation_Encoder_int_fi_1_4494_Contract)
-    (ssz_decode_observation_Encoder_int_fi_1_43a9 : Proposed_ssz_decode_observation_Encoder_int_fi_1_43a9_Contract)
     (ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b : Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract)
     (ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94 : Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract)
     (ssz_decode_observation_Encoder_accessList_fi_1_3fdd : Proposed_ssz_decode_observation_Encoder_accessList_fi_1_3fdd_Contract)
@@ -2185,8 +2180,6 @@ theorem level2Contracts_of_level3_staged
     resolve_writeSuccessStateRoot
   have resolved_writeSuccessTransactions : WriteSuccessTransactionsInstanceContract :=
     resolve_writeSuccessTransactions
-      hLevel3.ssz_decode_observation_Encoder_int_fi_1_4494
-      hLevel3.ssz_decode_observation_Encoder_int_fi_1_43a9
       hLevel3.ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b
       hLevel3.ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94
       hLevel3.ssz_decode_observation_Encoder_accessList_fi_1_3fdd
