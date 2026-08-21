@@ -32,7 +32,7 @@ class AdmissionTests(unittest.TestCase):
 
     def test_exact_boundary(self):
         result = build(self.inventory, self.evidence, self.bindings, self.registry)
-        self.assertEqual(result["summary"]["instanceCount"], 42)
+        self.assertEqual(result["summary"]["instanceCount"], 41)
         self.assertEqual(result["summary"]["familyCount"], 14)
         self.assertEqual(result["summary"]["admittedContractCount"], 0)
 

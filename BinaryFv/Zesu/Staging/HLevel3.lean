@@ -436,22 +436,6 @@ def Proposed_extern_io_write_output_fi_1_3e81_Contract : Prop := by
   exact BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_3e81_Contract
 
 /--
-Contract design hole for `fi:1:3ec4` at `0x150dc`.
-Source operation: Append one fixed-width integer to the observation output.
-Source reference: `deps/zesu/src/zkvm/ssz_decode_observation.zig`.
-Family: `encoder-integer`.
-Boundary bindings: `value=x11`.
-Same-source contract candidates: `ssz_decode_observation_Encoder_int_fi_1_43a9`,
-`ssz_decode_observation_Encoder_int_fi_1_4494`.
-Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
-Required design: bind semantic values to the recorded DWARF registers or memory.
-Required design: state configured-machine, access, termination, and exact frame facts.
-Do not replace this hole with a PC-only or unbound semantic contract.
--/
-def Proposed_ssz_decode_observation_Encoder_int_fi_1_3ec4_Contract : Prop := by
-  sorry
-
-/--
 Contract design hole for `fi:1:3f5b` at `0x15118`.
 Source operation: Append the canonical tagged encoding of one optional value.
 Source reference: `deps/zesu/src/zkvm/ssz_decode_observation.zig`.
@@ -603,8 +587,7 @@ Source operation: Append one fixed-width integer to the observation output.
 Source reference: `deps/zesu/src/zkvm/ssz_decode_observation.zig`.
 Family: `encoder-integer`.
 Boundary bindings: none.
-Same-source contract candidates: `ssz_decode_observation_Encoder_int_fi_1_3ec4`,
-`ssz_decode_observation_Encoder_int_fi_1_4494`.
+Same-source contract candidates: `ssz_decode_observation_Encoder_int_fi_1_4494`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -619,8 +602,7 @@ Source operation: Append one fixed-width integer to the observation output.
 Source reference: `deps/zesu/src/zkvm/ssz_decode_observation.zig`.
 Family: `encoder-integer`.
 Boundary bindings: none.
-Same-source contract candidates: `ssz_decode_observation_Encoder_int_fi_1_3ec4`,
-`ssz_decode_observation_Encoder_int_fi_1_43a9`.
+Same-source contract candidates: `ssz_decode_observation_Encoder_int_fi_1_43a9`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -710,7 +692,7 @@ Do not replace this hole with a PC-only or unbound semantic contract.
 def Proposed_mem_Allocator_dupe__anon_1128_fi_1_5b8d_Contract : Prop := by
   sorry
 
-/-- The 42 proposed Level 3 contracts selected below the 17 unresolved Level 2 fields. -/
+/-- The 41 proposed Level 3 contracts selected below the 17 unresolved Level 2 fields. -/
 structure Level3ContractAssumptions : Prop where
   ssz_decodeByteListList_fi_1_1999 :
     Proposed_ssz_decodeByteListList_fi_1_1999_Contract
@@ -724,8 +706,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_mem_Allocator_alloc__anon_1432_fi_1_39b7_Contract
   ssz_decodeWithdrawal_fi_1_3a74 :
     Proposed_ssz_decodeWithdrawal_fi_1_3a74_Contract
-  ssz_decode_observation_Encoder_int_fi_1_3ec4 :
-    Proposed_ssz_decode_observation_Encoder_int_fi_1_3ec4_Contract
   ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b :
     Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract
   ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94 :
@@ -1961,15 +1941,28 @@ private theorem resolve_writeSuccessStateRoot
 /--
 Resolve Level 2 field `writeSuccessTransactions` for `fi:1:3e96`.
 Level 3 contracts: `ssz_decode_observation_Encoder_int_fi_1_4494`,
-`ssz_decode_observation_Encoder_int_fi_1_43a9`, `ssz_decode_observation_Encoder_int_fi_1_3ec4`,
+`ssz_decode_observation_Encoder_int_fi_1_43a9`,
 `ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b`,
 `ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94`,
 `ssz_decode_observation_Encoder_accessList_fi_1_3fdd`,
 `ssz_decode_observation_Encoder_authorizations_fi_1_406f`.
 Earlier Level 2 results: `writeSuccessInt`, `writeSuccessOptionalU64`, `writeSuccessBytes`.
 Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_rawEncoder_4045_proved`.
-Parent-composed inline instances: none.
-Parent glue: 271 instructions in 22 block fragments.
+Parent-composed inline instances: `fi:1:3ec4`.
+Parent glue: 289 instructions in 24 block fragments.
+Inline `fi:1:3ec4` (`ssz_decode_observation.Encoder.int__anon_1642`) contributes 18 scheduled
+instructions from 0x10190. It is not a standalone machine region. Compose these instructions
+with the parent and reuse the shared integer-reader load, shift, OR, and `Seg` fragments.
+Fragment `0x10190` (5 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
+`BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.configuredAuipcStep`,
+`BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
+`BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`,
+`BinaryFv.Zesu.MachineExecution.configuredRetStep`.
+Motifs: `motif:066543c2b45d5eff`, `motif:46abafc066ef7dce`. Closest proofs: none.
+Fragment `0x101a4` (8 steps): compose with `BinaryFv.RiscV.Seg.step`,
+`BinaryFv.RiscV.Seg.forget`. Step APIs:
+`BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
+Motifs: `motif:7cc72153757d2c36`. Closest proofs: none.
 Fragment `0x14ef4` (2 steps): compose with `BinaryFv.RiscV.Seg.step`,
 `BinaryFv.RiscV.Seg.forget`. Step APIs: `BinaryFv.Zesu.configuredAuipcStep`,
 `BinaryFv.Zesu.configuredJalrCallStep`.
@@ -1980,16 +1973,18 @@ Motifs: none. Closest proofs: none.
 Fragment `0x14f00` (2 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`.
 Motifs: none. Closest proofs: none.
-Fragment `0x14f08` (117 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
-`BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
+Fragment `0x14f08` (122 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
+`BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.configuredAuipcStep`,
+`BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
+`BinaryFv.Zesu.configuredJalrCallStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
 Motifs: `motif:10adc5365e4a6c68`, `motif:1160559b028ce6ae`, `motif:133bc6a434340379`,
 `motif:166b3c2e18bf9ab0`, `motif:1b04c3e112d1bc8c`, `motif:1bb1e82ae16efeea`,
-`motif:2b95cfcaa493e814`, `motif:318fac39b92b394a`, `motif:61b812638b9a08f2`,
-`motif:6c1029df5014c0f9`, `motif:6e3e7744e33e3798`, `motif:92bdeb182860442c`,
-`motif:cd26604b518d4d93`, `motif:e45d82e5b545468b`, `motif:e6e0b8fc7a348252`,
-`motif:f20f95a066f073d1`. Closest proofs: none.
+`motif:2229c4040d831b3f`, `motif:2b95cfcaa493e814`, `motif:318fac39b92b394a`,
+`motif:61b812638b9a08f2`, `motif:6c1029df5014c0f9`, `motif:6e3e7744e33e3798`,
+`motif:92bdeb182860442c`, `motif:cd26604b518d4d93`, `motif:e45d82e5b545468b`,
+`motif:e6e0b8fc7a348252`, `motif:f20f95a066f073d1`. Closest proofs: none.
 Fragment `0x150f0` (3 steps): compose with `BinaryFv.RiscV.Seg.step`,
 `BinaryFv.RiscV.Seg.forget`. Step APIs: `BinaryFv.Zesu.configuredAuipcStep`,
 `BinaryFv.Zesu.configuredJalrCallStep`,
@@ -2082,7 +2077,6 @@ Frame rule: use `Seg.forget` before a later write replaces a recorded register v
 private theorem resolve_writeSuccessTransactions
     (ssz_decode_observation_Encoder_int_fi_1_4494 : Proposed_ssz_decode_observation_Encoder_int_fi_1_4494_Contract)
     (ssz_decode_observation_Encoder_int_fi_1_43a9 : Proposed_ssz_decode_observation_Encoder_int_fi_1_43a9_Contract)
-    (ssz_decode_observation_Encoder_int_fi_1_3ec4 : Proposed_ssz_decode_observation_Encoder_int_fi_1_3ec4_Contract)
     (ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b : Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract)
     (ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94 : Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract)
     (ssz_decode_observation_Encoder_accessList_fi_1_3fdd : Proposed_ssz_decode_observation_Encoder_accessList_fi_1_3fdd_Contract)
@@ -2193,7 +2187,6 @@ theorem level2Contracts_of_level3_staged
     resolve_writeSuccessTransactions
       hLevel3.ssz_decode_observation_Encoder_int_fi_1_4494
       hLevel3.ssz_decode_observation_Encoder_int_fi_1_43a9
-      hLevel3.ssz_decode_observation_Encoder_int_fi_1_3ec4
       hLevel3.ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b
       hLevel3.ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94
       hLevel3.ssz_decode_observation_Encoder_accessList_fi_1_3fdd

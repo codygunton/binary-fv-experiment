@@ -41,10 +41,10 @@ class LiveArtifactTests(unittest.TestCase):
         result = build(*self.documents)
         self.assertEqual(17, result["summary"]["level2FieldCount"])
         self.assertEqual(17, len({row["field"] for row in result["parents"]}))
-        self.assertEqual(42, result["summary"]["level3ContractCount"])
+        self.assertEqual(41, result["summary"]["level3ContractCount"])
         self.assertEqual(88, result["summary"]["level3ChildRouteCount"])
-        self.assertEqual(2619, result["summary"]["parentGlueInstructionCount"])
-        self.assertEqual(218, result["summary"]["parentGlueObligationCount"])
+        self.assertEqual(2624, result["summary"]["parentGlueInstructionCount"])
+        self.assertEqual(220, result["summary"]["parentGlueObligationCount"])
         for parent in result["parents"]:
             covered = set(parent["gluePcs"])
             for child in parent["children"]:
@@ -64,6 +64,11 @@ class LiveArtifactTests(unittest.TestCase):
         self.assertEqual(
             {"fi:1:4350"},
             {row["instanceId"] for row in write_bytes["parentComposedInlineInstances"]})
+        write_transactions = next(
+            row for row in result["parents"] if row["field"] == "writeSuccessTransactions")
+        self.assertEqual(
+            {"fi:1:3ec4"},
+            {row["instanceId"] for row in write_transactions["parentComposedInlineInstances"]})
 
     def test_every_level3_candidate_has_entry_evidence(self):
         result = build(*self.documents)

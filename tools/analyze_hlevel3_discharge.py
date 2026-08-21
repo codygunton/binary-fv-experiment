@@ -132,10 +132,10 @@ def render(inventory: dict, flames: list[dict]) -> str:
         "direct-now", "direct-after-dependencies", "retain-contract")}
     parent_composed = [row for parent in inventory["parents"]
                        for row in parent.get("parentComposedInlineInstances", [])]
-    if len(rows) != 42 or counts != {
-            "direct-now": 8, "direct-after-dependencies": 25, "retain-contract": 9}:
+    if len(rows) != 41 or counts != {
+            "direct-now": 8, "direct-after-dependencies": 24, "retain-contract": 9}:
         raise ValueError(f"review coverage changed: instances={len(rows)}, counts={counts}")
-    if len(parent_composed) != 15:
+    if len(parent_composed) != 16:
         raise ValueError(f"parent-composed inline instance count changed: {len(parent_composed)}")
     lines = [
         "# Level 3 direct-discharge review",
@@ -165,8 +165,9 @@ def render(inventory: dict, flames: list[dict]) -> str:
         "## Parent-composed inline instances",
         "",
         "These source instances must compose with their Level 2 parent state. The integer-reader",
-        "instructions interleave with `sszDecode`. The raw-encoder tail consumes the `Encoder.bytes`",
-        "caller frame while it restores registers and the stack pointer.",
+        "instructions interleave with `sszDecode`. The one-byte integer encoder uses the",
+        "`writeSuccessTransactions` stack. The raw-encoder tail consumes the `Encoder.bytes` caller",
+        "frame while it restores registers and the stack pointer.",
         "",
         "| Instance | Source operation | Entry | Scheduled instructions |",
         "|---|---|---:|---:|",

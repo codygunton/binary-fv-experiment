@@ -7,7 +7,7 @@ assumption because they contain a runtime loop, a large parser, or an unresolved
 The validator also accepts a shared concrete body when the core flame metadata records its
 machine owner at expanded call sites. The current tree uses this form for `fi:1:43a9`.
 
-Counts: 8 direct now; 25 direct after shared dependencies; 15 parent-composed inline instances; 9 retained contracts.
+Counts: 8 direct now; 24 direct after shared dependencies; 16 parent-composed inline instances; 9 retained contracts.
 
 | Instance | Source operation | Entry | Execution | Owned | Observed | Decision | Reason |
 |---|---|---:|---:|---:|---:|---|---|
@@ -24,7 +24,6 @@ Counts: 8 direct now; 25 direct after shared dependencies; 15 parent-composed in
 | `fi:1:3e06` | `extern_io.write_output` | `0x14e5c` | 16 | 3 | 34 | direct-after-dependencies | 3-5 owned instructions around the proved write_output leaf |
 | `fi:1:3e2f` | `extern_io.write_output` | `0x14e6c` | 16 | 3 | 34 | direct-after-dependencies | 3-5 owned instructions around the proved write_output leaf |
 | `fi:1:3e81` | `extern_io.write_output` | `0x14ed8` | 16 | 3 | 34 | direct-after-dependencies | 3-5 owned instructions around the proved write_output leaf |
-| `fi:1:3ec4` | `ssz_decode_observation.Encoder.int` | `0x150dc` | 18 | 0 | 2 | direct-after-dependencies | wrapper around mem.writeInt and Encoder.raw |
 | `fi:1:3f5b` | `ssz_decode_observation.Encoder.optionalU128` | `0x15118` | 47 | 12 | 2 | direct-after-dependencies | 12 owned instructions around reviewed Boolean and integer encoders |
 | `fi:1:3f94` | `ssz_decode_observation.Encoder.optionalAddress` | `0x15158` | 41 | 13 | 2 | direct-after-dependencies | 13 owned instructions around reviewed Boolean and raw encoders |
 | `fi:1:4045` | `ssz_decode_observation.Encoder.raw` | `0x15548` | 17 | 0 | 1 | direct-after-dependencies | wrapper around extern_io.write_output |
@@ -57,11 +56,13 @@ Counts: 8 direct now; 25 direct after shared dependencies; 15 parent-composed in
 ## Parent-composed inline instances
 
 These source instances must compose with their Level 2 parent state. The integer-reader
-instructions interleave with `sszDecode`. The raw-encoder tail consumes the `Encoder.bytes`
-caller frame while it restores registers and the stack pointer.
+instructions interleave with `sszDecode`. The one-byte integer encoder uses the
+`writeSuccessTransactions` stack. The raw-encoder tail consumes the `Encoder.bytes` caller
+frame while it restores registers and the stack pointer.
 
 | Instance | Source operation | Entry | Scheduled instructions |
 |---|---|---:|---:|
+| `fi:1:3ec4` | `ssz_decode_observation.Encoder.int__anon_1642` | `0x150dc` | 18 |
 | `fi:1:4350` | `ssz_decode_observation.Encoder.raw` | `0x15c90` | 21 |
 | `fi:1:3167` | `ssz.readU32` | `0x129cc` | 10 |
 | `fi:1:31b1` | `ssz.readU32` | `0x129f0` | 11 |
