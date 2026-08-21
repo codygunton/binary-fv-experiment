@@ -668,6 +668,250 @@ structure OptionalIntegerChildReady
     before.machine ready.machine
   frame : EncoderInlineFrame before ready
 
+def optionalIntegerParentPc (pc : Nat) (parentPc : BitVec 64) : Prop :=
+  parentPc = BitVec.ofNat 64 pc ∨ parentPc = BitVec.ofNat 64 (pc + 4) ∨
+    parentPc = BitVec.ofNat 64 (pc + 8) ∨ parentPc = BitVec.ofNat 64 (pc + 12)
+
+def optionalIntegerCallWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x1 ∨ register = x10 ∨ register = x11
+
+private theorem encoderInlinePreserved_disjoint_optionalIntegerCallWrites :
+    RegSet.Disjoint encoderInlinePreserved optionalIntegerCallWrites := by
+  intro register preserved written
+  simp [encoderInlinePreserved, optionalIntegerCallWrites, instructionPreserved,
+    platformPreserved, stepBookkeeping] at preserved written
+  grind
+
+private theorem instructionPreserved_disjoint_optionalIntegerCallWrites :
+    RegSet.Disjoint instructionPreserved optionalIntegerCallWrites := by
+  intro register preserved
+  exact encoderInlinePreserved_disjoint_optionalIntegerCallWrites register (Or.inl preserved)
+
+set_option genInjectivity false in
+/-- Four exact parent steps that move two words and enter the shared integer encoder. -/
+structure OptionalIntegerCallSite (pc returnPc callBase : Nat)
+    (executionPcs : List Elflings.PcRange) where
+  move0 : ∀ stepNo state source,
+    ConfiguredMachinePre EndpointMachinePc state →
+    state.regs.get? PC = some (BitVec.ofNat 64 pc) →
+    state.regs.get? x9 = some source →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x10 source) false
+  move1 : ∀ stepNo state source,
+    ConfiguredMachinePre EndpointMachinePc state →
+    state.regs.get? PC = some (BitVec.ofNat 64 (pc + 4)) →
+    state.regs.get? x23 = some source →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 (pc + 4)) retired x11 source) false
+  base : ∀ stepNo state,
+    ConfiguredMachinePre EndpointMachinePc state →
+    state.regs.get? PC = some (BitVec.ofNat 64 (pc + 8)) →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 (pc + 8)) retired x1
+        (BitVec.ofNat 64 callBase)) false
+  call : ∀ stepNo state,
+    ConfiguredMachinePre EndpointMachinePc state →
+    state.regs.get? PC = some (BitVec.ofNat 64 (pc + 12)) →
+    state.regs.get? x1 = some (BitVec.ofNat 64 callBase) →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state)
+          (BitVec.ofNat 64 (pc + 12)) 0x15ce4 x1 (BitVec.ofNat 64 returnPc))
+        0x15ce4 retired) false
+  owned : ∀ offset, offset ∈ [0, 4, 8, 12] →
+    pcInRanges executionPcs (BitVec.ofNat 64 (pc + offset))
+  next0 : BitVec.ofNat 64 pc + 4 = BitVec.ofNat 64 (pc + 4)
+  next1 : BitVec.ofNat 64 (pc + 4) + 4 = BitVec.ofNat 64 (pc + 8)
+  next2 : BitVec.ofNat 64 (pc + 8) + 4 = BitVec.ofNat 64 (pc + 12)
+  notExit : ∀ offset, offset ∈ [0, 4, 8, 12] →
+    BitVec.ofNat 64 (pc + offset) ≠ 0x15ce4
+  returnListed : returnPc ∈ integerEncoderU128ExitPcs
+  childInside : ∀ {childPc}, pcInRanges integerEncoderU128ExecutionPcs childPc →
+    pcInRanges executionPcs childPc
+  notHost : ∀ offset, offset ∈ [0, 4, 8, 12] →
+    ¬BareMetalHostTransitionPc (BitVec.ofNat 64 (pc + offset))
+
+/-- Compose the common two-register setup and direct integer call before consuming the child. -/
+theorem optionalIntegerCallReady
+    (site : OptionalIntegerCallSite pc returnPc callBase executionPcs)
+    (fromStep : Nat) (args : OptionalEncoderArgs Value) (word0 word1 : Nat)
+    (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (stack : before.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer))
+    (word0Reg : before.machine.regs.get? x9 = some (BitVec.ofNat 64 word0))
+    (word1Reg : before.machine.regs.get? x23 = some (BitVec.ofNat 64 word1))
+    (word0Fits : word0 < 2 ^ 64) (word1Fits : word1 < 2 ^ 64)
+    (access : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args
+      before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (childInsideFrame : 32 ≤ localFrameSize) :
+    ∃ ready, OptionalIntegerChildReady localFrameSize scratchOffset scratchSize fromStep 4
+      returnPc word0 word1 executionPcs args before ready := by
+  have seg0 : Seg (optionalIntegerParentPc pc) (fun target => target = 0x15ce4)
+      (fun _ _ _ _ _ => False) optionalIntegerCallWrites (fun _ => False)
+      [⟨x2, BitVec.ofNat 64 args.stackPointer⟩, ⟨x9, BitVec.ofNat 64 word0⟩,
+        ⟨x23, BitVec.ofNat 64 word1⟩]
+      fromStep 0 before.machine before.machine (BitVec.ofNat 64 pc) := {
+    trace := .refl _ _
+    confined := .nil
+    writes := .refl _ _
+    mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
+    retired := access.output.configured.retiredCounter
+    atPc
+    regs := by
+      intro pair member
+      simp at member
+      rcases member with rfl | rfl | rfl
+      · exact stack
+      · exact word0Reg
+      · exact word1Reg }
+  obtain ⟨machine1, seg1⟩ := seg0.step (by simp [optionalIntegerParentPc])
+    (site.notExit 0 (by simp)) x10
+    (BitVec.ofNat 64 word0) (BitVec.ofNat 64 (pc + 4))
+    (site.move0 fromStep _ _ access.output.configured atPc word0Reg loaded) site.next0
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [optionalIntegerCallWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access1 := access.ofWrites seg1.writes
+    (by simp [optionalIntegerCallWrites, stepBookkeeping])
+    (access.output.configured.mono
+      (seg1.agree instructionPreserved_disjoint_optionalIntegerCallWrites) seg1.retired)
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully machine1.mem := by
+    simpa [seg1.memEq (by simp)] using loaded
+  obtain ⟨machine2, seg2⟩ := seg1.step (by simp [optionalIntegerParentPc])
+    (site.notExit 4 (by simp)) x11
+    (BitVec.ofNat 64 word1) (BitVec.ofNat 64 (pc + 8))
+    (site.move1 (fromStep + 1) _ _ access1.output.configured seg1.atPc
+      (seg1.reg x23 (BitVec.ofNat 64 word1) (by simp)) loaded1) site.next1
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [optionalIntegerCallWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access2 := access.ofWrites seg2.writes
+    (by simp [optionalIntegerCallWrites, stepBookkeeping])
+    (access.output.configured.mono
+      (seg2.agree instructionPreserved_disjoint_optionalIntegerCallWrites) seg2.retired)
+  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully machine2.mem := by
+    simpa [seg2.memEq (by simp)] using loaded
+  obtain ⟨machine3, seg3⟩ := seg2.step (by simp [optionalIntegerParentPc])
+    (site.notExit 8 (by simp)) x1
+    (BitVec.ofNat 64 callBase) (BitVec.ofNat 64 (pc + 12))
+    (site.base (fromStep + 2) _ access2.output.configured seg2.atPc loaded2) site.next2
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [optionalIntegerCallWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access3 := access.ofWrites seg3.writes
+    (by simp [optionalIntegerCallWrites, stepBookkeeping])
+    (access.output.configured.mono
+      (seg3.agree instructionPreserved_disjoint_optionalIntegerCallWrites) seg3.retired)
+  have loaded3 : Artifacts.programImage.fileBytesLoadedFaithfully machine3.mem := by
+    simpa [seg3.memEq (by simp)] using loaded
+  obtain ⟨retired3, callRun⟩ := site.call (fromStep + 3) machine3
+    access3.output.configured seg3.atPc
+    (seg3.reg x1 (BitVec.ofNat 64 callBase) (by simp)) loaded3
+  let callMachine := tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement machine3)
+      (BitVec.ofNat 64 (pc + 12)) 0x15ce4 x1 (BitVec.ofNat 64 returnPc)) 0x15ce4 retired3
+  let ready : EndpointState := { before with machine := callMachine }
+  have callWrites := callRetirement_writes machine3 (BitVec.ofNat 64 (pc + 12))
+    0x15ce4 retired3 x1 (BitVec.ofNat 64 returnPc)
+  have callAtPc : callMachine.regs.get? PC = some 0x15ce4 := by
+    simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      Std.ExtDHashMap.get?_insert]
+  have callMemEq : callMachine.mem = before.machine.mem := by
+    have one : callMachine.mem = machine3.mem := by
+      change
+        (tryStepControlFlowAfterRetired
+          (callLinkState (tryStepControlFlowAfterIncrement machine3)
+            (BitVec.ofNat 64 (pc + 12)) 0x15ce4 x1 (BitVec.ofNat 64 returnPc))
+          0x15ce4 retired3).mem = machine3.mem
+      rw [tryStepControlFlowAfterRetired_mem]
+      change (controlFlowJumpState (tryStepControlFlowAfterIncrement machine3)
+        (BitVec.ofNat 64 (pc + 12)) 0x15ce4).mem = machine3.mem
+      rw [controlFlowJumpState_mem]
+      rfl
+    exact one.trans (seg3.memEq (by simp))
+  have callConfigured := configuredAfterWriteSuccessCall (BitVec.ofNat 64 (pc + 12)) 0x15ce4
+    (BitVec.ofNat 64 returnPc) retired3 access3.output.configured
+  have callAccess := access3.ofWrites callWrites (by simp [stepBookkeeping]) callConfigured
+  have callPrefix : ConfinedPrefix (optionalIntegerParentPc pc) (fun target => target = 0x15ce4)
+      (fun _ _ _ _ _ => False) (fromStep + 3) 1 machine3 callMachine :=
+    ConfinedPrefix.ownStep seg3.atPc (by simp [optionalIntegerParentPc])
+      (site.notExit 12 (by simp)) callRun
+  have callEnd : ScopedTrace (optionalIntegerParentPc pc) (fun target => target = 0x15ce4)
+      (fun _ _ _ _ _ => False) (fromStep + 4) 0 callMachine callMachine :=
+    .exitAt _ _ 0x15ce4 callAtPc rfl
+  have machineTrace := seg3.confined.trans callPrefix 0 callMachine callEnd
+  have parentTrace := liftOptionalParentTrace before (fun parentPc inside => by
+    rcases inside with rfl | rfl | rfl | rfl
+    · exact site.notHost 0 (by simp)
+    · exact site.notHost 4 (by simp)
+    · exact site.notHost 8 (by simp)
+    · exact site.notHost 12 (by simp)) machineTrace
+  have trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
+      fromStep 4 before ready := by
+    simpa [ready] using parentTrace.weaken (fun _ inside => by
+      rcases inside with rfl | rfl | rfl | rfl
+      · exact site.owned 0 (by simp)
+      · exact site.owned 4 (by simp)
+      · exact site.owned 8 (by simp)
+      · exact site.owned 12 (by simp))
+  have parentAgree := seg3.writes.agree encoderInlinePreserved_disjoint_optionalIntegerCallWrites
+  have allAgree : Agree encoderInlinePreserved before.machine callMachine :=
+    parentAgree.trans (callWrites.agree (by
+      intro register preserved written
+      apply encoderInlinePreserved_disjoint_optionalIntegerCallWrites register preserved
+      rcases written with bookkeeping | rfl
+      · exact Or.inl bookkeeping
+      · exact Or.inr (Or.inl rfl)))
+  have callChoice : callMachine.choiceState = before.machine.choiceState := by
+    change machine3.choiceState = before.machine.choiceState
+    exact seg3.aux.1
+  have callTags : callMachine.tags = before.machine.tags := by
+    change machine3.tags = before.machine.tags
+    exact seg3.aux.2.1
+  have callOutput : callMachine.sailOutput = before.machine.sailOutput := by
+    change machine3.sailOutput = before.machine.sailOutput
+    exact seg3.aux.2.2
+  have frame : EncoderInlineFrame before ready := ⟨allAgree, callConfigured.retiredCounter,
+    by simpa [ready, callMemEq] using loaded,
+    by
+      change EndpointMachineAuxAgree before.machine callMachine
+      exact ⟨callChoice, callTags, callOutput⟩⟩
+  exact ⟨ready, {
+    trace
+    atPc := by simpa [ready] using callAtPc
+    link := by simp [ready, callMachine, callLinkState, tryStepControlFlowAfterRetired,
+      tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
+    stack := by
+      change callMachine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer)
+      exact (callWrites.get x2 (by decide)).trans
+        (seg3.reg x2 (BitVec.ofNat 64 args.stackPointer) (by simp))
+    word0Reg := by
+      change callMachine.regs.get? x10 = some (BitVec.ofNat 64 word0)
+      exact (callWrites.get x10 (by decide)).trans
+        (seg3.reg x10 (BitVec.ofNat 64 word0) (by simp))
+    word1Reg := by
+      change callMachine.regs.get? x11 = some (BitVec.ofNat 64 word1)
+      exact (callWrites.get x11 (by decide)).trans
+        (seg3.reg x11 (BitVec.ofNat 64 word1) (by simp))
+    returnListed := site.returnListed
+    childInside := site.childInside
+    word0Fits
+    word1Fits
+    loaded := by simpa [ready, callMemEq] using loaded
+    access := by simpa [ready] using callAccess.integerEncoder 32 childInsideFrame (by decide)
+    stdout := rfl
+    stdin := rfl
+    stdinCursor := rfl
+    exitCode := rfl
+    memory := by intro address outside; simp [ready, callMemEq]
+    frame }⟩
+
 set_option genInjectivity false in
 /-- Shared result after the two-word integer child returns to one optional encoder. -/
 structure OptionalIntegerCallHandoff
