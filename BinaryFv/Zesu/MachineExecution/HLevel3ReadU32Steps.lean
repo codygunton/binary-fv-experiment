@@ -900,7 +900,8 @@ readU32OrSite(readU32_3064OrResult; 0x128f0;
 macro "standard_read_u32_compose " own:ident "," exit:ident "," writes:ident ","
     instructionDisjoint:ident "," platformDisjoint:ident ";"
     start:term "," finish:term "," baseOffset:term ";"
-    first:term "," second:term "," third:term "," fourth:term "," resultRegister:term ";"
+    first:term "," second:term "," third:term "," fourth:term ","
+    highRegister:term "," resultRegister:term ";"
     load1:ident "," load0:ident "," load2:ident "," load3:ident ","
     shift1:ident "," orLow:ident "," shift2:ident "," shift3:ident ","
     orHigh:ident "," orResult:ident ";"
@@ -1038,17 +1039,16 @@ macro "standard_read_u32_compose " own:ident "," exit:ident "," writes:ident ","
     obtain ⟨r9, run9⟩ := $orHigh ($fromStep + 8) m8 sh3 sh2
       (configuredOfSeg seg8) seg8.atPc (seg8.reg $fourth sh3 (by simp))
       (seg8.reg $third sh2 (by simp)) (loadedOfSeg seg8)
-    have seg8' := seg8.forget
-      (kv' := [⟨$fourth, sh3⟩, ⟨$third, sh2⟩, ⟨$first, lo⟩]) (by simp)
+    have seg8' := seg8.forget (kv' := [⟨$first, lo⟩]) (by simp)
     obtain ⟨m9, seg9⟩ := seg8'.step
       (by unfold $own standardReadU32OwnPc pcInList; native_decide)
       (by unfold $exit standardReadU32ExitPc pcInList; native_decide)
-      $second hi ($start + 36) ⟨r9, run9⟩
+      $highRegister hi ($start + 36) ⟨r9, run9⟩
       (by decide) (by intro r h; exact Or.inl h)
       (by unfold $writes; simp [standardReadU32Writes]) (by decide) (by decide)
       (by simp [RegsOutside, stepBookkeeping])
     obtain ⟨r10, run10⟩ := $orResult ($fromStep + 9) m9 hi lo
-      (configuredOfSeg seg9) seg9.atPc (seg9.reg $second hi (by simp))
+      (configuredOfSeg seg9) seg9.atPc (seg9.reg $highRegister hi (by simp))
       (seg9.reg $first lo (by simp)) (loadedOfSeg seg9)
     have seg9' := seg9.forget (kv' := []) (by simp)
     obtain ⟨after, seg10⟩ := seg9'.step
@@ -1083,7 +1083,7 @@ theorem readU32_3064Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
       fromStep 10 state after (BitVec.ofNat 64 0x128f4) :=
   standard_read_u32_compose readU32_3064OwnPc, readU32_3064ExitPc, readU32_3064Writes,
     readU32_3064InstructionDisjoint, readU32_3064PlatformDisjoint;
-    0x128cc, 0x128f4, 8; x13, x14, x15, x16, x13;
+    0x128cc, 0x128f4, 8; x13, x14, x15, x16, x14, x13;
     readU32_3064Load1, readU32_3064Load0, readU32_3064Load2, readU32_3064Load3,
     readU32_3064Shift1, readU32_3064OrLow, readU32_3064Shift2, readU32_3064Shift3,
     readU32_3064OrHigh, readU32_3064OrResult;
@@ -1144,10 +1144,73 @@ theorem readU32_30e2Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
       fromStep 10 state after (BitVec.ofNat 64 0x1296c) :=
   standard_read_u32_compose readU32_30e2OwnPc, readU32_30e2ExitPc, readU32_30e2Writes,
     readU32_30e2InstructionDisjoint, readU32_30e2PlatformDisjoint;
-    0x12944, 0x1296c, 0; x12, x14, x16, x17, x14;
+    0x12944, 0x1296c, 0; x12, x14, x16, x17, x14, x14;
     readU32_30e2Load1, readU32_30e2Load0, readU32_30e2Load2, readU32_30e2Load3,
     readU32_30e2Shift1, readU32_30e2OrLow, readU32_30e2Shift2, readU32_30e2Shift3,
     readU32_30e2OrHigh, readU32_30e2OrResult;
     fromStep, baseAddress, v0, v1, v2, v3, state, configured, atPc, base,
     rep0, rep1, rep2, rep3, pma, notMMIO, sourceFits, loaded
+
+/-! ## `fi:1:3457`: third standard unsigned `readU32` schedule -/
+
+standardReadU32Frame(readU32_3457OwnPc, readU32_3457ExitPc, readU32_3457Writes,
+  readU32_3457InstructionDisjoint, readU32_3457PlatformDisjoint;
+  0x12ff0; x11, x12, x13, x14)
+
+readU32UnsignedLoadSite(readU32_3457Load1; 0x12ff0, 1;
+  .Regidx 9#5, x9, rX_x9_run; .Regidx 11#5, x11, wX_x11_run;
+  0x83, 0xc5, 0x14, 0x00)
+readU32UnsignedLoadSite(readU32_3457Load0; 0x12ff4, 0;
+  .Regidx 9#5, x9, rX_x9_run; .Regidx 12#5, x12, wX_x12_run;
+  0x03, 0xc6, 0x04, 0x00)
+readU32UnsignedLoadSite(readU32_3457Load2; 0x12ff8, 2;
+  .Regidx 9#5, x9, rX_x9_run; .Regidx 13#5, x13, wX_x13_run;
+  0x83, 0xc6, 0x24, 0x00)
+readU32UnsignedLoadSite(readU32_3457Load3; 0x12ffc, 3;
+  .Regidx 9#5, x9, rX_x9_run; .Regidx 14#5, x14, wX_x14_run;
+  0x03, 0xc7, 0x34, 0x00)
+readU32SlliSite(readU32_3457Shift1; 0x13000, 8;
+  .Regidx 11#5, x11, rX_x11_run, wX_x11_run; 0x93, 0x95, 0x85, 0x00)
+readU32OrSite(readU32_3457OrLow; 0x13004;
+  .Regidx 11#5, x11, rX_x11_run; .Regidx 12#5, x12, rX_x12_run;
+  .Regidx 11#5, x11, wX_x11_run; 0xb3, 0xe5, 0xc5, 0x00)
+readU32SlliSite(readU32_3457Shift2; 0x13008, 16;
+  .Regidx 13#5, x13, rX_x13_run, wX_x13_run; 0x93, 0x96, 0x06, 0x01)
+readU32SlliSite(readU32_3457Shift3; 0x1300c, 24;
+  .Regidx 14#5, x14, rX_x14_run, wX_x14_run; 0x13, 0x17, 0x87, 0x01)
+readU32OrSite(readU32_3457OrHigh; 0x13010;
+  .Regidx 14#5, x14, rX_x14_run; .Regidx 13#5, x13, rX_x13_run;
+  .Regidx 13#5, x13, wX_x13_run; 0xb3, 0x66, 0xd7, 0x00)
+readU32OrSite(readU32_3457OrResult; 0x13014;
+  .Regidx 13#5, x13, rX_x13_run; .Regidx 11#5, x11, rX_x11_run;
+  .Regidx 11#5, x11, wX_x11_run; 0xb3, 0xe5, 0xb6, 0x00)
+
+/-- Exact ten-step standard unsigned `readU32` trace for `fi:1:3457`. -/
+theorem readU32_3457Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x12ff0))
+    (base : state.regs.get? x9 = some (BitVec.ofNat 64 baseAddress))
+    (rep0 : UIntRep 1 state.mem baseAddress v0)
+    (rep1 : UIntRep 1 state.mem (baseAddress + 1) v1)
+    (rep2 : UIntRep 1 state.mem (baseAddress + 2) v2)
+    (rep3 : UIntRep 1 state.mem (baseAddress + 3) v3)
+    (pma : ∀ offset, offset < 4 →
+      LoadPmaAllows state (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (notMMIO : ∀ offset, offset < 4 →
+      LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (sourceFits : baseAddress + 4 ≤ 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ after, Seg readU32_3457OwnPc readU32_3457ExitPc (fun _ _ _ _ _ => False)
+      readU32_3457Writes noMemory
+      [⟨x11, readU32UnsignedMachineValue v0 v1 v2 v3⟩]
+      fromStep 10 state after (BitVec.ofNat 64 0x13018) :=
+  standard_read_u32_compose readU32_3457OwnPc, readU32_3457ExitPc, readU32_3457Writes,
+    readU32_3457InstructionDisjoint, readU32_3457PlatformDisjoint;
+    0x12ff0, 0x13018, 0; x11, x12, x13, x14, x13, x11;
+    readU32_3457Load1, readU32_3457Load0, readU32_3457Load2, readU32_3457Load3,
+    readU32_3457Shift1, readU32_3457OrLow, readU32_3457Shift2, readU32_3457Shift3,
+    readU32_3457OrHigh, readU32_3457OrResult;
+    fromStep, baseAddress, v0, v1, v2, v3, state, configured, atPc, base,
+    rep0, rep1, rep2, rep3, pma, notMMIO, sourceFits, loaded
+
 end BinaryFv.Zesu.MachineExecution

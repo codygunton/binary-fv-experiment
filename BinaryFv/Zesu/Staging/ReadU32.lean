@@ -464,4 +464,14 @@ standardReadU32Contract(sszReadU32SourceX15, sszReadU32Preserved30e2,
   0x12944, 0, 0x1296c; x15, x14; x12, x14, x16, x17;
   readU32_30e2OwnPc, readU32_30e2ExitPc, readU32_30e2Writes, readU32_30e2Run)
 
+/-! ## Standard unsigned `fi:1:3457` wrapper -/
+
+standardReadU32Contract(sszReadU32SourceX9, sszReadU32Preserved3457,
+  sszReadU32Bindings3457, Proposed_ssz_readU32_fi_1_3457_Contract,
+  readU32_3457OwnPc_not_observed, readU32Bindings3457Regs,
+  readU32Bindings3457_of_regs, preserved3457Disjoint,
+  readU32_3457Contract_implements, proposed_readU32_3457_proved;
+  0x12ff0, 0, 0x13018; x9, x11; x11, x12, x13, x14;
+  readU32_3457OwnPc, readU32_3457ExitPc, readU32_3457Writes, readU32_3457Run)
+
 end BinaryFv.Zesu.Staging
