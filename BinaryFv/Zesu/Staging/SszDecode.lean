@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.HLevel3SszDecodeSteps
+import BinaryFv.Zesu.MachineExecution.MemcpyProof
 import BinaryFv.Zesu.Staging.ForkName
 import BinaryFv.Zesu.Staging.MemReadInt
 
@@ -14,6 +15,12 @@ open BinaryFv.RiscV
 open BinaryFv.RiscV.Elfling
 open BinaryFv.Zesu.MachineExecution
 open PreSail LeanRV64DExecutable.Functions Register
+
+def sszDecodeCleanupMemcpyArgs (args : DecodeInlineArgs) : MemcpyArgs :=
+  { returnAddress := 0x122b8
+    destination := args.boundary.stackPointer - 0xbb0 + 0x330
+    source := 0x1755c
+    bytes := sszDecodeCleanupTemplateBytes }
 
 /-- The first represented four-byte schema word at the `mem.readInt` child boundary. -/
 def sszDecodeSchemaWordArgs (args : DecodeInlineArgs) (bound : 4 ≤ args.boundary.input.size)
@@ -163,6 +170,47 @@ structure SszDecodeCleanupReady (args : DecodeInlineArgs) (machine : State) : Pr
   configured : ConfiguredMachinePre EndpointMachinePc machine
   code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
 
+private theorem sszDecodeCleanupMemcpyWindowsDisjoint {args : DecodeInlineArgs} {state : State}
+    (ready : SszDecodeCleanupReady args state) :
+    let memcpyArgs := sszDecodeCleanupMemcpyArgs args
+    memcpyArgs.destination + memcpyArgs.bytes.size ≤ memcpyArgs.source ∨
+      memcpyArgs.source + memcpyArgs.bytes.size ≤ memcpyArgs.destination := by
+  dsimp [sszDecodeCleanupMemcpyArgs]
+  simp only [sszDecodeCleanupTemplateBytes, Array.size_ofFn]
+  let destination := args.boundary.stackPointer - 0xbb0 + 0x330
+  by_cases order : destination ≤ 0x1755c
+  · left
+    by_cases separated : destination + 256 ≤ 0x1755c
+    · exact separated
+    · exfalso
+      have sourceInside : destination ≤ 0x1755c ∧ 0x1755c < destination + 256 := by omega
+      have sourceInFrame : args.boundary.stackPointer - 0xbb0 ≤ 0x1755c ∧
+          0x1755c < args.boundary.stackPointer := by
+        dsimp [destination] at sourceInside
+        omega
+      have noCode := ready.access.frameNotCode 0x1755c sourceInFrame.1 sourceInFrame.2
+      have backed := sszDecodeCleanupTemplateBacked ⟨0, by omega⟩
+      simp [noCode] at backed
+  · right
+    have sourceBefore : 0x1755c ≤ destination := by omega
+    by_cases separated : 0x1755c + 256 ≤ destination
+    · exact separated
+    · exfalso
+      have destinationInside : destination < 0x1755c + 256 := by omega
+      let index : Fin 256 := ⟨destination - 0x1755c, by omega⟩
+      have atDestination : 0x1755c + index.val = destination := by
+        dsimp [index]
+        omega
+      have destinationInFrame : args.boundary.stackPointer - 0xbb0 ≤ destination ∧
+          destination < args.boundary.stackPointer := by
+        dsimp [destination]
+        omega
+      have noCode := ready.access.frameNotCode destination destinationInFrame.1
+        destinationInFrame.2
+      have backed := sszDecodeCleanupTemplateBacked index
+      rw [atDestination, noCode] at backed
+      simp at backed
+
 /-- The first two cleanup stores retain one opaque `Seg` and reach the address-setup instruction. -/
 theorem sszDecodeCleanupFirstStoresFromReady (fromStep : Nat) (args : DecodeInlineArgs)
     (before : State) (ready : SszDecodeCleanupReady args before) :
@@ -195,6 +243,147 @@ theorem sszDecodeCleanupMemcpyCallReadyFromReady (fromStep : Nat) (args : Decode
         fromStep 22 before after 0x122b4 :=
   sszDecodeCleanupMemcpyCallReady fromStep args before ready.atPc ready.atStack
     ready.stackFits ready.stackAligned ready.stackUpper ready.access ready.configured ready.code
+
+/-- The exact call step constructs the existing proved `memcpy` entry without a new contract. -/
+theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
+    (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
+    ∃ (callReady : State) (callState : EndpointState),
+      Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+        (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+        [⟨x1, 0x102b0⟩, ⟨x12, 256⟩,
+          ⟨x10, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330)⟩,
+          ⟨x11, 0x1755c⟩]
+        fromStep 22 before callReady 0x122b4 ∧
+      Runs (try_step (fromStep + 22) false) callReady callState.machine false ∧
+      MemcpyEntry (sszDecodeCleanupMemcpyArgs args) callState := by
+  obtain ⟨callReady, seg⟩ := sszDecodeCleanupMemcpyCallReadyFromReady fromStep args before ready
+  obtain ⟨retired, callRun⟩ := sszDecodeCleanupMemcpyCallRun seg ready.stackFits
+    ready.access ready.code
+  let callMachine := tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement callReady) 0x122b4 0x101d4 x1 0x122b8)
+    0x101d4 retired
+  let callState : EndpointState := { template with machine := callMachine }
+  have callWrites : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x1))
+      callReady callMachine := by
+    simpa [callMachine, callLinkState] using
+      callRetirement_writes callReady 0x122b4 0x101d4 retired x1 0x122b8
+  have parentPmaEq := seg.writes.get pma_regions (by
+    simp [sszDecodeCleanupWrites, stepBookkeeping])
+  have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
+  have pmaEq : callMachine.regs.get? pma_regions = before.regs.get? pma_regions :=
+    callPmaEq.trans parentPmaEq
+  have sourceBefore := sszDecodeCleanupTemplateRep before ready.code
+  have sourceAtReady : BytesRep callReady.mem 0x1755c sszDecodeCleanupTemplateBytes :=
+    sourceBefore.of_writesOnlyWithin seg.mem (by
+      intro index indexBound inside
+      unfold sszDecodeCleanupMemory byteRange at inside
+      have inFrame : args.boundary.stackPointer - 0xbb0 ≤ 0x1755c + index ∧
+          0x1755c + index < args.boundary.stackPointer := by omega
+      have noCode := ready.access.frameNotCode (0x1755c + index) inFrame.1 inFrame.2
+      let fin : Fin 256 := ⟨index, by simpa [sszDecodeCleanupTemplateBytes] using indexBound⟩
+      have backed := sszDecodeCleanupTemplateBacked fin
+      dsimp [fin] at backed
+      rw [noCode] at backed
+      simp at backed)
+  have sourceAtCall : BytesRep callMachine.mem 0x1755c sszDecodeCleanupTemplateBytes := by
+    simpa [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+      sourceAtReady
+  have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
+    simpa [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+      sszDecodeCleanupCodeOfSeg ready.stackFits ready.access ready.code seg
+  have stackFits := ready.stackFits
+  have stackUpper := ready.stackUpper
+  have windowsDisjoint := sszDecodeCleanupMemcpyWindowsDisjoint ready
+  have entry : MemcpyEntry (sszDecodeCleanupMemcpyArgs args) callState := by
+    unfold MemcpyEntry
+    constructor
+    · change 0x122b8 ∈ Elflings.memcpyExitPcs
+      native_decide
+    constructor
+    · simp [sszDecodeCleanupMemcpyArgs, sszDecodeCleanupTemplateBytes]
+    constructor
+    · simpa only [sszDecodeCleanupMemcpyArgs, sszDecodeCleanupTemplateBytes, Array.size_ofFn]
+        using (show args.boundary.stackPointer - 0xbb0 + 0x330 + 256 ≤ 2 ^ 64 by omega)
+    constructor
+    · simpa only [sszDecodeCleanupMemcpyArgs, sszDecodeCleanupTemplateBytes, Array.size_ofFn]
+        using (show 0x1755c + 256 ≤ 2 ^ 64 by omega)
+    constructor
+    · exact windowsDisjoint
+    constructor
+    · simp [callState, callMachine, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, callLinkState, Std.ExtDHashMap.get?_insert]
+      native_decide
+    constructor
+    · simp [sszDecodeCleanupMemcpyArgs, callState, callMachine,
+        tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, callLinkState,
+        Std.ExtDHashMap.get?_insert]
+    constructor
+    · exact (callWrites.get x10 (by decide)).trans
+        (seg.reg x10 (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330)) (by simp))
+    constructor
+    · exact (callWrites.get x11 (by decide)).trans (seg.reg x11 0x1755c (by simp))
+    constructor
+    · simp only [sszDecodeCleanupMemcpyArgs, sszDecodeCleanupTemplateBytes, Array.size_ofFn]
+      exact (callWrites.get x12 (by decide)).trans (seg.reg x12 256 (by simp))
+    constructor
+    · simpa only [sszDecodeCleanupMemcpyArgs, callState] using sourceAtCall
+    constructor
+    · simpa only [callState] using callCode
+    · refine
+        { configured := configuredAfterSszDecodeCleanupCall callReady retired
+            (sszDecodeCleanupAccessOfSeg ready.access seg).configured
+          sourcePma := ?_
+          destinationPma := ?_
+          sourceNotMMIO := ?_
+          destinationNotMMIO := ?_
+          destinationNotCode := ?_ }
+      · intro index indexBound
+        simp only [sszDecodeCleanupMemcpyArgs, sszDecodeCleanupTemplateBytes, Array.size_ofFn]
+          at indexBound ⊢
+        exact dataPmaAllows_of_pma_regions_eq pmaEq
+          (ready.access.cleanupTemplateLoad index 1 (by omega))
+      · intro index indexBound
+        simp only [sszDecodeCleanupMemcpyArgs, sszDecodeCleanupTemplateBytes, Array.size_ofFn]
+          at indexBound ⊢
+        simpa [sszDecodeCleanupMemcpyArgs, Nat.add_assoc] using
+          dataPmaAllows_of_pma_regions_eq pmaEq
+            (ready.access.frameStore (0x330 + index) 1 (by omega))
+      · intro index indexBound
+        simp only [sszDecodeCleanupMemcpyArgs, sszDecodeCleanupTemplateBytes, Array.size_ofFn]
+          at indexBound ⊢
+        simpa [sszDecodeCleanupMemcpyArgs, Nat.add_assoc] using
+          ready.access.cleanupTemplateNoMMIO index 1 (by omega)
+      · intro index indexBound
+        simp only [sszDecodeCleanupMemcpyArgs, sszDecodeCleanupTemplateBytes, Array.size_ofFn]
+          at indexBound ⊢
+        simpa [sszDecodeCleanupMemcpyArgs, Nat.add_assoc] using
+          ready.access.frameNoMMIO (0x330 + index) 1 (by omega)
+      · intro index indexBound
+        simp only [sszDecodeCleanupMemcpyArgs, sszDecodeCleanupTemplateBytes, Array.size_ofFn]
+          at indexBound ⊢
+        exact ready.access.frameNotCode _ (by omega) (by omega)
+  exact ⟨callReady, callState, seg, by simpa [callState, callMachine] using callRun, entry⟩
+
+/-- Apply the unconditional `memcpy` contract at the cleanup call boundary. -/
+theorem sszDecodeCleanupMemcpyChild (fromStep : Nat) (args : DecodeInlineArgs)
+    (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
+    ∃ (callReady : State) (callState : EndpointState) (used : Nat) (after : EndpointState),
+      Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+        (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+        [⟨x1, 0x102b0⟩, ⟨x12, 256⟩,
+          ⟨x10, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330)⟩,
+          ⟨x11, 0x1755c⟩]
+        fromStep 22 before callReady 0x122b4 ∧
+      Runs (try_step (fromStep + 22) false) callReady callState.machine false ∧
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
+        (fromStep + 23) used callState after ∧
+      MemcpyExit (sszDecodeCleanupMemcpyArgs args) () callState after := by
+  obtain ⟨callReady, callState, seg, callRun, entry⟩ :=
+    sszDecodeCleanupMemcpyEntry fromStep args template before ready
+  obtain ⟨used, after, _outcome, _positive, _bounded, childTrace, _childExitPc, _allowed,
+    childExit⟩ := MemcpyInstanceContract.implements memcpyInstanceContract
+      (sszDecodeCleanupMemcpyArgs args) (fromStep + 23) callState entry
+  exact ⟨callReady, callState, used, after, seg, callRun, childTrace, childExit⟩
 
 private theorem iTypeResult_addi_four_ofNat (value : Nat) :
     iTypeResult .ADDI 4 (BitVec.ofNat 64 value) = BitVec.ofNat 64 (value + 4) := by

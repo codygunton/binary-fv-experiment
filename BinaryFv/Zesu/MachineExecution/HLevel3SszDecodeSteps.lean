@@ -1101,7 +1101,7 @@ def sszDecodeCleanupTemplateBytes : Array UInt8 :=
   Array.ofFn fun index : Fin 256 =>
     (Artifacts.programImage.readFileByte? (0x1755c + index.val)).getD 0
 
-private theorem sszDecodeCleanupTemplateBacked : ∀ index : Fin 256,
+theorem sszDecodeCleanupTemplateBacked : ∀ index : Fin 256,
     (Artifacts.programImage.readFileByte? (0x1755c + index.val)).isSome := by
   native_decide
 
@@ -1598,7 +1598,7 @@ private theorem instructionPreserved_disjoint_sszDecodeCleanupWrites :
   · exact platformPreserved_disjoint register preserved.1 bookkeeping
   all_goals simp [instructionPreserved, platformPreserved] at preserved
 
-private theorem sszDecodeCleanupAccessOfSeg {args : DecodeInlineArgs} {before cur : State}
+theorem sszDecodeCleanupAccessOfSeg {args : DecodeInlineArgs} {before cur : State}
     {kv a n pc} (access : DecodeBoundaryMachineAccess args.boundary before)
     (seg : Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
       (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
@@ -1608,7 +1608,7 @@ private theorem sszDecodeCleanupAccessOfSeg {args : DecodeInlineArgs} {before cu
     (seg.agree instructionPreserved_disjoint_sszDecodeCleanupWrites) seg.retired
     (seg.get pma_regions (by simp [sszDecodeCleanupWrites, stepBookkeeping]))
 
-private theorem sszDecodeCleanupCodeOfSeg {args : DecodeInlineArgs} {before cur : State}
+theorem sszDecodeCleanupCodeOfSeg {args : DecodeInlineArgs} {before cur : State}
     {kv a n pc} (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
     (access : DecodeBoundaryMachineAccess args.boundary before)
     (code : Artifacts.programImage.fileBytesLoadedFaithfully before.mem)
@@ -1976,6 +1976,46 @@ theorem sszDecodeCleanupMemcpyCallReady (fromStep : Nat) (args : DecodeInlineArg
     (by simp [sszDecodeCleanupWrites]) (by decide) (by decide)
     (by simp [RegsOutside, stepBookkeeping])
   exact ⟨state22, by simpa only [Nat.add_assoc] using seg22⟩
+
+/-- Execute the exact cleanup call from the opaque pre-call `Seg`. -/
+theorem sszDecodeCleanupMemcpyCallRun {args : DecodeInlineArgs} {before callReady : State}
+    {fromStep : Nat}
+    (seg : Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+      (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+      [⟨x1, 0x102b0⟩, ⟨x12, 256⟩,
+        ⟨x10, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330)⟩,
+        ⟨x11, 0x1755c⟩]
+      fromStep 22 before callReady 0x122b4)
+    (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+    (access : DecodeBoundaryMachineAccess args.boundary before)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully before.mem) :
+    ∃ retired, Runs (try_step (fromStep + 22) false) callReady
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement callReady) 0x122b4 0x101d4 x1 0x122b8)
+        0x101d4 retired) false :=
+  sszDecodeCleanupMemcpyCallStep (fromStep + 22) callReady
+    (sszDecodeCleanupAccessOfSeg access seg).configured seg.atPc
+    (seg.reg x1 0x102b0 (by simp))
+    (sszDecodeCleanupCodeOfSeg stackFits access code seg)
+
+/-- The configured-machine facts survive the cleanup direct-call retirement. -/
+theorem configuredAfterSszDecodeCleanupCall (state : State) (retired : BitVec 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc state) :
+    ConfiguredMachinePre EndpointMachinePc
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x122b4 0x101d4 x1 0x122b8)
+        0x101d4 retired) := by
+  apply configured.mono
+  · simpa [callLinkState] using
+      (callRetirement_writes state 0x122b4 0x101d4 retired x1 0x122b8).agree
+        (by
+          intro register preserved written
+          rcases written with bookkeeping | rfl
+          · exact platformPreserved_disjoint register preserved.1 bookkeeping
+          · exact preserved.2 rfl)
+  · simpa using tryStepControlFlowAfterRetired_retired_present
+      (callLinkState (tryStepControlFlowAfterIncrement state) 0x122b4 0x101d4 x1 0x122b8)
+      0x101d4 retired
 
 def sszDecodeForkNameByteOwnPc (pc : BitVec 64) : Prop := pc = 0x12218
 
