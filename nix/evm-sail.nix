@@ -175,6 +175,7 @@ let
     cp ${repo}/BinaryFv/Zesu/MachineExecution/HLevel3RawEncoderSteps.lean HLevel3RawEncoderSteps.lean
     cp ${repo}/BinaryFv/Zesu/Staging/RawEncoder.lean RawEncoder.lean
     cp ${repo}/BinaryFv/Zesu/Staging/IntegerEncoder.lean IntegerEncoder.lean
+    cp ${repo}/BinaryFv/Zesu/Staging/OptionalEncoder.lean OptionalEncoder.lean
     cp ${repo}/BinaryFv/Zesu/Staging/HLevel3.lean HLevel3.lean
     cp ${repo}/BinaryFv/Zesu/Staging/HLevel3IdiomChecks.lean HLevel3IdiomChecks.lean
     cp ${repo}/BinaryFv/Zesu/Elflings/GeneratedLevel1.lean GeneratedLevel1.lean

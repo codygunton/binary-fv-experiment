@@ -14,6 +14,14 @@ DIRECT_PROOF_PATH = Path(os.environ.get(
 DIRECT_PROOF_ROWS = json.loads(DIRECT_PROOF_PATH.read_text())["proofs"]
 DIRECT_PROOFS = {row["field"]: row["theorem"] for row in DIRECT_PROOF_ROWS}
 DIRECT_CONTRACTS = {row["field"]: row["contract"] for row in DIRECT_PROOF_ROWS}
+DESIGNED_CONTRACTS = {
+    "ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b":
+        "BinaryFv.Zesu.Staging."
+        "Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract",
+    "ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94":
+        "BinaryFv.Zesu.Staging."
+        "Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract",
+}
 
 
 def contract_name(field: str) -> str:
@@ -45,6 +53,8 @@ def comments(*values: str) -> list[str]:
 def contract_body(field: str) -> list[str]:
     if field in DIRECT_PROOFS:
         return [f"  exact {DIRECT_CONTRACTS[field]}"]
+    if field in DESIGNED_CONTRACTS:
+        return [f"  exact {DESIGNED_CONTRACTS[field]}"]
     return ["  sorry"]
 
 
@@ -70,6 +80,7 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
         "import BinaryFv.Zesu.Staging.WriteOutput",
         "import BinaryFv.Zesu.Staging.RawEncoder",
         "import BinaryFv.Zesu.Staging.IntegerEncoder",
+        "import BinaryFv.Zesu.Staging.OptionalEncoder",
         "",
         "/-!",
         "# Generated hLevel3 staging",

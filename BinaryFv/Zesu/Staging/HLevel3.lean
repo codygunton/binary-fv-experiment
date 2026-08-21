@@ -11,6 +11,7 @@ import BinaryFv.Zesu.Staging.CheckedSlice
 import BinaryFv.Zesu.Staging.WriteOutput
 import BinaryFv.Zesu.Staging.RawEncoder
 import BinaryFv.Zesu.Staging.IntegerEncoder
+import BinaryFv.Zesu.Staging.OptionalEncoder
 
 /-!
 # Generated hLevel3 staging
@@ -449,7 +450,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract
 
 /--
 Contract design hole for `fi:1:3f94` at `0x15158`.
@@ -464,7 +465,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract
 
 /--
 Contract design hole for `fi:1:3fdd` at `0x151c8`.

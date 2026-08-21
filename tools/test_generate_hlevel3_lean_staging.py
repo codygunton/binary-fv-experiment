@@ -5,7 +5,7 @@ import os
 import unittest
 from pathlib import Path
 
-from generate_hlevel3_lean_staging import DIRECT_PROOFS, generate, idiom_checks
+from generate_hlevel3_lean_staging import DESIGNED_CONTRACTS, DIRECT_PROOFS, generate, idiom_checks
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,7 +30,7 @@ class LeanStagingTests(unittest.TestCase):
         cls.read_u32_source = READ_U32_SOURCE.read_text()
 
     def test_exact_typed_holes(self):
-        external_contracts = set(DIRECT_PROOFS)
+        external_contracts = set(DIRECT_PROOFS) | set(DESIGNED_CONTRACTS)
         contract_count = len(self.inventory["proposedLevel3Contracts"])
         self.assertEqual(
             self.source.count(": Prop := by\n  sorry"), contract_count - len(external_contracts))
