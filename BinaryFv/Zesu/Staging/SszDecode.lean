@@ -71,10 +71,11 @@ private theorem memReadIntOwnPc_in_initial {pc : BitVec 64}
     exact ⟨(0x121ac, 0x14ca8), by simp [Elflings.sszDecodeExecutionPcRanges], by omega,
       by omega⟩
 
-private theorem liftSszDecodeAllocatorTrace (template : EndpointState)
-    {fromStep count : Nat} {before after : State}
-    (trace : ScopedTrace sszDecodeAllocatorPrefixOwnPc sszDecodeAllocatorPrefixExitPc
-      (fun _ _ _ _ _ => False) fromStep count before after) :
+private theorem liftSszDecodeParentTrace (own exit : BitVec 64 → Prop)
+    (ownInInitial : ∀ {pc}, own pc → DecodeInlineInitialExecutionPc pc)
+    (ownNotObserved : ∀ {pc}, own pc → ¬BareMetalHostTransitionPc pc)
+    (template : EndpointState) {fromStep count : Nat} {before after : State}
+    (trace : ScopedTrace own exit (fun _ _ _ _ _ => False) fromStep count before after) :
     ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep count
       { template with machine := before } { template with machine := after } := by
   induction trace with
@@ -83,13 +84,13 @@ private theorem liftSszDecodeAllocatorTrace (template : EndpointState)
       refine ConfinedTrace.step (stepRelation := EndpointStep) (statePc := EndpointPc)
         fromStep count pc
         { template with machine := before } { template with machine := middle }
-        { template with machine := after } atPc (sszDecodeAllocatorOwnPc_in_initial inside) ?_ ?_
+        { template with machine := after } atPc (ownInInitial inside) ?_ ?_
       · exact endpointStep_sail fromStep { template with machine := before } middle
           (fun observed observedPc => by
             change before.regs.get? PC = some observed at observedPc
             rw [atPc] at observedPc
             cases Option.some.inj observedPc
-            exact sszDecodeAllocatorOwnPc_not_observed inside)
+            exact ownNotObserved inside)
           machineStep
       · exact ih
   | childBody fromStep used count child before middle after body rest ih => exact body.elim
@@ -99,6 +100,85 @@ private theorem liftSszDecodeAllocatorTrace (template : EndpointState)
       resume after transfer rest ih => exact transfer.body.elim
   | callStep fromStep used count callSite program parent callee before resume after transfer rest ih =>
       exact transfer.body.elim
+
+private theorem liftSszDecodeAllocatorTrace (template : EndpointState)
+    {fromStep count : Nat} {before after : State}
+    (trace : ScopedTrace sszDecodeAllocatorPrefixOwnPc sszDecodeAllocatorPrefixExitPc
+      (fun _ _ _ _ _ => False) fromStep count before after) :
+    ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep count
+      { template with machine := before } { template with machine := after } :=
+  liftSszDecodeParentTrace sszDecodeAllocatorPrefixOwnPc sszDecodeAllocatorPrefixExitPc
+    sszDecodeAllocatorOwnPc_in_initial sszDecodeAllocatorOwnPc_not_observed template trace
+
+private theorem instructionPreserved_disjoint_memReadIntWrites_for_sszDecode :
+    RegSet.Disjoint instructionPreserved memReadIntWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl | rfl | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  all_goals simp [instructionPreserved, platformPreserved] at preserved
+
+/-- Typed facts retained when the first schema-word child returns to `ssz.decode`. -/
+structure SszDecodeSchemaWordExit (args : DecodeInlineArgs) (readArgs : MemReadIntArgs)
+    (state : EndpointState) : Prop where
+  atPc : state.machine.regs.get? PC = some 0x121ec
+  inputSizeAt : state.machine.regs.get? x13 =
+    some (BitVec.ofNat 64 args.boundary.input.size)
+  sourceAt : state.machine.regs.get? x18 =
+    some (BitVec.ofNat 64 args.boundary.inputAddress)
+  schemaAt : state.machine.regs.get? x14 = some (memReadIntResult readArgs)
+  configured : ConfiguredMachinePre EndpointMachinePc state.machine
+  code : Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+
+private theorem sszDecodeLengthValidatedOwnPc_in_initial {pc : BitVec 64}
+    (inside : sszDecodeLengthValidatedOwnPc pc) : DecodeInlineInitialExecutionPc pc := by
+  simp [sszDecodeLengthValidatedOwnPc, pcInList] at inside
+  rcases inside with inside | inside | inside | inside | inside
+  all_goals
+    unfold DecodeInlineInitialExecutionPc pcInRanges
+    exact ⟨(0x121ac, 0x14ca8), by simp [Elflings.sszDecodeExecutionPcRanges], by omega,
+      by omega⟩
+
+private theorem sszDecodeLengthMinimumOwnPc_in_initial {pc : BitVec 64}
+    (inside : sszDecodeLengthMinimumOwnPc pc) : DecodeInlineInitialExecutionPc pc := by
+  simp [sszDecodeLengthMinimumOwnPc, pcInList] at inside
+  rcases inside with inside | inside
+  all_goals
+    unfold DecodeInlineInitialExecutionPc pcInRanges
+    exact ⟨(0x121ac, 0x14ca8), by simp [Elflings.sszDecodeExecutionPcRanges], by omega,
+      by omega⟩
+
+private theorem sszDecodeLengthValidatedOwnPc_not_observed {pc : BitVec 64}
+    (inside : sszDecodeLengthValidatedOwnPc pc) : ¬BareMetalHostTransitionPc pc := by
+  intro observed
+  simp [sszDecodeLengthValidatedOwnPc, pcInList] at inside
+  unfold BareMetalHostTransitionPc readContextReturnPc writeContextReturnPc exitContextStorePc
+    at observed
+  rcases inside with inside | inside | inside | inside | inside
+  all_goals rcases observed with observed | observed | observed <;> omega
+
+private theorem sszDecodeLengthMinimumOwnPc_not_observed {pc : BitVec 64}
+    (inside : sszDecodeLengthMinimumOwnPc pc) : ¬BareMetalHostTransitionPc pc := by
+  intro observed
+  simp [sszDecodeLengthMinimumOwnPc, pcInList] at inside
+  unfold BareMetalHostTransitionPc readContextReturnPc writeContextReturnPc exitContextStorePc
+    at observed
+  rcases inside with inside | inside
+  all_goals rcases observed with observed | observed | observed <;> omega
+
+private theorem scopedTraceOfSegAtExit {own exit : BitVec 64 → Prop} {W : RegSet}
+    {kv : List RegVal} {a n : Nat} {base cur : State} {pc : BitVec 64}
+    (seg : Seg own exit (fun _ _ _ _ _ => False) W noMemory kv a n base cur pc)
+    (atExit : exit pc) : ScopedTrace own exit (fun _ _ _ _ _ => False) a n base cur := by
+  have endTrace : ScopedTrace own exit (fun _ _ _ _ _ => False) (a + n) 0 cur cur :=
+    .exitAt (a + n) cur pc seg.atPc atExit
+  simpa using seg.confined 0 cur endTrace
+
+private theorem instructionPreserved_disjoint_sszDecodeLengthValidatedWrites_for_staging :
+    RegSet.Disjoint instructionPreserved sszDecodeLengthValidatedWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  all_goals simp [instructionPreserved, platformPreserved] at preserved
 
 /-- The parent prefix and the proved four-byte child form one initial decoder trace. -/
 theorem sszDecodeSchemaWordPrefixAndChild (fromStep : Nat) (args : DecodeInlineArgs)
@@ -120,6 +200,7 @@ theorem sszDecodeSchemaWordPrefixAndChild (fromStep : Nat) (args : DecodeInlineA
       used ≤ 10 ∧
       ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep (6 + used)
         before after ∧
+      SszDecodeSchemaWordExit args readArgs after ∧
       memReadIntExit readArgs () middle after := by
   obtain ⟨middleMachine, prefixSeg, childMachineEntry⟩ :=
     sszDecodeAllocatorFallThroughHandoff fromStep args values before frame atPc allocatorAt
@@ -146,11 +227,106 @@ theorem sszDecodeSchemaWordPrefixAndChild (fromStep : Nat) (args : DecodeInlineA
       (fromStep + 6) used middle after :=
     childTrace.weaken (fun pc inside => memReadIntOwnPc_in_initial inside)
   have combined := prefixTrace.append childTrace'
+  cases childOutcome
+  rcases childExit with ⟨childAtPc, schemaAfter, childWrites, childMem, stdinAfter,
+    stdinCursorAfter, stdoutAfter, exitCodeAfter, retiredAfter, loadedAfter, auxAfter⟩
+  have middleInputSize : middle.machine.regs.get? x13 =
+      some (BitVec.ofNat 64 args.boundary.input.size) :=
+    (prefixSeg.get x13 (by simp [sszDecodeAllocatorPrefixWrites])).trans inputSizeAt
+  have middleSource : middle.machine.regs.get? x18 =
+      some (BitVec.ofNat 64 args.boundary.inputAddress) :=
+    (prefixSeg.get x18 (by simp [sszDecodeAllocatorPrefixWrites])).trans sourceAt
+  have typedExit : SszDecodeSchemaWordExit args readArgs after :=
+    ⟨childAtPc,
+      (childWrites.get x13 (by simp [memReadIntWrites])).trans middleInputSize,
+      (childWrites.get x18 (by simp [memReadIntWrites])).trans middleSource,
+      schemaAfter,
+      childMachineEntry.access.configured.mono
+        (childWrites.agree instructionPreserved_disjoint_memReadIntWrites_for_sszDecode)
+        retiredAfter,
+      loadedAfter⟩
+  have childExit' : memReadIntExit readArgs () middle after :=
+    ⟨childAtPc, schemaAfter, childWrites, childMem, stdinAfter, stdinCursorAfter,
+      stdoutAfter, exitCodeAfter, retiredAfter, loadedAfter, auxAfter⟩
   refine ⟨used, middle, after, readArgs, rfl,
     ⟨childMachineEntry.inputAtLeastFour, childMachineEntry.input.1, rfl⟩,
-    by simpa [memReadIntContract] using bounded, ?_, ?_⟩
+    by simpa [memReadIntContract] using bounded, ?_, typedExit, childExit'⟩
   · simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using combined
-  · cases childOutcome
-    simpa [memReadIntContract] using childExit
+
+/-- The first child, validated-length route, and shared minimum check form one decoder trace. -/
+theorem sszDecodeValidatedLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
+    (values : DecodeCalleeSavedValues) (before : EndpointState)
+    (frame : DecodeInlineFrame args values before)
+    (atPc : before.machine.regs.get? PC = some 0x121ac)
+    (allocatorAt : before.machine.regs.get? x11 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x10)))
+    (inputSizeAt : before.machine.regs.get? x13 =
+      some (BitVec.ofNat 64 args.boundary.input.size))
+    (sourceAt : before.machine.regs.get? x18 =
+      some (BitVec.ofNat 64 args.boundary.inputAddress))
+    (fieldComparison : zopz0zKzJ_u 3 (BitVec.ofNat 64 args.boundary.input.size) = false)
+    (lengthEqual : ∀ (bound : 4 ≤ args.boundary.input.size)
+      (fits : args.boundary.inputAddress + args.boundary.input.size ≤ 2 ^ 64),
+      iTypeResult .ADDI 0xffc (BitVec.ofNat 64 args.boundary.input.size) =
+        memReadIntResult (sszDecodeSchemaWordArgs args bound fits))
+    (minimumComparison : zopz0zI_u
+      (iTypeResult .ADDI 0xffc (BitVec.ofNat 64 args.boundary.input.size)) 2 = short) :
+    ∃ used after,
+      used ≤ 10 ∧
+      ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep
+        (6 + used + 5 + 2) before after ∧
+      after.machine.regs.get? PC = some (if short then 0x1225c else 0x1220c) := by
+  obtain ⟨used, middle, childAfter, readArgs, readAddress, readShape, bounded,
+    prefixAndChild, childReady, childExit⟩ :=
+    sszDecodeSchemaWordPrefixAndChild fromStep args values before frame atPc allocatorAt
+      inputSizeAt sourceAt fieldComparison
+  rcases readShape with ⟨bound, fits, readArgsEq⟩
+  subst readArgs
+  let candidate := iTypeResult .ADDI 0xffc (BitVec.ofNat 64 args.boundary.input.size)
+  let advanced := iTypeResult .ADDI 4 (BitVec.ofNat 64 args.boundary.inputAddress)
+  obtain ⟨validatedMachine, validatedSeg⟩ :=
+    sszDecodeLengthValidatedRouteSeg (fromStep + 6 + used) childAfter.machine
+      childReady.configured childReady.atPc childReady.inputSizeAt childReady.schemaAt
+      childReady.sourceAt rfl (lengthEqual bound fits) rfl childReady.code
+  let validatedAfter : EndpointState := { childAfter with machine := validatedMachine }
+  have validatedMachineTrace := scopedTraceOfSegAtExit validatedSeg (by
+    simp [sszDecodeLengthValidatedExitPc])
+  have validatedTrace : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      (fromStep + 6 + used) 5 childAfter validatedAfter := by
+    simpa [validatedAfter] using
+      liftSszDecodeParentTrace sszDecodeLengthValidatedOwnPc
+        sszDecodeLengthValidatedExitPc sszDecodeLengthValidatedOwnPc_in_initial
+        sszDecodeLengthValidatedOwnPc_not_observed childAfter validatedMachineTrace
+  have validatedConfigured := childReady.configured.mono
+    (validatedSeg.agree
+      instructionPreserved_disjoint_sszDecodeLengthValidatedWrites_for_staging)
+    validatedSeg.retired
+  have validatedCode : Artifacts.programImage.fileBytesLoadedFaithfully validatedMachine.mem := by
+    rw [validatedSeg.memEq noMemory_empty]
+    exact childReady.code
+  obtain ⟨finalMachine, minimumSeg⟩ :=
+    sszDecodeLengthMinimumBranchSeg (fromStep + 6 + used + 5) validatedMachine
+      validatedConfigured validatedSeg.atPc
+      (validatedSeg.reg x10 candidate (by simp [candidate])) minimumComparison validatedCode
+  let after : EndpointState := { validatedAfter with machine := finalMachine }
+  have minimumMachineTrace := scopedTraceOfSegAtExit minimumSeg (by
+    cases short <;> simp [sszDecodeLengthMinimumExitPc, pcInList])
+  have minimumTrace : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      (fromStep + 6 + used + 5) 2 validatedAfter after := by
+    simpa [after, validatedAfter] using
+      liftSszDecodeParentTrace sszDecodeLengthMinimumOwnPc sszDecodeLengthMinimumExitPc
+        sszDecodeLengthMinimumOwnPc_in_initial sszDecodeLengthMinimumOwnPc_not_observed
+        validatedAfter minimumMachineTrace
+  have validatedTrace' : ConfinedTrace EndpointStep EndpointPc
+      DecodeInlineInitialExecutionPc (fromStep + (6 + used)) 5 childAfter validatedAfter := by
+    simpa only [Nat.add_assoc] using validatedTrace
+  have prefixValidated := prefixAndChild.append validatedTrace'
+  have minimumTrace' : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      (fromStep + (6 + used + 5)) 2 validatedAfter after := by
+    simpa only [Nat.add_assoc] using minimumTrace
+  have combined := prefixValidated.append minimumTrace'
+  refine ⟨used, after, bounded, ?_, ?_⟩
+  · simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using combined
+  · exact minimumSeg.atPc
 
 end BinaryFv.Zesu.Staging
