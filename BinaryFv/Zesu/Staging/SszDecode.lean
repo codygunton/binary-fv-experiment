@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.HLevel3SszDecodeSteps
+import BinaryFv.Zesu.Staging.ForkName
 import BinaryFv.Zesu.Staging.MemReadInt
 
 /-!
@@ -201,6 +202,85 @@ private theorem instructionPreserved_disjoint_sszDecodeLengthShortWrites_for_sta
   rcases written with bookkeeping | rfl
   · exact platformPreserved_disjoint register preserved.1 bookkeeping
   · simp [instructionPreserved, platformPreserved] at preserved
+
+private theorem instructionPreserved_disjoint_sszDecodeForkNameByteWrites_for_staging :
+    RegSet.Disjoint instructionPreserved sszDecodeForkNameByteWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  · simp [instructionPreserved, platformPreserved] at preserved
+
+private theorem platformPreserved_disjoint_sszDecodeForkNameByteWrites_for_staging :
+    RegSet.Disjoint platformPreserved sszDecodeForkNameByteWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl
+  · exact platformPreserved_disjoint register preserved bookkeeping
+  · simp [platformPreserved] at preserved
+
+/-- The parent byte load constructs the exact entry of the proved fork-name child. -/
+theorem sszDecodeForkNameChildHandoff (fromStep baseAddress schema : Nat)
+    (args : ForkNameArgs) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x12218)
+    (base : before.machine.regs.get? x18 = some (BitVec.ofNat 64 baseAddress))
+    (rep : UIntRep 1 before.machine.mem baseAddress schema)
+    (pma : LoadPmaAllows before.machine (BitVec.ofNat 64 baseAddress) 1)
+    (notMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 baseAddress) 1)
+    (configured : ConfiguredMachinePre EndpointMachinePc before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (schemaEq : args.schema = schema)
+    (selection : match args.selected with
+      | none =>
+          reviewedForkNameForSchema args.schema = none ∧
+          zopz0zI_u 20 (forkNameSchemaIndex args.schema) = true
+      | some fork =>
+          reviewedForkNameForSchema args.schema = some fork ∧
+          zopz0zI_u 20 (forkNameSchemaIndex args.schema) = false ∧
+          BitVec.ofNat 64 args.tableAddress =
+            0x17228 + forkNameTableOffset (forkNameSchemaIndex args.schema) ∧
+          UIntRep 8 before.machine.mem args.tableAddress (reviewedForkNameTarget fork) ∧
+          LoadPmaAllows before.machine (BitVec.ofNat 64 args.tableAddress) 8 ∧
+          LoadMMIOAddressExcluded (BitVec.ofNat 64 args.tableAddress) 8 ∧
+          args.tableAddress < 2 ^ 64 ∧ args.tableAddress % 8 = 0 ∧
+          Sail.BitVec.access (BitVec.ofNat 64 (reviewedForkNameTarget fork)) 1 = 0#1 ∧
+          Sail.BitVec.update (BitVec.ofNat 64 (reviewedForkNameTarget fork)) 0 0#1 =
+            BitVec.ofNat 64 (reviewedForkNameTarget fork)) :
+    ∃ after,
+      Seg sszDecodeForkNameByteOwnPc sszDecodeForkNameByteExitPc
+        (fun _ _ _ _ _ => False) sszDecodeForkNameByteWrites noMemory
+        [⟨x10, zero_extend (m := 64) (BitVec.ofNat 8 schema)⟩]
+        fromStep 1 before.machine after.machine 0x1221c ∧
+      forkNameSelectionEntry args after := by
+  have baseFits : baseAddress < 2 ^ 64 := by
+    have := rep.2.1
+    omega
+  obtain ⟨afterMachine, seg⟩ := sszDecodeForkNameByteSeg fromStep baseAddress schema
+    before.machine configured atPc base rep pma notMMIO baseFits loaded
+  let after : EndpointState := { before with machine := afterMachine }
+  have schemaFits : schema < 2 ^ 8 := rep.1
+  have schemaWord : zero_extend (m := 64) (BitVec.ofNat 8 schema) = BitVec.ofNat 64 schema := by
+    apply BitVec.eq_of_toNat_eq
+    simp [zero_extend, Sail.BitVec.zeroExtend, Nat.mod_eq_of_lt schemaFits,
+      Nat.mod_eq_of_lt (by omega : schema < 2 ^ 64)]
+  have agree := seg.agree instructionPreserved_disjoint_sszDecodeForkNameByteWrites_for_staging
+  have platformAgree :=
+    seg.agree platformPreserved_disjoint_sszDecodeForkNameByteWrites_for_staging
+  have memory := seg.memEq noMemory_empty
+  refine ⟨after, by simpa [after] using seg, seg.atPc, ?_, ?_, ?_, ?_⟩
+  · rw [schemaEq, ← schemaWord]
+    exact seg.reg x10 (zero_extend (m := 64) (BitVec.ofNat 8 schema)) (by simp)
+  · exact configured.mono agree seg.retired
+  · rw [memory]
+    exact loaded
+  · rw [schemaEq] at selection ⊢
+    cases selectedEq : args.selected with
+    | none => simpa only [selectedEq] using selection
+    | some fork =>
+        simp only [selectedEq] at selection ⊢
+        rcases selection with ⟨meaning, accepted, tableEq, targetRep, targetPma, targetNotMMIO,
+          tableFits, tableAligned, targetAligned, targetUpdate⟩
+        exact ⟨meaning, accepted, tableEq, targetRep.of_mem_eq memory,
+          loadPmaAllows_of_agree platformAgree targetPma, targetNotMMIO, tableFits, tableAligned,
+          targetAligned, targetUpdate⟩
 
 /-- The parent prefix and the proved four-byte child form one initial decoder trace. -/
 theorem sszDecodeSchemaWordPrefixAndChild (fromStep : Nat) (args : DecodeInlineArgs)

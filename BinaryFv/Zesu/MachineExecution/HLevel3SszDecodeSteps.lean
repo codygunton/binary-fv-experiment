@@ -1082,4 +1082,69 @@ theorem sszDecodeSchemaMarkerSeg (fromStep baseAddress marker : Nat) (before : S
       (by simp [RegsOutside, stepBookkeeping])
     exact ⟨after, by simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using full⟩
 
+def sszDecodeForkNameByteOwnPc (pc : BitVec 64) : Prop := pc = 0x12218
+
+def sszDecodeForkNameByteExitPc (pc : BitVec 64) : Prop := pc = 0x1221c
+
+def sszDecodeForkNameByteWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x10
+
+/-- Exact `0x12218: lbu a0,0(s2)`, through the shared byte-load theorem. -/
+theorem sszDecodeLoadForkNameByteStep (stepNo baseAddress schema : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x12218)
+    (base : state.regs.get? x18 = some (BitVec.ofNat 64 baseAddress))
+    (rep : UIntRep 1 state.mem baseAddress schema)
+    (pma : LoadPmaAllows state (BitVec.ofNat 64 baseAddress) 1)
+    (notMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 baseAddress) 1)
+    (baseFits : baseAddress < 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x12218 retired x10
+        (zero_extend (m := 64) (BitVec.ofNat 8 schema))) false := by
+  apply configuredByteLoadFromX18Step stepNo 0x12218 0 state (.Regidx 10#5) x10
+    (zero_extend (m := 64) (BitVec.ofNat 8 schema))
+    0x03 0x45 0x09 0x00 baseAddress schema configured atPc base (by simpa using rep)
+    (by simpa using pma) (by simpa using notMMIO) (by simpa using baseFits) loaded
+  · configured_decode configured
+  · intro premise
+    exact wX_x10_run premise _
+  · native_decide
+  · decide
+  · decide
+  · decide
+  · decide
+  · rfl
+  · rw [show sign_extend (m := 64) (0#12) = 0#64 by native_decide]
+    apply BitVec.eq_of_toNat_eq
+    simp
+
+/-- The parent schema-byte load produces the exact fork-name child register state. -/
+theorem sszDecodeForkNameByteSeg (fromStep baseAddress schema : Nat) (before : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc before)
+    (atPc : before.regs.get? PC = some 0x12218)
+    (base : before.regs.get? x18 = some (BitVec.ofNat 64 baseAddress))
+    (rep : UIntRep 1 before.mem baseAddress schema)
+    (pma : LoadPmaAllows before (BitVec.ofNat 64 baseAddress) 1)
+    (notMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 baseAddress) 1)
+    (baseFits : baseAddress < 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.mem) :
+    ∃ after,
+      Seg sszDecodeForkNameByteOwnPc sszDecodeForkNameByteExitPc
+        (fun _ _ _ _ _ => False) sszDecodeForkNameByteWrites noMemory
+        [⟨x10, zero_extend (m := 64) (BitVec.ofNat 8 schema)⟩]
+        fromStep 1 before after 0x1221c := by
+  obtain ⟨retired, retiredRead⟩ := configured.retiredCounter
+  have seg0 := Seg.nil sszDecodeForkNameByteOwnPc sszDecodeForkNameByteExitPc
+    (fun _ _ _ _ _ => False) sszDecodeForkNameByteWrites noMemory
+    fromStep ⟨retired, retiredRead⟩ atPc
+  exact seg0.step
+    (by simp [sszDecodeForkNameByteOwnPc])
+    (by simp [sszDecodeForkNameByteExitPc]) x10
+    (zero_extend (m := 64) (BitVec.ofNat 8 schema)) 0x1221c
+    (sszDecodeLoadForkNameByteStep fromStep baseAddress schema before configured atPc base rep pma
+      notMMIO baseFits loaded)
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr rfl) (by decide) (by decide) (by simp [RegsOutside])
+
 end BinaryFv.Zesu.MachineExecution
