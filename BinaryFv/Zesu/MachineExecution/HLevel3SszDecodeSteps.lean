@@ -453,6 +453,8 @@ theorem sszDecodeAllocatorBranchSeg (fromStep : Nat) (args : DecodeInlineArgs)
 /-- Typed entry facts for the first four-byte read after the allocator prefix. -/
 structure SszDecodeSchemaWordEntry (args : DecodeInlineArgs) (state : State) : Prop where
   atPc : state.regs.get? PC = some 0x121c4
+  atStack : state.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
   sourceAt : state.regs.get? x18 = some (BitVec.ofNat 64 args.boundary.inputAddress)
   sizeAt : state.regs.get? x13 = some (BitVec.ofNat 64 args.boundary.input.size)
   input : BytesRep state.mem args.boundary.inputAddress args.boundary.input
@@ -487,16 +489,20 @@ theorem sszDecodeAllocatorFallThroughHandoff (fromStep : Nat) (args : DecodeInli
     intro index bound inside
     have inFrame := sszDecodeAllocatorPrefixMemory_in_frame frame.stackFits inside
     rcases frame.inputSeparated with above | below <;> omega)
-  refine ⟨after, seg, seg.atPc, ?_, ?_, inputAfter,
+  refine ⟨after, seg, seg.atPc, ?_, ?_, ?_, inputAfter,
     sszDecodeInputLengthAtLeastFour args.boundary.input.size frame.inputSize.1 comparison,
     sszDecodeAllocatorAccessOfSeg frame seg, sszDecodeAllocatorCodeOfSeg frame seg⟩
+  · exact (seg.get x2 (by simp [sszDecodeAllocatorPrefixWrites])).trans frame.atStack
   · exact (seg.get x18 (by simp [sszDecodeAllocatorPrefixWrites])).trans sourceAt
   · exact (seg.get x13 (by simp [sszDecodeAllocatorPrefixWrites])).trans inputSizeAt
 
 /-- Typed entry facts for the short-input route at `0x12200`. -/
 structure SszDecodeShortLengthEntry (args : DecodeInlineArgs) (state : State) : Prop where
   atPc : state.regs.get? PC = some 0x12200
+  atStack : state.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
   inputSizeAt : state.regs.get? x13 = some (BitVec.ofNat 64 args.boundary.input.size)
+  access : DecodeBoundaryMachineAccess args.boundary state
   configured : ConfiguredMachinePre EndpointMachinePc state
   code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
 
@@ -521,8 +527,10 @@ theorem sszDecodeAllocatorShortHandoff (fromStep : Nat) (args : DecodeInlineArgs
   obtain ⟨after, seg, _storedState, _storedVtable⟩ :=
     sszDecodeAllocatorBranchSeg fromStep args values before frame atPc allocatorAt inputSizeAt
       comparison
-  refine ⟨after, seg, seg.atPc, ?_, sszDecodeAllocatorAccessOfSeg frame seg |>.configured,
+  have access := sszDecodeAllocatorAccessOfSeg frame seg
+  refine ⟨after, seg, seg.atPc, ?_, ?_, access, access.configured,
     sszDecodeAllocatorCodeOfSeg frame seg⟩
+  · exact (seg.get x2 (by simp [sszDecodeAllocatorPrefixWrites])).trans frame.atStack
   exact (seg.get x13 (by simp [sszDecodeAllocatorPrefixWrites])).trans inputSizeAt
 
 def sszDecodeLengthMinimumOwnPc (pc : BitVec 64) : Prop :=
