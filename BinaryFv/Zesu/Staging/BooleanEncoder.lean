@@ -45,34 +45,6 @@ private theorem EncoderCallMachineAccess.ofBooleanSeg
     (access.output.configured.mono
       (seg.agree instructionPreserved_disjoint_booleanEncoderPrefixWrites) seg.retired)
 
-private theorem EncoderCallMachineAccess.ofEncoderInlineFrame
-    {args : EncoderCallArgs Bool} {before after : State}
-    (access : EncoderCallMachineAccess 16 args before)
-    (agree : Agree encoderInlinePreserved before after)
-    (retired : RetiredCounterPresent after) : EncoderCallMachineAccess 16 args after := by
-  have instructionAgree : Agree instructionPreserved before after :=
-    agree.weaken (fun _ preserved => Or.inl preserved)
-  have pmaEq := instructionAgree pma_regions
-    (by simp [instructionPreserved, platformPreserved])
-  exact
-    { output :=
-        { configured := access.output.configured.mono instructionAgree retired
-          outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq
-            access.output.outputBufferStore
-          outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq
-            access.output.outputLengthStore
-          outputBufferNoMMIO := access.output.outputBufferNoMMIO
-          outputLengthNoMMIO := access.output.outputLengthNoMMIO }
-      stackAligned := access.stackAligned
-      frameOutputDisjoint := access.frameOutputDisjoint
-      frameLoad := fun offset width bound =>
-        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width bound)
-      frameStore := fun offset width bound =>
-        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width bound)
-      frameLoadNoMMIO := access.frameLoadNoMMIO
-      frameStoreNoMMIO := access.frameStoreNoMMIO
-      frameNotCode := access.frameNotCode }
-
 private theorem booleanEncoderLoadedOfSeg
     {args : EncoderCallArgs Bool} {owned exit kv fromStep count before after pc}
     (access : EncoderCallMachineAccess 16 args before)

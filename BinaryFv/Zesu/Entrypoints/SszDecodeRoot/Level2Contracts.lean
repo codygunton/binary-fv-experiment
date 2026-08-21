@@ -397,6 +397,35 @@ theorem EncoderCallMachineAccess.ofWrites
       frameStoreNoMMIO := access.frameStoreNoMMIO
       frameNotCode := access.frameNotCode }
 
+/-- Transport called-encoder memory permissions through a selected encoder child frame. -/
+theorem EncoderCallMachineAccess.ofEncoderInlineFrame
+    {before after : MachineState}
+    (access : EncoderCallMachineAccess frameSize args before)
+    (agree : Agree encoderInlinePreserved before after)
+    (retired : RetiredCounterPresent after) : EncoderCallMachineAccess frameSize args after := by
+  have instructionAgree : Agree instructionPreserved before after :=
+    agree.weaken (fun _ preserved => Or.inl preserved)
+  have pmaEq := instructionAgree pma_regions
+    (by simp [instructionPreserved, platformPreserved])
+  exact
+    { output :=
+        { configured := access.output.configured.mono instructionAgree retired
+          outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq
+            access.output.outputBufferStore
+          outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq
+            access.output.outputLengthStore
+          outputBufferNoMMIO := access.output.outputBufferNoMMIO
+          outputLengthNoMMIO := access.output.outputLengthNoMMIO }
+      stackAligned := access.stackAligned
+      frameOutputDisjoint := access.frameOutputDisjoint
+      frameLoad := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width bound)
+      frameStore := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width bound)
+      frameLoadNoMMIO := access.frameLoadNoMMIO
+      frameStoreNoMMIO := access.frameStoreNoMMIO
+      frameNotCode := access.frameNotCode }
+
 def EncoderCallEntry (entry : Nat) (exitPcs : List Nat) (frameSize : Nat)
     (bindValue : EndpointState → Value → Prop) (args : EncoderCallArgs Value)
     (state : EndpointState) : Prop :=
