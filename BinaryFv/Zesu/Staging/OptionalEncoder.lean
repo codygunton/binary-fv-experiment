@@ -1480,6 +1480,69 @@ private theorem optionalU128AbsentTagReady (fromStep : Nat)
     contradiction
   · exact seg2
 
+set_option genInjectivity false in
+/-- Either U128 route after its shared Boolean child returns. -/
+private structure OptionalU128BooleanHandoff (fromStep childUsed tag returnPc : Nat)
+    (args : OptionalEncoderArgs OptionalU128Words) (before after : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges optionalU128ExecutionPcs)
+    fromStep (4 + childUsed) before after
+  atPc : after.machine.regs.get? PC = some (BitVec.ofNat 64 returnPc)
+  stack : after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer)
+  lowReg : ∀ value, args.value = some value →
+    after.machine.regs.get? x9 = some (BitVec.ofNat 64 value.low)
+  highReg : ∀ value, args.value = some value →
+    after.machine.regs.get? x23 = some (BitVec.ofNat 64 value.high)
+  stdout : after.stdout = before.stdout ++ #[if tag = 1 then 1 else 0]
+  stdin : after.stdin = before.stdin
+  stdinCursor : after.stdinCursor = before.stdinCursor
+  exitCode : after.exitCode = before.exitCode
+  memory : WritesOnlyWithin (optionalEncoderMemory 32 0 0 args.stackPointer)
+    before.machine after.machine
+  frame : EncoderInlineFrame before after
+  access : OptionalEncoderMachineAccess 32 0 0 args after.machine
+
+/-- Append the unconditional Boolean child to either typed U128 tag prefix. -/
+private theorem optionalU128BooleanHandoff
+    (child : WriteSuccessBooleanInstanceContract)
+    (site : OptionalBooleanCallSite booleanPc returnPc callBase optionalU128ExecutionPcs)
+    (fromStep tag : Nat) (tagCase : tag = 0 ∨ tag = 1)
+    (args : OptionalEncoderArgs OptionalU128Words) (before ready : EndpointState)
+    (tagReady : OptionalU128TagReady fromStep tag booleanPc args before ready) :
+    ∃ childUsed after,
+      OptionalU128BooleanHandoff fromStep childUsed tag returnPc args before after := by
+  obtain ⟨childUsed, after, call⟩ := optionalBooleanCallHandoff child site (by omega)
+    (fromStep + 2) args (tag = 1) ready tagReady.atPc tagReady.stack (by
+      rcases tagCase with rfl | rfl <;> simpa using tagReady.tagReg)
+    tagReady.access tagReady.loaded
+  have trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges optionalU128ExecutionPcs)
+      fromStep (4 + childUsed) before after := by
+    simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using tagReady.trace.append call.trace
+  have frame : EncoderInlineFrame before after :=
+    ⟨tagReady.frame.1.trans call.frame.1, call.frame.2.1, call.frame.2.2.1,
+      call.frame.2.2.2.1.trans tagReady.frame.2.2.2.1,
+      call.frame.2.2.2.2.1.trans tagReady.frame.2.2.2.2.1,
+      call.frame.2.2.2.2.2.trans tagReady.frame.2.2.2.2.2⟩
+  exact ⟨childUsed, after, {
+    trace
+    atPc := call.atPc
+    stack := call.stack
+    lowReg := by
+      intro value valueEq
+      exact (call.frame.1 x9 (by simp [encoderInlinePreserved])).trans
+        (tagReady.lowReg value valueEq)
+    highReg := by
+      intro value valueEq
+      exact (call.frame.1 x23 (by simp [encoderInlinePreserved])).trans
+        (tagReady.highReg value valueEq)
+    stdout := by
+      rcases tagCase with rfl | rfl <;> simpa [tagReady.stdout] using call.stdout
+    stdin := call.stdin.trans tagReady.stdin
+    stdinCursor := call.stdinCursor.trans tagReady.stdinCursor
+    exitCode := call.exitCode.trans tagReady.exitCode
+    memory := WritesOnlyWithin.trans_same tagReady.memory call.memory
+    frame
+    access := call.access }⟩
+
 private theorem optionalU128MoveLowStep (stepNo : Nat) (state : State) (source : BitVec 64)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some 0x15128)
