@@ -150,6 +150,11 @@
       "field": "ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b",
       "theorem": "BinaryFv.Zesu.Staging.proposed_optionalU128_3f5b_proved",
       "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract"
+    },
+    {
+      "field": "ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_optionalAddress_3f94_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract"
     }
   ],
   "resolvedParents": [
