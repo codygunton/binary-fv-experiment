@@ -1092,6 +1092,33 @@ theorem sszDecodeSchemaMarkerSeg (fromStep baseAddress marker : Nat) (before : S
 
 /-! ## Shared cleanup stores -/
 
+/-- The exact 256-byte file-backed template copied into the decoder frame. -/
+def sszDecodeCleanupTemplateBytes : Array UInt8 :=
+  Array.ofFn fun index : Fin 256 =>
+    (Artifacts.programImage.readFileByte? (0x1755c + index.val)).getD 0
+
+private theorem sszDecodeCleanupTemplateBacked : ∀ index : Fin 256,
+    (Artifacts.programImage.readFileByte? (0x1755c + index.val)).isSome := by
+  native_decide
+
+/-- Faithful loading gives the exact bytes consumed by the cleanup `memcpy`. -/
+theorem sszDecodeCleanupTemplateRep (state : State)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    BytesRep state.mem 0x1755c sszDecodeCleanupTemplateBytes := by
+  have size : sszDecodeCleanupTemplateBytes.size = 256 := by
+    simp [sszDecodeCleanupTemplateBytes]
+  refine ⟨by rw [size]; omega, ?_⟩
+  intro index inBounds
+  let fin : Fin 256 := ⟨index, by simpa [size] using inBounds⟩
+  have backed := sszDecodeCleanupTemplateBacked fin
+  cases readEq : Artifacts.programImage.readFileByte? (0x1755c + index) with
+  | none => simp [fin, readEq] at backed
+  | some byte =>
+      rw [loaded _ _ readEq]
+      have arrayByte : sszDecodeCleanupTemplateBytes[index] = byte := by
+        simp [sszDecodeCleanupTemplateBytes, fin, readEq]
+      rw [arrayByte]
+
 /-- Execute one exact decoder-frame `sd zero, offset(sp)` cleanup instruction. -/
 theorem sszDecodeZeroDwordStoreStep (stepNo pc offset : Nat) (imm : BitVec 12)
     (byte0 byte1 byte2 byte3 : UInt8) (args : DecodeInlineArgs) (state : State)

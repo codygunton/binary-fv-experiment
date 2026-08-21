@@ -143,6 +143,8 @@ structure MainDataAccess (args : MainArgs) (state : State) : Prop where
     LoadPmaAllows state (BitVec.ofNat 64 (Elflings.inputBufferAddress + offset)) width
   forkNameTableLoad : ∀ offset width, offset + width ≤ 21 * 8 →
     LoadPmaAllows state (BitVec.ofNat 64 (0x17228 + offset)) width
+  cleanupTemplateLoad : ∀ offset width, offset + width ≤ 256 →
+    LoadPmaAllows state (BitVec.ofNat 64 (0x1755c + offset)) width
   outputBufferStore :
     StorePmaAllows state (BitVec.ofNat 64 (Elflings.ioContextAddress + 8)) 8
   outputLengthStore :
@@ -167,6 +169,8 @@ theorem MainDataAccess.of_pma_regions_eq {args : MainArgs} {before after : State
     dataPmaAllows_of_pma_regions_eq regions (access.inputLoad offset width bound)
   forkNameTableLoad offset width bound :=
     dataPmaAllows_of_pma_regions_eq regions (access.forkNameTableLoad offset width bound)
+  cleanupTemplateLoad offset width bound :=
+    dataPmaAllows_of_pma_regions_eq regions (access.cleanupTemplateLoad offset width bound)
   outputBufferStore := dataPmaAllows_of_pma_regions_eq regions access.outputBufferStore
   outputLengthStore := dataPmaAllows_of_pma_regions_eq regions access.outputLengthStore
   exitCodeStore := dataPmaAllows_of_pma_regions_eq regions access.exitCodeStore
@@ -205,6 +209,8 @@ structure MainEntry (args : MainArgs) (state : EndpointState) : Prop where
     LoadMMIOAddressExcluded (BitVec.ofNat 64 (Elflings.inputBufferAddress + offset)) width
   forkNameTableNoMMIO : ∀ offset width, offset + width ≤ 21 * 8 →
     LoadMMIOAddressExcluded (BitVec.ofNat 64 (0x17228 + offset)) width
+  cleanupTemplateNoMMIO : ∀ offset width, offset + width ≤ 256 →
+    LoadMMIOAddressExcluded (BitVec.ofNat 64 (0x1755c + offset)) width
   decodeFrameNoMMIO : ∀ offset width, offset + width ≤ 0xbb0 →
     StoreMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer - 0xbb0 + offset)) width
   inputBytes : BytesRep state.machine.mem Elflings.inputBufferAddress args.input
@@ -1525,7 +1531,7 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
     have access : DecodeBoundaryMachineAccess decodeArgs callState.machine := by
       refine ⟨ConfiguredMachinePre.afterCall 0x14cf8 0x12168 0x14cfc retired configured,
-        ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+        ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
       · intro offset width bound
         exact callDataAccess.stackLoad offset width bound
       · intro offset width bound
@@ -1548,6 +1554,10 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
         exact callDataAccess.forkNameTableLoad offset width bound
       · intro offset width bound
         exact entry.forkNameTableNoMMIO offset width bound
+      · intro offset width bound
+        exact callDataAccess.cleanupTemplateLoad offset width bound
+      · intro offset width bound
+        exact entry.cleanupTemplateNoMMIO offset width bound
       · intro offset width bound
         exact callDataAccess.decodeFrameLoad offset width bound
       · intro offset width bound

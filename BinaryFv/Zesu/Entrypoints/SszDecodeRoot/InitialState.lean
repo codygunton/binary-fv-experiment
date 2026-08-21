@@ -429,7 +429,7 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
   have regions : finalMachine.regs.get? pma_regions = some [endpointPmaRegion] :=
     (agree pma_regions (by simp [instructionPreserved, platformPreserved])).trans endpointBaseRegions
   have dataAccess : MainDataAccess (canonicalMainArgs input) finalMachine := by
-    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · intro offset width bound
       apply endpointPmaAllowsAtNat regions <;>
         simp [canonicalMainArgs, canonicalStackPointer,
@@ -446,6 +446,8 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
         omega
       · rw [show Elflings.inputBufferAddress = 536977408 by native_decide]
         omega
+    · intro offset width bound
+      apply endpointPmaAllowsAtNat regions <;> omega
     · intro offset width bound
       apply endpointPmaAllowsAtNat regions <;> omega
     · exact endpointPmaAllowsAtNat regions _ _ (by native_decide) (by native_decide)
@@ -530,6 +532,9 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
       · rw [show Elflings.inputBufferAddress = 536977408 by native_decide]
         omega
     forkNameTableNoMMIO := by
+      intro offset width bound
+      apply endpointStaticNoMMIOAtNat <;> omega
+    cleanupTemplateNoMMIO := by
       intro offset width bound
       apply endpointStaticNoMMIOAtNat <;> omega
     decodeFrameNoMMIO := by
