@@ -492,4 +492,132 @@ theorem sszDecodeAllocatorFallThroughHandoff (fromStep : Nat) (args : DecodeInli
   · exact (seg.get x18 (by simp [sszDecodeAllocatorPrefixWrites])).trans sourceAt
   · exact (seg.get x13 (by simp [sszDecodeAllocatorPrefixWrites])).trans inputSizeAt
 
+def sszDecodeLengthMinimumOwnPc (pc : BitVec 64) : Prop :=
+  pcInList [0x12204, 0x12208] pc
+
+def sszDecodeLengthMinimumExitPc (pc : BitVec 64) : Prop :=
+  pcInList [0x1220c, 0x1225c] pc
+
+def sszDecodeLengthMinimumWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x12
+
+private theorem instructionPreserved_disjoint_sszDecodeLengthMinimumWrites :
+    RegSet.Disjoint instructionPreserved sszDecodeLengthMinimumWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  · simp [instructionPreserved, platformPreserved] at preserved
+
+/-- Exact `0x12204: li a2,2`. -/
+theorem sszDecodeLengthMinimumStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x12204)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x12204 retired x12 2) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12204
+  have execute : Runs (execute (.ITYPE (2, .Regidx 0#5, .Regidx 12#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x12 2 } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 2 (.Regidx 0#5) (.Regidx 12#5) .ADDI) _ _ _
+    have resultEq : iTypeResult .ADDI 2 0 = 2#64 := by native_decide
+    simpa only [resultEq] using execute_ITYPE_run premise _ 2 (.Regidx 0#5)
+      (.Regidx 12#5) .ADDI 0 (rX_x0_run premise) (wX_x12_run premise _)
+  exact configuredRegisterWriteStep stepNo 0x12204 state x12 2
+    (.ITYPE (2, .Regidx 0#5, .Regidx 12#5, .ADDI)) 0x13 0x06 0x20 0x00
+    configured atPc loaded (by configured_decode configured) execute
+    (pcFits := by native_decide) (base := by rfl)
+
+private theorem sszDecodeLengthMinimumBltuRun (state : State) (length : BitVec 64)
+    (lengthAt : state.regs.get? x10 = some length)
+    (minimumAt : state.regs.get? x12 = some 2) :
+    Runs (bTypeTaken (.Regidx 12#5) (.Regidx 10#5) .BLTU) state state
+      (zopz0zI_u length 2) := by
+  unfold bTypeTaken
+  exact Runs.bind (rX_x10_run state length lengthAt)
+    (Runs.bind (rX_x12_run state 2 minimumAt) rfl)
+
+/-- Exact taken or not-taken `0x12208: bltu a0,a2,0x1225c`. -/
+theorem sszDecodeLengthMinimumBranchStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x12208)
+    (lengthAt : state.regs.get? x10 = some length)
+    (minimumAt : state.regs.get? x12 = some 2)
+    (comparison : zopz0zI_u length 2 = short)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (if short then
+        tryStepControlFlowAfterRetired
+          (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x12208 0x1225c)
+          0x1225c retired
+      else
+        tryStepControlFlowAfterRetired
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12208)
+          0x1220c retired) false := by
+  cases short
+  · apply configuredBranchNotTakenStep stepNo 0x12208 state 0x54 (.Regidx 12#5)
+      (.Regidx 10#5) .BLTU 0x63 0x6a 0xc5 0x04 configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode configured
+    · simpa only [comparison] using sszDecodeLengthMinimumBltuRun
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12208)
+        length
+        ((stepPremiseState_writes state 0x12208).get x10 (by decide) |>.trans lengthAt)
+        ((stepPremiseState_writes state 0x12208).get x12 (by decide) |>.trans minimumAt)
+  · apply configuredBranchTakenStep stepNo 0x12208 0x1225c state 0x54 (.Regidx 12#5)
+      (.Regidx 10#5) .BLTU 0x63 0x6a 0xc5 0x04 configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode configured
+    · simpa only [comparison] using sszDecodeLengthMinimumBltuRun
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12208)
+        length
+        ((stepPremiseState_writes state 0x12208).get x10 (by decide) |>.trans lengthAt)
+        ((stepPremiseState_writes state 0x12208).get x12 (by decide) |>.trans minimumAt)
+    all_goals native_decide
+
+/-- Both length routes use this one `li; bltu` composition. -/
+theorem sszDecodeLengthMinimumBranchSeg (fromStep : Nat) (before : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc before)
+    (atPc : before.regs.get? PC = some 0x12204)
+    (lengthAt : before.regs.get? x10 = some length)
+    (comparison : zopz0zI_u length 2 = short)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.mem) :
+    ∃ after,
+      Seg sszDecodeLengthMinimumOwnPc sszDecodeLengthMinimumExitPc
+        (fun _ _ _ _ _ => False) sszDecodeLengthMinimumWrites noMemory
+        [⟨x12, 2⟩] fromStep 2 before after (if short then 0x1225c else 0x1220c) := by
+  obtain ⟨retired, retiredRead⟩ := configured.retiredCounter
+  have seg0 := Seg.nil sszDecodeLengthMinimumOwnPc sszDecodeLengthMinimumExitPc
+    (fun _ _ _ _ _ => False) sszDecodeLengthMinimumWrites noMemory
+    fromStep ⟨retired, retiredRead⟩ atPc
+  obtain ⟨middle, seg1⟩ := seg0.step
+    (by owned_pc [sszDecodeLengthMinimumOwnPc, pcInList])
+    (by owned_pc [sszDecodeLengthMinimumExitPc, pcInList]) x12 2 0x12208
+    (sszDecodeLengthMinimumStep fromStep before configured atPc loaded)
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr rfl) (by decide) (by decide) (by simp [RegsOutside])
+  have configured1 := configured.mono
+    (seg1.agree instructionPreserved_disjoint_sszDecodeLengthMinimumWrites) seg1.retired
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully middle.mem := by
+    rw [seg1.memEq noMemory_empty]
+    exact loaded
+  cases short
+  · obtain ⟨_, after, _, full⟩ := seg1.stepFallThroughWitness 0x1220c
+      (by owned_pc [sszDecodeLengthMinimumOwnPc, pcInList])
+      (by owned_pc [sszDecodeLengthMinimumExitPc, pcInList])
+      (sszDecodeLengthMinimumBranchStep (fromStep + 1) middle configured1 seg1.atPc
+        ((seg1.get x10 (by simp [sszDecodeLengthMinimumWrites])).trans lengthAt)
+        (seg1.reg x12 2 (by simp)) comparison loaded1)
+      (by intro register bookkeeping; exact Or.inl bookkeeping)
+      (by simp [RegsOutside, stepBookkeeping])
+    exact ⟨after, by simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using full⟩
+  · obtain ⟨_, after, _, full⟩ := seg1.stepJumpWitness 0x1225c
+      (by owned_pc [sszDecodeLengthMinimumOwnPc, pcInList])
+      (by owned_pc [sszDecodeLengthMinimumExitPc, pcInList])
+      (sszDecodeLengthMinimumBranchStep (fromStep + 1) middle configured1 seg1.atPc
+        ((seg1.get x10 (by simp [sszDecodeLengthMinimumWrites])).trans lengthAt)
+        (seg1.reg x12 2 (by simp)) comparison loaded1)
+      (by intro register bookkeeping; exact Or.inl bookkeeping)
+      (by simp [RegsOutside, stepBookkeeping])
+    exact ⟨after, by simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using full⟩
+
 end BinaryFv.Zesu.MachineExecution
