@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.Staging.IntegerEncoder
 import BinaryFv.Zesu.Staging.RawEncoder
+import BinaryFv.Zesu.Staging.BooleanEncoder
 
 /-!
 # Shared optional encoder boundary
@@ -463,7 +464,12 @@ private theorem encoderInlinePreserved_abiCalleePreserved_optional (register : R
 
 /-- Compose the one Boolean-tag call shared by both optional encoder instances. -/
 theorem optionalBooleanCallHandoff
-    (child : WriteSuccessBooleanInstanceContract)
+    (stepBound : Nat → Nat)
+    (child : (encoderCallContract Elflings.writeSuccessBooleanEntry
+      Elflings.writeSuccessBooleanExitPcs 16
+      (fun value => #[if value then 1 else 0]) BooleanEncoderBinding stepBound).Implements
+        EndpointStep EndpointPc (pcInRanges Elflings.writeSuccessBooleanExecutionPcRanges)
+        (pcInList Elflings.writeSuccessBooleanExitPcs))
     (site : OptionalBooleanCallSite pc returnPc callBase executionPcs)
     (frameLower : 16 ≤ localFrameSize) (fromStep : Nat)
     (args : OptionalEncoderArgs Value) (tag : Bool) (before : EndpointState)
@@ -473,8 +479,9 @@ theorem optionalBooleanCallHandoff
     (access : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args
       before.machine)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem) :
-    ∃ childUsed after, OptionalBooleanCallHandoff localFrameSize scratchOffset scratchSize fromStep
-      childUsed returnPc executionPcs args tag before after := by
+    ∃ childUsed after, childUsed ≤ stepBound args.inputSize ∧
+      OptionalBooleanCallHandoff localFrameSize scratchOffset scratchSize fromStep
+        childUsed returnPc executionPcs args tag before after := by
   let tagBits : BitVec 64 := if tag then 1 else 0
   have seg0 : Seg (optionalBooleanParentPc pc) (fun target => target = 0x15b9c)
       (fun _ _ _ _ _ => False) optionalBooleanCallWrites (fun _ => False)
@@ -572,8 +579,7 @@ theorem optionalBooleanCallHandoff
       · exact site.owned0
       · exact site.owned1)
   obtain ⟨childUsed, after, _unit, positive, bounded, childTrace, exitPc, allowed,
-      childExit⟩ := EncoderCallInstanceContract.implements child childArgs
-        (fromStep + 2) callState childEntry
+      childExit⟩ := child childArgs (fromStep + 2) callState childEntry
   rcases childExit with ⟨afterPc, stdout, stdin, cursor, exitCode, childFits, childMemory,
     childFrame⟩
   have childTrace' := childTrace.weaken (fun _ childPc => site.childInside childPc)
@@ -625,7 +631,7 @@ theorem optionalBooleanCallHandoff
     exact ⟨childFrame.1.weaken encoderInlinePreserved_abiCalleePreserved_optional,
       childFrame.2.1, childFrame.2.2.1,
       childFrame.2.2.2.1, childFrame.2.2.2.2.1, childFrame.2.2.2.2.2⟩
-  exact ⟨childUsed, after, {
+  exact ⟨childUsed, after, bounded, {
     trace
     atPc := by simpa [childArgs] using afterPc
     stack := by
@@ -935,14 +941,16 @@ structure OptionalIntegerCallHandoff
 
 /-- Consume the shared two-word integer contract after any reviewed parent setup trace. -/
 theorem optionalIntegerChildHandoff
-    (child : IntegerEncoderInstanceContract 0x15ce4 32 2
-      integerEncoderU128ExecutionPcs integerEncoderU128ExitPcs)
+    (stepBound : Nat)
+    (child : (integerEncoderContract 0x15ce4 32 2 integerEncoderU128ExitPcs
+      (fun _ => stepBound)).Implements EndpointStep EndpointPc
+        (pcInRanges integerEncoderU128ExecutionPcs) (pcInList integerEncoderU128ExitPcs))
     (ready : OptionalIntegerChildReady localFrameSize scratchOffset scratchSize fromStep
       parentCount returnPc word0 word1 executionPcs args before callState)
     (outerAccess : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args
       callState.machine)
     (childInside : 32 ≤ localFrameSize) :
-    ∃ childUsed after,
+    ∃ childUsed after, childUsed ≤ stepBound ∧
       OptionalIntegerCallHandoff localFrameSize scratchOffset scratchSize fromStep parentCount
         childUsed returnPc word0 word1 executionPcs args before after := by
   let childArgs : IntegerEncoderArgs :=
@@ -970,7 +978,6 @@ theorem optionalIntegerChildHandoff
     · have frameFits := outerAccess.frameFits
       simpa [childArgs] using (show 32 ≤ args.stackPointer by omega)
     · simpa [childArgs] using outerAccess.integerEncoder 32 childInside (by decide)
-  rcases child with ⟨stepBound, stepBoundFits, child⟩
   obtain ⟨childUsed, after, _unit, positive, bounded, childTrace, _exitAt, _allowed,
       childExit⟩ := child childArgs (fromStep + parentCount) callState entry
   rcases childExit with ⟨afterPc, _link, afterStack, stdout, stdin, cursor, exitCode,
@@ -1003,7 +1010,7 @@ theorem optionalIntegerChildHandoff
   have childFrame : EncoderInlineFrame callState after :=
     ⟨childAgree.weaken (fun _ preserved => Or.inl preserved), childRetired, childLoaded,
       childAux⟩
-  exact ⟨childUsed, after, {
+  exact ⟨childUsed, after, bounded, {
     trace
     atPc := by simpa [childArgs] using afterPc
     stack := by simpa [childArgs] using afterStack
@@ -1486,6 +1493,7 @@ private structure OptionalU128BooleanHandoff (fromStep childUsed tag returnPc : 
     (args : OptionalEncoderArgs OptionalU128Words) (before after : EndpointState) : Prop where
   trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges optionalU128ExecutionPcs)
     fromStep (4 + childUsed) before after
+  childBound : childUsed ≤ 16
   atPc : after.machine.regs.get? PC = some (BitVec.ofNat 64 returnPc)
   stack : after.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer)
   lowReg : ∀ value, args.value = some value →
@@ -1503,15 +1511,15 @@ private structure OptionalU128BooleanHandoff (fromStep childUsed tag returnPc : 
 
 /-- Append the unconditional Boolean child to either typed U128 tag prefix. -/
 private theorem optionalU128BooleanHandoff
-    (child : WriteSuccessBooleanInstanceContract)
     (site : OptionalBooleanCallSite booleanPc returnPc callBase optionalU128ExecutionPcs)
     (fromStep tag : Nat) (tagCase : tag = 0 ∨ tag = 1)
     (args : OptionalEncoderArgs OptionalU128Words) (before ready : EndpointState)
     (tagReady : OptionalU128TagReady fromStep tag booleanPc args before ready) :
     ∃ childUsed after,
       OptionalU128BooleanHandoff fromStep childUsed tag returnPc args before after := by
-  obtain ⟨childUsed, after, call⟩ := optionalBooleanCallHandoff child site (by omega)
-    (fromStep + 2) args (tag = 1) ready tagReady.atPc tagReady.stack (by
+  obtain ⟨childUsed, after, childBound, call⟩ := optionalBooleanCallHandoff (fun _ => 16)
+    writeSuccessBooleanContract_implements site (by omega) (fromStep + 2)
+    args (tag = 1) ready tagReady.atPc tagReady.stack (by
       rcases tagCase with rfl | rfl <;> simpa using tagReady.tagReg)
     tagReady.access tagReady.loaded
   have trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges optionalU128ExecutionPcs)
@@ -1524,6 +1532,7 @@ private theorem optionalU128BooleanHandoff
       call.frame.2.2.2.2.2.trans tagReady.frame.2.2.2.2.2⟩
   exact ⟨childUsed, after, {
     trace
+    childBound
     atPc := call.atPc
     stack := call.stack
     lowReg := by

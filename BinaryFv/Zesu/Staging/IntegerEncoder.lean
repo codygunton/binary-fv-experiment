@@ -356,12 +356,13 @@ structure IntegerEncoderSite (entry frameSize wordCount outputEntry callReturn p
       (∃ pc, EndpointPc after = some pc ∧ pcInList exitPcs pc) ∧
       IntegerEncoderExit frameSize wordCount args () before after
 
-/-- Prove every compatible integer encoder from one prepare/output/finish composition. -/
-theorem integerEncoderInstanceContract_of_site
+/-- Compose one integer site with its exact instruction count exposed to parent proofs. -/
+theorem integerEncoderContract_implements_of_site
     (site : IntegerEncoderSite entry frameSize wordCount outputEntry callReturn
       prefixCount suffixCount executionPcs exitPcs) :
-    IntegerEncoderInstanceContract entry frameSize wordCount executionPcs exitPcs := by
-  refine ⟨prefixCount + 7 + suffixCount, site.totalCount, ?_⟩
+    (integerEncoderContract entry frameSize wordCount exitPcs
+      (fun _ => prefixCount + 7 + suffixCount)).Implements EndpointStep EndpointPc
+        (pcInRanges executionPcs) (pcInList exitPcs) := by
   intro args fromStep before entryPre
   obtain ⟨prepared, preparedHandoff⟩ := site.prepare fromStep args before entryPre
   let rawArgs : RawEncoderArgs :=
@@ -382,6 +383,14 @@ theorem integerEncoderInstanceContract_of_site
     simpa [Nat.add_assoc] using prefixOutput.append suffixTrace
   refine ⟨prefixCount + 7 + suffixCount, after, (), by omega, Nat.le_refl _, wholeTrace,
     exitAt, trivial, exitState⟩
+
+/-- Prove every compatible integer encoder from one prepare/output/finish composition. -/
+theorem integerEncoderInstanceContract_of_site
+    (site : IntegerEncoderSite entry frameSize wordCount outputEntry callReturn
+      prefixCount suffixCount executionPcs exitPcs) :
+    IntegerEncoderInstanceContract entry frameSize wordCount executionPcs exitPcs :=
+  ⟨prefixCount + 7 + suffixCount, site.totalCount,
+    integerEncoderContract_implements_of_site site⟩
 
 def integerEncoderU256ExecutionPcs : List Elflings.PcRange :=
   [(0x10190, 0x101c4), (0x15cb0, 0x15ccc), (0x15ccc, 0x15cd8),
@@ -1382,6 +1391,13 @@ private def integerEncoderU128Site : IntegerEncoderSite 0x15ce4 32 2 0x15cf8 0x1
     exact integerEncoderFinish 32 2 0x15cf8 0x15d04 fromStep 6 integerEncoderU128ExecutionPcs
       integerEncoderU128ExitPcs integerEncoderU128FinishSite args before prepared outputState
       handoff outputExit
+
+/-- Exact sixteen-step U128 integer implementation for parent composition. -/
+theorem integerEncoderU128Contract_implements :
+    (integerEncoderContract 0x15ce4 32 2 integerEncoderU128ExitPcs (fun _ => 16)).Implements
+      EndpointStep EndpointPc (pcInRanges integerEncoderU128ExecutionPcs)
+        (pcInList integerEncoderU128ExitPcs) := by
+  simpa using integerEncoderContract_implements_of_site integerEncoderU128Site
 
 theorem proposed_integerEncoder_43a9_proved :
     Proposed_ssz_decode_observation_Encoder_int_fi_1_43a9_Contract :=
