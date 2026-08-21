@@ -32,8 +32,8 @@ class AdmissionTests(unittest.TestCase):
 
     def test_exact_boundary(self):
         result = build(self.inventory, self.evidence, self.bindings, self.registry)
-        self.assertEqual(result["summary"]["instanceCount"], 41)
-        self.assertEqual(result["summary"]["familyCount"], 14)
+        self.assertEqual(result["summary"]["instanceCount"], 40)
+        self.assertEqual(result["summary"]["familyCount"], 13)
         self.assertEqual(result["summary"]["admittedContractCount"], 0)
 
     def test_missing_schema_is_rejected(self):

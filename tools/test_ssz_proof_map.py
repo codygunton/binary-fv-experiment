@@ -108,10 +108,10 @@ class ProofMapTest(unittest.TestCase):
         if self.hlevel3[0]:
             prepared = result["hLevel3Preparation"]
             self.assertEqual(len(prepared["parents"]), 17)
-            self.assertEqual(prepared["summary"]["level3ContractCount"], 41)
+            self.assertEqual(prepared["summary"]["level3ContractCount"], 40)
             self.assertEqual(prepared["proofProgress"], {
-                "directProofCount": 31, "remainingContractCount": 10,
-            "parentComposedInlineCount": 16, "resolvedParentCount": 10})
+                "directProofCount": 31, "remainingContractCount": 9,
+            "parentComposedInlineCount": 17, "resolvedParentCount": 10})
             resolved_parents = [parent for parent in prepared["parents"]
                                 if parent["proofStatus"] == "proved"]
             self.assertEqual({parent["field"] for parent in resolved_parents}, {
@@ -125,7 +125,7 @@ class ProofMapTest(unittest.TestCase):
                 "fi:1:3167", "fi:1:31b1", "fi:1:3203", "fi:1:327b",
                 "fi:1:32f5", "fi:1:34c1", "fi:1:35ab", "fi:1:361f",
                 "fi:1:3693", "fi:1:36dd", "fi:1:3731", "fi:1:37a5",
-                "fi:1:37cf", "fi:1:3823", "fi:1:3ec4", "fi:1:4350"})
+                "fi:1:37cf", "fi:1:3823", "fi:1:3a74", "fi:1:3ec4", "fi:1:4350"})
             proved = [child for parent in prepared["parents"] for child in parent["children"]
                       if child["proofStatus"] == "proved"]
             self.assertEqual({child["level3Field"] for child in proved},
@@ -162,7 +162,7 @@ class ProofMapTest(unittest.TestCase):
             self.assertTrue(all(child["contractStatus"] == "proved_unconditionally"
                                 for child in proved))
             self.assertEqual(sum(len(row["glueObligations"])
-                                 for row in prepared["parents"]), 220)
+                                 for row in prepared["parents"]), 218)
         if self.baseline:
             self.assertEqual(result["formalCoverage"]["directPcCount"],
                              len(self.baseline["coverage"]["directlyDischargedStepPcs"]))

@@ -300,22 +300,6 @@ def Proposed_mem_Allocator_alloc__anon_1432_fi_1_39b7_Contract : Prop := by
   sorry
 
 /--
-Contract design hole for `fi:1:3a74` at `0x145d0`.
-Source operation: Decode one fixed-size SSZ withdrawal record.
-Source reference: `deps/zesu/src/stateless/stateless/ssz.zig and the pinned EVM-Sail SSZ
-decoder`.
-Family: `withdrawal-decode`.
-Boundary bindings: none.
-Same-source contract candidates: none.
-Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
-Required design: bind semantic values to the recorded DWARF registers or memory.
-Required design: state configured-machine, access, termination, and exact frame facts.
-Do not replace this hole with a PC-only or unbound semantic contract.
--/
-def Proposed_ssz_decodeWithdrawal_fi_1_3a74_Contract : Prop := by
-  sorry
-
-/--
 Contract design hole for `fi:1:3b27` at `0x1484c`.
 Source operation: Read a fixed-width little-endian integer from the represented source window.
 Source reference: `deps/zesu/src/stateless/stateless/ssz.zig and zig/std/mem.zig`.
@@ -696,7 +680,7 @@ Do not replace this hole with a PC-only or unbound semantic contract.
 def Proposed_mem_Allocator_dupe__anon_1128_fi_1_5b8d_Contract : Prop := by
   sorry
 
-/-- The 41 proposed Level 3 contracts selected below the 17 unresolved Level 2 fields. -/
+/-- The 40 proposed Level 3 contracts selected below the 17 unresolved Level 2 fields. -/
 structure Level3ContractAssumptions : Prop where
   ssz_decodeByteListList_fi_1_1999 :
     Proposed_ssz_decodeByteListList_fi_1_1999_Contract
@@ -708,8 +692,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_rlp_decode_decodeSingleTx_fi_1_3940_Contract
   mem_Allocator_alloc__anon_1432_fi_1_39b7 :
     Proposed_mem_Allocator_alloc__anon_1432_fi_1_39b7_Contract
-  ssz_decodeWithdrawal_fi_1_3a74 :
-    Proposed_ssz_decodeWithdrawal_fi_1_3a74_Contract
   ssz_decode_observation_Encoder_accessList_fi_1_3fdd :
     Proposed_ssz_decode_observation_Encoder_accessList_fi_1_3fdd_Contract
   ssz_decode_observation_Encoder_authorizations_fi_1_406f :
@@ -724,8 +706,7 @@ Resolve Level 2 field `sszDecode` for `fi:1:2e0f`.
 Level 3 contracts: `mem_Allocator_dupe__anon_1128_fi_1_5b8d`,
 `ssz_decodeByteListList_fi_1_1999`, `mem_Allocator_alloc__anon_1151_fi_1_5a81`,
 `mem_Allocator_alloc__anon_1045_fi_1_340d`, `mem_Allocator_alloc__anon_1173_fi_1_386d`,
-`rlp_decode_decodeSingleTx_fi_1_3940`, `mem_Allocator_alloc__anon_1432_fi_1_39b7`,
-`ssz_decodeWithdrawal_fi_1_3a74`.
+`rlp_decode_decodeSingleTx_fi_1_3940`, `mem_Allocator_alloc__anon_1432_fi_1_39b7`.
 Earlier Level 2 results: none.
 Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContract`,
 `BinaryFv.Zesu.Staging.proposed_memReadInt_proved`,
@@ -743,8 +724,8 @@ Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContra
 `BinaryFv.Zesu.Staging.proposed_readU32_3b27_proved`.
 Parent-composed inline instances: `fi:1:3167`, `fi:1:31b1`, `fi:1:3203`, `fi:1:327b`,
 `fi:1:32f5`, `fi:1:34c1`, `fi:1:35ab`, `fi:1:361f`, `fi:1:3693`, `fi:1:36dd`, `fi:1:3731`,
-`fi:1:37a5`, `fi:1:37cf`, `fi:1:3823`.
-Parent glue: 2144 instructions in 168 block fragments.
+`fi:1:37a5`, `fi:1:37cf`, `fi:1:3823`, `fi:1:3a74`.
+Parent glue: 2273 instructions in 166 block fragments.
 Inline `fi:1:3167` (`ssz.readU32`) contributes 10 scheduled instructions from 0x129cc. It is not
 a standalone machine region. Compose these instructions with the parent and reuse the shared
 integer-reader load, shift, OR, and `Seg` fragments.
@@ -787,6 +768,9 @@ integer-reader load, shift, OR, and `Seg` fragments.
 Inline `fi:1:3823` (`ssz.readU64`) contributes 23 scheduled instructions from 0x13cf0. It is not
 a standalone machine region. Compose these instructions with the parent and reuse the shared
 integer-reader load, shift, OR, and `Seg` fragments.
+Inline `fi:1:3a74` (`ssz.decodeWithdrawal`) contributes 129 scheduled instructions from 0x145d0.
+It is not a standalone machine region. Compose these instructions with the parent and reuse the
+shared integer-reader load, shift, OR, and `Seg` fragments.
 Fragment `0x121ac` (6 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
@@ -1090,8 +1074,8 @@ Motifs: `motif:d9edd42f15993ef9`. Closest proofs: none.
 Fragment `0x129c8` (23 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.step`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:337496e7f6de3267`, `motif:60d15ab6f5ef18c4`, `motif:f19355251af7da08`. Closest
-proofs: none.
+Motifs: `motif:337496e7f6de3267`, `motif:4b450c0c67506f06`, `motif:60d15ab6f5ef18c4`,
+`motif:f19355251af7da08`. Closest proofs: none.
 Fragment `0x12a24` (5 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.step`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
@@ -1108,12 +1092,11 @@ Fragment `0x12ab0` (90 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:1160559b028ce6ae`, `motif:133bc6a434340379`, `motif:1bb1e82ae16efeea`,
-`motif:2445e5fe869210a3`, `motif:29ab321384cd0fad`, `motif:2b95cfcaa493e814`,
+Motifs: `motif:1160559b028ce6ae`, `motif:1bb1e82ae16efeea`, `motif:29ab321384cd0fad`,
 `motif:318fac39b92b394a`, `motif:3d26a98ddc105c45`, `motif:3efce179b73cdd11`,
-`motif:6d3aff39b4773579`, `motif:92bdeb182860442c`, `motif:c126229ace809980`,
-`motif:e9f1a3d42ceac142`, `motif:f19355251af7da08`, `motif:f20f95a066f073d1`. Closest proofs:
-none.
+`motif:4d64a51abd709211`, `motif:6d3aff39b4773579`, `motif:92bdeb182860442c`,
+`motif:9fdb102ce98d1bd0`, `motif:a8e062f4496352ac`, `motif:c126229ace809980`,
+`motif:d1107a1a0de7a350`, `motif:e9f1a3d42ceac142`. Closest proofs: none.
 Fragment `0x12c28` (42 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
@@ -1121,8 +1104,8 @@ Fragment `0x12c28` (42 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
 Motifs: `motif:133bc6a434340379`, `motif:4d64a51abd709211`, `motif:6d657803278499fb`,
 `motif:6e3e7744e33e3798`, `motif:97e9ce5e3e69c357`, `motif:c6b7b6aae967b037`,
-`motif:ceb0d9a024d3001e`, `motif:dae19658980a6164`, `motif:e3bb7b6debe9a53d`,
-`motif:f20f95a066f073d1`. Closest proofs: none.
+`motif:ceb0d9a024d3001e`, `motif:dae19658980a6164`, `motif:efa3af4f57873675`. Closest proofs:
+none.
 Fragment `0x12cd0` (7 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.step`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
@@ -1246,7 +1229,7 @@ Fragment `0x1305c` (15 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:8174d3a4e1c952d8`, `motif:ceb0d9a024d3001e`, `motif:f20f95a066f073d1`. Closest
+Motifs: `motif:056b39ee5dba7817`, `motif:8174d3a4e1c952d8`, `motif:ceb0d9a024d3001e`. Closest
 proofs: none.
 Fragment `0x130fc` (1 steps): compose with `BinaryFv.RiscV.Seg.forget`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
@@ -1291,10 +1274,10 @@ Fragment `0x13748` (270 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:166b3c2e18bf9ab0`, `motif:6b13913d8f1ff2a7`, `motif:6d3aff39b4773579`,
-`motif:71e80ad26bc1de3d`, `motif:7897e3d7c72dd41b`, `motif:8c306e9e5ff720ae`,
-`motif:a6dd8355475b90f4`, `motif:c10fd8dbf06652b0`, `motif:cd92d0f0234f96b2`,
-`motif:f2e82442e78c469c`. Closest proofs: none.
+Motifs: `motif:6b13913d8f1ff2a7`, `motif:6d3aff39b4773579`, `motif:71e80ad26bc1de3d`,
+`motif:72967ca9d928cabd`, `motif:7897e3d7c72dd41b`, `motif:8600e0326ff8025e`,
+`motif:8c306e9e5ff720ae`, `motif:a42a7c0606ec4132`, `motif:c10fd8dbf06652b0`,
+`motif:cd92d0f0234f96b2`. Closest proofs: none.
 Fragment `0x13b80` (16 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs: `BinaryFv.Zesu.configuredAuipcStep`,
 `BinaryFv.Zesu.MachineExecution.configuredJStep`,
@@ -1306,8 +1289,8 @@ Fragment `0x13bc0` (43 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:3d26a98ddc105c45`, `motif:7897e3d7c72dd41b`, `motif:c93c034715b527d3`,
-`motif:d8a879d5dd4ddfb8`. Closest proofs: none.
+Motifs: `motif:3d26a98ddc105c45`, `motif:7897e3d7c72dd41b`, `motif:c339528702c7452f`,
+`motif:c93c034715b527d3`. Closest proofs: none.
 Fragment `0x13c6c` (3 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
@@ -1331,9 +1314,8 @@ Fragment `0x13cdc` (40 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:133bc6a434340379`, `motif:2a320bafb4e66886`, `motif:337496e7f6de3267`,
-`motif:6b13913d8f1ff2a7`, `motif:a6dd8355475b90f4`, `motif:ceb0d9a024d3001e`,
-`motif:d8a879d5dd4ddfb8`. Closest proofs: none.
+Motifs: `motif:2a320bafb4e66886`, `motif:337496e7f6de3267`, `motif:57cf01a4d4778893`,
+`motif:6b13913d8f1ff2a7`, `motif:ceb0d9a024d3001e`. Closest proofs: none.
 Fragment `0x13db0` (1 steps): compose with `BinaryFv.RiscV.Seg.forget`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
 Motifs: none. Closest proofs: none.
@@ -1470,17 +1452,18 @@ Fragment `0x145a0` (12 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
 Motifs: `motif:b631af6e154c4ce1`, `motif:d11eac2439ff8b16`, `motif:f2fd49ee2d35a3a7`. Closest
 proofs: none.
-Fragment `0x14790` (2 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
-`BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`.
-Motifs: none. Closest proofs: none.
-Fragment `0x147ac` (1 steps): compose with `BinaryFv.RiscV.Seg.forget`. Step APIs:
-`BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: none. Closest proofs: none.
-Fragment `0x147e0` (7 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
+Fragment `0x145d0` (139 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:3d9733a0b5d31f7a`, `motif:8174d3a4e1c952d8`. Closest proofs: none.
+Motifs: `motif:056b39ee5dba7817`, `motif:2445e5fe869210a3`, `motif:26ab6701128752d7`,
+`motif:2f3a0bfb8efe8cac`, `motif:3d9733a0b5d31f7a`, `motif:4b450c0c67506f06`,
+`motif:4d64a51abd709211`, `motif:57cf01a4d4778893`, `motif:5fdf751d5ecc02f3`,
+`motif:72967ca9d928cabd`, `motif:7ea57a586a9ecbb5`, `motif:8174d3a4e1c952d8`,
+`motif:8498d9c667e13863`, `motif:8c306e9e5ff720ae`, `motif:9a144369cee8d6f6`,
+`motif:9fdb102ce98d1bd0`, `motif:b17619e7a683226e`, `motif:c339528702c7452f`,
+`motif:d1107a1a0de7a350`, `motif:da59c48531268751`, `motif:daaa993e467e3f43`,
+`motif:efa3af4f57873675`, `motif:f2e82442e78c469c`. Closest proofs: none.
 Fragment `0x147fc` (3 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
@@ -1578,7 +1561,8 @@ Fragment `0x14adc` (11 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:6c1029df5014c0f9`, `motif:d11eac2439ff8b16`. Closest proofs: none.
+Motifs: `motif:6c1029df5014c0f9`, `motif:8498d9c667e13863`, `motif:d11eac2439ff8b16`. Closest
+proofs: none.
 Fragment `0x14b08` (8 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.stepStore`. Step APIs:
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
@@ -1620,7 +1604,6 @@ private theorem resolve_sszDecode
     (mem_Allocator_alloc__anon_1173_fi_1_386d : Proposed_mem_Allocator_alloc__anon_1173_fi_1_386d_Contract)
     (rlp_decode_decodeSingleTx_fi_1_3940 : Proposed_rlp_decode_decodeSingleTx_fi_1_3940_Contract)
     (mem_Allocator_alloc__anon_1432_fi_1_39b7 : Proposed_mem_Allocator_alloc__anon_1432_fi_1_39b7_Contract)
-    (ssz_decodeWithdrawal_fi_1_3a74 : Proposed_ssz_decodeWithdrawal_fi_1_3a74_Contract)
     : SszDecodeLevel2InstanceContract := by
   sorry
 
@@ -1975,10 +1958,10 @@ Fragment `0x14f08` (122 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.configuredJalrCallStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:10adc5365e4a6c68`, `motif:1160559b028ce6ae`, `motif:133bc6a434340379`,
-`motif:166b3c2e18bf9ab0`, `motif:1b04c3e112d1bc8c`, `motif:1bb1e82ae16efeea`,
-`motif:2229c4040d831b3f`, `motif:2b95cfcaa493e814`, `motif:318fac39b92b394a`,
-`motif:61b812638b9a08f2`, `motif:6c1029df5014c0f9`, `motif:6e3e7744e33e3798`,
+Motifs: `motif:10adc5365e4a6c68`, `motif:1160559b028ce6ae`, `motif:1b04c3e112d1bc8c`,
+`motif:1bb1e82ae16efeea`, `motif:2229c4040d831b3f`, `motif:26ab6701128752d7`,
+`motif:318fac39b92b394a`, `motif:5fdf751d5ecc02f3`, `motif:61b812638b9a08f2`,
+`motif:6c1029df5014c0f9`, `motif:6e3e7744e33e3798`, `motif:8600e0326ff8025e`,
 `motif:92bdeb182860442c`, `motif:cd26604b518d4d93`, `motif:e45d82e5b545468b`,
 `motif:e6e0b8fc7a348252`, `motif:f20f95a066f073d1`. Closest proofs: none.
 Fragment `0x150f0` (3 steps): compose with `BinaryFv.RiscV.Seg.step`,
@@ -2032,8 +2015,8 @@ Fragment `0x153d4` (93 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
 Motifs: `motif:133bc6a434340379`, `motif:2445e5fe869210a3`, `motif:51cb9acae55b1e5d`,
 `motif:6e135e5007094700`, `motif:92bdeb182860442c`, `motif:c126229ace809980`,
-`motif:d4c91c4d5b91b676`, `motif:d54b47c71ff49ada`, `motif:e3bb7b6debe9a53d`,
-`motif:e9f1a3d42ceac142`, `motif:f2e82442e78c469c`, `motif:f85767bb44dbabaa`. Closest proofs:
+`motif:d4c91c4d5b91b676`, `motif:d54b47c71ff49ada`, `motif:e9f1a3d42ceac142`,
+`motif:f19355251af7da08`, `motif:f2e82442e78c469c`, `motif:f85767bb44dbabaa`. Closest proofs:
 none.
 Fragment `0x15558` (3 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.step`. Step APIs:
@@ -2140,7 +2123,6 @@ theorem level2Contracts_of_level3_staged
       hLevel3.mem_Allocator_alloc__anon_1173_fi_1_386d
       hLevel3.rlp_decode_decodeSingleTx_fi_1_3940
       hLevel3.mem_Allocator_alloc__anon_1432_fi_1_39b7
-      hLevel3.ssz_decodeWithdrawal_fi_1_3a74
   have resolved_writeFailureRecord : WriteFailureRecordInstanceContract :=
     resolve_writeFailureRecord
   have resolved_writeSuccessBlockHash : WriteSuccessBlockHashInstanceContract :=

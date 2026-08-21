@@ -84,14 +84,6 @@
         {"id": "slice-result", "requirement": "Every result slice has the offset, length, order, and bytes required by the SSZ input.", "support": "source-oracle-and-proof"}
       ]
     },
-    "withdrawal-decode": {
-      "qualified": ["ssz.decodeWithdrawal"],
-      "semanticOperation": "Decode one fixed-size SSZ withdrawal record.",
-      "reference": "deps/zesu/src/stateless/stateless/ssz.zig and the pinned EVM-Sail SSZ decoder",
-      "extraClauses": [
-        {"id": "withdrawal-result", "requirement": "The four decoded fields equal the canonical withdrawal fields.", "support": "source-oracle-and-proof"}
-      ]
-    },
     "checked-slice-selection": {
       "qualified": ["ssz.decode__struct_1051.f"],
       "semanticOperation": "Select one execution-request byte slice from the checked offset table.",

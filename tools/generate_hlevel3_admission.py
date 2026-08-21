@@ -17,7 +17,7 @@ FAMILY_CLAUSES = {
     "host-write": "output-bytes", "allocator-alloc": "allocation-result",
     "allocator-dupe": "duplicate-result", "read-integer": "little-endian-result",
     "write-integer": "little-endian-write", "transaction-decode": "transaction-result",
-    "byte-list-list-decode": "slice-result", "withdrawal-decode": "withdrawal-result",
+    "byte-list-list-decode": "slice-result",
     "checked-slice-selection": "checked-slice-result", "fork-name": "fork-result",
     "encoder-collection": "encoded-collection", "encoder-integer": "encoded-integer",
     "encoder-optional": "encoded-optional", "encoder-raw": "encoded-bytes",
