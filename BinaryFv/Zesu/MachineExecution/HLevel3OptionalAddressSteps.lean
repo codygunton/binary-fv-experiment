@@ -15,6 +15,76 @@ open BinaryFv.RiscV
 open BinaryFv.Zesu
 open PreSail LeanRV64DExecutable.Functions Register
 
+private theorem optionalAddressPresenceCondition (state : State) (value : BitVec 64)
+    (valueAt : state.regs.get? x10 = some value) :
+    Runs (bTypeTaken (.Regidx 0#5) (.Regidx 10#5) .BEQ) state state (value == 0) := by
+  unfold bTypeTaken
+  refine Runs.bind (rX_x10_run state value valueAt) ?_
+  refine Runs.bind (rX_x0_run state) ?_
+  rfl
+
+/-- Execute the optional-address presence branch on either reviewed semantic route. -/
+theorem optionalAddressPresenceBranchStep (stepNo : Nat) (state : State)
+    (present : Bool) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15158)
+    (presenceAt : state.regs.get? x10 = some (if present then 1 else 0))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    if present then
+      ∃ retired, Runs (try_step stepNo false) state
+        (tryStepControlFlowAfterRetired
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15158)
+          0x1515c retired) false
+    else
+      ∃ retired, Runs (try_step stepNo false) state
+        (tryStepControlFlowAfterRetired
+          (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x15158 0x15194)
+          0x15194 retired) false := by
+  cases present
+  · simp only [Bool.false_eq_true, ↓reduceIte] at presenceAt ⊢
+    apply configuredBranchTakenStep stepNo 0x15158 0x15194 state 0x03c (.Regidx 0#5)
+      (.Regidx 10#5) .BEQ 0x63 0x0e 0x05 0x02 configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode configured
+    · simpa using optionalAddressPresenceCondition
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15158) 0
+        ((stepPremiseState_writes state 0x15158).get x10 (by decide) |>.trans presenceAt)
+    all_goals native_decide
+  · simp only [↓reduceIte] at presenceAt ⊢
+    apply configuredBranchNotTakenStep stepNo 0x15158 state 0x03c (.Regidx 0#5)
+      (.Regidx 10#5) .BEQ 0x63 0x0e 0x05 0x02 configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode configured
+    · simpa using optionalAddressPresenceCondition
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x15158) 1
+        ((stepPremiseState_writes state 0x15158).get x10 (by decide) |>.trans presenceAt)
+
+/-- Execute `li a0, 1` after the exact 20-byte copy. -/
+theorem optionalAddressPresentTagStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15174)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15174 retired x10 1) false := by
+  exact configuredITypeX10Step stepNo 0x15174 state 1 (.Regidx 0#5) .ADDI 0 1
+    0x13 0x05 0x10 0x00 configured atPc loaded (by native_decide)
+    (by intro premise _; exact rX_x0_run premise)
+    (by intro premise; exact wX_x10_run premise 1)
+    (by configured_decode configured) (base := by rfl) (site := by native_decide)
+
+/-- Execute the exact present-route jump to the shared optional-address exit. -/
+theorem optionalAddressJoinJumpStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15190)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x15190 0x1519c)
+        0x1519c retired) false := by
+  exact configuredJStep stepNo 0x15190 0x1519c state 0x00c
+    0x6f 0x00 0xc0 0x00 configured atPc loaded
+    (by configured_decode configured) (by native_decide) (by native_decide) (by native_decide)
+    (base := by rfl)
+
 /-- Production `0x1515c: ld a0,0x668(sp)`. -/
 theorem optionalAddressLoadFirstStep (stepNo stackPointer value : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)

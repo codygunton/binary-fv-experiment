@@ -1218,6 +1218,20 @@ private def optionalAddressAbsentBooleanSite :
     0x97 0x10 0x00 0x00 0xe7 0x80 0x80 0xa0 optionalAddressExecutionPcs
     (0x15158, 0x1519c)
 
+private def optionalAddressRawExecutionPcs : List Elflings.PcRange :=
+  [(0x10190, 0x101c4), (0x15180, 0x15188), (0x15184, 0x15190)]
+
+private def optionalAddressRawExitPcs : List Nat := [0x15190]
+
+/-- The present route reuses the shared stack-source raw-output implementation. -/
+private def optionalAddressRawSite : RawEncoderSetupSite 0x15180 20 0x15190
+    optionalAddressRawExecutionPcs optionalAddressRawExitPcs (RawEncoderStackSource 0x6d0) :=
+  rawEncoderStackSourceFirstSetupSiteOfLiterals
+    0x15180 0x6d0 20 0x15190 0x10188 0x6d0 0x014 0xffffb 0x008
+    0x13 0x05 0x01 0x6d 0x93 0x05 0x40 0x01
+    0x97 0xb0 0xff 0xff 0xe7 0x80 0x80 0x00
+    optionalAddressRawExecutionPcs optionalAddressRawExitPcs
+
 def optionalAddressCopyWrites : RegSet := fun register =>
   stepBookkeeping register ∨ register = x10 ∨ register = x11 ∨ register = x12
 
@@ -1226,6 +1240,13 @@ private theorem instructionPreserved_disjoint_optionalAddressCopyWrites :
   intro register preserved written
   simp [instructionPreserved, platformPreserved, optionalAddressCopyWrites,
     stepBookkeeping] at preserved written
+  grind
+
+private theorem encoderInlinePreserved_disjoint_optionalAddressCopyWrites :
+    RegSet.Disjoint encoderInlinePreserved optionalAddressCopyWrites := by
+  intro register preserved written
+  simp [encoderInlinePreserved, instructionPreserved, platformPreserved,
+    optionalAddressCopyWrites, stepBookkeeping] at preserved written
   grind
 
 private theorem OptionalEncoderMachineAccess.ofAddressCopySeg
@@ -2035,6 +2056,115 @@ private def optionalU128Site : OptionalEncoderSite 0x15118 0x15148 32 0 0
           frame }
   successListed := by simp [optionalU128ExitPcs]
   successFits := by native_decide
+
+set_option genInjectivity false in
+private structure OptionalAddressAbsentReady (fromStep : Nat)
+    (args : OptionalEncoderArgs (Array UInt8)) (before ready : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges optionalAddressExecutionPcs)
+    fromStep 1 before ready
+  atPc : ready.machine.regs.get? PC = some 0x15194
+  stack : ready.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer)
+  tag : ready.machine.regs.get? x10 = some 0
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully ready.machine.mem
+  access : OptionalEncoderMachineAccess 16 0x6d0 20 args ready.machine
+  stdout : ready.stdout = before.stdout
+  stdin : ready.stdin = before.stdin
+  stdinCursor : ready.stdinCursor = before.stdinCursor
+  exitCode : ready.exitCode = before.exitCode
+  memory : ready.machine.mem = before.machine.mem
+  frame : EncoderInlineFrame before ready
+
+private theorem optionalAddressAbsentReady (fromStep : Nat)
+    (args : OptionalEncoderArgs (Array UInt8)) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x15158)
+    (stack : before.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer))
+    (presence : before.machine.regs.get? x10 = some 0)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (access : OptionalEncoderMachineAccess 16 0x6d0 20 args before.machine) :
+    ∃ ready, OptionalAddressAbsentReady fromStep args before ready := by
+  have seg0 := ((Seg.nil (fun pc => pcInRanges [(0x15158, 0x1519c)] pc)
+    (fun pc => pc = 0x15194) optionalAddressCopyWrites (fun _ => False) fromStep
+    (childSummary := fun _ _ _ _ _ => False) access.output.configured.retiredCounter atPc).know
+      x2 (BitVec.ofNat 64 args.stackPointer) stack).know x10 0 presence
+  obtain ⟨machine1, seg1⟩ := seg0.stepJump 0x15194
+    (by owned_pc [pcInRanges]) (by native_decide)
+    (optionalAddressPresenceBranchStep fromStep before.machine false access.output.configured
+      atPc presence loaded)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  let ready : EndpointState := { before with machine := machine1 }
+  have machineTrace := seg1.confined 0 machine1
+    (ScopedTrace.exitAt (fromStep + 1) machine1 0x15194 seg1.atPc rfl)
+  have endpointTrace := liftOptionalParentTrace before (fun pc inside => by
+    unfold pcInRanges at inside
+    rcases inside with ⟨range, member, lower, upper⟩
+    simp at member
+    subst range
+    simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+      exitContextStorePc] at *
+    omega) machineTrace
+  have trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges optionalAddressExecutionPcs)
+      fromStep 1 before ready := by
+    simpa [ready] using endpointTrace.weaken (fun pc inside => by
+      unfold pcInRanges at inside ⊢
+      rcases inside with ⟨range, member, lower, upper⟩
+      simp at member
+      subst range
+      exact ⟨(0x15158, 0x1519c), by simp [optionalAddressExecutionPcs], lower, upper⟩)
+  have frame : EncoderInlineFrame before ready :=
+    ⟨seg1.writes.agree encoderInlinePreserved_disjoint_optionalAddressCopyWrites,
+      seg1.retired, by simpa [ready, seg1.memEq (by simp)] using loaded, seg1.aux⟩
+  exact ⟨ready, {
+    trace
+    atPc := by simpa [ready] using seg1.atPc
+    stack := by simpa [ready] using seg1.reg x2 _ (by simp)
+    tag := by simpa [ready] using seg1.reg x10 0 (by simp)
+    loaded := frame.2.2.1
+    access := access.ofEncoderFrame before frame
+    stdout := rfl
+    stdin := rfl
+    stdinCursor := rfl
+    exitCode := rfl
+    memory := by simpa [ready] using seg1.memEq (by simp)
+    frame }⟩
+
+private theorem optionalAddressAbsentHandoff (fromStep : Nat)
+    (args : OptionalEncoderArgs (Array UInt8)) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x15158)
+    (stack : before.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer))
+    (presence : before.machine.regs.get? x10 = some 0)
+    (valueEq : args.value = none)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (access : OptionalEncoderMachineAccess 16 0x6d0 20 args before.machine) :
+    ∃ childUsed after, childUsed ≤ 16 ∧
+      OptionalEncoderCompletedHandoff 0x1519c 16 0x6d0 20 fromStep
+        (3 + childUsed) optionalAddressExecutionPcs (fun value => value) args before after := by
+  obtain ⟨ready, prepared⟩ := optionalAddressAbsentReady fromStep args before atPc stack presence
+    loaded access
+  obtain ⟨childUsed, after, childBound, call⟩ := optionalBooleanCallHandoff (fun _ => 16)
+    writeSuccessBooleanContract_implements optionalAddressAbsentBooleanSite (by omega)
+    (fromStep + 1) args false ready prepared.atPc prepared.stack prepared.tag prepared.access
+      prepared.loaded
+  refine ⟨childUsed, after, childBound, ?_⟩
+  exact {
+    trace := by
+      have countEq : 1 + (2 + childUsed) = 3 + childUsed := by omega
+      rw [← countEq]
+      exact prepared.trace.append call.trace
+    atPc := call.atPc
+    stack := call.stack
+    output := ⟨Or.inl ⟨valueEq, by simpa [prepared.stdout] using call.stdout⟩⟩
+    stdin := call.stdin.trans prepared.stdin
+    stdinCursor := call.stdinCursor.trans prepared.stdinCursor
+    exitCode := call.exitCode.trans prepared.exitCode
+    memory := by
+      intro address outside
+      exact (call.memory address outside).trans
+        (congrArg (fun mem => mem.get? address) prepared.memory)
+    frame := ⟨prepared.frame.1.trans call.frame.1, call.frame.2.1, call.frame.2.2.1,
+      call.frame.2.2.2.1.trans prepared.frame.2.2.2.1,
+      call.frame.2.2.2.2.1.trans prepared.frame.2.2.2.2.1,
+      call.frame.2.2.2.2.2.trans prepared.frame.2.2.2.2.2⟩ }
 
 abbrev Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract : Prop :=
   OptionalEncoderInstanceContract 0x15118 0x15148 32 0 0 optionalU128ExecutionPcs
