@@ -1,6 +1,7 @@
 import BinaryFv.Zesu.Staging.IntegerEncoder
 import BinaryFv.Zesu.Staging.RawEncoder
 import BinaryFv.Zesu.Staging.BooleanEncoder
+import BinaryFv.Zesu.MachineExecution.HLevel3OptionalAddressSteps
 
 /-!
 # Shared optional encoder boundary
@@ -1170,9 +1171,9 @@ def OptionalU128Binding (args : OptionalEncoderArgs OptionalU128Words)
 
 /-- Read permissions for the caller-owned 20-byte optional-address value. -/
 structure OptionalAddressSourceAccess (args : OptionalEncoderArgs (Array UInt8))
-    (state : EndpointState) : Prop where
+    (state : State) : Prop where
   load : ∀ offset width, offset + width ≤ 20 →
-    LoadPmaAllows state.machine (BitVec.ofNat 64 (args.stackPointer + 0x668 + offset)) width
+    LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer + 0x668 + offset)) width
   noMMIO : ∀ offset width, offset + width ≤ 20 →
     LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + 0x668 + offset)) width
 
@@ -1181,7 +1182,7 @@ def OptionalAddressBinding (args : OptionalEncoderArgs (Array UInt8))
   state.machine.regs.get? x10 = some (if args.value.isSome then 1 else 0) ∧
   ∀ value, args.value = some value → value.size = 20 ∧
     BytesRep state.machine.mem (args.stackPointer + 0x668) value ∧
-    OptionalAddressSourceAccess args state
+    OptionalAddressSourceAccess args state.machine
 
 def optionalU128ExecutionPcs : List Elflings.PcRange :=
   [(0x10190, 0x101c4), (0x15118, 0x15148), (0x15b9c, 0x15bc8), (0x15ce4, 0x15d10)]
@@ -1216,6 +1217,269 @@ private def optionalAddressAbsentBooleanSite :
   optionalBooleanCallSiteOfLiterals 0x15194 0x1519c 0x16194 1 0xa08
     0x97 0x10 0x00 0x00 0xe7 0x80 0x80 0xa0 optionalAddressExecutionPcs
     (0x15158, 0x1519c)
+
+def optionalAddressCopyWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x10 ∨ register = x11 ∨ register = x12
+
+private theorem instructionPreserved_disjoint_optionalAddressCopyWrites :
+    RegSet.Disjoint instructionPreserved optionalAddressCopyWrites := by
+  intro register preserved written
+  simp [instructionPreserved, platformPreserved, optionalAddressCopyWrites,
+    stepBookkeeping] at preserved written
+  grind
+
+private theorem OptionalEncoderMachineAccess.ofAddressCopySeg
+    {args : OptionalEncoderArgs (Array UInt8)} {owned exit kv fromStep count before after pc}
+    (access : OptionalEncoderMachineAccess 16 0x6d0 20 args before)
+    (seg : Seg owned exit (fun _ _ _ _ _ => False) optionalAddressCopyWrites
+      (byteRange (args.stackPointer + 0x6d0) 20)
+      kv fromStep count before after pc) :
+    OptionalEncoderMachineAccess 16 0x6d0 20 args after := by
+  exact access.ofWrites seg.writes (by
+      simp [optionalAddressCopyWrites, stepBookkeeping])
+    (access.output.configured.mono
+      (seg.agree instructionPreserved_disjoint_optionalAddressCopyWrites) seg.retired)
+
+private theorem OptionalAddressSourceAccess.ofAddressCopySeg
+    {args : OptionalEncoderArgs (Array UInt8)} {owned exit kv fromStep count before after pc}
+    (source : OptionalAddressSourceAccess args before)
+    (seg : Seg owned exit (fun _ _ _ _ _ => False) optionalAddressCopyWrites
+      (byteRange (args.stackPointer + 0x6d0) 20)
+      kv fromStep count before after pc) :
+    OptionalAddressSourceAccess args after := by
+  have pmaEq := seg.get pma_regions (by simp [optionalAddressCopyWrites, stepBookkeeping])
+  exact {
+    load := fun offset width bound =>
+      dataPmaAllows_of_pma_regions_eq pmaEq (source.load offset width bound)
+    noMMIO := source.noMMIO }
+
+private theorem optionalAddressCopyLoadedOfSeg
+    {args : OptionalEncoderArgs (Array UInt8)} {owned exit kv fromStep count before after pc}
+    (access : OptionalEncoderMachineAccess 16 0x6d0 20 args before)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.mem)
+    (seg : Seg owned exit (fun _ _ _ _ _ => False) optionalAddressCopyWrites
+      (byteRange (args.stackPointer + 0x6d0) 20)
+      kv fromStep count before after pc) :
+    Artifacts.programImage.fileBytesLoadedFaithfully after.mem := by
+  intro address byte fileByte
+  have unchanged := seg.mem address (by
+    intro inside
+    unfold byteRange at inside
+    have none := access.scratchNotCode address inside.1 inside.2
+    rw [fileByte] at none
+    cases none)
+  exact unchanged.trans (loaded address byte fileByte)
+
+set_option genInjectivity false in
+private structure OptionalAddressCopyHandoff (fromStep : Nat)
+    (args : OptionalEncoderArgs (Array UInt8)) (value : Array UInt8)
+    (first second : Nat) (final : BitVec 64)
+    (before after : State) : Prop where
+  seg : Seg (fun pc => pcInRanges [(0x15158, 0x1519c)] pc) (fun pc => pc = 0x15174)
+    (fun _ _ _ _ _ => False) optionalAddressCopyWrites
+    (byteRange (args.stackPointer + 0x6d0) 20)
+    [⟨x12, final⟩, ⟨x11, BitVec.ofNat 64 second⟩,
+      ⟨x10, BitVec.ofNat 64 first⟩, ⟨x2, BitVec.ofNat 64 args.stackPointer⟩]
+    fromStep 6 before after 0x15174
+  copied : BytesRep after.mem (args.stackPointer + 0x6d0) value
+  access : OptionalEncoderMachineAccess 16 0x6d0 20 args after
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
+
+/-- Copy one represented 20-byte address through the exact shared six-instruction schedule. -/
+theorem optionalAddressCopyHandoff (fromStep : Nat)
+    (args : OptionalEncoderArgs (Array UInt8)) (value : Array UInt8) (before : State)
+    (atPc : before.regs.get? PC = some 0x1515c)
+    (stack : before.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer))
+    (size : value.size = 20)
+    (sourceRep : BytesRep before.mem (args.stackPointer + 0x668) value)
+    (sourceAccess : OptionalAddressSourceAccess args before)
+    (access : OptionalEncoderMachineAccess 16 0x6d0 20 args before)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.mem) :
+    ∃ first second final after,
+      OptionalAddressCopyHandoff fromStep args value first second final before after := by
+  have firstBytes := sourceRep.extractRange 0 8 (by omega)
+  have secondBytes := sourceRep.extractRange 8 8 (by omega)
+  have finalBytes := sourceRep.extractRange 16 4 (by omega)
+  obtain ⟨first, firstRep⟩ := firstBytes.existsUIntRepEight (by simp [size])
+  obtain ⟨second, secondRep⟩ := secondBytes.existsUIntRepEight (by simp [size])
+  obtain ⟨final, finalRep⟩ := finalBytes.existsUIntRepFour (by simp [size])
+  let finalBits : BitVec 64 := extend_value false (BitVec.ofNat 32 final)
+  have finalBitsLow : BitVec.setWidth 32 finalBits = BitVec.ofNat 32 final := by
+    dsimp [finalBits]
+    exact signedWordLowBits _
+  have sourceFits := sourceRep.1
+  have sourceFits20 : args.stackPointer + 0x67c ≤ 2 ^ 64 := by omega
+  have seg0 : Seg (fun pc => pcInRanges [(0x15158, 0x1519c)] pc)
+      (fun pc => pc = 0x15174) (fun _ _ _ _ _ => False) optionalAddressCopyWrites
+      (byteRange (args.stackPointer + 0x6d0) 20)
+      [⟨x2, BitVec.ofNat 64 args.stackPointer⟩]
+      fromStep 0 before before 0x1515c := {
+    trace := .refl _ _
+    confined := .nil
+    writes := .refl _ _
+    mem := fun _ _ => rfl
+    aux := AuxStateAgree.refl _
+    retired := access.output.configured.retiredCounter
+    atPc
+    regs := by
+      intro pair member
+      simp at member
+      cases member
+      exact stack }
+  obtain ⟨machine1, seg1⟩ := seg0.step (by owned_pc [pcInRanges]) (by native_decide)
+    x10 (BitVec.ofNat 64 first) 0x15160
+    (optionalAddressLoadFirstStep fromStep args.stackPointer first before
+      access.output.configured atPc stack firstRep
+      (by simpa using sourceAccess.load 0 8 (by omega))
+      (by simpa using sourceAccess.noMMIO 0 8 (by omega)) access.stackAligned sourceFits20 loaded)
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [optionalAddressCopyWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access1 := access.ofAddressCopySeg seg1
+  have sourceAccess1 := sourceAccess.ofAddressCopySeg seg1
+  have loaded1 := optionalAddressCopyLoadedOfSeg access loaded seg1
+  have secondRep1 : UIntRep 8 machine1.mem (args.stackPointer + 0x670) second :=
+    secondRep.of_writesOnlyWithin seg1.mem (by
+      intro index bound inside
+      unfold byteRange at inside
+      omega)
+  obtain ⟨machine2, seg2⟩ := seg1.step (by owned_pc [pcInRanges]) (by native_decide)
+    x11 (BitVec.ofNat 64 second) 0x15164
+    (optionalAddressLoadSecondStep (fromStep + 1) args.stackPointer second machine1
+      access1.output.configured seg1.atPc (seg1.reg x2 _ (by simp)) secondRep1
+      (by simpa using sourceAccess1.load 8 8 (by omega))
+      (by simpa using sourceAccess1.noMMIO 8 8 (by omega)) access1.stackAligned sourceFits20 loaded1)
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [optionalAddressCopyWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access2 := access.ofAddressCopySeg seg2
+  have sourceAccess2 := sourceAccess.ofAddressCopySeg seg2
+  have loaded2 := optionalAddressCopyLoadedOfSeg access loaded seg2
+  have finalRep2 : UIntRep 4 machine2.mem (args.stackPointer + 0x678) final :=
+    finalRep.of_writesOnlyWithin seg2.mem (by
+      intro index bound inside
+      unfold byteRange at inside
+      omega)
+  obtain ⟨machine3, seg3⟩ := seg2.step (by owned_pc [pcInRanges]) (by native_decide)
+    x12 finalBits 0x15168
+    (optionalAddressLoadFinalStep (fromStep + 2) args.stackPointer final machine2
+      access2.output.configured seg2.atPc (seg2.reg x2 _ (by simp)) finalRep2
+      (by simpa using sourceAccess2.load 16 4 (by omega))
+      (by simpa using sourceAccess2.noMMIO 16 4 (by omega)) access2.stackAligned sourceFits20 loaded2)
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [optionalAddressCopyWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access3 := access.ofAddressCopySeg seg3
+  have loaded3 := optionalAddressCopyLoadedOfSeg access loaded seg3
+  obtain ⟨retired3, machine4, machine4Eq, seg4⟩ := seg3.stepStoreWitness
+    (width := 8) (args.stackPointer + 0x6d0) (BitVec.ofNat 64 first) 0x1516c
+    (by owned_pc [pcInRanges]) (by native_decide)
+    (by simpa using (optionalAddressStoreFirstStep (fromStep + 3) args.stackPointer machine3
+      (BitVec.ofNat 64 first) access3.output.configured seg3.atPc (seg3.reg x2 _ (by simp))
+      (seg3.reg x10 _ (by simp)) (access3.scratchStore 0 8 (by omega))
+      (access3.scratchStoreNoMMIO 0 8 (by omega)) access3.stackAligned
+      (by have := access3.scratchFits; omega) loaded3))
+    (by native_decide) (by intro address lower upper; unfold byteRange; omega)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access4 := access.ofAddressCopySeg seg4
+  have loaded4 := optionalAddressCopyLoadedOfSeg access loaded seg4
+  obtain ⟨retired4, machine5, machine5Eq, seg5⟩ := seg4.stepStoreWitness
+    (width := 8) (args.stackPointer + 0x6d8) (BitVec.ofNat 64 second) 0x15170
+    (by owned_pc [pcInRanges]) (by native_decide)
+    (by simpa using (optionalAddressStoreSecondStep (fromStep + 4) args.stackPointer machine4
+      (BitVec.ofNat 64 second) access4.output.configured seg4.atPc (seg4.reg x2 _ (by simp))
+      (seg4.reg x11 _ (by simp)) (access4.scratchStore 8 8 (by omega))
+      (access4.scratchStoreNoMMIO 8 8 (by omega)) access4.stackAligned
+      (by have := access4.scratchFits; omega) loaded4))
+    (by native_decide) (by intro address lower upper; unfold byteRange; omega)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access5 := access.ofAddressCopySeg seg5
+  have loaded5 := optionalAddressCopyLoadedOfSeg access loaded seg5
+  obtain ⟨retired5, machine6, machine6Eq, seg6⟩ := seg5.stepStoreWitness
+    (width := 4) (args.stackPointer + 0x6e0) finalBits 0x15174
+    (by owned_pc [pcInRanges]) (by native_decide)
+    (optionalAddressStoreFinalStep (fromStep + 5) args.stackPointer machine5 finalBits
+      access5.output.configured seg5.atPc (seg5.reg x2 _ (by simp))
+      (seg5.reg x12 _ (by simp)) (access5.scratchStore 16 4 (by omega))
+      (access5.scratchStoreNoMMIO 16 4 (by omega)) access5.stackAligned
+      (by have := access5.scratchFits; omega) loaded5)
+    (by native_decide) (by intro address lower upper; unfold byteRange; omega)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have firstRep4 : UIntRep 8 machine4.mem (args.stackPointer + 0x6d0) first := by
+    rw [machine4Eq]
+    simpa [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+      uintRep_afterWriteBytes_eight
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement machine3) 0x15168)
+        (args.stackPointer + 0x6d0) first firstRep.1 (by
+          have := access3.scratchFits
+          omega)
+  have secondWrites : WritesOnlyWithin (byteRange (args.stackPointer + 0x6d8) 8)
+      machine4 machine5 := by
+    intro address outside
+    rw [machine5Eq]
+    exact storeRetirement_mem_writes machine4 0x1516c 0x15170 retired4
+      (args.stackPointer + 0x6d8) (BitVec.ofNat 64 second) address outside
+  have firstRep5 : UIntRep 8 machine5.mem (args.stackPointer + 0x6d0) first :=
+    firstRep4.of_writesOnlyWithin secondWrites (by
+      intro index bound inside
+      unfold byteRange at inside
+      omega)
+  have secondRep5 : UIntRep 8 machine5.mem (args.stackPointer + 0x6d8) second := by
+    rw [machine5Eq]
+    simpa [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+      uintRep_afterWriteBytes_eight
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement machine4) 0x1516c)
+        (args.stackPointer + 0x6d8) second secondRep.1 (by
+          have := access4.scratchFits
+          omega)
+  have finalWrites : WritesOnlyWithin (byteRange (args.stackPointer + 0x6e0) 4)
+      machine5 machine6 := by
+    intro address outside
+    rw [machine6Eq]
+    exact storeRetirement_mem_writes machine5 0x15170 0x15174 retired5
+      (args.stackPointer + 0x6e0) finalBits address outside
+  have firstRep6 : UIntRep 8 machine6.mem (args.stackPointer + 0x6d0) first :=
+    firstRep5.of_writesOnlyWithin finalWrites (by
+      intro index bound inside
+      unfold byteRange at inside
+      omega)
+  have secondRep6 : UIntRep 8 machine6.mem (args.stackPointer + 0x6d8) second :=
+    secondRep5.of_writesOnlyWithin finalWrites (by
+      intro index bound inside
+      unfold byteRange at inside
+      omega)
+  have finalRep6 : UIntRep 4 machine6.mem (args.stackPointer + 0x6e0) final := by
+    rw [machine6Eq]
+    simpa [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      afterWriteBytes, finalBitsLow] using
+      uintRep_afterWriteBytes_four
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement machine5) 0x15170)
+        (args.stackPointer + 0x6e0) final finalRep.1 (by
+          have := access5.scratchFits
+          omega)
+  have firstRelocation := firstRep.relocation firstRep6
+  have secondRelocation := secondRep.relocation secondRep6
+  have finalRelocation := finalRep.relocation finalRep6
+  have relocation : ByteWindowRelocation before.mem machine6.mem
+      (args.stackPointer + 0x668) (args.stackPointer + 0x6d0) 20 := by
+    have firstTwo := firstRelocation.append secondRelocation
+    simpa [Nat.add_assoc] using firstTwo.append finalRelocation
+  have destinationFits : args.stackPointer + 0x6d0 + value.size ≤ 2 ^ 64 := by
+    rw [size]
+    exact access5.scratchFits
+  have valueRelocation : ByteWindowRelocation before.mem machine6.mem
+      (args.stackPointer + 0x668) (args.stackPointer + 0x6d0) value.size := by
+    rw [size]
+    exact relocation
+  refine ⟨first, second, finalBits, machine6, ?_⟩
+  exact {
+    seg := by simpa [finalBits] using seg6
+    copied := sourceRep.rebase destinationFits valueRelocation
+    access := access.ofAddressCopySeg seg6
+    loaded := optionalAddressCopyLoadedOfSeg access loaded seg6 }
 
 private theorem optionalU128PresenceCondition (state : State) (value : BitVec 64)
     (valueAt : state.regs.get? x27 = some value) :

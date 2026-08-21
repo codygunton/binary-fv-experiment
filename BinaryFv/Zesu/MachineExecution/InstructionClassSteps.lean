@@ -580,6 +580,13 @@ theorem configuredStackWordLoadStep (stepNo pc stackPointer offset value : Nat)
     (destinationNotRetired := destinationNotRetired)
     (read0 := site.read0) (read1 := site.read1) (read2 := site.read2) (read3 := site.read3)
 
+/-- A signed word load preserves the original low 32 bits. -/
+theorem signedWordLowBits (value : BitVec 32) :
+    BitVec.setWidth 32 (extend_value false value) = value := by
+  simp only [extend_value, Bool.false_eq_true, ↓reduceIte, sign_extend,
+    Sail.BitVec.signExtend]
+  bv_decide
+
 /-- Retire one exact `ld offset(sp)` from a represented stack word. -/
 theorem configuredStackDwordLoadStep (stepNo pc stackPointer offset value : Nat)
     (state : State) (imm : BitVec 12) (rd : regidx) (destination : Register)

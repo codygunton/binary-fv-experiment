@@ -180,6 +180,7 @@ let
     cp ${repo}/BinaryFv/Zesu/Staging/IntegerEncoder.lean IntegerEncoder.lean
     cp ${repo}/BinaryFv/Zesu/Staging/BooleanEncoder.lean BooleanEncoder.lean
     cp ${repo}/BinaryFv/Zesu/Staging/WriteSuccessInt.lean WriteSuccessInt.lean
+    cp ${repo}/BinaryFv/Zesu/MachineExecution/HLevel3OptionalAddressSteps.lean HLevel3OptionalAddressSteps.lean
     cp ${repo}/BinaryFv/Zesu/Staging/OptionalEncoder.lean OptionalEncoder.lean
     cp ${repo}/BinaryFv/Zesu/Staging/HLevel3.lean HLevel3.lean
     cp ${repo}/BinaryFv/Zesu/Staging/HLevel3IdiomChecks.lean HLevel3IdiomChecks.lean

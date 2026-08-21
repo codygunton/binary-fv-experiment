@@ -74,6 +74,7 @@ BinaryFv.Zesu.MachineExecution.EncoderCallFinish	EncoderCallFinish.lean	compiled
 BinaryFv.Zesu.Staging.IntegerEncoder	IntegerEncoder.lean	compiled/BinaryFv/Zesu/Staging/IntegerEncoder.olean
 BinaryFv.Zesu.Staging.BooleanEncoder	BooleanEncoder.lean	compiled/BinaryFv/Zesu/Staging/BooleanEncoder.olean
 BinaryFv.Zesu.Staging.WriteSuccessInt	WriteSuccessInt.lean	compiled/BinaryFv/Zesu/Staging/WriteSuccessInt.olean
+BinaryFv.Zesu.MachineExecution.HLevel3OptionalAddressSteps	HLevel3OptionalAddressSteps.lean	compiled/BinaryFv/Zesu/MachineExecution/HLevel3OptionalAddressSteps.olean
 BinaryFv.Zesu.Staging.OptionalEncoder	OptionalEncoder.lean	compiled/BinaryFv/Zesu/Staging/OptionalEncoder.olean
 BinaryFv.Zesu.Staging.HLevel3	HLevel3.lean	compiled/BinaryFv/Zesu/Staging/HLevel3.olean
 BinaryFv.Zesu.Staging.HLevel3IdiomChecks	HLevel3IdiomChecks.lean	compiled/BinaryFv/Zesu/Staging/HLevel3IdiomChecks.olean
