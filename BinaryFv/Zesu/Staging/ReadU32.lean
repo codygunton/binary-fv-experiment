@@ -30,10 +30,14 @@ def sszReadU32Preserved3335 (register : Register) : Prop :=
   instructionPreserved register ∧ register ≠ x10 ∧ register ≠ x15 ∧
     register ≠ x13 ∧ register ≠ x14
 
-def sszReadU32Entry (entry sourceOffset : Nat) (args : SszReadU32Args)
+def sszReadU32SourceX18 (args : SszReadU32Args) (state : EndpointState) : Prop :=
+  state.machine.regs.get? x18 = some (BitVec.ofNat 64 args.sourceAddress)
+
+def sszReadU32Entry (entry sourceOffset : Nat)
+    (bindSource : SszReadU32Args → EndpointState → Prop) (args : SszReadU32Args)
     (state : EndpointState) : Prop :=
   state.machine.regs.get? PC = some (BitVec.ofNat 64 entry) ∧
-  state.machine.regs.get? x18 = some (BitVec.ofNat 64 args.sourceAddress) ∧
+  bindSource args state ∧
   args.sourceBytes.size = 4 ∧
   args.sourceAddress + sourceOffset + 4 ≤ 2 ^ 64 ∧
   BytesRep state.machine.mem (args.sourceAddress + sourceOffset) args.sourceBytes ∧
@@ -60,12 +64,13 @@ def sszReadU32Exit (bindBytes : Array UInt8 → EndpointState → Prop)
   after.stdout = before.stdout ∧ after.exitCode = before.exitCode
 
 def sszReadU32Contract (entry sourceOffset : Nat)
+    (bindSource : SszReadU32Args → EndpointState → Prop)
     (bindBytes : Array UInt8 → EndpointState → Prop) (preserved : Register → Prop)
     (stepBound : SszReadU32Args → Nat) :
     RelationalMachineContract EndpointState SszReadU32Args Nat :=
   { allows := fun args result => args.sourceBytes.size = 4 ∧
       result = sszReadU32Value args.sourceBytes
-    entry := sszReadU32Entry entry sourceOffset
+    entry := sszReadU32Entry entry sourceOffset bindSource
     exit := sszReadU32Exit bindBytes preserved
     stepBound := stepBound }
 
@@ -82,7 +87,7 @@ def sszReadU32Bindings3335 (bytes : Array UInt8) (state : EndpointState) : Prop 
 def Proposed_ssz_readU32_fi_1_3335_Contract : Prop :=
   ∃ stepBound : SszReadU32Args → Nat,
     (∀ args, stepBound args < level2ContractFuel) ∧
-    (sszReadU32Contract 0x12c18 22 sszReadU32Bindings3335
+    (sszReadU32Contract 0x12c18 22 sszReadU32SourceX18 sszReadU32Bindings3335
       sszReadU32Preserved3335 stepBound).Implements EndpointStep EndpointPc
       readU32_3335OwnPc readU32_3335ExitPc
 
@@ -205,7 +210,7 @@ def sszReadU32Bindings2ff8 (bytes : Array UInt8) (state : EndpointState) : Prop 
 def Proposed_ssz_readU32_fi_1_2ff8_Contract : Prop :=
   ∃ stepBound : SszReadU32Args → Nat,
     (∀ args, stepBound args < level2ContractFuel) ∧
-    (sszReadU32Contract 0x12734 2 sszReadU32Bindings2ff8
+    (sszReadU32Contract 0x12734 2 sszReadU32SourceX18 sszReadU32Bindings2ff8
       sszReadU32Preserved2ff8 stepBound).Implements EndpointStep EndpointPc
       readU32_2ff8OwnPc readU32_2ff8ExitPc
 
