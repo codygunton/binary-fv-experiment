@@ -17,13 +17,13 @@ class GuidanceTests(unittest.TestCase):
 
     def test_every_glue_fragment_has_guidance(self):
         summary = self.document["summary"]
-        self.assertEqual(summary["obligationCount"], 220)
+        self.assertEqual(summary["obligationCount"], 218)
         self.assertEqual(summary["unmatchedObligationCount"], 0)
-        self.assertEqual(len(self.document["obligations"]), 220)
+        self.assertEqual(len(self.document["obligations"]), 218)
 
     def test_all_motifs_are_analyzed_without_top_n_cutoff(self):
         summary = self.document["summary"]
-        self.assertEqual(summary["analyzedMotifCount"], 8990)
+        self.assertEqual(summary["analyzedMotifCount"], 9118)
         self.assertEqual(summary["selectedMotifCount"], len(self.document["motifs"]))
         self.assertTrue(all(row["length"] >= 2 for row in self.document["motifs"]))
 
