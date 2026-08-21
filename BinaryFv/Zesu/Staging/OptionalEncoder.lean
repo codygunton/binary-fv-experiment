@@ -1195,6 +1195,94 @@ private def optionalAddressAbsentBooleanSite :
     0x97 0x10 0x00 0x00 0xe7 0x80 0x80 0xa0 optionalAddressExecutionPcs
     (0x15158, 0x1519c)
 
+private theorem optionalU128MoveLowStep (stepNo : Nat) (state : State) (source : BitVec 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15128)
+    (sourceReg : state.regs.get? x9 = some source)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15128 retired x10 source) false := by
+  have resultEq : source = iTypeResult .ADDI 0 source := by
+    change source = source + sign_extend (m := 64) (0#12)
+    rw [show sign_extend (m := 64) (0#12) = 0 by native_decide]
+    simp
+  exact configuredITypeX10Step stepNo 0x15128 state 0 (.Regidx 9#5) .ADDI source source
+    0x13 0x85 0x04 0x00 configured atPc loaded resultEq
+    (by
+      intro premise writes
+      exact rX_x9_run premise source ((writes.get x9 (by decide)).trans sourceReg))
+    (by intro premise; rw [← resultEq]; exact wX_x10_run premise source)
+    (by write_success_decode configured) (base := by rfl)
+
+private theorem optionalU128MoveHighStep (stepNo : Nat) (state : State) (source : BitVec 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x1512c)
+    (sourceReg : state.regs.get? x23 = some source)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x1512c retired x11 source) false := by
+  have resultEq : source = iTypeResult .ADDI 0 source := by
+    change source = source + sign_extend (m := 64) (0#12)
+    rw [show sign_extend (m := 64) (0#12) = 0 by native_decide]
+    simp
+  exact configuredITypeX11Step stepNo 0x1512c state 0 (.Regidx 23#5) .ADDI source source
+    0x93 0x85 0x0b 0x00 configured atPc loaded
+    (by
+      intro premise writes
+      exact rX_x23_run premise source ((writes.get x23 (by decide)).trans sourceReg))
+    (by intro premise; rw [← resultEq]; exact wX_x11_run premise source)
+    (by write_success_decode configured) (base := by rfl)
+
+private theorem optionalU128IntegerBaseStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15130)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x15130 retired x1 0x16130) false := by
+  exact configuredRawWriteOutputCallBaseStep stepNo 0x15130 1 0x16130
+    0x97 0x10 0x00 0x00 state configured atPc loaded (by native_decide) (by rfl)
+    (by native_decide) (by write_success_decode configured)
+
+private theorem optionalU128IntegerCallStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x15134)
+    (link : state.regs.get? x1 = some 0x16130)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x15134 0x15ce4 x1 0x15138)
+        0x15ce4 retired) false := by
+  exact configuredJalrCallStep stepNo state 0x15134 0x16130 0xbb4 0x15ce4 0x15138
+    0xe7 0x80 0x40 0xbb configured atPc link loaded
+    (base := by rfl) (decode := by write_success_decode configured)
+
+private def optionalU128IntegerSite :
+    OptionalIntegerCallSite 0x15128 0x15138 0x16130 optionalU128ExecutionPcs := {
+  move0 := optionalU128MoveLowStep
+  move1 := optionalU128MoveHighStep
+  base := optionalU128IntegerBaseStep
+  call := optionalU128IntegerCallStep
+  owned := by intro offset member; simp at member; rcases member with rfl | rfl | rfl | rfl <;>
+    owned_pc [pcInRanges, optionalU128ExecutionPcs]
+  next0 := by native_decide
+  next1 := by native_decide
+  next2 := by native_decide
+  notExit := by intro offset member; simp at member; rcases member with rfl | rfl | rfl | rfl <;>
+    native_decide
+  returnListed := by simp [integerEncoderU128ExitPcs]
+  childInside := by
+    intro childPc inside
+    unfold pcInRanges at inside ⊢
+    rcases inside with ⟨range, member, lower, upper⟩
+    simp [integerEncoderU128ExecutionPcs] at member
+    rcases member with rfl | rfl | rfl | rfl
+    · exact ⟨(0x10190, 0x101c4), by simp [optionalU128ExecutionPcs], lower, upper⟩
+    all_goals
+      exact ⟨(0x15ce4, 0x15d10), by simp [optionalU128ExecutionPcs], by omega, by omega⟩
+  notHost := by intro offset member; simp at member; rcases member with rfl | rfl | rfl | rfl <;>
+    simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+      exitContextStorePc] }
+
 abbrev Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract : Prop :=
   OptionalEncoderInstanceContract 0x15118 0x15148 32 0 0 optionalU128ExecutionPcs
     optionalU128ExitPcs encodeOptionalU128Words OptionalU128Binding
