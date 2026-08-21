@@ -295,6 +295,90 @@ theorem readU32_2ff8Contract_implements : Proposed_ssz_readU32_fi_1_2ff8_Contrac
 theorem proposed_readU32_2ff8_proved : Proposed_ssz_readU32_fi_1_2ff8_Contract :=
   readU32_2ff8Contract_implements
 
+/-- Declare and prove one standard ten-step unsigned `readU32` relational contract. -/
+macro "standardReadU32Contract(" source:ident "," preserved:ident "," bindings:ident ","
+    contract:ident "," ownNotObserved:ident "," bindingRegs:ident ","
+    bindOfRegs:ident "," preservedDisjoint:ident "," implements:ident "," proved:ident ";"
+    entry:term "," sourceOffset:term "," exitPc:term ";"
+    sourceRegister:term "," resultRegister:term ";"
+    first:term "," second:term "," third:term "," fourth:term ";"
+    own:ident "," exit:ident "," writes:ident "," run:term ")" : command =>
+  `(section
+    def $source (args : SszReadU32Args) (state : EndpointState) : Prop :=
+      state.machine.regs.get? $sourceRegister =
+        some (BitVec.ofNat 64 args.sourceAddress)
+
+    def $preserved (register : Register) : Prop :=
+      instructionPreserved register ∧ register ≠ $first ∧ register ≠ $second ∧
+        register ≠ $third ∧ register ≠ $fourth
+
+    def $bindings (bytes : Array UInt8) (state : EndpointState) : Prop :=
+      state.machine.regs.get? $resultRegister = some (readU32UnsignedMachineValue
+        (sszReadU32Byte bytes 0).toNat (sszReadU32Byte bytes 1).toNat
+        (sszReadU32Byte bytes 2).toNat (sszReadU32Byte bytes 3).toNat)
+
+    def $contract : Prop :=
+      ∃ stepBound : SszReadU32Args → Nat,
+        (∀ args, stepBound args < level2ContractFuel) ∧
+        (sszReadU32Contract $entry $sourceOffset $source $bindings $preserved
+          stepBound).Implements EndpointStep EndpointPc $own $exit
+
+    private theorem $ownNotObserved {pc : BitVec 64}
+        (inside : $own pc) : ¬BareMetalHostTransitionPc pc := by
+      intro observed
+      unfold $own standardReadU32OwnPc pcInList at inside
+      unfold BareMetalHostTransitionPc at observed
+      unfold readContextReturnPc writeContextReturnPc exitContextStorePc at observed
+      simp at inside
+      rcases observed with observed | observed | observed
+      all_goals omega
+
+    private def $bindingRegs (bytes : Array UInt8) : List RegVal :=
+      [⟨$resultRegister, readU32UnsignedMachineValue
+        (sszReadU32Byte bytes 0).toNat (sszReadU32Byte bytes 1).toNat
+        (sszReadU32Byte bytes 2).toNat (sszReadU32Byte bytes 3).toNat⟩]
+
+    private theorem $bindOfRegs bytes (template : EndpointState) (machine : State)
+        (holds : RegsHold machine ($bindingRegs bytes)) :
+        $bindings bytes { template with machine := machine } := by
+      exact holds.get $resultRegister _ (by unfold $bindingRegs; simp)
+
+    private theorem $preservedDisjoint : RegSet.Disjoint $preserved $writes := by
+      intro register kept written
+      rcases kept with ⟨instruction, neFirst, neSecond, neThird, neFourth⟩
+      unfold $writes standardReadU32Writes at written
+      rcases written with bookkeeping | rfl | rfl | rfl | rfl
+      · exact platformPreserved_disjoint register instruction.1 bookkeeping
+      all_goals contradiction
+
+    theorem $implements : $contract := by
+      refine ⟨fun _ => 10, by intro; simp [level2ContractFuel], ?_⟩
+      apply sszReadU32Contract_implements_of_run $entry $sourceOffset 10 $exitPc
+        $source $bindings $preserved $writes $own $exit $bindingRegs
+        (by omega) $ownNotObserved $preservedDisjoint
+        (by unfold $exit standardReadU32ExitPc pcInList; native_decide) $bindOfRegs
+      intro fromStep args before entryPre
+      rcases entryPre with
+        ⟨atPc, base, size, sourceFits, bytesRep, pma, notMMIO, loaded, configured⟩
+      have rep0 := bytesRep.uintRepAt 0 (by omega)
+      have rep1 := bytesRep.uintRepAt 1 (by omega)
+      have rep2 := bytesRep.uintRepAt 2 (by omega)
+      have rep3 := bytesRep.uintRepAt 3 (by omega)
+      unfold $bindingRegs
+      simpa [sszReadU32Byte, size, Nat.add_assoc] using
+        $run fromStep args.sourceAddress
+          args.sourceBytes[0].toNat args.sourceBytes[1].toNat
+          args.sourceBytes[2].toNat args.sourceBytes[3].toNat
+          before.machine configured atPc base
+          (by simpa [Nat.add_assoc] using rep0)
+          (by simpa [Nat.add_assoc] using rep1)
+          (by simpa [Nat.add_assoc] using rep2)
+          (by simpa [Nat.add_assoc] using rep3)
+          pma notMMIO sourceFits loaded
+
+    theorem $proved : $contract := $implements
+    end)
+
 /-! ## Standard unsigned `fi:1:3064` wrapper -/
 
 def sszReadU32SourceX10 (args : SszReadU32Args) (state : EndpointState) : Prop :=
@@ -319,7 +403,7 @@ def Proposed_ssz_readU32_fi_1_3064_Contract : Prop :=
 private theorem readU32_3064OwnPc_not_observed {pc : BitVec 64}
     (inside : readU32_3064OwnPc pc) : ¬BareMetalHostTransitionPc pc := by
   intro observed
-  unfold readU32_3064OwnPc pcInList at inside
+  unfold readU32_3064OwnPc standardReadU32OwnPc pcInList at inside
   unfold BareMetalHostTransitionPc at observed
   unfold readContextReturnPc writeContextReturnPc exitContextStorePc at observed
   simp at inside
@@ -351,7 +435,8 @@ theorem readU32_3064Contract_implements : Proposed_ssz_readU32_fi_1_3064_Contrac
     sszReadU32SourceX10 sszReadU32Bindings3064 sszReadU32Preserved3064
     readU32_3064Writes readU32_3064OwnPc readU32_3064ExitPc readU32Bindings3064Regs
     (by omega) readU32_3064OwnPc_not_observed preserved3064Disjoint
-    (by unfold readU32_3064ExitPc pcInList; native_decide) readU32Bindings3064_of_regs
+    (by unfold readU32_3064ExitPc standardReadU32ExitPc pcInList; native_decide)
+    readU32Bindings3064_of_regs
   intro fromStep args before entry
   rcases entry with ⟨atPc, base, size, sourceFits, bytesRep, pma, notMMIO, loaded, configured⟩
   have rep0 := bytesRep.uintRepAt 0 (by omega)
@@ -368,5 +453,15 @@ theorem readU32_3064Contract_implements : Proposed_ssz_readU32_fi_1_3064_Contrac
 
 theorem proposed_readU32_3064_proved : Proposed_ssz_readU32_fi_1_3064_Contract :=
   readU32_3064Contract_implements
+
+/-! ## Standard unsigned `fi:1:30e2` wrapper -/
+
+standardReadU32Contract(sszReadU32SourceX15, sszReadU32Preserved30e2,
+  sszReadU32Bindings30e2, Proposed_ssz_readU32_fi_1_30e2_Contract,
+  readU32_30e2OwnPc_not_observed, readU32Bindings30e2Regs,
+  readU32Bindings30e2_of_regs, preserved30e2Disjoint,
+  readU32_30e2Contract_implements, proposed_readU32_30e2_proved;
+  0x12944, 0, 0x1296c; x15, x14; x12, x14, x16, x17;
+  readU32_30e2OwnPc, readU32_30e2ExitPc, readU32_30e2Writes, readU32_30e2Run)
 
 end BinaryFv.Zesu.Staging
