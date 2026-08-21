@@ -263,12 +263,11 @@ def readU32MachineValue (v0 v1 v2 v3 : Nat) : BitVec 64 :=
   (sh3 ||| sh2) ||| (sh1 ||| z0)
 
 private theorem readU32LoadUnsignedStep (stepNo pc offset : Nat) (state : State)
-    (rd : regidx) (destination : Register) (result : RegisterType destination)
+    (rs1 rd : regidx) (destination : Register) (result : RegisterType destination)
     (value baseAddress : Nat)
     (byte0 byte1 byte2 byte3 : UInt8)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
-    (base : state.regs.get? x18 = some (BitVec.ofNat 64 baseAddress))
     (rep : UIntRep 1 state.mem (baseAddress + offset) value)
     (pma : LoadPmaAllows state (BitVec.ofNat 64 (baseAddress + offset)) 1)
     (notMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + offset)) 1)
@@ -277,7 +276,9 @@ private theorem readU32LoadUnsignedStep (stepNo pc offset : Nat) (state : State)
     (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
       (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.LOAD (BitVec.ofNat 12 offset, .Regidx 18#5, rd, true, 1)))
+      (.LOAD (BitVec.ofNat 12 offset, rs1, rd, true, 1)))
+    (baseRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits rs1) premise premise (BitVec.ofNat 64 baseAddress))
     (write : ∀ premise : State, Runs (wX_bits rd (zero_extend (m := 64) (BitVec.ofNat 8 value)))
       premise ({ premise with regs := premise.regs.insert destination result } : State) ())
     (site : ExactInstructionSite pc byte0 byte1 byte2 byte3)
@@ -292,19 +293,21 @@ private theorem readU32LoadUnsignedStep (stepNo pc offset : Nat) (state : State)
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination
         result) false := by
-  apply configuredByteLoadFromX18Step stepNo pc offset state rd destination result
-    byte0 byte1 byte2 byte3 baseAddress value configured atPc base rep pma notMMIO fits loaded
-    (by simpa using decode) write site destinationNotNextPc destinationNotHart
-    destinationNotIncrement destinationNotRetired baseEncoding
-  exact addressEq
+  exact configuredByteLoadStep stepNo pc state (BitVec.ofNat 12 offset) rs1 rd destination
+    baseAddress offset value result byte0 byte1 byte2 byte3 configured atPc rep pma notMMIO fits
+    loaded addressEq baseRun write (by simpa using decode) (pcFits := site.pcFits)
+    (pcAligned := site.pcAligned) (destinationNotNextPc := destinationNotNextPc)
+    (destinationNotHart := destinationNotHart)
+    (destinationNotIncrement := destinationNotIncrement)
+    (destinationNotRetired := destinationNotRetired) (base := baseEncoding)
+    (read0 := site.read0) (read1 := site.read1) (read2 := site.read2) (read3 := site.read3)
 
 private theorem readU32LoadSignedStep (stepNo pc offset : Nat) (state : State)
-    (rd : regidx) (destination : Register) (result : RegisterType destination)
+    (rs1 rd : regidx) (destination : Register) (result : RegisterType destination)
     (value baseAddress : Nat)
     (byte0 byte1 byte2 byte3 : UInt8)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
     (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
-    (base : state.regs.get? x18 = some (BitVec.ofNat 64 baseAddress))
     (rep : UIntRep 1 state.mem (baseAddress + offset) value)
     (pma : LoadPmaAllows state (BitVec.ofNat 64 (baseAddress + offset)) 1)
     (notMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + offset)) 1)
@@ -313,7 +316,9 @@ private theorem readU32LoadSignedStep (stepNo pc offset : Nat) (state : State)
     (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
       (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
-      (.LOAD (BitVec.ofNat 12 offset, .Regidx 18#5, rd, false, 1)))
+      (.LOAD (BitVec.ofNat 12 offset, rs1, rd, false, 1)))
+    (baseRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits rs1) premise premise (BitVec.ofNat 64 baseAddress))
     (write : ∀ premise : State, Runs (wX_bits rd (sign_extend (m := 64) (BitVec.ofNat 8 value)))
       premise ({ premise with regs := premise.regs.insert destination result } : State) ())
     (site : ExactInstructionSite pc byte0 byte1 byte2 byte3)
@@ -328,11 +333,14 @@ private theorem readU32LoadSignedStep (stepNo pc offset : Nat) (state : State)
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired destination
         result) false := by
-  apply configuredSignedByteLoadFromX18Step stepNo pc offset state rd destination result
-    byte0 byte1 byte2 byte3 baseAddress value configured atPc base rep pma notMMIO fits loaded
-    (by simpa using decode) write site destinationNotNextPc destinationNotHart
-    destinationNotIncrement destinationNotRetired baseEncoding
-  exact addressEq
+  exact configuredSignedByteLoadStep stepNo pc state (BitVec.ofNat 12 offset) rs1 rd destination
+    baseAddress offset value result byte0 byte1 byte2 byte3 configured atPc rep pma notMMIO fits
+    loaded addressEq baseRun write (by simpa using decode) (pcFits := site.pcFits)
+    (pcAligned := site.pcAligned) (destinationNotNextPc := destinationNotNextPc)
+    (destinationNotHart := destinationNotHart)
+    (destinationNotIncrement := destinationNotIncrement)
+    (destinationNotRetired := destinationNotRetired) (base := baseEncoding)
+    (read0 := site.read0) (read1 := site.read1) (read2 := site.read2) (read3 := site.read3)
 
 private theorem readU32SlliStep (stepNo pc : Nat) (state : State) (shamt : BitVec 6)
     (sourceRegister : regidx) (destination : Register) (result : RegisterType destination)
@@ -475,9 +483,11 @@ theorem readU32_2ff8Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
     exact loaded
   obtain ⟨m1, seg1⟩ := seg0.step (by owned_pc [readU32_2ff8OwnPc, pcInList])
     (by owned_pc [readU32_2ff8ExitPc, pcInList]) x10 z1 0x12738
-    (readU32LoadUnsignedStep fromStep 0x12734 3 state (.Regidx 10#5) x10 z1 v1
-      baseAddress 0x03 0x45 0x39 0x00 configured atPc base rep1 (pma 1 (by omega))
+    (readU32LoadUnsignedStep fromStep 0x12734 3 state (.Regidx 18#5) (.Regidx 10#5) x10 z1 v1
+      baseAddress 0x03 0x45 0x39 0x00 configured atPc rep1 (pma 1 (by omega))
       (notMMIO 1 (by omega)) (by omega) loaded (by configured_decode configured)
+      (fun premise writes => rX_x18_run premise _
+        ((writes x18 (by simp [stepBookkeeping])).trans base))
       (fun premise => wX_x10_run premise z1) (by constructor <;> native_decide)
       (by decide) (by decide) (by decide) (by decide) (by rfl)
       (by rw [show sign_extend (m := 64) (3#12) = 3#64 by native_decide];
@@ -486,11 +496,15 @@ theorem readU32_2ff8Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   obtain ⟨m2, seg2⟩ := seg1.step (by owned_pc [readU32_2ff8OwnPc, pcInList])
     (by owned_pc [readU32_2ff8ExitPc, pcInList]) x12 z0 0x1273c
-    (readU32LoadUnsignedStep (fromStep + 1) 0x12738 2 m1 (.Regidx 12#5) x12 z0 v0
-      baseAddress 0x03 0x46 0x29 0x00 (configuredOfSeg seg1) seg1.atPc (baseOfSeg seg1)
+    (readU32LoadUnsignedStep (fromStep + 1) 0x12738 2 m1 (.Regidx 18#5)
+      (.Regidx 12#5) x12 z0 v0 baseAddress 0x03 0x46 0x29 0x00
+      (configuredOfSeg seg1) seg1.atPc
       (repOfSeg seg1 rep0) (by simpa [Nat.add_assoc] using pmaOfSeg seg1 (offset := 0) (by omega))
       (by simpa [Nat.add_assoc] using notMMIO 0 (by omega)) (by omega) (loadedOfSeg seg1)
-      (by configured_decode (configuredOfSeg seg1)) (fun premise => wX_x12_run premise z0)
+      (by configured_decode (configuredOfSeg seg1))
+      (fun premise writes => rX_x18_run premise _
+        ((writes x18 (by simp [stepBookkeeping])).trans (baseOfSeg seg1)))
+      (fun premise => wX_x12_run premise z0)
       (by constructor <;> native_decide) (by decide) (by decide) (by decide) (by decide) (by rfl)
       (by rw [show sign_extend (m := 64) (2#12) = 2#64 by native_decide];
           exact ofNatAdd baseAddress 2 (by omega)))
@@ -498,11 +512,15 @@ theorem readU32_2ff8Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   obtain ⟨m3, seg3⟩ := seg2.step (by owned_pc [readU32_2ff8OwnPc, pcInList])
     (by owned_pc [readU32_2ff8ExitPc, pcInList]) x13 z2 0x12740
-    (readU32LoadUnsignedStep (fromStep + 2) 0x1273c 4 m2 (.Regidx 13#5) x13 z2 v2
-      baseAddress 0x83 0x46 0x49 0x00 (configuredOfSeg seg2) seg2.atPc (baseOfSeg seg2)
+    (readU32LoadUnsignedStep (fromStep + 2) 0x1273c 4 m2 (.Regidx 18#5)
+      (.Regidx 13#5) x13 z2 v2 baseAddress 0x83 0x46 0x49 0x00
+      (configuredOfSeg seg2) seg2.atPc
       (repOfSeg seg2 rep2) (by simpa [Nat.add_assoc] using pmaOfSeg seg2 (offset := 2) (by omega))
       (by simpa [Nat.add_assoc] using notMMIO 2 (by omega)) (by omega) (loadedOfSeg seg2)
-      (by configured_decode (configuredOfSeg seg2)) (fun premise => wX_x13_run premise z2)
+      (by configured_decode (configuredOfSeg seg2))
+      (fun premise writes => rX_x18_run premise _
+        ((writes x18 (by simp [stepBookkeeping])).trans (baseOfSeg seg2)))
+      (fun premise => wX_x13_run premise z2)
       (by constructor <;> native_decide) (by decide) (by decide) (by decide) (by decide) (by rfl)
       (by rw [show sign_extend (m := 64) (4#12) = 4#64 by native_decide];
           exact ofNatAdd baseAddress 4 (by omega)))
@@ -510,11 +528,15 @@ theorem readU32_2ff8Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   obtain ⟨m4, seg4⟩ := seg3.step (by owned_pc [readU32_2ff8OwnPc, pcInList])
     (by owned_pc [readU32_2ff8ExitPc, pcInList]) x14 s3 0x12744
-    (readU32LoadSignedStep (fromStep + 3) 0x12740 5 m3 (.Regidx 14#5) x14 s3 v3
-      baseAddress 0x03 0x07 0x59 0x00 (configuredOfSeg seg3) seg3.atPc (baseOfSeg seg3)
+    (readU32LoadSignedStep (fromStep + 3) 0x12740 5 m3 (.Regidx 18#5)
+      (.Regidx 14#5) x14 s3 v3 baseAddress 0x03 0x07 0x59 0x00
+      (configuredOfSeg seg3) seg3.atPc
       (repOfSeg seg3 rep3) (by simpa [Nat.add_assoc] using pmaOfSeg seg3 (offset := 3) (by omega))
       (by simpa [Nat.add_assoc] using notMMIO 3 (by omega)) (by omega) (loadedOfSeg seg3)
-      (by configured_decode (configuredOfSeg seg3)) (fun premise => wX_x14_run premise s3)
+      (by configured_decode (configuredOfSeg seg3))
+      (fun premise writes => rX_x18_run premise _
+        ((writes x18 (by simp [stepBookkeeping])).trans (baseOfSeg seg3)))
+      (fun premise => wX_x14_run premise s3)
       (by constructor <;> native_decide) (by decide) (by decide) (by decide) (by decide) (by rfl)
       (by rw [show sign_extend (m := 64) (5#12) = 5#64 by native_decide];
           exact ofNatAdd baseAddress 5 (by omega)))
