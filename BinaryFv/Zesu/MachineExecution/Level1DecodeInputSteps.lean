@@ -1101,6 +1101,14 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
     intro index bound inside
     unfold decodeInputFrameMemory byteRange at inside
     omega)
+  have allocatorStateFinal := allocatorStateRep.of_writesOnlyWithin finalSeg.mem (by
+    intro index bound inside
+    unfold decodeInputFrameMemory byteRange at inside
+    omega)
+  have allocatorVtableFinal := allocatorVtableRep.of_writesOnlyWithin finalSeg.mem (by
+    intro index bound inside
+    unfold decodeInputFrameMemory byteRange at inside
+    omega)
   have savedReturnFinal := savedReturnRep.of_writesOnlyWithin finalSeg.mem (by
     intro index bound inside
     unfold decodeInputFrameMemory byteRange at inside
@@ -1136,6 +1144,8 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
         saved := finalSaved
         inputAddress := pointerFinal
         inputSize := sizeFinal
+        allocatorState := allocatorStateFinal
+        allocatorVtable := allocatorVtableFinal
         savedReturn := savedReturnFinal
         input := inputFinal
         code := codeFinal
@@ -1218,6 +1228,8 @@ theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
         saved := ?_
         inputAddress := ?_
         inputSize := ?_
+        allocatorState := ?_
+        allocatorVtable := ?_
         savedReturn := ?_
         input := ?_
         code := ?_
@@ -1235,6 +1247,8 @@ theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
       simpa only [after, memEq] using oldSaved
     · simpa only [after, memEq] using frame.inputAddress
     · simpa only [after, memEq] using frame.inputSize
+    · simpa only [after, memEq] using frame.allocatorState
+    · simpa only [after, memEq] using frame.allocatorVtable
     · simpa only [after, memEq] using frame.savedReturn
     · simpa only [after, memEq] using frame.input
     · simpa only [after, memEq] using frame.code

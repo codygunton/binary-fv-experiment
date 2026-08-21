@@ -63,6 +63,10 @@ structure DecodeInlineFrame (args : DecodeInlineArgs) (values : DecodeCalleeSave
   inputAddress : UIntRep 8 state.machine.mem args.boundary.stackPointer args.boundary.inputAddress
   inputSize : UIntRep 8 state.machine.mem (args.boundary.stackPointer + 8)
     args.boundary.input.size
+  allocatorState : UIntRep 8 state.machine.mem (args.boundary.stackPointer + 0x10)
+    args.boundary.allocatorStateAddress
+  allocatorVtable : UIntRep 8 state.machine.mem (args.boundary.stackPointer + 0x18)
+    args.boundary.allocatorVtableAddress
   savedReturn : UIntRep 8 state.machine.mem (args.boundary.stackPointer + 0x378)
     args.boundary.savedReturnAddress
   input : BytesRep state.machine.mem args.boundary.inputAddress args.boundary.input
