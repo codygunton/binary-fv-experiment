@@ -1283,6 +1283,111 @@ sszDecodeZeroDwordSite(sszDecodeCleanupStore460; 0x1228c, 0x460;
 sszDecodeZeroDwordSite(sszDecodeCleanupStore468; 0x12290, 0x468;
   0x23, 0x34, 0x01, 0x46)
 
+/-- Declare one exact word zero store from the shared cleanup theorem. -/
+macro "sszDecodeZeroWordSite(" name:ident ";" pc:term "," offset:term ";"
+    byte0:term "," byte1:term "," byte2:term "," byte3:term ")" : command =>
+  `(private theorem $name (stepNo : Nat) (args : DecodeInlineArgs) (state : State)
+      (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+      (stackAligned : args.boundary.stackPointer % 16 = 0)
+      (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+      (access : DecodeBoundaryMachineAccess args.boundary state)
+      (atPc : state.regs.get? PC = some (BitVec.ofNat 64 $pc))
+      (atStack : state.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+      (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+      ∃ retired, Runs (try_step stepNo false) state
+        (tryStepControlFlowAfterRetired
+          (afterWriteBytes (width := 4)
+            (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+              (BitVec.ofNat 64 $pc))
+            (args.boundary.stackPointer - 0xbb0 + $offset) 0)
+          (Sail.BitVec.addInt (BitVec.ofNat 64 $pc) 4) retired) false := by
+      apply sszDecodeZeroWordStoreStep stepNo $pc $offset (BitVec.ofNat 12 $offset)
+        $byte0 $byte1 $byte2 $byte3 args state access atPc atStack
+        (by omega) (by omega) (by omega) loaded
+      · change BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) +
+          BitVec.ofNat 64 $offset = _
+        rw [← BitVec.ofNat_add]
+      · configured_decode access.configured
+      · native_decide
+      · rfl)
+
+/-- Declare one exact half-word zero store from the shared cleanup theorem. -/
+macro "sszDecodeZeroHalfSite(" name:ident ";" pc:term "," offset:term ";"
+    byte0:term "," byte1:term "," byte2:term "," byte3:term ")" : command =>
+  `(private theorem $name (stepNo : Nat) (args : DecodeInlineArgs) (state : State)
+      (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+      (stackAligned : args.boundary.stackPointer % 16 = 0)
+      (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+      (access : DecodeBoundaryMachineAccess args.boundary state)
+      (atPc : state.regs.get? PC = some (BitVec.ofNat 64 $pc))
+      (atStack : state.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+      (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+      ∃ retired, Runs (try_step stepNo false) state
+        (tryStepControlFlowAfterRetired
+          (afterWriteBytes (width := 2)
+            (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+              (BitVec.ofNat 64 $pc))
+            (args.boundary.stackPointer - 0xbb0 + $offset) 0)
+          (Sail.BitVec.addInt (BitVec.ofNat 64 $pc) 4) retired) false := by
+      apply sszDecodeZeroHalfStoreStep stepNo $pc $offset (BitVec.ofNat 12 $offset)
+        $byte0 $byte1 $byte2 $byte3 args state access atPc atStack
+        (by omega) (by omega) (by omega) loaded
+      · change BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) +
+          BitVec.ofNat 64 $offset = _
+        rw [← BitVec.ofNat_add]
+      · configured_decode access.configured
+      · native_decide
+      · rfl)
+
+/-- Declare one exact byte zero store from the shared cleanup theorem. -/
+macro "sszDecodeZeroByteSite(" name:ident ";" pc:term "," offset:term ";"
+    byte0:term "," byte1:term "," byte2:term "," byte3:term ")" : command =>
+  `(private theorem $name (stepNo : Nat) (args : DecodeInlineArgs) (state : State)
+      (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+      (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+      (access : DecodeBoundaryMachineAccess args.boundary state)
+      (atPc : state.regs.get? PC = some (BitVec.ofNat 64 $pc))
+      (atStack : state.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+      (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+      ∃ retired, Runs (try_step stepNo false) state
+        (tryStepControlFlowAfterRetired
+          (afterWriteBytes (width := 1)
+            (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+              (BitVec.ofNat 64 $pc))
+            (args.boundary.stackPointer - 0xbb0 + $offset) 0)
+          (Sail.BitVec.addInt (BitVec.ofNat 64 $pc) 4) retired) false := by
+      apply sszDecodeZeroByteStoreStep stepNo $pc $offset (BitVec.ofNat 12 $offset)
+        $byte0 $byte1 $byte2 $byte3 args state access atPc atStack
+        (by omega) (by omega) loaded
+      · change BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) +
+          BitVec.ofNat 64 $offset = _
+        rw [← BitVec.ofNat_add]
+      · configured_decode access.configured
+      · native_decide
+      · rfl)
+
+sszDecodeZeroWordSite(sszDecodeCleanupWord480; 0x12280, 0x480;
+  0x23, 0x20, 0x01, 0x48)
+sszDecodeZeroWordSite(sszDecodeCleanupWord2c8; 0x122e8, 0x2c8;
+  0x23, 0x24, 0x01, 0x2c)
+sszDecodeZeroHalfSite(sszDecodeCleanupHalf2cc; 0x122ec, 0x2cc;
+  0x23, 0x16, 0x01, 0x2c)
+sszDecodeZeroByteSite(sszDecodeCleanupByte2ce; 0x122f0, 0x2ce;
+  0x23, 0x07, 0x01, 0x2c)
+sszDecodeZeroWordSite(sszDecodeCleanupWord2c0; 0x122f4, 0x2c0;
+  0x23, 0x20, 0x01, 0x2c)
+sszDecodeZeroHalfSite(sszDecodeCleanupHalf2c4; 0x122f8, 0x2c4;
+  0x23, 0x12, 0x01, 0x2c)
+sszDecodeZeroByteSite(sszDecodeCleanupByte2c6; 0x122fc, 0x2c6;
+  0x23, 0x03, 0x01, 0x2c)
+sszDecodeZeroWordSite(sszDecodeCleanupWord2b8; 0x12300, 0x2b8;
+  0x23, 0x2c, 0x01, 0x2a)
+sszDecodeZeroHalfSite(sszDecodeCleanupHalf2bc; 0x12304, 0x2bc;
+  0x23, 0x1e, 0x01, 0x2a)
+
 def sszDecodeForkNameByteOwnPc (pc : BitVec 64) : Prop := pc = 0x12218
 
 def sszDecodeForkNameByteExitPc (pc : BitVec 64) : Prop := pc = 0x1221c
