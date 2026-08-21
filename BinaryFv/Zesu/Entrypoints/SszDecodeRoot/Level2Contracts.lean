@@ -56,6 +56,8 @@ set_option genInjectivity false in
 structure DecodeInlineFrame (args : DecodeInlineArgs) (values : DecodeCalleeSavedValues)
     (state : EndpointState) : Prop where
   stackFits : 0xbb0 ≤ args.boundary.stackPointer
+  stackAligned : args.boundary.stackPointer % 16 = 0
+  stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64
   atStack : state.machine.regs.get? x2 =
     some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
   saved : DecodeCalleeSavedAtStack (args.boundary.stackPointer - 0xbb0)

@@ -1140,6 +1140,8 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
   refine ⟨final, endpointTrace, entry', values, saved, ?_, finalSeg.atPc, ?_, ?_, ?_, ?_, ?_⟩
   · refine
       { stackFits := stackLower
+        stackAligned := stackAligned
+        stackUpper := stackUpper
         atStack := finalSeg.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) (by simp)
         saved := finalSaved
         inputAddress := pointerFinal
@@ -1224,6 +1226,8 @@ theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
   · have memEq := seg2.memEq noMemory_empty
     refine
       { stackFits := frame.stackFits
+        stackAligned := frame.stackAligned
+        stackUpper := frame.stackUpper
         atStack := seg2.reg x2 (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) (by simp)
         saved := ?_
         inputAddress := ?_
