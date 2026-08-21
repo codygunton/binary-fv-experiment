@@ -492,6 +492,38 @@ theorem sszDecodeAllocatorFallThroughHandoff (fromStep : Nat) (args : DecodeInli
   · exact (seg.get x18 (by simp [sszDecodeAllocatorPrefixWrites])).trans sourceAt
   · exact (seg.get x13 (by simp [sszDecodeAllocatorPrefixWrites])).trans inputSizeAt
 
+/-- Typed entry facts for the short-input route at `0x12200`. -/
+structure SszDecodeShortLengthEntry (args : DecodeInlineArgs) (state : State) : Prop where
+  atPc : state.regs.get? PC = some 0x12200
+  inputSizeAt : state.regs.get? x13 = some (BitVec.ofNat 64 args.boundary.input.size)
+  configured : ConfiguredMachinePre EndpointMachinePc state
+  code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
+
+/-- The taken first branch produces the exact short-input route entry. -/
+theorem sszDecodeAllocatorShortHandoff (fromStep : Nat) (args : DecodeInlineArgs)
+    (values : DecodeCalleeSavedValues) (before : EndpointState)
+    (frame : DecodeInlineFrame args values before)
+    (atPc : before.machine.regs.get? PC = some 0x121ac)
+    (allocatorAt : before.machine.regs.get? x11 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x10)))
+    (inputSizeAt : before.machine.regs.get? x13 =
+      some (BitVec.ofNat 64 args.boundary.input.size))
+    (comparison : zopz0zKzJ_u 3 (BitVec.ofNat 64 args.boundary.input.size) = true) :
+    ∃ after,
+      Seg sszDecodeAllocatorPrefixOwnPc sszDecodeAllocatorPrefixExitPc
+        (fun _ _ _ _ _ => False) sszDecodeAllocatorPrefixWrites
+        (sszDecodeAllocatorPrefixMemory (args.boundary.stackPointer - 0xbb0))
+        [⟨x14, 3⟩, ⟨x12, BitVec.ofNat 64 args.boundary.allocatorVtableAddress⟩,
+          ⟨x10, BitVec.ofNat 64 args.boundary.allocatorStateAddress⟩]
+        fromStep 6 before.machine after 0x12200 ∧
+      SszDecodeShortLengthEntry args after := by
+  obtain ⟨after, seg, _storedState, _storedVtable⟩ :=
+    sszDecodeAllocatorBranchSeg fromStep args values before frame atPc allocatorAt inputSizeAt
+      comparison
+  refine ⟨after, seg, seg.atPc, ?_, sszDecodeAllocatorAccessOfSeg frame seg |>.configured,
+    sszDecodeAllocatorCodeOfSeg frame seg⟩
+  exact (seg.get x13 (by simp [sszDecodeAllocatorPrefixWrites])).trans inputSizeAt
+
 def sszDecodeLengthMinimumOwnPc (pc : BitVec 64) : Prop :=
   pcInList [0x12204, 0x12208] pc
 

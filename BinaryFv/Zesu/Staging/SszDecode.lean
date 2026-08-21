@@ -165,9 +165,9 @@ private theorem sszDecodeLengthMinimumOwnPc_not_observed {pc : BitVec 64}
   rcases inside with inside | inside
   all_goals rcases observed with observed | observed | observed <;> omega
 
-private theorem scopedTraceOfSegAtExit {own exit : BitVec 64 → Prop} {W : RegSet}
+private theorem scopedTraceOfSegAtExit {own exit : BitVec 64 → Prop} {W : RegSet} {M : Region}
     {kv : List RegVal} {a n : Nat} {base cur : State} {pc : BitVec 64}
-    (seg : Seg own exit (fun _ _ _ _ _ => False) W noMemory kv a n base cur pc)
+    (seg : Seg own exit (fun _ _ _ _ _ => False) W M kv a n base cur pc)
     (atExit : exit pc) : ScopedTrace own exit (fun _ _ _ _ _ => False) a n base cur := by
   have endTrace : ScopedTrace own exit (fun _ _ _ _ _ => False) (a + n) 0 cur cur :=
     .exitAt (a + n) cur pc seg.atPc atExit
@@ -179,6 +179,28 @@ private theorem instructionPreserved_disjoint_sszDecodeLengthValidatedWrites_for
   rcases written with bookkeeping | rfl | rfl | rfl
   · exact platformPreserved_disjoint register preserved.1 bookkeeping
   all_goals simp [instructionPreserved, platformPreserved] at preserved
+
+private theorem sszDecodeLengthShortOwnPc_in_initial {pc : BitVec 64}
+    (inside : sszDecodeLengthShortOwnPc pc) : DecodeInlineInitialExecutionPc pc := by
+  unfold sszDecodeLengthShortOwnPc at inside
+  subst pc
+  unfold DecodeInlineInitialExecutionPc pcInRanges
+  exact ⟨(0x121ac, 0x14ca8), by simp [Elflings.sszDecodeExecutionPcRanges],
+    by native_decide, by native_decide⟩
+
+private theorem sszDecodeLengthShortOwnPc_not_observed {pc : BitVec 64}
+    (inside : sszDecodeLengthShortOwnPc pc) : ¬BareMetalHostTransitionPc pc := by
+  unfold sszDecodeLengthShortOwnPc at inside
+  subst pc
+  unfold BareMetalHostTransitionPc readContextReturnPc writeContextReturnPc exitContextStorePc
+  native_decide
+
+private theorem instructionPreserved_disjoint_sszDecodeLengthShortWrites_for_staging :
+    RegSet.Disjoint instructionPreserved sszDecodeLengthShortWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  · simp [instructionPreserved, platformPreserved] at preserved
 
 /-- The parent prefix and the proved four-byte child form one initial decoder trace. -/
 theorem sszDecodeSchemaWordPrefixAndChild (fromStep : Nat) (args : DecodeInlineArgs)
@@ -328,5 +350,70 @@ theorem sszDecodeValidatedLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
   refine ⟨used, after, bounded, ?_, ?_⟩
   · simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using combined
   · exact minimumSeg.atPc
+
+/-- The first taken branch and shared minimum check form the complete short-input trace. -/
+theorem sszDecodeShortLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
+    (values : DecodeCalleeSavedValues) (before : EndpointState)
+    (frame : DecodeInlineFrame args values before)
+    (atPc : before.machine.regs.get? PC = some 0x121ac)
+    (allocatorAt : before.machine.regs.get? x11 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x10)))
+    (inputSizeAt : before.machine.regs.get? x13 =
+      some (BitVec.ofNat 64 args.boundary.input.size))
+    (fieldComparison : zopz0zKzJ_u 3 (BitVec.ofNat 64 args.boundary.input.size) = true)
+    (minimumComparison : zopz0zI_u (BitVec.ofNat 64 args.boundary.input.size) 2 = short) :
+    ∃ after,
+      ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep
+        (6 + 1 + 2) before after ∧
+      after.machine.regs.get? PC = some (if short then 0x1225c else 0x1220c) := by
+  obtain ⟨prefixMachine, prefixSeg, shortEntry⟩ :=
+    sszDecodeAllocatorShortHandoff fromStep args values before frame atPc allocatorAt
+      inputSizeAt fieldComparison
+  let prefixAfter : EndpointState := { before with machine := prefixMachine }
+  have prefixMachineTrace := scopedTraceOfSegAtExit prefixSeg (by
+    simp [sszDecodeAllocatorPrefixExitPc, pcInList])
+  have prefixTrace : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      fromStep 6 before prefixAfter := by
+    simpa [prefixAfter] using liftSszDecodeAllocatorTrace before prefixMachineTrace
+  obtain ⟨shortMachine, shortSeg⟩ :=
+    sszDecodeLengthShortRouteSeg (fromStep + 6) prefixMachine shortEntry.configured
+      shortEntry.atPc shortEntry.inputSizeAt shortEntry.code
+  let shortAfter : EndpointState := { prefixAfter with machine := shortMachine }
+  have shortMachineTrace := scopedTraceOfSegAtExit shortSeg (by
+    simp [sszDecodeLengthShortExitPc])
+  have shortTrace : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      (fromStep + 6) 1 prefixAfter shortAfter := by
+    simpa [shortAfter, prefixAfter] using
+      liftSszDecodeParentTrace sszDecodeLengthShortOwnPc sszDecodeLengthShortExitPc
+        sszDecodeLengthShortOwnPc_in_initial sszDecodeLengthShortOwnPc_not_observed
+        prefixAfter shortMachineTrace
+  have shortConfigured := shortEntry.configured.mono
+    (shortSeg.agree instructionPreserved_disjoint_sszDecodeLengthShortWrites_for_staging)
+    shortSeg.retired
+  have shortCode : Artifacts.programImage.fileBytesLoadedFaithfully shortMachine.mem := by
+    rw [shortSeg.memEq noMemory_empty]
+    exact shortEntry.code
+  obtain ⟨finalMachine, minimumSeg⟩ :=
+    sszDecodeLengthMinimumBranchSeg (fromStep + 6 + 1) shortMachine shortConfigured
+      shortSeg.atPc (shortSeg.reg x10 (BitVec.ofNat 64 args.boundary.input.size) (by simp))
+      minimumComparison shortCode
+  let after : EndpointState := { shortAfter with machine := finalMachine }
+  have minimumMachineTrace := scopedTraceOfSegAtExit minimumSeg (by
+    cases short <;> simp [sszDecodeLengthMinimumExitPc, pcInList])
+  have minimumTrace : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      (fromStep + 6 + 1) 2 shortAfter after := by
+    simpa [after, shortAfter] using
+      liftSszDecodeParentTrace sszDecodeLengthMinimumOwnPc sszDecodeLengthMinimumExitPc
+        sszDecodeLengthMinimumOwnPc_in_initial sszDecodeLengthMinimumOwnPc_not_observed
+        shortAfter minimumMachineTrace
+  have shortTrace' : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      (fromStep + 6) 1 prefixAfter shortAfter := shortTrace
+  have prefixShort := prefixTrace.append shortTrace'
+  have minimumTrace' : ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
+      (fromStep + (6 + 1)) 2 shortAfter after := by
+    simpa only [Nat.add_assoc] using minimumTrace
+  have combined := prefixShort.append minimumTrace'
+  exact ⟨after, by simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using combined,
+    minimumSeg.atPc⟩
 
 end BinaryFv.Zesu.Staging
