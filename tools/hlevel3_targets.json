@@ -29,7 +29,8 @@
     {"instanceId": "fi:1:3731", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"},
     {"instanceId": "fi:1:37a5", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"},
     {"instanceId": "fi:1:37cf", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU32"},
-    {"instanceId": "fi:1:3823", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"}
+    {"instanceId": "fi:1:3823", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"},
+    {"instanceId": "fi:1:4350", "parentInstanceId": "fi:1:4333", "qualified": "ssz_decode_observation.Encoder.raw"}
   ],
   "targets": [
     {"field": "sszDecode", "instanceId": "fi:1:2e0f", "schema": "decode-inline"},

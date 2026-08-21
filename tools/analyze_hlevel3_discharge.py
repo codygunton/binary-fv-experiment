@@ -64,7 +64,9 @@ def flame_nodes(tree: dict) -> dict[str, dict]:
 def flame_meta_instances(flame: dict) -> set[str]:
     """Return machine-owner ids, including shared bodies expanded at several call sites."""
     meta = flame.get("meta", [])
-    if not isinstance(meta, list):
+    if isinstance(meta, dict):
+        meta = meta.values()
+    elif not isinstance(meta, list):
         return set()
     return {
         item["machineOwner"]
@@ -130,10 +132,10 @@ def render(inventory: dict, flames: list[dict]) -> str:
         "direct-now", "direct-after-dependencies", "retain-contract")}
     parent_composed = [row for parent in inventory["parents"]
                        for row in parent.get("parentComposedInlineInstances", [])]
-    if len(rows) != 43 or counts != {
-            "direct-now": 8, "direct-after-dependencies": 26, "retain-contract": 9}:
+    if len(rows) != 42 or counts != {
+            "direct-now": 8, "direct-after-dependencies": 25, "retain-contract": 9}:
         raise ValueError(f"review coverage changed: instances={len(rows)}, counts={counts}")
-    if len(parent_composed) != 14:
+    if len(parent_composed) != 15:
         raise ValueError(f"parent-composed inline instance count changed: {len(parent_composed)}")
     lines = [
         "# Level 3 direct-discharge review",
@@ -162,8 +164,9 @@ def render(inventory: dict, flames: list[dict]) -> str:
         "",
         "## Parent-composed inline instances",
         "",
-        "These source instances do not form standalone machine regions. Their instructions must be",
-        "composed with `sszDecode` parent instructions through shared integer-reader fragments.",
+        "These source instances must compose with their Level 2 parent state. The integer-reader",
+        "instructions interleave with `sszDecode`. The raw-encoder tail consumes the `Encoder.bytes`",
+        "caller frame while it restores registers and the stack pointer.",
         "",
         "| Instance | Source operation | Entry | Scheduled instructions |",
         "|---|---|---:|---:|",
@@ -171,7 +174,7 @@ def render(inventory: dict, flames: list[dict]) -> str:
     for row in sorted(parent_composed, key=lambda value: value["executionPcs"][0]):
         lines.append(
             f"| `{row['instanceId']}` | `{row['qualified']}` | "
-            f"`0x{row['executionPcs'][0]:x}` | {len(row['executionPcs'])} |")
+            f"`0x{row['entryPcs'][0]:x}` | {len(row['executionPcs'])} |")
     lines.extend([
         "",
         "## Recommended proof order",

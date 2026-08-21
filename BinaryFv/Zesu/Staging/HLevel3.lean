@@ -504,7 +504,7 @@ Family: `encoder-raw`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_decode_observation_Encoder_raw_fi_1_40c3`,
 `ssz_decode_observation_Encoder_raw_fi_1_412a`, `ssz_decode_observation_Encoder_raw_fi_1_42a2`,
-`ssz_decode_observation_Encoder_raw_fi_1_4350`, `ssz_decode_observation_Encoder_raw_fi_1_45f6`.
+`ssz_decode_observation_Encoder_raw_fi_1_45f6`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -536,7 +536,7 @@ Family: `encoder-raw`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_decode_observation_Encoder_raw_fi_1_4045`,
 `ssz_decode_observation_Encoder_raw_fi_1_412a`, `ssz_decode_observation_Encoder_raw_fi_1_42a2`,
-`ssz_decode_observation_Encoder_raw_fi_1_4350`, `ssz_decode_observation_Encoder_raw_fi_1_45f6`.
+`ssz_decode_observation_Encoder_raw_fi_1_45f6`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -571,7 +571,7 @@ Family: `encoder-raw`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_decode_observation_Encoder_raw_fi_1_4045`,
 `ssz_decode_observation_Encoder_raw_fi_1_40c3`, `ssz_decode_observation_Encoder_raw_fi_1_42a2`,
-`ssz_decode_observation_Encoder_raw_fi_1_4350`, `ssz_decode_observation_Encoder_raw_fi_1_45f6`.
+`ssz_decode_observation_Encoder_raw_fi_1_45f6`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -588,7 +588,7 @@ Family: `encoder-raw`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_decode_observation_Encoder_raw_fi_1_4045`,
 `ssz_decode_observation_Encoder_raw_fi_1_40c3`, `ssz_decode_observation_Encoder_raw_fi_1_412a`,
-`ssz_decode_observation_Encoder_raw_fi_1_4350`, `ssz_decode_observation_Encoder_raw_fi_1_45f6`.
+`ssz_decode_observation_Encoder_raw_fi_1_45f6`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -596,23 +596,6 @@ Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_decode_observation_Encoder_raw_fi_1_42a2_Contract : Prop := by
   exact BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_42a2_Contract
-
-/--
-Contract design hole for `fi:1:4350` at `0x15c90`.
-Source operation: Append one represented byte window to the observation output.
-Source reference: `deps/zesu/src/zkvm/ssz_decode_observation.zig`.
-Family: `encoder-raw`.
-Boundary bindings: none.
-Same-source contract candidates: `ssz_decode_observation_Encoder_raw_fi_1_4045`,
-`ssz_decode_observation_Encoder_raw_fi_1_40c3`, `ssz_decode_observation_Encoder_raw_fi_1_412a`,
-`ssz_decode_observation_Encoder_raw_fi_1_42a2`, `ssz_decode_observation_Encoder_raw_fi_1_45f6`.
-Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
-Required design: bind semantic values to the recorded DWARF registers or memory.
-Required design: state configured-machine, access, termination, and exact frame facts.
-Do not replace this hole with a PC-only or unbound semantic contract.
--/
-def Proposed_ssz_decode_observation_Encoder_raw_fi_1_4350_Contract : Prop := by
-  sorry
 
 /--
 Contract design hole for `fi:1:43a9` at `0x15cb0`.
@@ -670,7 +653,7 @@ Family: `encoder-raw`.
 Boundary bindings: none.
 Same-source contract candidates: `ssz_decode_observation_Encoder_raw_fi_1_4045`,
 `ssz_decode_observation_Encoder_raw_fi_1_40c3`, `ssz_decode_observation_Encoder_raw_fi_1_412a`,
-`ssz_decode_observation_Encoder_raw_fi_1_42a2`, `ssz_decode_observation_Encoder_raw_fi_1_4350`.
+`ssz_decode_observation_Encoder_raw_fi_1_42a2`.
 Evidence source: `hlevel3-admission.json` records observed entries, exits, and access.
 Required design: bind semantic values to the recorded DWARF registers or memory.
 Required design: state configured-machine, access, termination, and exact frame facts.
@@ -727,7 +710,7 @@ Do not replace this hole with a PC-only or unbound semantic contract.
 def Proposed_mem_Allocator_dupe__anon_1128_fi_1_5b8d_Contract : Prop := by
   sorry
 
-/-- The 43 proposed Level 3 contracts selected below the 17 unresolved Level 2 fields. -/
+/-- The 42 proposed Level 3 contracts selected below the 17 unresolved Level 2 fields. -/
 structure Level3ContractAssumptions : Prop where
   ssz_decodeByteListList_fi_1_1999 :
     Proposed_ssz_decodeByteListList_fi_1_1999_Contract
@@ -751,8 +734,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_ssz_decode_observation_Encoder_accessList_fi_1_3fdd_Contract
   ssz_decode_observation_Encoder_authorizations_fi_1_406f :
     Proposed_ssz_decode_observation_Encoder_authorizations_fi_1_406f_Contract
-  ssz_decode_observation_Encoder_raw_fi_1_4350 :
-    Proposed_ssz_decode_observation_Encoder_raw_fi_1_4350_Contract
   ssz_decode_observation_Encoder_int_fi_1_43a9 :
     Proposed_ssz_decode_observation_Encoder_int_fi_1_43a9_Contract
   ssz_decode_observation_Encoder_int_fi_1_4494 :
@@ -1385,7 +1366,7 @@ Fragment `0x13db8` (5 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:4e572021751d58b7`. Closest proofs: none.
+Motifs: `motif:066543c2b45d5eff`, `motif:4e572021751d58b7`. Closest proofs: none.
 Fragment `0x13dcc` (1 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.RiscV.Seg.forget`. Step APIs: none.
 Motifs: none. Closest proofs: none.
@@ -1627,7 +1608,8 @@ Fragment `0x14b08` (8 steps): compose with `BinaryFv.RiscV.Seg.stepJump`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:11b1497dba807c6c`, `motif:8174d3a4e1c952d8`. Closest proofs: none.
+Motifs: `motif:11b1497dba807c6c`, `motif:46abafc066ef7dce`, `motif:8174d3a4e1c952d8`. Closest
+proofs: none.
 Fragment `0x14b28` (46 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.configuredAuipcStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
@@ -1759,22 +1741,40 @@ private theorem resolve_writeSuccessInt
 
 /--
 Resolve Level 2 field `writeSuccessBytes` for `fi:1:4333`.
-Level 3 contracts: `ssz_decode_observation_Encoder_raw_fi_1_4350`.
+Level 3 contracts: none.
 Earlier Level 2 results: `writeSuccessInt`.
 Unconditional child proofs: none.
-Parent-composed inline instances: none.
-Parent glue: 9 instructions in 1 block fragments.
+Parent-composed inline instances: `fi:1:4350`.
+Parent glue: 30 instructions in 4 block fragments.
+Inline `fi:1:4350` (`ssz_decode_observation.Encoder.raw`) contributes 21 scheduled instructions
+from 0x10190. It is not a standalone machine region. Compose these instructions with the parent
+and reuse the shared integer-reader load, shift, OR, and `Seg` fragments.
+Fragment `0x10190` (5 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
+`BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.configuredAuipcStep`,
+`BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
+`BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`,
+`BinaryFv.Zesu.MachineExecution.configuredRetStep`.
+Motifs: `motif:066543c2b45d5eff`, `motif:46abafc066ef7dce`. Closest proofs: none.
+Fragment `0x101a4` (8 steps): compose with `BinaryFv.RiscV.Seg.step`,
+`BinaryFv.RiscV.Seg.forget`. Step APIs:
+`BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
+Motifs: `motif:7cc72153757d2c36`. Closest proofs: none.
 Fragment `0x15c6c` (9 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
 `BinaryFv.RiscV.Seg.step`. Step APIs: `BinaryFv.Zesu.configuredAuipcStep`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordStoreStep`,
 `BinaryFv.Zesu.configuredJalrCallStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
 Motifs: `motif:f1750b1e29b40bc8`. Closest proofs: none.
+Fragment `0x15c90` (8 steps): compose with `BinaryFv.RiscV.Seg.step`,
+`BinaryFv.RiscV.Seg.forget`. Step APIs: `BinaryFv.Zesu.configuredAuipcStep`,
+`BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
+`BinaryFv.Zesu.configuredJalrCallStep`,
+`BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
+Motifs: `motif:2279394c061c63f8`, `motif:aeac4b90c1b52699`. Closest proofs: none.
 Frame rule: choose the complete register and memory write regions before `Seg` starts.
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessBytes
-    (ssz_decode_observation_Encoder_raw_fi_1_4350 : Proposed_ssz_decode_observation_Encoder_raw_fi_1_4350_Contract)
     (writeSuccessInt : WriteSuccessIntInstanceContract)
     : WriteSuccessBytesInstanceContract := by
   sorry
@@ -1887,12 +1887,12 @@ Fragment `0x15bec` (6 steps): compose with `BinaryFv.RiscV.Seg.step`,
 `BinaryFv.Zesu.MachineExecution.configuredDwordLoadStep`,
 `BinaryFv.Zesu.configuredJalrCallStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:efefc58ea39b57e7`. Closest proofs: none.
+Motifs: `motif:2279394c061c63f8`. Closest proofs: none.
 Fragment `0x15c04` (3 steps): compose with `BinaryFv.RiscV.Seg.step`,
 `BinaryFv.RiscV.Seg.forget`. Step APIs: `BinaryFv.Zesu.configuredAuipcStep`,
 `BinaryFv.Zesu.configuredJalrCallStep`,
 `BinaryFv.Zesu.MachineExecution.configuredRegisterWriteStep`.
-Motifs: `motif:efefc58ea39b57e7`. Closest proofs: none.
+Motifs: none. Closest proofs: none.
 Frame rule: choose the complete register and memory write regions before `Seg` starts.
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
@@ -2167,7 +2167,6 @@ theorem level2Contracts_of_level3_staged
     resolve_writeSuccessInt
   have resolved_writeSuccessBytes : WriteSuccessBytesInstanceContract :=
     resolve_writeSuccessBytes
-      hLevel3.ssz_decode_observation_Encoder_raw_fi_1_4350
       resolved_writeSuccessInt
   have resolved_writeSuccessByteLists : WriteSuccessByteListsInstanceContract :=
     resolve_writeSuccessByteLists

@@ -41,10 +41,10 @@ class LiveArtifactTests(unittest.TestCase):
         result = build(*self.documents)
         self.assertEqual(17, result["summary"]["level2FieldCount"])
         self.assertEqual(17, len({row["field"] for row in result["parents"]}))
-        self.assertEqual(43, result["summary"]["level3ContractCount"])
+        self.assertEqual(42, result["summary"]["level3ContractCount"])
         self.assertEqual(88, result["summary"]["level3ChildRouteCount"])
-        self.assertEqual(2598, result["summary"]["parentGlueInstructionCount"])
-        self.assertEqual(215, result["summary"]["parentGlueObligationCount"])
+        self.assertEqual(2619, result["summary"]["parentGlueInstructionCount"])
+        self.assertEqual(218, result["summary"]["parentGlueObligationCount"])
         for parent in result["parents"]:
             covered = set(parent["gluePcs"])
             for child in parent["children"]:
@@ -60,6 +60,10 @@ class LiveArtifactTests(unittest.TestCase):
              "fi:1:34c1", "fi:1:35ab", "fi:1:361f", "fi:1:3693", "fi:1:36dd",
              "fi:1:3731", "fi:1:37a5", "fi:1:37cf", "fi:1:3823"},
             {row["instanceId"] for row in ssz_decode["parentComposedInlineInstances"]})
+        write_bytes = next(row for row in result["parents"] if row["field"] == "writeSuccessBytes")
+        self.assertEqual(
+            {"fi:1:4350"},
+            {row["instanceId"] for row in write_bytes["parentComposedInlineInstances"]})
 
     def test_every_level3_candidate_has_entry_evidence(self):
         result = build(*self.documents)
