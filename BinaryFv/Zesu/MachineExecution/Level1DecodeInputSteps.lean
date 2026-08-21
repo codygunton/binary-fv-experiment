@@ -48,25 +48,14 @@ theorem decodeInputAddiX2Step (stepNo pc : Nat) (state : State) (immediate : Bit
     (read1 : Artifacts.programImage.readFileByte? (pc + 1) = some byte1 := by native_decide)
     (read2 : Artifacts.programImage.readFileByte? (pc + 2) = some byte2 := by native_decide)
     (read3 : Artifacts.programImage.readFileByte? (pc + 3) = some byte3 := by native_decide)
+    (advance : Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4 =
+      BitVec.ofNat 64 (pc + 4) := by native_decide)
     (pcAligned : pc % 4 = 0 := by native_decide) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x2 result) false := by
-  let premise := coreControlFlowNextState
-    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
-  have writes := stepPremiseState_writes state (BitVec.ofNat 64 pc)
-  have sourceRead : premise.regs.get? x2 = some source :=
-    writes.get x2 (by decide) |>.trans atSource
-  have execute : Runs (execute (.ITYPE (immediate, .Regidx 2#5, .Regidx 2#5, .ADDI))) premise
-      { premise with regs := premise.regs.insert x2 result } (.Retire_Success ()) := by
-    change Runs (execute_ITYPE immediate (.Regidx 2#5) (.Regidx 2#5) .ADDI) _ _ _
-    rw [resultEq]
-    exact execute_ITYPE_run premise _ immediate (.Regidx 2#5) (.Regidx 2#5) .ADDI source
-      (rX_x2_run premise source sourceRead) (wX_x2_run premise _)
-  exact configuredRegisterWriteStep stepNo pc state x2 result
-    (.ITYPE (immediate, .Regidx 2#5, .Regidx 2#5, .ADDI)) byte0 byte1 byte2 byte3
-    configured atPc loaded
-    decode execute (pcFits := pcFits) (base := base) (read0 := read0) (read1 := read1)
-    (read2 := read2) (read3 := read3) (pcAligned := pcAligned)
+  exact configuredAddiX2Step stepNo pc state immediate source result byte0 byte1 byte2 byte3
+    configured atPc atSource loaded resultEq decode
+    (site := ⟨pcFits, read0, read1, read2, read3, advance, pcAligned⟩) (base := base)
 
 /-- Production `0x121a4: mv s2, a2`. -/
 theorem decodeInputBindS2Step (stepNo : Nat) (state : State) (value : BitVec 64)

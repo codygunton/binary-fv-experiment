@@ -1,5 +1,6 @@
 import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.HostExecution
 import BinaryFv.RiscV.Instruction.RegisterRuns
+import BinaryFv.RiscV.Instruction.Execute.Arithmetic
 import BinaryFv.RiscV.Instruction.Execute.DataAddress
 import BinaryFv.RiscV.Step.FallThrough
 import BinaryFv.RiscV.Step.RegisterWrite
@@ -516,6 +517,40 @@ theorem configuredDwordStoreStep (stepNo pc : Nat) (state afterWrite : State)
   · simpa [tryStepStoreAfterIncrement, tryStepControlFlowAfterIncrement] using noFetchMMIO
   · simpa [tryStepStoreAfterIncrement, tryStepControlFlowAfterIncrement] using interrupts
   · simpa [tryStepStoreAfterIncrement, tryStepControlFlowAfterIncrement] using notExpected
+
+/-- Retire one exact `addi sp, sp, immediate`. -/
+theorem configuredAddiX2Step (stepNo pc : Nat) (state : State) (immediate : BitVec 12)
+    (source result : BitVec 64) (byte0 byte1 byte2 byte3 : UInt8)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (atSource : state.regs.get? x2 = some source)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (resultEq : result = iTypeResult .ADDI immediate source)
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.ITYPE (immediate, .Regidx 2#5, .Regidx 2#5, .ADDI)))
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3 := by native_decide)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by native_decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 pc) retired x2 result) false := by
+  let premise := coreControlFlowNextState
+    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+  have sourceRead : premise.regs.get? x2 = some source :=
+    (stepPremiseState_writes state (BitVec.ofNat 64 pc)).get x2
+      (by decide) |>.trans atSource
+  have execute : Runs (execute (.ITYPE (immediate, .Regidx 2#5, .Regidx 2#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x2 result } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE immediate (.Regidx 2#5) (.Regidx 2#5) .ADDI) _ _ _
+    rw [resultEq]
+    exact execute_ITYPE_run premise _ immediate (.Regidx 2#5) (.Regidx 2#5) .ADDI source
+      (rX_x2_run premise source sourceRead) (wX_x2_run premise _)
+  exact configuredRegisterWriteStep stepNo pc state x2 result
+    (.ITYPE (immediate, .Regidx 2#5, .Regidx 2#5, .ADDI)) byte0 byte1 byte2 byte3
+    configured atPc loaded decode execute (pcFits := site.pcFits) (base := base)
+    (read0 := site.read0) (read1 := site.read1) (read2 := site.read2) (read3 := site.read3)
+    (pcAligned := site.pcAligned)
 
 /-- Retire one exact `sd offset(sp)` with a generated source-register witness. -/
 theorem configuredStackDwordStoreStep (stepNo pc stackPointer offset : Nat)
