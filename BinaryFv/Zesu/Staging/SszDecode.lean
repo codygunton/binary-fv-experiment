@@ -163,6 +163,16 @@ structure SszDecodeCleanupReady (args : DecodeInlineArgs) (machine : State) : Pr
   configured : ConfiguredMachinePre EndpointMachinePc machine
   code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
 
+/-- The first two cleanup stores retain one opaque `Seg` and reach the address-setup instruction. -/
+theorem sszDecodeCleanupFirstStoresFromReady (fromStep : Nat) (args : DecodeInlineArgs)
+    (before : State) (ready : SszDecodeCleanupReady args before) :
+    ∃ after,
+      Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+        (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+        [] fromStep 2 before after 0x12264 :=
+  sszDecodeCleanupFirstStores fromStep args before ready.atPc ready.atStack ready.stackFits
+    ready.stackAligned ready.stackUpper ready.access ready.configured ready.code
+
 private theorem iTypeResult_addi_four_ofNat (value : Nat) :
     iTypeResult .ADDI 4 (BitVec.ofNat 64 value) = BitVec.ofNat 64 (value + 4) := by
   unfold iTypeResult

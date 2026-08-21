@@ -1579,6 +1579,118 @@ private theorem sszDecodeCleanupSuccessTagStep (stepNo : Nat) (state : State)
     (by configured_decode configured) (by native_decide) (by rfl)
     (by decide) (by decide) (by decide) (by decide)
 
+def sszDecodeCleanupOwnPc (pc : BitVec 64) : Prop :=
+  0x1225c ≤ pc.toNat ∧ pc.toNat < 0x1230c
+
+def sszDecodeCleanupExitPc (pc : BitVec 64) : Prop := pc = 0x1230c
+
+def sszDecodeCleanupWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x1 ∨ register = x10 ∨ register = x11 ∨
+    register = x12 ∨ register = x22
+
+def sszDecodeCleanupMemory (args : DecodeInlineArgs) : Region :=
+  byteRange (args.boundary.stackPointer - 0xbb0) 0xbb0
+
+private theorem instructionPreserved_disjoint_sszDecodeCleanupWrites :
+    RegSet.Disjoint instructionPreserved sszDecodeCleanupWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  all_goals simp [instructionPreserved, platformPreserved] at preserved
+
+private theorem sszDecodeCleanupAccessOfSeg {args : DecodeInlineArgs} {before cur : State}
+    {kv a n pc} (access : DecodeBoundaryMachineAccess args.boundary before)
+    (seg : Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+      (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+      kv a n before cur pc) :
+    DecodeBoundaryMachineAccess args.boundary cur :=
+  access.of_pma_regions_eq
+    (seg.agree instructionPreserved_disjoint_sszDecodeCleanupWrites) seg.retired
+    (seg.get pma_regions (by simp [sszDecodeCleanupWrites, stepBookkeeping]))
+
+private theorem sszDecodeCleanupCodeOfSeg {args : DecodeInlineArgs} {before cur : State}
+    {kv a n pc} (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+    (access : DecodeBoundaryMachineAccess args.boundary before)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully before.mem)
+    (seg : Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+      (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+      kv a n before cur pc) :
+    Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
+  intro address byte fileByte
+  rw [seg.mem address (by
+    intro inside
+    unfold sszDecodeCleanupMemory byteRange at inside
+    have lower : args.boundary.stackPointer - 0xbb0 ≤ address := inside.1
+    have upper : address < args.boundary.stackPointer := by
+      omega
+    have outside := access.frameNotCode address lower upper
+    rw [fileByte] at outside
+    cases outside)]
+  exact code address byte fileByte
+
+private theorem sszDecodeCleanupAppendStore {width : Nat} {args : DecodeInlineArgs}
+    {before cur : State} {kv a n pc} (seg : Seg sszDecodeCleanupOwnPc
+      sszDecodeCleanupExitPc (fun _ _ _ _ _ => False) sszDecodeCleanupWrites
+      (sszDecodeCleanupMemory args) kv a n before cur pc)
+    (offset : Nat) (value : BitVec (8 * width)) (nextPc : BitVec 64)
+    (offsetFits : offset + width ≤ 0xbb0)
+    (inRegion : sszDecodeCleanupOwnPc pc)
+    (keep : RegsOutside stepBookkeeping kv)
+    (run : ∃ retired, Runs (try_step (a + n) false) cur
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc)
+          (args.boundary.stackPointer - 0xbb0 + offset) value)
+        (Sail.BitVec.addInt pc 4) retired) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc) :
+    ∃ next, Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+      (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+      kv a (n + 1) before next nextPc :=
+  seg.stepStore (args.boundary.stackPointer - 0xbb0 + offset) value nextPc
+    inRegion (by
+      intro atExit
+      unfold sszDecodeCleanupExitPc at atExit
+      subst pc
+      simp [sszDecodeCleanupOwnPc] at inRegion)
+    run advance
+    (by intro other lower upper; simp [sszDecodeCleanupMemory, byteRange]; omega)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    keep
+
+/-- The first two cleanup stores reach the AUIPC setup instruction. -/
+theorem sszDecodeCleanupFirstStores (fromStep : Nat) (args : DecodeInlineArgs)
+    (before : State) (atPc : before.regs.get? PC = some 0x1225c)
+    (atStack : before.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+    (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+    (stackAligned : args.boundary.stackPointer % 16 = 0)
+    (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+    (access : DecodeBoundaryMachineAccess args.boundary before)
+    (configured : ConfiguredMachinePre EndpointMachinePc before)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully before.mem) :
+    ∃ after,
+      Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+        (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+        [] fromStep 2 before after 0x12264 := by
+  obtain ⟨retired, retiredRead⟩ := configured.retiredCounter
+  have seg0 := Seg.nil sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+    (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+    fromStep ⟨retired, retiredRead⟩ atPc
+  have run1 := sszDecodeCleanupStore4a8 (fromStep + 0) args before stackFits
+    stackAligned stackUpper (sszDecodeCleanupAccessOfSeg access seg0) seg0.atPc
+    ((seg0.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
+    (sszDecodeCleanupCodeOfSeg stackFits access code seg0)
+  obtain ⟨state1, seg1⟩ := sszDecodeCleanupAppendStore seg0 0x4a8 (0 : BitVec 64)
+    0x12260 (by omega) (by simp [sszDecodeCleanupOwnPc]) (by simp [RegsOutside])
+    run1 (by native_decide)
+  have run2 := sszDecodeCleanupStore4b0 (fromStep + 1) args state1 stackFits
+    stackAligned stackUpper (sszDecodeCleanupAccessOfSeg access seg1) seg1.atPc
+    ((seg1.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
+    (sszDecodeCleanupCodeOfSeg stackFits access code seg1)
+  obtain ⟨state2, seg2⟩ := sszDecodeCleanupAppendStore seg1 0x4b0 (0 : BitVec 64)
+    0x12264 (by omega) (by simp [sszDecodeCleanupOwnPc]) (by simp [RegsOutside])
+    run2 (by native_decide)
+  exact ⟨state2, by simpa only [Nat.add_assoc] using seg2⟩
+
 def sszDecodeForkNameByteOwnPc (pc : BitVec 64) : Prop := pc = 0x12218
 
 def sszDecodeForkNameByteExitPc (pc : BitVec 64) : Prop := pc = 0x1221c
