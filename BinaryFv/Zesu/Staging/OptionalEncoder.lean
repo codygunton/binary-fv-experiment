@@ -453,6 +453,9 @@ structure OptionalBooleanCallHandoff (localFrameSize scratchOffset scratchSize f
   memory : WritesOnlyWithin
     (optionalEncoderMemory localFrameSize scratchOffset scratchSize args.stackPointer)
     before.machine after.machine
+  scratchMemory : ∀ address,
+    byteRange (args.stackPointer + scratchOffset) scratchSize address →
+      after.machine.mem.get? address = before.machine.mem.get? address
   frame : EncoderInlineFrame before after
   access : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args after.machine
 
@@ -473,7 +476,11 @@ theorem optionalBooleanCallHandoff
         (pcInList Elflings.writeSuccessBooleanExitPcs))
     (site : OptionalBooleanCallSite pc returnPc callBase executionPcs)
     (frameLower : 16 ≤ localFrameSize) (fromStep : Nat)
-    (args : OptionalEncoderArgs Value) (tag : Bool) (before : EndpointState)
+    (args : OptionalEncoderArgs Value)
+    (scratchFrameDisjoint : RegionsDoNotOverlap
+      (byteRange (args.stackPointer + scratchOffset) scratchSize)
+      (byteRange (args.stackPointer - 16) 16))
+    (tag : Bool) (before : EndpointState)
     (atPc : before.machine.regs.get? PC = some (BitVec.ofNat 64 pc))
     (stack : before.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer))
     (tagReg : before.machine.regs.get? x10 = some (if tag then 1 else 0))
@@ -601,6 +608,15 @@ theorem optionalBooleanCallHandoff
         omega
       · right
         exact Or.inr outputInside), callMemEq]
+  have scratchMemory : ∀ address,
+      byteRange (args.stackPointer + scratchOffset) scratchSize address →
+        after.machine.mem.get? address = before.machine.mem.get? address := by
+    intro address inside
+    rw [childMemory address (by
+      intro written
+      rcases written with frameInside | outputInside
+      · exact scratchFrameDisjoint address inside frameInside
+      · exact access.scratchOutputDisjoint address inside outputInside), callMemEq]
   have parentAgree : Agree encoderInlinePreserved before.machine callMachine :=
     (seg1.writes.agree encoderInlinePreserved_disjoint_optionalBooleanCallWrites).trans
       (callWrites.agree (by
@@ -643,6 +659,7 @@ theorem optionalBooleanCallHandoff
     stdinCursor := by simpa [callState] using cursor
     exitCode := by simpa [callState] using exitCode
     memory
+    scratchMemory
     frame
     access := callAccess.ofEncoderFrame callState childInlineFrame }⟩
 
@@ -1818,8 +1835,11 @@ private theorem optionalU128BooleanHandoff
     ∃ childUsed after,
       OptionalU128BooleanHandoff fromStep childUsed tag returnPc args before after := by
   obtain ⟨childUsed, after, childBound, call⟩ := optionalBooleanCallHandoff (fun _ => 16)
-    writeSuccessBooleanContract_implements site (by omega) (fromStep + 2)
-    args (tag = 1) ready tagReady.atPc tagReady.stack (by
+    writeSuccessBooleanContract_implements site (by omega) (fromStep + 2) args (by
+      intro address inside
+      unfold byteRange at inside
+      omega)
+    (tag = 1) ready tagReady.atPc tagReady.stack (by
       rcases tagCase with rfl | rfl <;> simpa using tagReady.tagReg)
     tagReady.access tagReady.loaded
   have trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges optionalU128ExecutionPcs)
@@ -2143,7 +2163,10 @@ private theorem optionalAddressAbsentHandoff (fromStep : Nat)
     loaded access
   obtain ⟨childUsed, after, childBound, call⟩ := optionalBooleanCallHandoff (fun _ => 16)
     writeSuccessBooleanContract_implements optionalAddressAbsentBooleanSite (by omega)
-    (fromStep + 1) args false ready prepared.atPc prepared.stack prepared.tag prepared.access
+    (fromStep + 1) args (by
+      intro address scratch frame
+      unfold byteRange at scratch frame
+      omega) false ready prepared.atPc prepared.stack prepared.tag prepared.access
       prepared.loaded
   refine ⟨childUsed, after, childBound, ?_⟩
   exact {
