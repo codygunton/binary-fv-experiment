@@ -1680,6 +1680,26 @@ private theorem sszDecodeCleanupAppendRegister {args : DecodeInlineArgs}
     (by intro register bookkeeping; exact Or.inl bookkeeping) destination
     destNotPc destNotRetired keep
 
+private theorem sszDecodeCleanupAppendDwordSite {args : DecodeInlineArgs}
+    {before cur : State} {kv a n pc} (seg : Seg sszDecodeCleanupOwnPc
+      sszDecodeCleanupExitPc (fun _ _ _ _ _ => False) sszDecodeCleanupWrites
+      (sszDecodeCleanupMemory args) kv a n before cur pc)
+    (offset : Nat) (nextPc : BitVec 64) (offsetFits : offset + 8 ≤ 0xbb0)
+    (inRegion : sszDecodeCleanupOwnPc pc)
+    (site : ∃ retired, Runs (try_step (a + n) false) cur
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement cur) pc)
+          (args.boundary.stackPointer - 0xbb0 + offset) 0)
+        pc retired) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc)
+    (keep : RegsOutside stepBookkeeping kv) :
+    ∃ next, Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+      (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+      kv a (n + 1) before next nextPc := by
+  apply sszDecodeCleanupAppendStore seg offset (0 : BitVec 64) nextPc offsetFits inRegion keep
+    site advance
+
 /-- The first two cleanup stores reach the AUIPC setup instruction. -/
 theorem sszDecodeCleanupFirstStores (fromStep : Nat) (args : DecodeInlineArgs)
     (before : State) (atPc : before.regs.get? PC = some 0x1225c)
@@ -1740,6 +1760,53 @@ theorem sszDecodeCleanupBaseHighAfterFirstStores (fromStep : Nat) (args : Decode
     (by simp [sszDecodeCleanupWrites]) (by decide) (by decide)
     (by simp [RegsOutside, stepBookkeeping])
   exact ⟨state3, by simpa only [Nat.add_assoc] using seg3⟩
+
+/-- The first cleanup descriptor group reaches `0x12278` through one shared store append. -/
+theorem sszDecodeCleanupFirstDescriptorGroup (fromStep : Nat) (args : DecodeInlineArgs)
+    (before : State) (atPc : before.regs.get? PC = some 0x1225c)
+    (atStack : before.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+    (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+    (stackAligned : args.boundary.stackPointer % 16 = 0)
+    (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+    (access : DecodeBoundaryMachineAccess args.boundary before)
+    (configured : ConfiguredMachinePre EndpointMachinePc before)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully before.mem) :
+    ∃ after,
+      Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+        (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+        [⟨x10, 0x17264⟩] fromStep 7 before after 0x12278 := by
+  obtain ⟨state3, seg3⟩ := sszDecodeCleanupBaseHighAfterFirstStores fromStep args before atPc
+    atStack stackFits stackAligned stackUpper access configured code
+  have run4 := sszDecodeCleanupStore488 (fromStep + 3) args state3 stackFits stackAligned
+    stackUpper (sszDecodeCleanupAccessOfSeg access seg3) seg3.atPc
+    ((seg3.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
+    (sszDecodeCleanupCodeOfSeg stackFits access code seg3)
+  obtain ⟨state4, seg4⟩ := sszDecodeCleanupAppendDwordSite seg3 0x488 0x1226c
+    (by omega) (by simp [sszDecodeCleanupOwnPc]) run4 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have run5 := sszDecodeCleanupStore490 (fromStep + 4) args state4 stackFits stackAligned
+    stackUpper (sszDecodeCleanupAccessOfSeg access seg4) seg4.atPc
+    ((seg4.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
+    (sszDecodeCleanupCodeOfSeg stackFits access code seg4)
+  obtain ⟨state5, seg5⟩ := sszDecodeCleanupAppendDwordSite seg4 0x490 0x12270
+    (by omega) (by simp [sszDecodeCleanupOwnPc]) run5 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have run6 := sszDecodeCleanupStore498 (fromStep + 5) args state5 stackFits stackAligned
+    stackUpper (sszDecodeCleanupAccessOfSeg access seg5) seg5.atPc
+    ((seg5.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
+    (sszDecodeCleanupCodeOfSeg stackFits access code seg5)
+  obtain ⟨state6, seg6⟩ := sszDecodeCleanupAppendDwordSite seg5 0x498 0x12274
+    (by omega) (by simp [sszDecodeCleanupOwnPc]) run6 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have run7 := sszDecodeCleanupStore4a0 (fromStep + 6) args state6 stackFits stackAligned
+    stackUpper (sszDecodeCleanupAccessOfSeg access seg6) seg6.atPc
+    ((seg6.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
+    (sszDecodeCleanupCodeOfSeg stackFits access code seg6)
+  obtain ⟨state7, seg7⟩ := sszDecodeCleanupAppendDwordSite seg6 0x4a0 0x12278
+    (by omega) (by simp [sszDecodeCleanupOwnPc]) run7 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  exact ⟨state7, by simpa only [Nat.add_assoc] using seg7⟩
 
 def sszDecodeForkNameByteOwnPc (pc : BitVec 64) : Prop := pc = 0x12218
 
