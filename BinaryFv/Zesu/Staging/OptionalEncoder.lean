@@ -1313,7 +1313,7 @@ private structure OptionalAddressCopyHandoff (fromStep : Nat)
     (args : OptionalEncoderArgs (Array UInt8)) (value : Array UInt8)
     (first second : Nat) (final : BitVec 64)
     (before after : State) : Prop where
-  seg : Seg (fun pc => pcInRanges [(0x15158, 0x1519c)] pc) (fun pc => pc = 0x15174)
+  seg : Seg (fun pc => pcInRanges [(0x15158, 0x1519c)] pc) (fun pc => pc = 0x15178)
     (fun _ _ _ _ _ => False) optionalAddressCopyWrites
     (byteRange (args.stackPointer + 0x6d0) 20)
     [⟨x12, final⟩, ⟨x11, BitVec.ofNat 64 second⟩,
@@ -1348,7 +1348,7 @@ theorem optionalAddressCopyHandoff (fromStep : Nat)
   have sourceFits := sourceRep.1
   have sourceFits20 : args.stackPointer + 0x67c ≤ 2 ^ 64 := by omega
   have seg0 : Seg (fun pc => pcInRanges [(0x15158, 0x1519c)] pc)
-      (fun pc => pc = 0x15174) (fun _ _ _ _ _ => False) optionalAddressCopyWrites
+      (fun pc => pc = 0x15178) (fun _ _ _ _ _ => False) optionalAddressCopyWrites
       (byteRange (args.stackPointer + 0x6d0) 20)
       [⟨x2, BitVec.ofNat 64 args.stackPointer⟩]
       fromStep 0 before before 0x1515c := {
@@ -2148,6 +2148,288 @@ private theorem optionalAddressAbsentReady (fromStep : Nat)
     memory := by simpa [ready] using seg1.memEq (by simp)
     frame }⟩
 
+set_option genInjectivity false in
+private structure OptionalAddressPresentReady (fromStep : Nat)
+    (args : OptionalEncoderArgs (Array UInt8)) (value : Array UInt8)
+    (before ready : EndpointState) : Prop where
+  trace : ConfinedTrace EndpointStep EndpointPc (pcInRanges optionalAddressExecutionPcs)
+    fromStep 8 before ready
+  atPc : ready.machine.regs.get? PC = some 0x15178
+  stack : ready.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer)
+  tag : ready.machine.regs.get? x10 = some 1
+  copied : BytesRep ready.machine.mem (args.stackPointer + 0x6d0) value
+  loaded : Artifacts.programImage.fileBytesLoadedFaithfully ready.machine.mem
+  access : OptionalEncoderMachineAccess 16 0x6d0 20 args ready.machine
+  stdout : ready.stdout = before.stdout
+  stdin : ready.stdin = before.stdin
+  stdinCursor : ready.stdinCursor = before.stdinCursor
+  exitCode : ready.exitCode = before.exitCode
+  memory : WritesOnlyWithin (optionalEncoderMemory 16 0x6d0 20 args.stackPointer)
+    before.machine ready.machine
+  frame : EncoderInlineFrame before ready
+
+private theorem optionalAddressPresentReady (fromStep : Nat)
+    (args : OptionalEncoderArgs (Array UInt8)) (value : Array UInt8)
+    (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x15158)
+    (stack : before.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer))
+    (presence : before.machine.regs.get? x10 = some 1)
+    (size : value.size = 20)
+    (sourceRep : BytesRep before.machine.mem (args.stackPointer + 0x668) value)
+    (sourceAccess : OptionalAddressSourceAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (access : OptionalEncoderMachineAccess 16 0x6d0 20 args before.machine) :
+    ∃ ready, OptionalAddressPresentReady fromStep args value before ready := by
+  have seg0 := ((Seg.nil (fun pc => pcInRanges [(0x15158, 0x1519c)] pc)
+    (fun pc => pc = 0x1515c) optionalAddressCopyWrites
+    (byteRange (args.stackPointer + 0x6d0) 20) fromStep
+    (childSummary := fun _ _ _ _ _ => False) access.output.configured.retiredCounter atPc).know
+      x2 (BitVec.ofNat 64 args.stackPointer) stack).know x10 1 presence
+  obtain ⟨machine1, seg1⟩ := seg0.stepFallThrough 0x1515c
+    (by owned_pc [pcInRanges]) (by native_decide)
+    (optionalAddressPresenceBranchStep fromStep before.machine true access.output.configured
+      atPc presence loaded)
+    (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access1 := access.ofAddressCopySeg seg1
+  have sourceAccess1 := sourceAccess.ofAddressCopySeg seg1
+  have loaded1 := optionalAddressCopyLoadedOfSeg access loaded seg1
+  have sourceRep1 : BytesRep machine1.mem (args.stackPointer + 0x668) value :=
+    sourceRep.of_writesOnlyWithin seg1.mem (by
+      intro index bound inside
+      unfold byteRange at inside
+      have sourceFits := sourceRep.1
+      rw [size] at bound sourceFits
+      omega)
+  obtain ⟨first, second, final, machine2, copied⟩ := optionalAddressCopyHandoff
+    (fromStep + 1) args value machine1 seg1.atPc (seg1.reg x2 _ (by simp)) size sourceRep1
+      sourceAccess1 access1 loaded1
+  have copySeg := copied.seg.forget
+    (kv' := [⟨x2, BitVec.ofNat 64 args.stackPointer⟩]) (by simp)
+  obtain ⟨retired3, machine3, machine3Eq, seg3⟩ := copySeg.stepWitness
+    (by owned_pc [pcInRanges]) (by native_decide)
+    x10 1 0x15178
+    (optionalAddressPresentTagStep (fromStep + 7) machine2 copied.access.output.configured
+      copied.seg.atPc copied.loaded)
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (by simp [optionalAddressCopyWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  let middle : EndpointState := { before with machine := machine1 }
+  let ready : EndpointState := { before with machine := machine3 }
+  have branchMachineTrace := seg1.confined 0 machine1
+    (ScopedTrace.exitAt (fromStep + 1) machine1 0x1515c seg1.atPc rfl)
+  have branchTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges optionalAddressExecutionPcs) fromStep 1 before middle := by
+    have lifted := liftOptionalParentTrace before (fun pc inside => by
+      unfold pcInRanges at inside
+      rcases inside with ⟨range, member, lower, upper⟩
+      simp at member
+      subst range
+      simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+        exitContextStorePc] at *
+      omega) branchMachineTrace
+    simpa [middle] using lifted.weaken (fun pc inside => by
+      unfold pcInRanges at inside ⊢
+      rcases inside with ⟨range, member, lower, upper⟩
+      simp at member
+      subst range
+      exact ⟨(0x15158, 0x1519c), by simp [optionalAddressExecutionPcs], lower, upper⟩)
+  have suffixMachineTrace := seg3.confined 0 machine3
+    (ScopedTrace.exitAt (fromStep + 8) machine3 0x15178 seg3.atPc rfl)
+  have suffixTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges optionalAddressExecutionPcs) (fromStep + 1) 7 middle ready := by
+    have lifted := liftOptionalParentTrace middle (fun pc inside => by
+      unfold pcInRanges at inside
+      rcases inside with ⟨range, member, lower, upper⟩
+      simp at member
+      subst range
+      simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+        exitContextStorePc] at *
+      omega) suffixMachineTrace
+    simpa [middle, ready] using lifted.weaken (fun pc inside => by
+      unfold pcInRanges at inside ⊢
+      rcases inside with ⟨range, member, lower, upper⟩
+      simp at member
+      subst range
+      exact ⟨(0x15158, 0x1519c), by simp [optionalAddressExecutionPcs], lower, upper⟩)
+  have frame1 : EncoderInlineFrame before middle :=
+    ⟨seg1.writes.agree encoderInlinePreserved_disjoint_optionalAddressCopyWrites,
+      seg1.retired, by simpa [middle] using loaded1, seg1.aux⟩
+  have frame2 : EncoderInlineFrame middle ready :=
+    ⟨seg3.writes.agree encoderInlinePreserved_disjoint_optionalAddressCopyWrites,
+      seg3.retired, by simpa [middle, ready] using
+        optionalAddressCopyLoadedOfSeg access1 loaded1 seg3, seg3.aux⟩
+  have frame : EncoderInlineFrame before ready :=
+    ⟨frame1.1.trans frame2.1, frame2.2.1, frame2.2.2.1,
+      ⟨frame2.2.2.2.1.trans frame1.2.2.2.1,
+        frame2.2.2.2.2.1.trans frame1.2.2.2.2.1,
+        frame2.2.2.2.2.2.trans frame1.2.2.2.2.2⟩⟩
+  refine ⟨ready, {
+    trace := by simpa [Nat.add_assoc] using branchTrace.append suffixTrace
+    atPc := by simpa [ready] using seg3.atPc
+    stack := by simpa [ready] using seg3.reg x2 _ (by simp)
+    tag := by simpa [ready] using seg3.reg x10 1 (by simp)
+    copied := by
+      dsimp [ready]
+      rw [machine3Eq]
+      simpa [afterRegisterWrite_mem] using copied.copied
+    loaded := frame.2.2.1
+    access := access1.ofAddressCopySeg seg3
+    stdout := rfl
+    stdin := rfl
+    stdinCursor := rfl
+    exitCode := rfl
+    memory := WritesOnlyWithin.trans_same
+      (WritesOnlyWithin.mono (fun address inside => Or.inr (Or.inl inside)) seg1.mem)
+      (WritesOnlyWithin.mono (fun address inside => Or.inr (Or.inl inside)) seg3.mem)
+    frame }⟩
+
+private theorem optionalAddressPresentHandoff (fromStep : Nat)
+    (args : OptionalEncoderArgs (Array UInt8)) (value : Array UInt8)
+    (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x15158)
+    (stack : before.machine.regs.get? x2 = some (BitVec.ofNat 64 args.stackPointer))
+    (presence : before.machine.regs.get? x10 = some 1)
+    (valueEq : args.value = some value) (size : value.size = 20)
+    (sourceRep : BytesRep before.machine.mem (args.stackPointer + 0x668) value)
+    (sourceAccess : OptionalAddressSourceAccess args before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (access : OptionalEncoderMachineAccess 16 0x6d0 20 args before.machine) :
+    ∃ booleanUsed rawUsed after, booleanUsed ≤ 16 ∧ rawUsed ≤ 9 ∧
+      OptionalEncoderCompletedHandoff 0x1519c 16 0x6d0 20 fromStep
+        (11 + booleanUsed + rawUsed) optionalAddressExecutionPcs (fun current => current)
+        args before after := by
+  obtain ⟨ready, prepared⟩ := optionalAddressPresentReady fromStep args value before atPc stack
+    presence size sourceRep sourceAccess loaded access
+  obtain ⟨booleanUsed, booleanState, booleanBound, booleanCall⟩ :=
+    optionalBooleanCallHandoff (fun _ => 16) writeSuccessBooleanContract_implements
+      optionalAddressPresentBooleanSite (by omega) (fromStep + 8) args (by
+        intro address scratch frame
+        unfold byteRange at scratch frame
+        omega) true ready prepared.atPc prepared.stack prepared.tag prepared.access prepared.loaded
+  have copiedAfterBoolean : BytesRep booleanState.machine.mem
+      (args.stackPointer + 0x6d0) value := by
+    refine ⟨prepared.copied.1, ?_⟩
+    intro index bound
+    rw [booleanCall.scratchMemory (args.stackPointer + 0x6d0 + index) (by
+      unfold byteRange
+      rw [size] at bound
+      omega)]
+    exact prepared.copied.2 index bound
+  let rawArgs : RawEncoderArgs :=
+    { sourceAddress := args.stackPointer + 0x6d0, bytes := value }
+  have rawEntry : RawEncoderSetupEntry 0x15180 20 (RawEncoderStackSource 0x6d0)
+      rawArgs booleanState := by
+    refine ⟨booleanCall.atPc, ?_, by simpa [rawArgs] using size, ?_, ?_,
+      booleanCall.frame.2.2.1, booleanCall.access.output⟩
+    · exact ⟨args.stackPointer, booleanCall.stack, by simp [rawArgs], by
+        have := booleanCall.access.scratchFits
+        omega⟩
+    · simpa [rawArgs] using copiedAfterBoolean
+    · intro index bound
+      apply booleanCall.access.scratchOutputDisjoint
+      unfold byteRange
+      dsimp [rawArgs] at bound ⊢
+      rw [size] at bound
+      omega
+  obtain ⟨rawUsed, rawAfter, rawOutcome, rawPositive, rawBound, rawTrace,
+      rawExitAt, rawAllowed, rawExit⟩ :=
+    rawEncoderSetupContract_of_site optionalAddressRawSite rawArgs
+      (fromStep + 10 + booleanUsed) booleanState rawEntry
+  cases rawOutcome
+  rcases rawExit with ⟨rawPc, rawStdout, rawStdin, rawCursor, rawExitCode, rawMemory, rawFrame⟩
+  obtain ⟨retired, jumpRun⟩ := optionalAddressJoinJumpStep
+    (fromStep + 10 + booleanUsed + rawUsed) rawAfter.machine
+    (booleanCall.access.output.configured.mono
+      (rawFrame.1.weaken (fun _ preserved => Or.inl preserved)) rawFrame.2.1)
+    rawPc rawFrame.2.2.1
+  let finalMachine := tryStepControlFlowAfterRetired
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement rawAfter.machine)
+      0x15190 0x1519c) 0x1519c retired
+  let after : EndpointState := { rawAfter with machine := finalMachine }
+  have jumpTrace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges optionalAddressExecutionPcs)
+      (fromStep + 10 + booleanUsed + rawUsed) 1 rawAfter after := by
+    apply ConfinedTrace.step _ 0 0x15190 rawAfter after after
+    · exact rawPc
+    · owned_pc [pcInRanges, optionalAddressExecutionPcs]
+    · exact endpointStep_sail _ rawAfter finalMachine (by
+        intro observed observedPc
+        change rawAfter.machine.regs.get? PC = some observed at observedPc
+        rw [rawPc] at observedPc
+        cases Option.some.inj observedPc
+        simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+          exitContextStorePc]) jumpRun
+    · exact .refl _ _
+  have rawTrace' : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges optionalAddressExecutionPcs) (fromStep + 10 + booleanUsed)
+      rawUsed booleanState rawAfter := rawTrace.weaken (by
+    intro pc inside
+    unfold pcInRanges at inside ⊢
+    rcases inside with ⟨range, member, lower, upper⟩
+    simp [optionalAddressRawExecutionPcs] at member
+    rcases member with rfl | rfl | rfl
+    · exact ⟨(0x10190, 0x101c4), by simp [optionalAddressExecutionPcs], lower, upper⟩
+    all_goals
+      exact ⟨(0x15158, 0x1519c), by simp [optionalAddressExecutionPcs], by omega, by omega⟩)
+  have trace : ConfinedTrace EndpointStep EndpointPc
+      (pcInRanges optionalAddressExecutionPcs) fromStep
+        (11 + booleanUsed + rawUsed) before after := by
+    have throughBoolean := prepared.trace.append booleanCall.trace
+    have rawTraceAligned : ConfinedTrace EndpointStep EndpointPc
+        (pcInRanges optionalAddressExecutionPcs) (fromStep + (8 + (2 + booleanUsed)))
+        rawUsed booleanState rawAfter := by
+      have startEq : fromStep + (8 + (2 + booleanUsed)) =
+          fromStep + 10 + booleanUsed := by omega
+      rw [startEq]
+      exact rawTrace'
+    have throughRaw := throughBoolean.append rawTraceAligned
+    have jumpTrace' : ConfinedTrace EndpointStep EndpointPc
+        (pcInRanges optionalAddressExecutionPcs)
+        (fromStep + (8 + (2 + booleanUsed) + rawUsed)) 1 rawAfter after := by
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using jumpTrace
+    simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using throughRaw.append jumpTrace'
+  have jumpWrites := jumpRetirement_writes rawAfter.machine 0x15190 0x1519c retired
+  have jumpFrame : EncoderInlineFrame rawAfter after :=
+    ⟨jumpWrites.agree (by
+        intro register preserved written
+        exact encoderInlinePreserved_disjoint_optionalAddressCopyWrites register preserved
+          (Or.inl written)),
+      jumpRetirement_retired_present _ _ _ _,
+      by simpa [after, finalMachine, jumpRetirement_mem] using rawFrame.2.2.1,
+      ⟨rfl, rfl, rfl⟩⟩
+  have frame : EncoderInlineFrame before after :=
+    ⟨prepared.frame.1.trans (booleanCall.frame.1.trans (rawFrame.1.trans jumpFrame.1)),
+      jumpFrame.2.1, jumpFrame.2.2.1,
+      ⟨jumpFrame.2.2.2.1.trans
+          (rawFrame.2.2.2.1.trans
+            (booleanCall.frame.2.2.2.1.trans prepared.frame.2.2.2.1)),
+        jumpFrame.2.2.2.2.1.trans
+          (rawFrame.2.2.2.2.1.trans
+            (booleanCall.frame.2.2.2.2.1.trans prepared.frame.2.2.2.2.1)),
+        jumpFrame.2.2.2.2.2.trans
+          (rawFrame.2.2.2.2.2.trans
+            (booleanCall.frame.2.2.2.2.2.trans prepared.frame.2.2.2.2.2))⟩⟩
+  have rawNine : rawUsed ≤ 9 := by
+    simpa [rawEncoderSetupContract] using rawBound
+  refine ⟨booleanUsed, rawUsed, after, booleanBound, rawNine, {
+    trace
+    atPc := by exact jumpRetirement_pc rawAfter.machine 0x15190 0x1519c retired
+    stack := (jumpWrites.get x2 (by simp [stepBookkeeping])).trans
+      ((rawFrame.1 x2 (by simp [encoderInlinePreserved])).trans booleanCall.stack)
+    output := ⟨Or.inr ⟨value, valueEq, by
+      rw [rawStdout, booleanCall.stdout, prepared.stdout]
+      simp [rawArgs]⟩⟩
+    stdin := rawStdin.trans (booleanCall.stdin.trans prepared.stdin)
+    stdinCursor := rawCursor.trans (booleanCall.stdinCursor.trans prepared.stdinCursor)
+    exitCode := rawExitCode.trans (booleanCall.exitCode.trans prepared.exitCode)
+    memory := by
+      simpa [after, finalMachine, jumpRetirement_mem] using
+        WritesOnlyWithin.trans_same prepared.memory
+          (WritesOnlyWithin.trans_same booleanCall.memory
+            (WritesOnlyWithin.mono (fun address inside => Or.inr (Or.inr inside)) rawMemory))
+    frame }⟩
+
 private theorem optionalAddressAbsentHandoff (fromStep : Nat)
     (args : OptionalEncoderArgs (Array UInt8)) (before : EndpointState)
     (atPc : before.machine.regs.get? PC = some 0x15158)
@@ -2189,6 +2471,33 @@ private theorem optionalAddressAbsentHandoff (fromStep : Nat)
       call.frame.2.2.2.2.1.trans prepared.frame.2.2.2.2.1,
       call.frame.2.2.2.2.2.trans prepared.frame.2.2.2.2.2⟩ }
 
+private def optionalAddressSite : OptionalEncoderSite 0x15158 0x1519c 16 0x6d0 20
+    optionalAddressExecutionPcs optionalAddressExitPcs (fun value => value)
+      OptionalAddressBinding where
+  stepBound := 36
+  stepBoundFits := by simp [level2ContractFuel]
+  run := by
+    intro fromStep args before entry
+    rcases entry with ⟨atPc, stack, binding, loaded, access⟩
+    rcases binding with ⟨presenceAt, valueBinding⟩
+    cases valueEq : args.value with
+    | none =>
+        have presenceZero : before.machine.regs.get? x10 = some 0 := by
+          simpa [valueEq] using presenceAt
+        obtain ⟨childUsed, after, childBound, handoff⟩ := optionalAddressAbsentHandoff
+          fromStep args before atPc stack presenceZero valueEq loaded access
+        refine ⟨3 + childUsed, after, by omega, by omega, handoff⟩
+    | some value =>
+        have presenceOne : before.machine.regs.get? x10 = some 1 := by
+          simpa [valueEq] using presenceAt
+        obtain ⟨size, sourceRep, sourceAccess⟩ := valueBinding value valueEq
+        obtain ⟨booleanUsed, rawUsed, after, booleanBound, rawBound, handoff⟩ :=
+          optionalAddressPresentHandoff fromStep args value before atPc stack presenceOne valueEq
+            size sourceRep sourceAccess loaded access
+        refine ⟨11 + booleanUsed + rawUsed, after, by omega, by omega, handoff⟩
+  successListed := by simp [optionalAddressExitPcs]
+  successFits := by native_decide
+
 abbrev Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract : Prop :=
   OptionalEncoderInstanceContract 0x15118 0x15148 32 0 0 optionalU128ExecutionPcs
     optionalU128ExitPcs encodeOptionalU128Words OptionalU128Binding
@@ -2202,5 +2511,11 @@ theorem proposed_optionalU128_3f5b_proved :
     Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract :=
   optionalEncoderInstanceContract_of_site (Value := OptionalU128Words)
     (encodePayload := encodeOptionalU128Words) optionalU128Site
+
+/-- `fi:1:3f94` uses the shared optional route theorem and exact address site data. -/
+theorem proposed_optionalAddress_3f94_proved :
+    Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract :=
+  optionalEncoderInstanceContract_of_site (Value := Array UInt8)
+    (encodePayload := fun value => value) optionalAddressSite
 
 end BinaryFv.Zesu.Staging
