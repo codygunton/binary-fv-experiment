@@ -1638,8 +1638,8 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeFailureRecord
-    : WriteFailureRecordInstanceContract := by
-  sorry
+    : WriteFailureRecordInstanceContract :=
+  BinaryFv.Zesu.Staging.proposed_writeOutput_49b1_proved
 
 /--
 Resolve Level 2 field `writeSuccessBlockHash` for `fi:1:3e6d`.
@@ -1652,8 +1652,8 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessBlockHash
-    : WriteSuccessBlockHashInstanceContract := by
-  sorry
+    : WriteSuccessBlockHashInstanceContract :=
+  BinaryFv.Zesu.Staging.proposed_writeOutput_3e81_proved
 
 /--
 Resolve Level 2 field `writeSuccessBoolean` for `fi:1:4276`.
@@ -1690,8 +1690,8 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessFeeRecipient
-    : WriteSuccessFeeRecipientInstanceContract := by
-  sorry
+    : WriteSuccessFeeRecipientInstanceContract :=
+  BinaryFv.Zesu.Staging.proposed_writeOutput_3db4_proved
 
 /--
 Resolve Level 2 field `writeSuccessInt` for `fi:1:4578`.
@@ -1841,8 +1841,8 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessLogsBloom
-    : WriteSuccessLogsBloomInstanceContract := by
-  sorry
+    : WriteSuccessLogsBloomInstanceContract :=
+  BinaryFv.Zesu.Staging.proposed_writeOutput_3e2f_proved
 
 /--
 Resolve Level 2 field `writeSuccessOptionalU64` for `fi:1:42cc`.
@@ -1892,8 +1892,8 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessParentBeaconRoot
-    : WriteSuccessParentBeaconRootInstanceContract := by
-  sorry
+    : WriteSuccessParentBeaconRootInstanceContract :=
+  BinaryFv.Zesu.Staging.proposed_writeOutput_4101_proved
 
 /--
 Resolve Level 2 field `writeSuccessParentHash` for `fi:1:3d77`.
@@ -1906,8 +1906,8 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessParentHash
-    : WriteSuccessParentHashInstanceContract := by
-  sorry
+    : WriteSuccessParentHashInstanceContract :=
+  BinaryFv.Zesu.Staging.proposed_writeOutput_3d8b_proved
 
 /--
 Resolve Level 2 field `writeSuccessReceiptsRoot` for `fi:1:3df2`.
@@ -1920,8 +1920,8 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessReceiptsRoot
-    : WriteSuccessReceiptsRootInstanceContract := by
-  sorry
+    : WriteSuccessReceiptsRootInstanceContract :=
+  BinaryFv.Zesu.Staging.proposed_writeOutput_3e06_proved
 
 /--
 Resolve Level 2 field `writeSuccessStateRoot` for `fi:1:3dc9`.
@@ -1934,8 +1934,8 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessStateRoot
-    : WriteSuccessStateRootInstanceContract := by
-  sorry
+    : WriteSuccessStateRootInstanceContract :=
+  BinaryFv.Zesu.Staging.proposed_writeOutput_3ddd_proved
 
 /--
 Resolve Level 2 field `writeSuccessTransactions` for `fi:1:3e96`.

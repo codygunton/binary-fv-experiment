@@ -111,13 +111,14 @@ class ProofMapTest(unittest.TestCase):
             self.assertEqual(prepared["summary"]["level3ContractCount"], 41)
             self.assertEqual(prepared["proofProgress"], {
                 "directProofCount": 29, "remainingContractCount": 12,
-                "parentComposedInlineCount": 16, "resolvedParentCount": 1})
+                "parentComposedInlineCount": 16, "resolvedParentCount": 9})
             resolved_parents = [parent for parent in prepared["parents"]
                                 if parent["proofStatus"] == "proved"]
-            self.assertEqual([parent["field"] for parent in resolved_parents],
-                             ["writeSuccessBoolean"])
-            self.assertEqual(resolved_parents[0]["proofTheorem"],
-                             "BinaryFv.Zesu.Staging.proposed_booleanEncoder_4276_proved")
+            self.assertEqual({parent["field"] for parent in resolved_parents}, {
+                "writeFailureRecord", "writeSuccessBlockHash", "writeSuccessBoolean",
+                "writeSuccessFeeRecipient", "writeSuccessLogsBloom",
+                "writeSuccessParentBeaconRoot", "writeSuccessParentHash",
+                "writeSuccessReceiptsRoot", "writeSuccessStateRoot"})
             parent_composed = [item for parent in prepared["parents"]
                                for item in parent["parentComposedInlineInstances"]]
             self.assertEqual({item["instanceId"] for item in parent_composed}, {

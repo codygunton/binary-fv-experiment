@@ -149,8 +149,40 @@
   ],
   "resolvedParents": [
     {
+      "field": "writeFailureRecord",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_49b1_proved"
+    },
+    {
+      "field": "writeSuccessBlockHash",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3e81_proved"
+    },
+    {
       "field": "writeSuccessBoolean",
       "theorem": "BinaryFv.Zesu.Staging.proposed_booleanEncoder_4276_proved"
+    },
+    {
+      "field": "writeSuccessFeeRecipient",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3db4_proved"
+    },
+    {
+      "field": "writeSuccessLogsBloom",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3e2f_proved"
+    },
+    {
+      "field": "writeSuccessParentBeaconRoot",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_4101_proved"
+    },
+    {
+      "field": "writeSuccessParentHash",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3d8b_proved"
+    },
+    {
+      "field": "writeSuccessReceiptsRoot",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3e06_proved"
+    },
+    {
+      "field": "writeSuccessStateRoot",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3ddd_proved"
     }
   ]
 }
