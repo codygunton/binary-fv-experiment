@@ -217,6 +217,20 @@ private theorem platformPreserved_disjoint_sszDecodeForkNameByteWrites_for_stagi
   · exact platformPreserved_disjoint register preserved bookkeeping
   · simp [platformPreserved] at preserved
 
+private theorem platformPreserved_disjoint_sszDecodeSchemaMarkerWrites_for_staging :
+    RegSet.Disjoint platformPreserved sszDecodeSchemaMarkerWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl
+  · exact platformPreserved_disjoint register preserved bookkeeping
+  all_goals simp [platformPreserved] at preserved
+
+private theorem instructionPreserved_disjoint_sszDecodeSchemaMarkerWrites_for_staging :
+    RegSet.Disjoint instructionPreserved sszDecodeSchemaMarkerWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  all_goals simp [instructionPreserved, platformPreserved] at preserved
+
 /-- The parent byte load constructs the exact entry of the proved fork-name child. -/
 theorem sszDecodeForkNameChildHandoff (fromStep baseAddress schema : Nat)
     (args : ForkNameArgs) (before : EndpointState)
@@ -267,6 +281,60 @@ theorem sszDecodeForkNameChildHandoff (fromStep baseAddress schema : Nat)
         exact ⟨meaning, accepted, tableEq, targetRep.of_mem_eq memory,
           loadPmaAllows_of_agree platformAgree targetPma, targetNotMMIO, tableFits, tableAligned,
           targetAligned, targetUpdate⟩
+
+/-- The accepted schema marker, schema-byte load, and fork-name child entry share one typed
+handoff. All accepted and rejected schema values use the same proof. -/
+theorem sszDecodeForkNameEntryFromMarker (fromStep baseAddress schema : Nat)
+    (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some 0x1220c)
+    (base : before.machine.regs.get? x18 = some (BitVec.ofNat 64 baseAddress))
+    (markerRep : UIntRep 1 before.machine.mem (baseAddress + 1) 1)
+    (schemaRep : UIntRep 1 before.machine.mem baseAddress schema)
+    (markerPma : LoadPmaAllows before.machine (BitVec.ofNat 64 (baseAddress + 1)) 1)
+    (schemaPma : LoadPmaAllows before.machine (BitVec.ofNat 64 baseAddress) 1)
+    (markerNoMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + 1)) 1)
+    (schemaNoMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 baseAddress) 1)
+    (sumFits : baseAddress + 1 < 2 ^ 64)
+    (configured : ConfiguredMachinePre EndpointMachinePc before.machine)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (tablePma : ∀ offset width, offset + width ≤ 21 * 8 →
+      LoadPmaAllows before.machine (BitVec.ofNat 64 (0x17228 + offset)) width)
+    (tableNoMMIO : ∀ offset width, offset + width ≤ 21 * 8 →
+      LoadMMIOAddressExcluded (BitVec.ofNat 64 (0x17228 + offset)) width) :
+    ∃ (markerAfter childAfter : EndpointState),
+      Seg sszDecodeSchemaMarkerOwnPc sszDecodeSchemaMarkerExitPc
+        (fun _ _ _ _ _ => False) sszDecodeSchemaMarkerWrites noMemory
+        [⟨x12, 1⟩, ⟨x10, zero_extend (m := 64) (BitVec.ofNat 8 1)⟩]
+        fromStep 3 before.machine markerAfter.machine 0x12218 ∧
+      Seg sszDecodeForkNameByteOwnPc sszDecodeForkNameByteExitPc
+        (fun _ _ _ _ _ => False) sszDecodeForkNameByteWrites noMemory
+        [⟨x10, zero_extend (m := 64) (BitVec.ofNat 8 schema)⟩]
+        (fromStep + 3) 1 markerAfter.machine childAfter.machine 0x1221c ∧
+      forkNameSelectionEntry (forkNameArgsForSchema schema) childAfter := by
+  obtain ⟨markerMachine, markerSeg⟩ := sszDecodeSchemaMarkerSeg fromStep baseAddress 1
+    before.machine configured atPc base markerRep markerPma markerNoMMIO sumFits
+    (rejected := false) (by native_decide) loaded
+  let markerAfter : EndpointState := { before with machine := markerMachine }
+  have memory := markerSeg.memEq noMemory_empty
+  have platformAgree :=
+    markerSeg.agree platformPreserved_disjoint_sszDecodeSchemaMarkerWrites_for_staging
+  have markerConfigured := configured.mono
+    (markerSeg.agree instructionPreserved_disjoint_sszDecodeSchemaMarkerWrites_for_staging)
+    markerSeg.retired
+  have markerLoaded : Artifacts.programImage.fileBytesLoadedFaithfully markerMachine.mem := by
+    rw [memory]
+    exact loaded
+  have selection := forkNameSelectionFacts_forSchema schema schemaRep.1 markerAfter markerLoaded
+    (fun offset width bound =>
+      loadPmaAllows_of_agree platformAgree (tablePma offset width bound))
+    tableNoMMIO
+  obtain ⟨childAfter, childSeg, childEntry⟩ := sszDecodeForkNameChildHandoff
+    (fromStep + 3) baseAddress schema (forkNameArgsForSchema schema) markerAfter markerSeg.atPc
+    ((markerSeg.get x18 (by simp [sszDecodeSchemaMarkerWrites, stepBookkeeping])).trans base)
+    (schemaRep.of_mem_eq memory)
+    (loadPmaAllows_of_agree platformAgree schemaPma) schemaNoMMIO markerConfigured markerLoaded rfl
+    selection
+  exact ⟨markerAfter, childAfter, by simpa [markerAfter] using markerSeg, childSeg, childEntry⟩
 
 /-- The parent prefix and the proved four-byte child form one initial decoder trace. -/
 theorem sszDecodeSchemaWordPrefixAndChild (fromStep : Nat) (args : DecodeInlineArgs)
