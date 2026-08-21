@@ -241,6 +241,69 @@ theorem readU64HalfAssemblyFromSteps
     simp only [List.mem_cons] at hp ⊢
     grind)⟩
 
+/-- Join both 32-bit halves while permitting the result to replace either input register. -/
+theorem readU64FinalJoinFromSteps
+    {own exit : BitVec 64 → Prop}
+    {childSummary : Binary.Elfling.FunctionInstanceId → Nat → Nat → State → State → Prop}
+    {W : RegSet} {M : Region} {kv : List RegVal} {a n : Nat} {base cur : State}
+    {pc0 pc1 pc2 pc3 : BitVec 64}
+    (highPart0 highPart1 highReg lowReg resultReg : Register)
+    (high0 : RegisterType highPart0) (high1 : RegisterType highPart1)
+    (low : RegisterType lowReg) (high shifted : RegisterType highReg)
+    (result : RegisterType resultReg)
+    (seg : Seg own exit childSummary W M
+      (⟨highPart1, high1⟩ :: ⟨highPart0, high0⟩ :: ⟨lowReg, low⟩ :: kv)
+      a n base cur pc0)
+    (runHigh : ∀ {current}, Seg own exit childSummary W M
+      (⟨highPart1, high1⟩ :: ⟨highPart0, high0⟩ :: ⟨lowReg, low⟩ :: kv)
+      a n base current pc0 →
+      ∃ retired, Runs (try_step (a + n) false) current
+        (afterRegisterWrite current pc0 retired highReg high) false)
+    (runShift : ∀ {current}, Seg own exit childSummary W M
+      (⟨highReg, high⟩ :: ⟨lowReg, low⟩ :: kv) a (n + 1) base current pc1 →
+      ∃ retired, Runs (try_step (a + (n + 1)) false) current
+        (afterRegisterWrite current pc1 retired highReg shifted) false)
+    (runResult : ∀ {current}, Seg own exit childSummary W M
+      (⟨highReg, shifted⟩ :: ⟨lowReg, low⟩ :: kv) a (n + 2) base current pc2 →
+      ∃ retired, Runs (try_step (a + (n + 2)) false) current
+        (afterRegisterWrite current pc2 retired resultReg result) false)
+    (in0 : own pc0) (in1 : own pc1) (in2 : own pc2)
+    (not0 : ¬exit pc0) (not1 : ¬exit pc1) (not2 : ¬exit pc2)
+    (advance0 : Sail.BitVec.addInt pc0 4 = pc1)
+    (advance1 : Sail.BitVec.addInt pc1 4 = pc2)
+    (advance2 : Sail.BitVec.addInt pc2 4 = pc3)
+    (bookkeeping : ∀ register, stepBookkeeping register → W register)
+    (writesHigh : W highReg) (writesResult : W resultReg)
+    (notPcHigh : highReg ≠ PC) (notPcResult : resultReg ≠ PC)
+    (notRetiredHigh : highReg ≠ minstret) (notRetiredResult : resultReg ≠ minstret)
+    (keepHigh : RegsOutside (RegSet.union stepBookkeeping (RegSet.only highReg))
+      (⟨lowReg, low⟩ :: kv))
+    (keepResult : RegsOutside (RegSet.union stepBookkeeping (RegSet.only resultReg)) kv) :
+    ∃ next, Seg own exit childSummary W M (⟨resultReg, result⟩ :: kv)
+      a (n + 3) base next pc3 := by
+  obtain ⟨retired0, step0⟩ := runHigh seg
+  have before0 := seg.forget (kv' := ⟨lowReg, low⟩ :: kv) (by
+    intro p hp
+    simp only [List.mem_cons] at hp ⊢
+    grind)
+  obtain ⟨s1, seg1⟩ := before0.step in0 not0 highReg high pc1 ⟨retired0, step0⟩
+    advance0 bookkeeping writesHigh notPcHigh notRetiredHigh keepHigh
+  obtain ⟨retired1, step1⟩ := runShift seg1
+  have before1 := seg1.forget (kv' := ⟨lowReg, low⟩ :: kv) (by
+    intro p hp
+    simp only [List.mem_cons] at hp ⊢
+    grind)
+  obtain ⟨s2, seg2⟩ := before1.step in1 not1 highReg shifted pc2 ⟨retired1, step1⟩
+    advance1 bookkeeping writesHigh notPcHigh notRetiredHigh keepHigh
+  obtain ⟨retired2, step2⟩ := runResult seg2
+  have before2 := seg2.forget (kv' := kv) (by
+    intro p hp
+    simp only [List.mem_cons] at hp ⊢
+    grind)
+  obtain ⟨s3, seg3⟩ := before2.step in2 not2 resultReg result pc3 ⟨retired2, step2⟩
+    advance2 bookkeeping writesResult notPcResult notRetiredResult keepResult
+  exact ⟨s3, by simpa [Nat.add_assoc] using seg3⟩
+
 /-- Declare one exact eight-byte spill used by a split `readU64` schedule. -/
 macro "readU64SpillSite(" name:ident ";" pc:term "," immediate:term ";"
     baseIndex:term "," sourceIndex:term ";"
