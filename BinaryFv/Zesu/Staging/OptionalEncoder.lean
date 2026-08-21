@@ -176,6 +176,54 @@ private theorem OptionalEncoderMachineAccess.encoderCall
     change args.stackPointer - 16 ≤ address at lower
     exact access.frameNotCode address (by omega) upper
 
+/-- Reuse an optional encoder's local-frame permissions for one nested integer encoder. -/
+theorem OptionalEncoderMachineAccess.integerEncoder
+    (access : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args state)
+    (childFrameSize : Nat) (childInside : childFrameSize ≤ localFrameSize)
+    (childAligned : childFrameSize % 16 = 0) :
+    IntegerEncoderMachineAccess (args.stackPointer - childFrameSize) childFrameSize state := by
+  have localInside : localFrameSize ≤ args.stackPointer := access.frameFits
+  have childFits : childFrameSize ≤ args.stackPointer := by omega
+  have stackFits := args.stackFits
+  have baseEq : args.stackPointer - childFrameSize =
+      args.stackPointer - localFrameSize + (localFrameSize - childFrameSize) := by omega
+  refine {
+    output := access.output
+    frameFits := by omega
+    frameAligned := by
+      rcases Nat.dvd_of_mod_eq_zero access.stackAligned with ⟨stackFactor, stackEq⟩
+      rcases Nat.dvd_of_mod_eq_zero childAligned with ⟨childFactor, childEq⟩
+      have difference : args.stackPointer - childFrameSize =
+          16 * (stackFactor - childFactor) := by omega
+      simp [difference]
+    storePma := ?_
+    storeNoMMIO := ?_
+    loadPma := ?_
+    loadNoMMIO := ?_
+    codeDisjoint := ?_
+    outputDisjoint := ?_ }
+  · intro offset bound aligned
+    simpa [baseEq, Nat.add_assoc] using
+      access.frameStore (localFrameSize - childFrameSize + offset) 8 (by omega)
+  · intro offset bound aligned
+    simpa [baseEq, Nat.add_assoc] using
+      access.frameStoreNoMMIO (localFrameSize - childFrameSize + offset) 8 (by omega)
+  · intro offset bound aligned
+    simpa [baseEq, Nat.add_assoc] using
+      access.frameLoad (localFrameSize - childFrameSize + offset) 8 (by omega)
+  · intro offset bound aligned
+    simpa [baseEq, Nat.add_assoc] using
+      access.frameLoadNoMMIO (localFrameSize - childFrameSize + offset) 8 (by omega)
+  · intro offset bound
+    apply access.frameNotCode (args.stackPointer - childFrameSize + offset)
+    · omega
+    · omega
+  · intro offset bound inside
+    apply access.frameOutputDisjoint (args.stackPointer - childFrameSize + offset)
+    · unfold byteRange
+      omega
+    · exact inside
+
 private theorem instructionPreserved_abiCalleePreserved_optional (register : Register)
     (preserved : instructionPreserved register) : abiCalleePreserved register := by
   rcases preserved with ⟨platform, notLink⟩
