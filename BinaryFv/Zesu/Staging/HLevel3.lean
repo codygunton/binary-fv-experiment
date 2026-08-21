@@ -9,6 +9,7 @@ import BinaryFv.Zesu.Staging.ReadU32
 import BinaryFv.Zesu.Staging.ForkName
 import BinaryFv.Zesu.Staging.CheckedSlice
 import BinaryFv.Zesu.Staging.WriteOutput
+import BinaryFv.Zesu.Staging.RawEncoder
 
 /-!
 # Generated hLevel3 staging
@@ -510,7 +511,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_decode_observation_Encoder_raw_fi_1_4045_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_4045_Contract
 
 /--
 Contract design hole for `fi:1:406f` at `0x15578`.
@@ -542,7 +543,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_decode_observation_Encoder_raw_fi_1_40c3_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_40c3_Contract
 
 /--
 Contract design hole for `fi:1:4101` at `0x15730`.
@@ -577,7 +578,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_decode_observation_Encoder_raw_fi_1_412a_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_412a_Contract
 
 /--
 Contract design hole for `fi:1:42a2` at `0x15bac`.
@@ -594,7 +595,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_decode_observation_Encoder_raw_fi_1_42a2_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_42a2_Contract
 
 /--
 Contract design hole for `fi:1:4350` at `0x15c90`.
@@ -676,7 +677,7 @@ Required design: state configured-machine, access, termination, and exact frame 
 Do not replace this hole with a PC-only or unbound semantic contract.
 -/
 def Proposed_ssz_decode_observation_Encoder_raw_fi_1_45f6_Contract : Prop := by
-  sorry
+  exact BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_45f6_Contract
 
 /--
 Contract design hole for `fi:1:49b1` at `0x161c0`.
@@ -748,24 +749,14 @@ structure Level3ContractAssumptions : Prop where
     Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract
   ssz_decode_observation_Encoder_accessList_fi_1_3fdd :
     Proposed_ssz_decode_observation_Encoder_accessList_fi_1_3fdd_Contract
-  ssz_decode_observation_Encoder_raw_fi_1_4045 :
-    Proposed_ssz_decode_observation_Encoder_raw_fi_1_4045_Contract
   ssz_decode_observation_Encoder_authorizations_fi_1_406f :
     Proposed_ssz_decode_observation_Encoder_authorizations_fi_1_406f_Contract
-  ssz_decode_observation_Encoder_raw_fi_1_40c3 :
-    Proposed_ssz_decode_observation_Encoder_raw_fi_1_40c3_Contract
-  ssz_decode_observation_Encoder_raw_fi_1_412a :
-    Proposed_ssz_decode_observation_Encoder_raw_fi_1_412a_Contract
-  ssz_decode_observation_Encoder_raw_fi_1_42a2 :
-    Proposed_ssz_decode_observation_Encoder_raw_fi_1_42a2_Contract
   ssz_decode_observation_Encoder_raw_fi_1_4350 :
     Proposed_ssz_decode_observation_Encoder_raw_fi_1_4350_Contract
   ssz_decode_observation_Encoder_int_fi_1_43a9 :
     Proposed_ssz_decode_observation_Encoder_int_fi_1_43a9_Contract
   ssz_decode_observation_Encoder_int_fi_1_4494 :
     Proposed_ssz_decode_observation_Encoder_int_fi_1_4494_Contract
-  ssz_decode_observation_Encoder_raw_fi_1_45f6 :
-    Proposed_ssz_decode_observation_Encoder_raw_fi_1_45f6_Contract
   mem_Allocator_alloc__anon_1151_fi_1_5a81 :
     Proposed_mem_Allocator_alloc__anon_1151_fi_1_5a81_Contract
   mem_Allocator_dupe__anon_1128_fi_1_5b8d :
@@ -1705,9 +1696,9 @@ private theorem resolve_writeSuccessBlockHash
 
 /--
 Resolve Level 2 field `writeSuccessBoolean` for `fi:1:4276`.
-Level 3 contracts: `ssz_decode_observation_Encoder_raw_fi_1_42a2`.
+Level 3 contracts: none.
 Earlier Level 2 results: none.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_rawEncoder_42a2_proved`.
 Parent-composed inline instances: none.
 Parent glue: 7 instructions in 2 block fragments.
 Fragment `0x15b9c` (4 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
@@ -1724,7 +1715,6 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessBoolean
-    (ssz_decode_observation_Encoder_raw_fi_1_42a2 : Proposed_ssz_decode_observation_Encoder_raw_fi_1_42a2_Contract)
     : WriteSuccessBooleanInstanceContract := by
   sorry
 
@@ -1744,9 +1734,10 @@ private theorem resolve_writeSuccessFeeRecipient
 
 /--
 Resolve Level 2 field `writeSuccessInt` for `fi:1:4578`.
-Level 3 contracts: `ssz_decode_observation_Encoder_raw_fi_1_45f6`.
+Level 3 contracts: none.
 Earlier Level 2 results: none.
-Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_memWriteInt_proved`.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_memWriteInt_proved`,
+`BinaryFv.Zesu.Staging.proposed_rawEncoder_45f6_proved`.
 Parent-composed inline instances: none.
 Parent glue: 5 instructions in 2 block fragments.
 Fragment `0x15d10` (2 steps): compose with `BinaryFv.RiscV.Seg.stepStore`,
@@ -1763,7 +1754,6 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessInt
-    (ssz_decode_observation_Encoder_raw_fi_1_45f6 : Proposed_ssz_decode_observation_Encoder_raw_fi_1_45f6_Contract)
     : WriteSuccessIntInstanceContract := by
   sorry
 
@@ -1832,9 +1822,9 @@ private theorem resolve_writeSuccessByteLists
 
 /--
 Resolve Level 2 field `writeSuccessHashes` for `fi:1:4116`.
-Level 3 contracts: `ssz_decode_observation_Encoder_raw_fi_1_412a`.
+Level 3 contracts: none.
 Earlier Level 2 results: `writeSuccessInt`.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_rawEncoder_412a_proved`.
 Parent-composed inline instances: none.
 Parent glue: 99 instructions in 4 block fragments.
 Fragment `0x15744` (3 steps): compose with `BinaryFv.RiscV.Seg.step`,
@@ -1857,7 +1847,6 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessHashes
-    (ssz_decode_observation_Encoder_raw_fi_1_412a : Proposed_ssz_decode_observation_Encoder_raw_fi_1_412a_Contract)
     (writeSuccessInt : WriteSuccessIntInstanceContract)
     : WriteSuccessHashesInstanceContract := by
   sorry
@@ -1976,10 +1965,9 @@ Level 3 contracts: `ssz_decode_observation_Encoder_int_fi_1_4494`,
 `ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b`,
 `ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94`,
 `ssz_decode_observation_Encoder_accessList_fi_1_3fdd`,
-`ssz_decode_observation_Encoder_raw_fi_1_4045`,
 `ssz_decode_observation_Encoder_authorizations_fi_1_406f`.
 Earlier Level 2 results: `writeSuccessInt`, `writeSuccessOptionalU64`, `writeSuccessBytes`.
-Unconditional child proofs: none.
+Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_rawEncoder_4045_proved`.
 Parent-composed inline instances: none.
 Parent glue: 271 instructions in 22 block fragments.
 Fragment `0x14ef4` (2 steps): compose with `BinaryFv.RiscV.Seg.step`,
@@ -2098,7 +2086,6 @@ private theorem resolve_writeSuccessTransactions
     (ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b : Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract)
     (ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94 : Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract)
     (ssz_decode_observation_Encoder_accessList_fi_1_3fdd : Proposed_ssz_decode_observation_Encoder_accessList_fi_1_3fdd_Contract)
-    (ssz_decode_observation_Encoder_raw_fi_1_4045 : Proposed_ssz_decode_observation_Encoder_raw_fi_1_4045_Contract)
     (ssz_decode_observation_Encoder_authorizations_fi_1_406f : Proposed_ssz_decode_observation_Encoder_authorizations_fi_1_406f_Contract)
     (writeSuccessInt : WriteSuccessIntInstanceContract)
     (writeSuccessOptionalU64 : WriteSuccessOptionalU64InstanceContract)
@@ -2108,9 +2095,10 @@ private theorem resolve_writeSuccessTransactions
 
 /--
 Resolve Level 2 field `writeSuccessWithdrawals` for `fi:1:40af`.
-Level 3 contracts: `ssz_decode_observation_Encoder_raw_fi_1_40c3`.
+Level 3 contracts: none.
 Earlier Level 2 results: `writeSuccessInt`.
-Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContract`.
+Unconditional child proofs: `BinaryFv.Zesu.MachineExecution.memcpyInstanceContract`,
+`BinaryFv.Zesu.Staging.proposed_rawEncoder_40c3_proved`.
 Parent-composed inline instances: none.
 Parent glue: 22 instructions in 7 block fragments.
 Fragment `0x15680` (3 steps): compose with `BinaryFv.RiscV.Seg.step`,
@@ -2150,7 +2138,6 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessWithdrawals
-    (ssz_decode_observation_Encoder_raw_fi_1_40c3 : Proposed_ssz_decode_observation_Encoder_raw_fi_1_40c3_Contract)
     (writeSuccessInt : WriteSuccessIntInstanceContract)
     : WriteSuccessWithdrawalsInstanceContract := by
   sorry
@@ -2174,12 +2161,10 @@ theorem level2Contracts_of_level3_staged
     resolve_writeSuccessBlockHash
   have resolved_writeSuccessBoolean : WriteSuccessBooleanInstanceContract :=
     resolve_writeSuccessBoolean
-      hLevel3.ssz_decode_observation_Encoder_raw_fi_1_42a2
   have resolved_writeSuccessFeeRecipient : WriteSuccessFeeRecipientInstanceContract :=
     resolve_writeSuccessFeeRecipient
   have resolved_writeSuccessInt : WriteSuccessIntInstanceContract :=
     resolve_writeSuccessInt
-      hLevel3.ssz_decode_observation_Encoder_raw_fi_1_45f6
   have resolved_writeSuccessBytes : WriteSuccessBytesInstanceContract :=
     resolve_writeSuccessBytes
       hLevel3.ssz_decode_observation_Encoder_raw_fi_1_4350
@@ -2190,7 +2175,6 @@ theorem level2Contracts_of_level3_staged
       resolved_writeSuccessBytes
   have resolved_writeSuccessHashes : WriteSuccessHashesInstanceContract :=
     resolve_writeSuccessHashes
-      hLevel3.ssz_decode_observation_Encoder_raw_fi_1_412a
       resolved_writeSuccessInt
   have resolved_writeSuccessLogsBloom : WriteSuccessLogsBloomInstanceContract :=
     resolve_writeSuccessLogsBloom
@@ -2214,14 +2198,12 @@ theorem level2Contracts_of_level3_staged
       hLevel3.ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b
       hLevel3.ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94
       hLevel3.ssz_decode_observation_Encoder_accessList_fi_1_3fdd
-      hLevel3.ssz_decode_observation_Encoder_raw_fi_1_4045
       hLevel3.ssz_decode_observation_Encoder_authorizations_fi_1_406f
       resolved_writeSuccessInt
       resolved_writeSuccessOptionalU64
       resolved_writeSuccessBytes
   have resolved_writeSuccessWithdrawals : WriteSuccessWithdrawalsInstanceContract :=
     resolve_writeSuccessWithdrawals
-      hLevel3.ssz_decode_observation_Encoder_raw_fi_1_40c3
       resolved_writeSuccessInt
   exact {
     sszDecode := resolved_sszDecode

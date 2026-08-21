@@ -110,6 +110,31 @@
       "field": "extern_io_write_output_fi_1_49b1",
       "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_49b1_proved",
       "contract": "BinaryFv.Zesu.Staging.Proposed_extern_io_write_output_fi_1_49b1_Contract"
+    },
+    {
+      "field": "ssz_decode_observation_Encoder_raw_fi_1_4045",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_rawEncoder_4045_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_4045_Contract"
+    },
+    {
+      "field": "ssz_decode_observation_Encoder_raw_fi_1_40c3",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_rawEncoder_40c3_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_40c3_Contract"
+    },
+    {
+      "field": "ssz_decode_observation_Encoder_raw_fi_1_412a",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_rawEncoder_412a_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_412a_Contract"
+    },
+    {
+      "field": "ssz_decode_observation_Encoder_raw_fi_1_42a2",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_rawEncoder_42a2_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_42a2_Contract"
+    },
+    {
+      "field": "ssz_decode_observation_Encoder_raw_fi_1_45f6",
+      "theorem": "BinaryFv.Zesu.Staging.proposed_rawEncoder_45f6_proved",
+      "contract": "BinaryFv.Zesu.Staging.Proposed_ssz_decode_observation_Encoder_raw_fi_1_45f6_Contract"
     }
   ]
 }

@@ -97,8 +97,9 @@ private theorem instructionPreserved_disjoint_rawWriteOutputParentWrites :
   exact encoderInlinePreserved_disjoint_rawWriteOutputParentWrites register (Or.inl preserved)
     written
 
-/-- Exact site data needed by the shared three-instruction wrapper proof. -/
-structure RawWriteOutputSite (entry expectedSize successPc : Nat)
+/-- Exact site data for the shared `auipc; jalr; write_output` suffix. The `entry` slot contains the
+second argument-setup instruction, so both setup orders can use this structure. -/
+structure RawWriteOutputPreparedSite (entry expectedSize successPc : Nat)
     (executionPcs : List Elflings.PcRange) (exitPcs : List Nat) where
   callBaseValue : BitVec 64
   entryFits : entry + 12 < 2 ^ 64
@@ -109,17 +110,8 @@ structure RawWriteOutputSite (entry expectedSize successPc : Nat)
   returnAligned : Sail.BitVec.access (BitVec.ofNat 64 successPc) 1 = 0#1
   returnCanonical : Sail.BitVec.update (BitVec.ofNat 64 successPc) 0 0#1 =
     BitVec.ofNat 64 successPc
-  advanceLength : Sail.BitVec.addInt (BitVec.ofNat 64 entry) 4 =
-    BitVec.ofNat 64 (entry + 4)
   advanceBase : Sail.BitVec.addInt (BitVec.ofNat 64 (entry + 4)) 4 =
     BitVec.ofNat 64 (entry + 8)
-  lengthStep : ∀ stepNo state,
-    ConfiguredMachinePre EndpointMachinePc state →
-    state.regs.get? PC = some (BitVec.ofNat 64 entry) →
-    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
-    ∃ retired, Runs (try_step stepNo false) state
-      (afterRegisterWrite state (BitVec.ofNat 64 entry) retired x11
-        (BitVec.ofNat 64 expectedSize)) false
   callBaseStep : ∀ stepNo state,
     ConfiguredMachinePre EndpointMachinePc state →
     state.regs.get? PC = some (BitVec.ofNat 64 (entry + 4)) →
@@ -140,8 +132,22 @@ structure RawWriteOutputSite (entry expectedSize successPc : Nat)
   outputRangeMember : (0x10190, 0x101c4) ∈ executionPcs
   exitInExitPcs : successPc ∈ exitPcs
 
-private theorem RawWriteOutputSite.parentInside
-    (site : RawWriteOutputSite entry expectedSize successPc executionPcs exitPcs)
+/-- Exact site data needed by the shared three-instruction output wrapper proof. -/
+structure RawWriteOutputSite (entry expectedSize successPc : Nat)
+    (executionPcs : List Elflings.PcRange) (exitPcs : List Nat)
+    extends RawWriteOutputPreparedSite entry expectedSize successPc executionPcs exitPcs where
+  advanceLength : Sail.BitVec.addInt (BitVec.ofNat 64 entry) 4 =
+    BitVec.ofNat 64 (entry + 4)
+  lengthStep : ∀ stepNo state,
+    ConfiguredMachinePre EndpointMachinePc state →
+    state.regs.get? PC = some (BitVec.ofNat 64 entry) →
+    Artifacts.programImage.fileBytesLoadedFaithfully state.mem →
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state (BitVec.ofNat 64 entry) retired x11
+        (BitVec.ofNat 64 expectedSize)) false
+
+private theorem RawWriteOutputPreparedSite.parentInside
+    (site : RawWriteOutputPreparedSite entry expectedSize successPc executionPcs exitPcs)
     (offset : Nat) (offsetBound : offset < 12) :
     rawWriteOutputParentPc entry (BitVec.ofNat 64 (entry + offset)) := by
   have fits := site.entryFits
@@ -151,8 +157,8 @@ private theorem RawWriteOutputSite.parentInside
     by simp [Nat.mod_eq_of_lt sumFits],
     by simp [Nat.mod_eq_of_lt sumFits]; omega⟩
 
-private theorem RawWriteOutputSite.parentNotExit
-    (site : RawWriteOutputSite entry expectedSize successPc executionPcs exitPcs)
+private theorem RawWriteOutputPreparedSite.parentNotExit
+    (site : RawWriteOutputPreparedSite entry expectedSize successPc executionPcs exitPcs)
     (offset : Nat) (offsetBound : offset < 12) :
     BitVec.ofNat 64 (entry + offset) ≠ (0x10190 : BitVec 64) := by
   intro equal
@@ -163,8 +169,8 @@ private theorem RawWriteOutputSite.parentNotExit
   simp [Nat.mod_eq_of_lt sumFits] at same
   omega
 
-private theorem RawWriteOutputSite.parentNotHost
-    (site : RawWriteOutputSite entry expectedSize successPc executionPcs exitPcs)
+private theorem RawWriteOutputPreparedSite.parentNotHost
+    (site : RawWriteOutputPreparedSite entry expectedSize successPc executionPcs exitPcs)
     {pc : BitVec 64} (inside : rawWriteOutputParentPc entry pc) :
     ¬BareMetalHostTransitionPc pc := by
   intro observed
@@ -177,8 +183,8 @@ private theorem RawWriteOutputSite.parentNotHost
   rcases observed with equal | equal | equal <;>
     rw [equal] at lower upper <;> simp at lower upper <;> omega
 
-private theorem RawWriteOutputSite.parentInExecution
-    (site : RawWriteOutputSite entry expectedSize successPc executionPcs exitPcs)
+private theorem RawWriteOutputPreparedSite.parentInExecution
+    (site : RawWriteOutputPreparedSite entry expectedSize successPc executionPcs exitPcs)
     {pc : BitVec 64} (inside : rawWriteOutputParentPc entry pc) :
     pcInRanges executionPcs pc := by
   unfold rawWriteOutputParentPc at inside
@@ -188,15 +194,15 @@ private theorem RawWriteOutputSite.parentInExecution
   subst range
   exact ⟨(entry, entry + 12), site.parentRangeMember, lower, upper⟩
 
-private theorem RawWriteOutputSite.outputInExecution
-    (site : RawWriteOutputSite entry expectedSize successPc executionPcs exitPcs)
+private theorem RawWriteOutputPreparedSite.outputInExecution
+    (site : RawWriteOutputPreparedSite entry expectedSize successPc executionPcs exitPcs)
     {pc : BitVec 64} (inside : writeOutputTracePc pc) : pcInRanges executionPcs pc := by
   unfold writeOutputTracePc writeOutputPc at inside
   rcases inside with (rfl | rfl | rfl | rfl) | rfl <;>
     exact ⟨(0x10190, 0x101c4), site.outputRangeMember, by native_decide, by native_decide⟩
 
 private theorem liftRawWriteOutputTrace
-    (site : RawWriteOutputSite entry expectedSize successPc executionPcs exitPcs)
+    (site : RawWriteOutputPreparedSite entry expectedSize successPc executionPcs exitPcs)
     {exit : BitVec 64 → Prop} (template : EndpointState)
     {fromStep count : Nat} {before after : State}
     (trace : ScopedTrace (rawWriteOutputParentPc entry) exit
@@ -224,54 +230,45 @@ private theorem liftRawWriteOutputTrace
   | callStep fromStep used count call program parent callee before resume after transfer rest ih =>
       exact transfer.body.elim
 
-/-- One proof of every three-instruction raw encoder that calls the exact bare-metal output leaf. -/
-theorem rawEncoderInstanceContract_of_writeOutputSite
-    (site : RawWriteOutputSite entry expectedSize successPc executionPcs exitPcs) :
-    RawEncoderInstanceContract entry expectedSize executionPcs exitPcs successPc := by
-  refine ⟨fun _ => 8, (by intro _; simp [level2ContractFuel]), ?_⟩
-  intro args fromStep before entryPre
-  rcases entryPre with ⟨atPc, source, size, bytes, outside, loaded, access⟩
-  have seg0 := (Seg.nil (rawWriteOutputParentPc entry) (fun pc => pc = 0x10190)
+/-- Consume the shared `auipc; jalr; write_output` suffix after both output arguments are ready. -/
+theorem rawWriteOutputPreparedHandoff
+    (site : RawWriteOutputPreparedSite entry expectedSize successPc executionPcs exitPcs)
+    (fromStep : Nat) (args : RawEncoderArgs) (before : EndpointState)
+    (atPc : before.machine.regs.get? PC = some (BitVec.ofNat 64 (entry + 4)))
+    (source : before.machine.regs.get? x10 = some (BitVec.ofNat 64 args.sourceAddress))
+    (length : before.machine.regs.get? x11 = some (BitVec.ofNat 64 expectedSize))
+    (size : args.bytes.size = expectedSize)
+    (bytes : BytesRep before.machine.mem args.sourceAddress args.bytes)
+    (outside : ∀ index, index < args.bytes.size →
+      ¬writeOutputMemory (args.sourceAddress + index))
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
+    (access : EncoderOutputMachineAccess before.machine) :
+    ∃ after,
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
+        fromStep 7 before after ∧
+      RawEncoderExit successPc args () before after := by
+  have seg0 := ((Seg.nil (rawWriteOutputParentPc entry) (fun pc => pc = 0x10190)
     rawWriteOutputParentWrites (fun _ => False) fromStep
     (childSummary := fun _ _ _ _ _ => False) access.configured.retiredCounter atPc).know
-      x10 (BitVec.ofNat 64 args.sourceAddress) source
-  obtain ⟨r0, run0⟩ := site.lengthStep fromStep before.machine access.configured atPc loaded
+      x10 (BitVec.ofNat 64 args.sourceAddress) source).know
+      x11 (BitVec.ofNat 64 expectedSize) length
+  obtain ⟨r1, run1⟩ := site.callBaseStep fromStep before.machine access.configured atPc loaded
   have seg1 := seg0.stepKnown
-    (site.parentInside 0 (by omega)) (site.parentNotExit 0 (by omega))
-    x11 (BitVec.ofNat 64 expectedSize) (BitVec.ofNat 64 (entry + 4)) r0 run0
-    site.advanceLength (by intro r h; exact Or.inl h) (Or.inr (Or.inr rfl))
-    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
-  have cfg1 := access.configured.mono
-    (seg1.agree instructionPreserved_disjoint_rawWriteOutputParentWrites) seg1.retired
-  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully
-      (afterRegisterWrite before.machine (BitVec.ofNat 64 entry) r0 x11
-        (BitVec.ofNat 64 expectedSize)).mem := by
-    simpa [seg1.memEq (by simp)] using loaded
-  obtain ⟨r1, run1⟩ := site.callBaseStep (fromStep + 1)
-    (afterRegisterWrite before.machine (BitVec.ofNat 64 entry) r0 x11
-      (BitVec.ofNat 64 expectedSize)) cfg1 seg1.atPc loaded1
-  have seg2 := seg1.stepKnown
     (site.parentInside 4 (by omega)) (site.parentNotExit 4 (by omega))
     x1 site.callBaseValue (BitVec.ofNat 64 (entry + 8)) r1 run1
     site.advanceBase (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
-  have cfg2 := access.configured.mono
-    (seg2.agree instructionPreserved_disjoint_rawWriteOutputParentWrites) seg2.retired
-  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully
-      (afterRegisterWrite
-        (afterRegisterWrite before.machine (BitVec.ofNat 64 entry) r0 x11
-          (BitVec.ofNat 64 expectedSize))
-        (BitVec.ofNat 64 (entry + 4)) r1 x1 site.callBaseValue).mem := by
-    simpa [seg2.memEq (by simp)] using loaded
-  obtain ⟨r2, callRun⟩ := site.callStep (fromStep + 2)
-    (afterRegisterWrite
-      (afterRegisterWrite before.machine (BitVec.ofNat 64 entry) r0 x11
-        (BitVec.ofNat 64 expectedSize))
-      (BitVec.ofNat 64 (entry + 4)) r1 x1 site.callBaseValue)
-    cfg2 seg2.atPc (seg2.reg x1 site.callBaseValue (by simp)) loaded2
-  let parentMachine := afterRegisterWrite
-    (afterRegisterWrite before.machine (BitVec.ofNat 64 entry) r0 x11
-      (BitVec.ofNat 64 expectedSize))
+  have cfg1 := access.configured.mono
+    (seg1.agree instructionPreserved_disjoint_rawWriteOutputParentWrites) seg1.retired
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully
+      (afterRegisterWrite before.machine (BitVec.ofNat 64 (entry + 4)) r1 x1
+        site.callBaseValue).mem := by
+    simpa [seg1.memEq (by simp)] using loaded
+  obtain ⟨r2, callRun⟩ := site.callStep (fromStep + 1)
+    (afterRegisterWrite before.machine (BitVec.ofNat 64 (entry + 4)) r1 x1
+      site.callBaseValue)
+    cfg1 seg1.atPc (seg1.reg x1 site.callBaseValue (by simp)) loaded1
+  let parentMachine := afterRegisterWrite before.machine
     (BitVec.ofNat 64 (entry + 4)) r1 x1 site.callBaseValue
   let callMachine := tryStepControlFlowAfterRetired
     (callLinkState (tryStepControlFlowAfterIncrement parentMachine)
@@ -285,34 +282,34 @@ theorem rawEncoderInstanceContract_of_writeOutputSite
       callLinkState, Std.ExtDHashMap.get?_insert]
   have callMemEq : callMachine.mem = before.machine.mem := by
     have base : callMachine.mem = parentMachine.mem := rfl
-    exact base.trans (seg2.memEq (by simp))
+    exact base.trans (seg1.memEq (by simp))
   have callPrefix : ConfinedPrefix (rawWriteOutputParentPc entry) (fun pc => pc = 0x10190)
-      (fun _ _ _ _ _ => False) (fromStep + 2) 1 parentMachine callMachine :=
-    ConfinedPrefix.ownStep seg2.atPc
+      (fun _ _ _ _ _ => False) (fromStep + 1) 1 parentMachine callMachine :=
+    ConfinedPrefix.ownStep seg1.atPc
       (site.parentInside 8 (by omega)) (site.parentNotExit 8 (by omega)) callRun
-  have parentMachineTrace := seg2.confined.trans callPrefix 0 callMachine
+  have parentMachineTrace := seg1.confined.trans callPrefix 0 callMachine
     (.exitAt _ _ 0x10190 callAtPc rfl)
   have parentTrace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
-      fromStep 3 before callState := by
+      fromStep 2 before callState := by
     simpa [callState] using liftRawWriteOutputTrace site before parentMachineTrace
   have callConfigured : ConfiguredMachinePre EndpointMachinePc callMachine :=
     configuredAfterWriteSuccessCall (BitVec.ofNat 64 (entry + 8)) 0x10190
-      (BitVec.ofNat 64 successPc) r2 cfg2
+      (BitVec.ofNat 64 successPc) r2 cfg1
   have callPmaEq := callWrites.get pma_regions (by simp [stepBookkeeping])
   have fullPmaEq : callMachine.regs.get? pma_regions = before.machine.regs.get? pma_regions :=
-    callPmaEq.trans (seg2.writes.get pma_regions (by
+    callPmaEq.trans (seg1.writes.get pma_regions (by
       simp [rawWriteOutputParentWrites, stepBookkeeping]))
-  obtain ⟨after, output⟩ := writeOutputHandoff (fromStep + 3) args.sourceAddress args.bytes
+  obtain ⟨after, output⟩ := writeOutputHandoff (fromStep + 2) args.sourceAddress args.bytes
     (BitVec.ofNat 64 successPc) callState (by simpa [callState] using callAtPc)
     (by simp [callState, callMachine, callLinkState, tryStepControlFlowAfterRetired,
       tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert])
     (by change callMachine.regs.get? x10 = some (BitVec.ofNat 64 args.sourceAddress)
         exact (callWrites.get x10 (by decide)).trans
-          (seg2.reg x10 (BitVec.ofNat 64 args.sourceAddress) (by simp)))
+          (seg1.reg x10 (BitVec.ofNat 64 args.sourceAddress) (by simp)))
     (by change callMachine.regs.get? x11 = some (BitVec.ofNat 64 args.bytes.size)
         rw [size]
         exact (callWrites.get x11 (by decide)).trans
-          (seg2.reg x11 (BitVec.ofNat 64 expectedSize) (by simp)))
+          (seg1.reg x11 (BitVec.ofNat 64 expectedSize) (by simp)))
     (by
       have bound := bytes.1
       have positive := site.expectedSizePositive
@@ -324,14 +321,14 @@ theorem rawEncoderInstanceContract_of_writeOutputSite
     (dataPmaAllows_of_pma_regions_eq fullPmaEq access.outputLengthStore)
     site.returnAligned callConfigured (by simpa [callState, callMemEq] using loaded)
   have outputTrace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
-      (fromStep + 3) 5 callState after := output.trace.weaken (fun _ h => site.outputInExecution h)
+      (fromStep + 2) 5 callState after := output.trace.weaken (fun _ h => site.outputInExecution h)
   have outputAtPc : EndpointPc after = some (BitVec.ofNat 64 successPc) := by
     simpa [EndpointPc, site.returnCanonical] using output.atPc
   have wholeTrace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
-      fromStep 8 before after := by
+      fromStep 7 before after := by
     simpa [Nat.add_assoc] using parentTrace.append outputTrace
   have parentAgree : Agree encoderInlinePreserved before.machine callMachine :=
-    (seg2.writes.agree encoderInlinePreserved_disjoint_rawWriteOutputParentWrites).trans
+    (seg1.writes.agree encoderInlinePreserved_disjoint_rawWriteOutputParentWrites).trans
       (callWrites.agree (by
         intro register preserved written
         apply encoderInlinePreserved_disjoint_rawWriteOutputParentWrites register preserved
@@ -346,22 +343,170 @@ theorem rawEncoderInstanceContract_of_writeOutputSite
     all_goals
       apply output.writes.get
       simp [writeOutputWrites, stepBookkeeping]
+  refine ⟨after, wholeTrace, outputAtPc, ?_, ?_, ?_, ?_, ?_,
+    parentAgree.trans outputAgree, output.configured.retiredCounter, output.loaded, ?_⟩
+  · simpa [callState] using output.stdout
+  · simpa [callState] using output.stdin
+  · simpa [callState] using output.cursor
+  · simpa [callState] using output.exitCode
+  · intro address outsideMemory
+    exact (output.memory address outsideMemory).trans
+      (congrArg (fun mem => mem.get? address) callMemEq)
+  · exact (seg1.aux.trans
+      (AuxStateAgree.callRetirement parentMachine (BitVec.ofNat 64 (entry + 8))
+        0x10190 r2 x1 (BitVec.ofNat 64 successPc))).trans output.aux
+
+/-- The exact eight-step implementation shared by each three-instruction output wrapper. -/
+theorem rawEncoderContractEight_of_writeOutputSite
+    (site : RawWriteOutputSite entry expectedSize successPc executionPcs exitPcs) :
+    (rawEncoderContract entry expectedSize successPc (fun _ => 8)).Implements
+      EndpointStep EndpointPc (pcInRanges executionPcs) (pcInList exitPcs) := by
+  intro args fromStep before entryPre
+  rcases entryPre with ⟨atPc, source, size, bytes, outside, loaded, access⟩
+  have seg0 := (Seg.nil (rawWriteOutputParentPc entry) (fun pc => pc = 0x10190)
+    rawWriteOutputParentWrites (fun _ => False) fromStep
+    (childSummary := fun _ _ _ _ _ => False) access.configured.retiredCounter atPc).know
+      x10 (BitVec.ofNat 64 args.sourceAddress) source
+  obtain ⟨r0, run0⟩ := site.lengthStep fromStep before.machine access.configured atPc loaded
+  have seg1 := seg0.stepKnown
+    (site.parentInside 0 (by omega)) (site.parentNotExit 0 (by omega))
+    x11 (BitVec.ofNat 64 expectedSize) (BitVec.ofNat 64 (entry + 4)) r0 run0
+    site.advanceLength (by intro r h; exact Or.inl h) (Or.inr (Or.inr rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  let preparedMachine := afterRegisterWrite before.machine (BitVec.ofNat 64 entry) r0 x11
+    (BitVec.ofNat 64 expectedSize)
+  let prepared : EndpointState := { before with machine := preparedMachine }
+  have preparedConfigured : ConfiguredMachinePre EndpointMachinePc preparedMachine :=
+    access.configured.mono
+      (seg1.agree instructionPreserved_disjoint_rawWriteOutputParentWrites) seg1.retired
+  have preparedLoaded : Artifacts.programImage.fileBytesLoadedFaithfully preparedMachine.mem := by
+    simpa [preparedMachine, seg1.memEq (by simp)] using loaded
+  have preparedPmaEq : preparedMachine.regs.get? pma_regions =
+      before.machine.regs.get? pma_regions := by
+    simpa [preparedMachine] using seg1.writes.get pma_regions (by
+      simp [rawWriteOutputParentWrites, stepBookkeeping])
+  have preparedAccess : EncoderOutputMachineAccess preparedMachine := {
+    configured := preparedConfigured
+    outputBufferStore := dataPmaAllows_of_pma_regions_eq preparedPmaEq access.outputBufferStore
+    outputLengthStore := dataPmaAllows_of_pma_regions_eq preparedPmaEq access.outputLengthStore
+    outputBufferNoMMIO := access.outputBufferNoMMIO
+    outputLengthNoMMIO := access.outputLengthNoMMIO
+  }
+  obtain ⟨after, tailTrace, tailExit⟩ := rawWriteOutputPreparedHandoff
+    site.toRawWriteOutputPreparedSite (fromStep + 1)
+    args prepared (by simpa [prepared, preparedMachine] using seg1.atPc)
+    (by simpa [prepared, preparedMachine] using
+      seg1.reg x10 (BitVec.ofNat 64 args.sourceAddress) (by simp))
+    (by simpa [prepared, preparedMachine] using
+      seg1.reg x11 (BitVec.ofNat 64 expectedSize) (by simp))
+    size (by simpa [prepared, preparedMachine] using bytes) outside preparedLoaded preparedAccess
+  have prefixStep : EndpointStep fromStep before prepared := by
+    exact endpointStep_sail fromStep before preparedMachine
+      (fun observed observedPc => by
+        change before.machine.regs.get? PC = some observed at observedPc
+        rw [atPc] at observedPc
+        cases Option.some.inj observedPc
+        exact site.parentNotHost (site.parentInside 0 (by omega))) run0
+  have prefixTrace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
+      fromStep 1 before prepared :=
+    .step fromStep 0 (BitVec.ofNat 64 entry) before prepared prepared
+      (by simpa [EndpointPc] using atPc) (site.parentInExecution (site.parentInside 0 (by omega)))
+      prefixStep (.refl (fromStep + 1) prepared)
+  have wholeTrace : ConfinedTrace EndpointStep EndpointPc (pcInRanges executionPcs)
+      fromStep 8 before after := by
+    simpa [Nat.add_assoc] using prefixTrace.append tailTrace
+  rcases tailExit with ⟨outputAtPc, stdout, stdin, cursor, exitCode, memory, agree, retired,
+    outputLoaded, aux⟩
   refine ⟨8, after, (), by omega, Nat.le_refl 8, wholeTrace,
     ⟨BitVec.ofNat 64 successPc, outputAtPc, ?_⟩, trivial, ?_⟩
   · unfold pcInList
     simpa [Nat.mod_eq_of_lt site.successFits] using site.exitInExitPcs
-  · refine ⟨outputAtPc, ?_, ?_, ?_, ?_, ?_, parentAgree.trans outputAgree,
-      output.configured.retiredCounter, output.loaded, ?_⟩
-    · simpa [callState] using output.stdout
-    · simpa [callState] using output.stdin
-    · simpa [callState] using output.cursor
-    · simpa [callState] using output.exitCode
-    · intro address outsideMemory
-      exact (output.memory address outsideMemory).trans
-        (congrArg (fun mem => mem.get? address) callMemEq)
-    · exact (seg2.aux.trans
-        (AuxStateAgree.callRetirement parentMachine (BitVec.ofNat 64 (entry + 8))
-          0x10190 r2 x1 (BitVec.ofNat 64 successPc))).trans output.aux
+  · refine ⟨outputAtPc, ?_, ?_, ?_, ?_, ?_, ?_, retired, outputLoaded, ?_⟩
+    · simpa [prepared] using stdout
+    · simpa [prepared] using stdin
+    · simpa [prepared] using cursor
+    · simpa [prepared] using exitCode
+    · simpa [prepared, preparedMachine] using memory
+    · exact (seg1.writes.agree encoderInlinePreserved_disjoint_rawWriteOutputParentWrites).trans
+        (by simpa [prepared, preparedMachine] using agree)
+    · exact seg1.aux.trans (by simpa [prepared, preparedMachine] using aux)
+
+/-- One proof of every three-instruction raw encoder that calls the exact bare-metal output leaf. -/
+theorem rawEncoderInstanceContract_of_writeOutputSite
+    (site : RawWriteOutputSite entry expectedSize successPc executionPcs exitPcs) :
+    RawEncoderInstanceContract entry expectedSize executionPcs exitPcs successPc :=
+  ⟨fun _ => 8, by intro _; simp [level2ContractFuel],
+    rawEncoderContractEight_of_writeOutputSite site⟩
+
+/-- Build the shared suffix site from literal instruction data. -/
+def rawWriteOutputPreparedSiteOfLiterals (entry expectedSize successPc : Nat)
+    (callBaseValue : BitVec 64) (callBaseImm : BitVec 20) (callImm : BitVec 12)
+    (baseByte0 baseByte1 baseByte2 baseByte3 : UInt8)
+    (callByte0 callByte1 callByte2 callByte3 : UInt8)
+    (executionPcs : List Elflings.PcRange) (exitPcs : List Nat)
+    (baseSite : ExactInstructionSite (entry + 4) baseByte0 baseByte1 baseByte2 baseByte3 := by
+      native_decide)
+    (callSite : ExactInstructionSite (entry + 8) callByte0 callByte1 callByte2 callByte3 := by
+      native_decide)
+    (baseBase : BaseInstructionEncoding (BitVec.ofNat 8 baseByte0.toNat) := by rfl)
+    (callBase : BaseInstructionEncoding (BitVec.ofNat 8 callByte0.toNat) := by rfl)
+    (baseResult : BitVec.ofNat 64 (entry + 4) +
+        sign_extend (m := 64) (callBaseImm ++ 0x000#12) = callBaseValue := by native_decide)
+    (baseDecode : ∀ state, ConfiguredMachinePre EndpointMachinePc state →
+        Runs (ext_decode (fetchWord (BitVec.ofNat 8 baseByte0.toNat)
+          (BitVec.ofNat 8 baseByte1.toNat) (BitVec.ofNat 8 baseByte2.toNat)
+          (BitVec.ofNat 8 baseByte3.toNat)))
+          (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+          (.UTYPE (callBaseImm, .Regidx 1#5, .AUIPC)) := by
+      intro state configured; write_success_decode configured)
+    (callDecode : ∀ state, ConfiguredMachinePre EndpointMachinePc state →
+        Runs (ext_decode (fetchWord (BitVec.ofNat 8 callByte0.toNat)
+          (BitVec.ofNat 8 callByte1.toNat) (BitVec.ofNat 8 callByte2.toNat)
+          (BitVec.ofNat 8 callByte3.toNat)))
+          (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+          (.JALR (callImm, .Regidx 1#5, .Regidx 1#5)) := by
+      intro state configured; write_success_decode configured)
+    (targetEq : Sail.BitVec.update (callBaseValue + sign_extend (m := 64) callImm) 0 0#1 =
+        0x10190 := by native_decide)
+    (returnEq : Sail.BitVec.addInt (BitVec.ofNat 64 (entry + 8)) 4 =
+        BitVec.ofNat 64 successPc := by native_decide)
+    (targetBit1 : Sail.BitVec.access (callBaseValue + sign_extend (m := 64) callImm) 1 = 0#1 := by
+      native_decide)
+    (entryFits : entry + 12 < 2 ^ 64 := by native_decide)
+    (expectedSizePositive : 0 < expectedSize := by native_decide)
+    (expectedSizeFits : expectedSize < 2 ^ 64 := by native_decide)
+    (successFits : successPc < 2 ^ 64 := by native_decide)
+    (afterHostTransitions : 0x101d4 < entry := by native_decide)
+    (returnAligned : Sail.BitVec.access (BitVec.ofNat 64 successPc) 1 = 0#1 := by native_decide)
+    (returnCanonical : Sail.BitVec.update (BitVec.ofNat 64 successPc) 0 0#1 =
+      BitVec.ofNat 64 successPc := by native_decide)
+    (parentRangeMember : (entry, entry + 12) ∈ executionPcs := by native_decide)
+    (outputRangeMember : (0x10190, 0x101c4) ∈ executionPcs := by native_decide)
+    (exitInExitPcs : successPc ∈ exitPcs := by native_decide) :
+    RawWriteOutputPreparedSite entry expectedSize successPc executionPcs exitPcs := {
+  callBaseValue
+  entryFits
+  expectedSizePositive
+  expectedSizeFits
+  successFits
+  afterHostTransitions
+  returnAligned
+  returnCanonical
+  advanceBase := baseSite.advance
+  callBaseStep := by
+    intro stepNo state configured atPc loaded
+    exact configuredRawWriteOutputCallBaseStep stepNo (entry + 4) callBaseImm callBaseValue
+      baseByte0 baseByte1 baseByte2 baseByte3 state configured atPc loaded baseSite baseBase
+      baseResult (baseDecode state configured)
+  callStep := by
+    intro stepNo state configured atPc baseRead loaded
+    exact configuredRawWriteOutputCallStep stepNo (entry + 8) callBaseValue callImm
+      (BitVec.ofNat 64 successPc) callByte0 callByte1 callByte2 callByte3 state configured atPc
+      baseRead loaded callSite callBase (callDecode state configured) targetEq returnEq targetBit1
+  parentRangeMember
+  outputRangeMember
+  exitInExitPcs
+}
 
 /-- Build a shared output site from literal instruction data. Every default is checked at the
 concrete call site, where all bytes, immediates, addresses, and generated ranges are known. -/
@@ -424,34 +569,19 @@ def rawWriteOutputSiteOfLiterals (entry expectedSize successPc : Nat)
     (outputRangeMember : (0x10190, 0x101c4) ∈ executionPcs := by native_decide)
     (exitInExitPcs : successPc ∈ exitPcs := by native_decide) :
     RawWriteOutputSite entry expectedSize successPc executionPcs exitPcs := {
-  callBaseValue
-  entryFits
-  expectedSizePositive
-  expectedSizeFits
-  successFits
-  afterHostTransitions
-  returnAligned
-  returnCanonical
+  toRawWriteOutputPreparedSite := rawWriteOutputPreparedSiteOfLiterals
+    entry expectedSize successPc callBaseValue callBaseImm callImm
+    baseByte0 baseByte1 baseByte2 baseByte3 callByte0 callByte1 callByte2 callByte3
+    executionPcs exitPcs baseSite callSite baseBase callBase baseResult baseDecode callDecode
+    targetEq returnEq targetBit1 entryFits expectedSizePositive expectedSizeFits successFits
+    afterHostTransitions returnAligned returnCanonical parentRangeMember outputRangeMember
+    exitInExitPcs
   advanceLength := lengthSite.advance
-  advanceBase := baseSite.advance
   lengthStep := by
     intro stepNo state configured atPc loaded
     exact configuredRawWriteOutputLengthStep stepNo entry expectedSize lengthImm
       lengthByte0 lengthByte1 lengthByte2 lengthByte3 state configured atPc loaded lengthSite
       lengthBase lengthResult (lengthDecode state configured)
-  callBaseStep := by
-    intro stepNo state configured atPc loaded
-    exact configuredRawWriteOutputCallBaseStep stepNo (entry + 4) callBaseImm callBaseValue
-      baseByte0 baseByte1 baseByte2 baseByte3 state configured atPc loaded baseSite baseBase
-      baseResult (baseDecode state configured)
-  callStep := by
-    intro stepNo state configured atPc baseRead loaded
-    exact configuredRawWriteOutputCallStep stepNo (entry + 8) callBaseValue callImm
-      (BitVec.ofNat 64 successPc) callByte0 callByte1 callByte2 callByte3 state configured atPc
-      baseRead loaded callSite callBase (callDecode state configured) targetEq returnEq targetBit1
-  parentRangeMember
-  outputRangeMember
-  exitInExitPcs
 }
 
 /-- Production `0x161c0: auipc a0,1` for the constant failure record. -/

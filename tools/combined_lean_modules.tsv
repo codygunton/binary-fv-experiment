@@ -66,5 +66,7 @@ BinaryFv.Zesu.MachineExecution.HLevel3CheckedSliceSteps	HLevel3CheckedSliceSteps
 BinaryFv.Zesu.Staging.CheckedSlice	CheckedSlice.lean	compiled/BinaryFv/Zesu/Staging/CheckedSlice.olean
 BinaryFv.Zesu.MachineExecution.HLevel3WriteOutputSteps	HLevel3WriteOutputSteps.lean	compiled/BinaryFv/Zesu/MachineExecution/HLevel3WriteOutputSteps.olean
 BinaryFv.Zesu.Staging.WriteOutput	WriteOutput.lean	compiled/BinaryFv/Zesu/Staging/WriteOutput.olean
+BinaryFv.Zesu.MachineExecution.HLevel3RawEncoderSteps	HLevel3RawEncoderSteps.lean	compiled/BinaryFv/Zesu/MachineExecution/HLevel3RawEncoderSteps.olean
+BinaryFv.Zesu.Staging.RawEncoder	RawEncoder.lean	compiled/BinaryFv/Zesu/Staging/RawEncoder.olean
 BinaryFv.Zesu.Staging.HLevel3	HLevel3.lean	compiled/BinaryFv/Zesu/Staging/HLevel3.olean
 BinaryFv.Zesu.Staging.HLevel3IdiomChecks	HLevel3IdiomChecks.lean	compiled/BinaryFv/Zesu/Staging/HLevel3IdiomChecks.olean
