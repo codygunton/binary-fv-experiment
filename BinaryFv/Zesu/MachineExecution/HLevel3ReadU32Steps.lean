@@ -697,4 +697,246 @@ theorem readU32_2ff8Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
   exact ⟨after, by simpa [readU32MachineValue, z0, z1, z2, s3, sh1, sh2, sh3,
     lo, hi, result] using seg11⟩
 
+/-! ## `fi:1:3064`: standard unsigned `readU32` schedule -/
+
+def readU32_3064OwnPc (pc : BitVec 64) : Prop :=
+  pcInList [0x128cc, 0x128d0, 0x128d4, 0x128d8, 0x128dc,
+    0x128e0, 0x128e4, 0x128e8, 0x128ec, 0x128f0] pc
+
+def readU32_3064ExitPc (pc : BitVec 64) : Prop := pcInList [0x128f4] pc
+
+def readU32_3064Writes (register : Register) : Prop :=
+  stepBookkeeping register ∨ register = x13 ∨ register = x14 ∨
+    register = x15 ∨ register = x16
+
+def readU32UnsignedMachineValue (v0 v1 v2 v3 : Nat) : BitVec 64 :=
+  let z0 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 v0)
+  let z1 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 v1)
+  let z2 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 v2)
+  let z3 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 v3)
+  let sh1 := Sail.shift_bits_left z1
+    (Sail.BitVec.extractLsb (8#6) (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)
+  let sh2 := Sail.shift_bits_left z2
+    (Sail.BitVec.extractLsb (16#6) (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)
+  let sh3 := Sail.shift_bits_left z3
+    (Sail.BitVec.extractLsb (24#6) (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)
+  (sh3 ||| sh2) ||| (sh1 ||| z0)
+
+private theorem readU32_3064InstructionDisjoint :
+    RegSet.Disjoint instructionPreserved readU32_3064Writes := by
+  intro register preserved writes
+  rcases writes with writes | rfl | rfl | rfl | rfl
+  · exact platformPreserved_disjoint register preserved.1 writes
+  all_goals simp [instructionPreserved, platformPreserved] at preserved
+
+private theorem readU32_3064PlatformDisjoint :
+    RegSet.Disjoint platformPreserved readU32_3064Writes := by
+  intro register preserved writes
+  rcases writes with writes | rfl | rfl | rfl | rfl
+  · exact platformPreserved_disjoint register preserved writes
+  all_goals simp [platformPreserved] at preserved
+
+/-- Exact ten-step standard unsigned `readU32` trace for `fi:1:3064`. -/
+theorem readU32_3064Run (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x128cc))
+    (base : state.regs.get? x10 = some (BitVec.ofNat 64 baseAddress))
+    (rep0 : UIntRep 1 state.mem (baseAddress + 8) v0)
+    (rep1 : UIntRep 1 state.mem (baseAddress + 9) v1)
+    (rep2 : UIntRep 1 state.mem (baseAddress + 10) v2)
+    (rep3 : UIntRep 1 state.mem (baseAddress + 11) v3)
+    (pma : ∀ offset, offset < 4 →
+      LoadPmaAllows state (BitVec.ofNat 64 (baseAddress + 8 + offset)) 1)
+    (notMMIO : ∀ offset, offset < 4 →
+      LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + 8 + offset)) 1)
+    (sourceFits : baseAddress + 8 + 4 ≤ 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ after, Seg readU32_3064OwnPc readU32_3064ExitPc (fun _ _ _ _ _ => False)
+      readU32_3064Writes noMemory
+      [⟨x13, readU32UnsignedMachineValue v0 v1 v2 v3⟩]
+      fromStep 10 state after (BitVec.ofNat 64 0x128f4) := by
+  let z0 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 v0)
+  let z1 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 v1)
+  let z2 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 v2)
+  let z3 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 v3)
+  let sh1 := Sail.shift_bits_left z1
+    (Sail.BitVec.extractLsb (8#6) (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)
+  let lo := sh1 ||| z0
+  let sh2 := Sail.shift_bits_left z2
+    (Sail.BitVec.extractLsb (16#6) (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)
+  let sh3 := Sail.shift_bits_left z3
+    (Sail.BitVec.extractLsb (24#6) (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)
+  let hi := sh3 ||| sh2
+  let result := hi ||| lo
+  obtain ⟨retired, retiredRead⟩ := configured.retiredCounter
+  have seg0 := Seg.nil readU32_3064OwnPc readU32_3064ExitPc (fun _ _ _ _ _ => False)
+    readU32_3064Writes noMemory fromStep ⟨retired, retiredRead⟩ atPc
+  have configuredOfSeg {kv n cur pc}
+      (seg : Seg readU32_3064OwnPc readU32_3064ExitPc (fun _ _ _ _ _ => False)
+        readU32_3064Writes noMemory kv fromStep n state cur pc) :=
+    configuredMachinePre_of_readSeg configured readU32_3064InstructionDisjoint seg
+  have baseOfSeg {kv n cur pc}
+      (seg : Seg readU32_3064OwnPc readU32_3064ExitPc (fun _ _ _ _ _ => False)
+        readU32_3064Writes noMemory kv fromStep n state cur pc) :=
+    registerValue_of_readSeg seg (by simp [readU32_3064Writes, stepBookkeeping]) base
+  have repOfSeg {kv n cur pc offset value}
+      (seg : Seg readU32_3064OwnPc readU32_3064ExitPc (fun _ _ _ _ _ => False)
+        readU32_3064Writes noMemory kv fromStep n state cur pc)
+      (rep : UIntRep 1 state.mem (baseAddress + offset) value) :=
+    uintRep_of_readSeg seg rep
+  have pmaOfSeg {kv n cur pc offset}
+      (seg : Seg readU32_3064OwnPc readU32_3064ExitPc (fun _ _ _ _ _ => False)
+        readU32_3064Writes noMemory kv fromStep n state cur pc)
+      (bound : offset < 4) :=
+    loadPmaAllows_of_readSeg seg readU32_3064PlatformDisjoint (pma offset bound)
+  have loadedOfSeg {kv n cur pc}
+      (seg : Seg readU32_3064OwnPc readU32_3064ExitPc (fun _ _ _ _ _ => False)
+        readU32_3064Writes noMemory kv fromStep n state cur pc) :=
+    loadedFaithfully_of_readSeg seg loaded
+  obtain ⟨m1, seg1⟩ := seg0.step (by owned_pc [readU32_3064OwnPc, pcInList])
+    (by owned_pc [readU32_3064ExitPc, pcInList]) x13 z1 0x128d0
+    (readU32LoadUnsignedStep fromStep 0x128cc 9 state (.Regidx 10#5) (.Regidx 13#5)
+      x13 z1 v1 baseAddress 0x83 0x46 0x95 0x00 configured atPc rep1 (pma 1 (by omega))
+      (notMMIO 1 (by omega)) (by omega) loaded (by configured_decode configured)
+      (fun premise writes => rX_x10_run premise _
+        ((writes x10 (by simp [stepBookkeeping])).trans base))
+      (fun premise => wX_x13_run premise z1) (by constructor <;> native_decide)
+      (by decide) (by decide) (by decide) (by decide) (by rfl)
+      (by rw [show sign_extend (m := 64) (9#12) = 9#64 by native_decide];
+          exact ofNatAdd baseAddress 9 (by omega)))
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨m2, seg2⟩ := seg1.step (by owned_pc [readU32_3064OwnPc, pcInList])
+    (by owned_pc [readU32_3064ExitPc, pcInList]) x14 z0 0x128d4
+    (readU32LoadUnsignedStep (fromStep + 1) 0x128d0 8 m1 (.Regidx 10#5)
+      (.Regidx 14#5) x14 z0 v0 baseAddress 0x03 0x47 0x85 0x00
+      (configuredOfSeg seg1) seg1.atPc (repOfSeg seg1 rep0)
+      (by simpa [Nat.add_assoc] using pmaOfSeg seg1 (offset := 0) (by omega))
+      (notMMIO 0 (by omega)) (by omega) (loadedOfSeg seg1)
+      (by configured_decode (configuredOfSeg seg1))
+      (fun premise writes => rX_x10_run premise _
+        ((writes x10 (by simp [stepBookkeeping])).trans (baseOfSeg seg1)))
+      (fun premise => wX_x14_run premise z0) (by constructor <;> native_decide)
+      (by decide) (by decide) (by decide) (by decide) (by rfl)
+      (by rw [show sign_extend (m := 64) (8#12) = 8#64 by native_decide];
+          exact ofNatAdd baseAddress 8 (by omega)))
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨m3, seg3⟩ := seg2.step (by owned_pc [readU32_3064OwnPc, pcInList])
+    (by owned_pc [readU32_3064ExitPc, pcInList]) x15 z2 0x128d8
+    (readU32LoadUnsignedStep (fromStep + 2) 0x128d4 10 m2 (.Regidx 10#5)
+      (.Regidx 15#5) x15 z2 v2 baseAddress 0x83 0x47 0xa5 0x00
+      (configuredOfSeg seg2) seg2.atPc (repOfSeg seg2 rep2)
+      (by simpa [Nat.add_assoc] using pmaOfSeg seg2 (offset := 2) (by omega))
+      (notMMIO 2 (by omega)) (by omega) (loadedOfSeg seg2)
+      (by configured_decode (configuredOfSeg seg2))
+      (fun premise writes => rX_x10_run premise _
+        ((writes x10 (by simp [stepBookkeeping])).trans (baseOfSeg seg2)))
+      (fun premise => wX_x15_run premise z2) (by constructor <;> native_decide)
+      (by decide) (by decide) (by decide) (by decide) (by rfl)
+      (by rw [show sign_extend (m := 64) (10#12) = 10#64 by native_decide];
+          exact ofNatAdd baseAddress 10 (by omega)))
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inr (Or.inl rfl))))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨m4, seg4⟩ := seg3.step (by owned_pc [readU32_3064OwnPc, pcInList])
+    (by owned_pc [readU32_3064ExitPc, pcInList]) x16 z3 0x128dc
+    (readU32LoadUnsignedStep (fromStep + 3) 0x128d8 11 m3 (.Regidx 10#5)
+      (.Regidx 16#5) x16 z3 v3 baseAddress 0x03 0x48 0xb5 0x00
+      (configuredOfSeg seg3) seg3.atPc (repOfSeg seg3 rep3)
+      (by simpa [Nat.add_assoc] using pmaOfSeg seg3 (offset := 3) (by omega))
+      (notMMIO 3 (by omega)) (by omega) (loadedOfSeg seg3)
+      (by configured_decode (configuredOfSeg seg3))
+      (fun premise writes => rX_x10_run premise _
+        ((writes x10 (by simp [stepBookkeeping])).trans (baseOfSeg seg3)))
+      (fun premise => wX_x16_run premise z3) (by constructor <;> native_decide)
+      (by decide) (by decide) (by decide) (by decide) (by rfl)
+      (by rw [show sign_extend (m := 64) (11#12) = 11#64 by native_decide];
+          exact ofNatAdd baseAddress 11 (by omega)))
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inr (Or.inr rfl))))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  have seg4' := seg4.forget (kv' := [⟨x16, z3⟩, ⟨x15, z2⟩, ⟨x14, z0⟩]) (by simp)
+  obtain ⟨m5, seg5⟩ := seg4'.step (by owned_pc [readU32_3064OwnPc, pcInList])
+    (by owned_pc [readU32_3064ExitPc, pcInList]) x13 sh1 0x128e0
+    (readU32SlliStep (fromStep + 4) 0x128dc m4 8 (.Regidx 13#5) x13 sh1 z1
+      0x93 0x96 0x86 0x00 (configuredOfSeg seg4') seg4'.atPc (loadedOfSeg seg4')
+      (by configured_decode (configuredOfSeg seg4'))
+      (fun premise writes => rX_x13_run premise z1
+        ((writes x13 (by simp [stepBookkeeping])).trans (seg4.reg x13 z1 (by simp))))
+      (fun premise => wX_x13_run premise sh1) (by constructor <;> native_decide)
+      (by decide) (by decide) (by decide) (by decide) (by rfl))
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨r6, run6⟩ := readU32OrStep (fromStep + 5) 0x128e0 m5
+    (.Regidx 14#5) (.Regidx 13#5) (.Regidx 13#5) x13 lo sh1 z0
+    0xb3 0xe6 0xe6 0x00 (configuredOfSeg seg5) seg5.atPc
+    (fun premise writes => rX_x13_run premise sh1
+      ((writes x13 (by simp [stepBookkeeping])).trans (seg5.reg x13 sh1 (by simp))))
+    (fun premise writes => rX_x14_run premise z0
+      ((writes x14 (by simp [stepBookkeeping])).trans (seg5.reg x14 z0 (by simp))))
+    (fun premise => wX_x13_run premise lo) (loadedOfSeg seg5)
+    (by configured_decode (configuredOfSeg seg5)) (by constructor <;> native_decide)
+    (by decide) (by decide) (by decide) (by decide) (by rfl)
+  have seg5' := seg5.forget (kv' := [⟨x16, z3⟩, ⟨x15, z2⟩, ⟨x14, z0⟩]) (by simp)
+  obtain ⟨m6, seg6⟩ := seg5'.step (by owned_pc [readU32_3064OwnPc, pcInList])
+    (by owned_pc [readU32_3064ExitPc, pcInList]) x13 lo 0x128e4 ⟨r6, run6⟩
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨r7, run7⟩ := readU32SlliStep (fromStep + 6) 0x128e4 m6 16
+    (.Regidx 15#5) x15 sh2 z2 0x93 0x97 0x07 0x01 (configuredOfSeg seg6)
+    seg6.atPc (loadedOfSeg seg6) (by configured_decode (configuredOfSeg seg6))
+    (fun premise writes => rX_x15_run premise z2
+      ((writes x15 (by simp [stepBookkeeping])).trans (seg6.reg x15 z2 (by simp))))
+    (fun premise => wX_x15_run premise sh2) (by constructor <;> native_decide)
+    (by decide) (by decide) (by decide) (by decide) (by rfl)
+  have seg6' := seg6.forget (kv' := [⟨x13, lo⟩, ⟨x16, z3⟩, ⟨x14, z0⟩]) (by simp)
+  obtain ⟨m7, seg7⟩ := seg6'.step (by owned_pc [readU32_3064OwnPc, pcInList])
+    (by owned_pc [readU32_3064ExitPc, pcInList]) x15 sh2 0x128e8 ⟨r7, run7⟩
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inr (Or.inl rfl))))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨r8, run8⟩ := readU32SlliStep (fromStep + 7) 0x128e8 m7 24
+    (.Regidx 16#5) x16 sh3 z3 0x13 0x18 0x88 0x01 (configuredOfSeg seg7)
+    seg7.atPc (loadedOfSeg seg7) (by configured_decode (configuredOfSeg seg7))
+    (fun premise writes => rX_x16_run premise z3
+      ((writes x16 (by simp [stepBookkeeping])).trans (seg7.reg x16 z3 (by simp))))
+    (fun premise => wX_x16_run premise sh3) (by constructor <;> native_decide)
+    (by decide) (by decide) (by decide) (by decide) (by rfl)
+  have seg7' := seg7.forget (kv' := [⟨x15, sh2⟩, ⟨x13, lo⟩, ⟨x14, z0⟩]) (by simp)
+  obtain ⟨m8, seg8⟩ := seg7'.step (by owned_pc [readU32_3064OwnPc, pcInList])
+    (by owned_pc [readU32_3064ExitPc, pcInList]) x16 sh3 0x128ec ⟨r8, run8⟩
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inr (Or.inr rfl))))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨r9, run9⟩ := readU32OrStep (fromStep + 8) 0x128ec m8
+    (.Regidx 15#5) (.Regidx 16#5) (.Regidx 14#5) x14 hi sh3 sh2
+    0x33 0x67 0xf8 0x00 (configuredOfSeg seg8) seg8.atPc
+    (fun premise writes => rX_x16_run premise sh3
+      ((writes x16 (by simp [stepBookkeeping])).trans (seg8.reg x16 sh3 (by simp))))
+    (fun premise writes => rX_x15_run premise sh2
+      ((writes x15 (by simp [stepBookkeeping])).trans (seg8.reg x15 sh2 (by simp))))
+    (fun premise => wX_x14_run premise hi) (loadedOfSeg seg8)
+    (by configured_decode (configuredOfSeg seg8)) (by constructor <;> native_decide)
+    (by decide) (by decide) (by decide) (by decide) (by rfl)
+  have seg8' := seg8.forget (kv' := [⟨x16, sh3⟩, ⟨x15, sh2⟩, ⟨x13, lo⟩]) (by simp)
+  obtain ⟨m9, seg9⟩ := seg8'.step (by owned_pc [readU32_3064OwnPc, pcInList])
+    (by owned_pc [readU32_3064ExitPc, pcInList]) x14 hi 0x128f0 ⟨r9, run9⟩
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inl rfl)))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨r10, run10⟩ := readU32OrStep (fromStep + 9) 0x128f0 m9
+    (.Regidx 13#5) (.Regidx 14#5) (.Regidx 13#5) x13 result hi lo
+    0xb3 0x66 0xd7 0x00 (configuredOfSeg seg9) seg9.atPc
+    (fun premise writes => rX_x14_run premise hi
+      ((writes x14 (by simp [stepBookkeeping])).trans (seg9.reg x14 hi (by simp))))
+    (fun premise writes => rX_x13_run premise lo
+      ((writes x13 (by simp [stepBookkeeping])).trans (seg9.reg x13 lo (by simp))))
+    (fun premise => wX_x13_run premise result) (loadedOfSeg seg9)
+    (by configured_decode (configuredOfSeg seg9)) (by constructor <;> native_decide)
+    (by decide) (by decide) (by decide) (by decide) (by rfl)
+  have seg9' := seg9.forget (kv' := [⟨x14, hi⟩, ⟨x16, sh3⟩, ⟨x15, sh2⟩]) (by simp)
+  obtain ⟨after, seg10⟩ := seg9'.step (by owned_pc [readU32_3064OwnPc, pcInList])
+    (by owned_pc [readU32_3064ExitPc, pcInList]) x13 result 0x128f4 ⟨r10, run10⟩
+    (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inl rfl))
+    (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
+  have finalSeg := seg10.forget (kv' := [⟨x13, result⟩]) (by simp)
+  exact ⟨after, by simpa [readU32UnsignedMachineValue, z0, z1, z2, z3,
+    sh1, sh2, sh3, lo, hi, result] using finalSeg⟩
+
 end BinaryFv.Zesu.MachineExecution

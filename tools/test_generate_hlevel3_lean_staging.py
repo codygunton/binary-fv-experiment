@@ -38,7 +38,10 @@ class LeanStagingTests(unittest.TestCase):
 
     def test_read_u32_destination_tuple_is_instance_specific(self):
         self.assertIn(
-            "sszReadU32Contract 0x12c18 22 sszReadU32Bindings3335",
+            "sszReadU32Contract 0x12c18 22 sszReadU32SourceX18 sszReadU32Bindings3335",
+            self.read_u32_source)
+        self.assertIn(
+            "sszReadU32Contract 0x128cc 8 sszReadU32SourceX10 sszReadU32Bindings3064",
             self.read_u32_source)
         self.assertNotIn("0x12ca4", self.read_u32_source)
 
