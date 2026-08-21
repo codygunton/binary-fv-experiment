@@ -127,8 +127,28 @@ structure SszDecodeSchemaWordExit (args : DecodeInlineArgs) (readArgs : MemReadI
   sourceAt : state.machine.regs.get? x18 =
     some (BitVec.ofNat 64 args.boundary.inputAddress)
   schemaAt : state.machine.regs.get? x14 = some (memReadIntResult readArgs)
+  input : BytesRep state.machine.mem args.boundary.inputAddress args.boundary.input
+  access : DecodeBoundaryMachineAccess args.boundary state.machine
   configured : ConfiguredMachinePre EndpointMachinePc state.machine
   code : Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
+
+set_option genInjectivity false in
+/-- Facts retained at the accepted marker check after the validated length route. -/
+structure SszDecodeMarkerReady (args : DecodeInlineArgs) (machine : State) : Prop where
+  atPc : machine.regs.get? PC = some 0x1220c
+  sourceAt : machine.regs.get? x18 =
+    some (BitVec.ofNat 64 (args.boundary.inputAddress + 4))
+  input : BytesRep machine.mem args.boundary.inputAddress args.boundary.input
+  access : DecodeBoundaryMachineAccess args.boundary machine
+  configured : ConfiguredMachinePre EndpointMachinePc machine
+  code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
+
+private theorem iTypeResult_addi_four_ofNat (value : Nat) :
+    iTypeResult .ADDI 4 (BitVec.ofNat 64 value) = BitVec.ofNat 64 (value + 4) := by
+  unfold iTypeResult
+  have immediate : sign_extend (m := 64) (4#12) = (4#64) := by native_decide
+  change BitVec.ofNat 64 value + sign_extend (m := 64) (4#12) = _
+  rw [immediate, ← BitVec.ofNat_add]
 
 private theorem sszDecodeLengthValidatedOwnPc_in_initial {pc : BitVec 64}
     (inside : sszDecodeLengthValidatedOwnPc pc) : DecodeInlineInitialExecutionPc pc := by
@@ -180,6 +200,13 @@ private theorem instructionPreserved_disjoint_sszDecodeLengthValidatedWrites_for
   rcases written with bookkeeping | rfl | rfl | rfl
   · exact platformPreserved_disjoint register preserved.1 bookkeeping
   all_goals simp [instructionPreserved, platformPreserved] at preserved
+
+private theorem instructionPreserved_disjoint_sszDecodeLengthMinimumWrites_for_staging :
+    RegSet.Disjoint instructionPreserved sszDecodeLengthMinimumWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  · simp [instructionPreserved, platformPreserved] at preserved
 
 private theorem sszDecodeLengthShortOwnPc_in_initial {pc : BitVec 64}
     (inside : sszDecodeLengthShortOwnPc pc) : DecodeInlineInitialExecutionPc pc := by
@@ -498,6 +525,10 @@ theorem sszDecodeSchemaWordPrefixAndChild (fromStep : Nat) (args : DecodeInlineA
       (childWrites.get x13 (by simp [memReadIntWrites])).trans middleInputSize,
       (childWrites.get x18 (by simp [memReadIntWrites])).trans middleSource,
       schemaAfter,
+      childMachineEntry.input.of_mem_eq childMem,
+      childMachineEntry.access.of_pma_regions_eq
+        (childWrites.agree instructionPreserved_disjoint_memReadIntWrites_for_sszDecode)
+        retiredAfter (childWrites.get pma_regions (by simp [memReadIntWrites, stepBookkeeping])),
       childMachineEntry.access.configured.mono
         (childWrites.agree instructionPreserved_disjoint_memReadIntWrites_for_sszDecode)
         retiredAfter,
@@ -532,7 +563,8 @@ theorem sszDecodeValidatedLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
       used ≤ 10 ∧
       ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep
         (6 + used + 5 + 2) before after ∧
-      after.machine.regs.get? PC = some (if short then 0x1225c else 0x1220c) := by
+      after.machine.regs.get? PC = some (if short then 0x1225c else 0x1220c) ∧
+      (short = false → SszDecodeMarkerReady args after.machine) := by
   obtain ⟨used, middle, childAfter, readArgs, readAddress, readShape, bounded,
     prefixAndChild, childReady, childExit⟩ :=
     sszDecodeSchemaWordPrefixAndChild fromStep args values before frame atPc allocatorAt
@@ -582,9 +614,52 @@ theorem sszDecodeValidatedLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
       (fromStep + (6 + used + 5)) 2 validatedAfter after := by
     simpa only [Nat.add_assoc] using minimumTrace
   have combined := prefixValidated.append minimumTrace'
-  refine ⟨used, after, bounded, ?_, ?_⟩
+  have validatedAccess := childReady.access.of_pma_regions_eq
+    (validatedSeg.agree instructionPreserved_disjoint_sszDecodeLengthValidatedWrites_for_staging)
+    validatedSeg.retired
+    (validatedSeg.get pma_regions (by simp [sszDecodeLengthValidatedWrites, stepBookkeeping]))
+  have minimumAccess := validatedAccess.of_pma_regions_eq
+    (minimumSeg.agree instructionPreserved_disjoint_sszDecodeLengthMinimumWrites_for_staging)
+    minimumSeg.retired
+    (minimumSeg.get pma_regions (by simp [sszDecodeLengthMinimumWrites, stepBookkeeping]))
+  have validatedMemory := validatedSeg.memEq noMemory_empty
+  have minimumMemory := minimumSeg.memEq noMemory_empty
+  have finalMemory := minimumMemory.trans validatedMemory
+  refine ⟨used, after, bounded, ?_, minimumSeg.atPc, ?_⟩
   · simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using combined
-  · exact minimumSeg.atPc
+  · intro shortEq
+    subst short
+    have finalSource :=
+      (minimumSeg.get x18 (by simp [sszDecodeLengthMinimumWrites, stepBookkeeping])).trans
+        (validatedSeg.reg x18 advanced (by simp [advanced]))
+    have finalInput := childReady.input.of_mem_eq finalMemory
+    have finalCode : Artifacts.programImage.fileBytesLoadedFaithfully finalMachine.mem := by
+      rw [minimumMemory]
+      exact validatedCode
+    have finalAtPc : finalMachine.regs.get? PC = some 0x1220c := by
+      have notTrue :
+          zopz0zI_u (iTypeResult .ADDI 0xffc
+            (BitVec.ofNat 64 args.boundary.input.size)) 2 ≠ true := by
+        intro isTrue
+        rw [isTrue] at shortEq
+        contradiction
+      have finalAtPcRaw := minimumSeg.atPc
+      rw [if_neg notTrue] at finalAtPcRaw
+      exact finalAtPcRaw
+    have finalSource' : finalMachine.regs.get? x18 =
+        some (BitVec.ofNat 64 (args.boundary.inputAddress + 4)) := by
+      unfold advanced at finalSource
+      rw [iTypeResult_addi_four_ofNat] at finalSource
+      exact finalSource
+    have markerReady : SszDecodeMarkerReady args finalMachine := by
+      apply SszDecodeMarkerReady.mk
+      · exact finalAtPc
+      · exact finalSource'
+      · exact finalInput
+      · exact minimumAccess
+      · exact minimumAccess.configured
+      · exact finalCode
+    exact markerReady
 
 /-- The first taken branch and shared minimum check form the complete short-input trace. -/
 theorem sszDecodeShortLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
