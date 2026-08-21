@@ -370,6 +370,33 @@ structure EncoderCallMachineAccess (frameSize : Nat) (args : EncoderCallArgs Val
   frameNotCode : ∀ address, args.callerStack - frameSize ≤ address →
     address < args.callerStack → Artifacts.programImage.readFileByte? address = none
 
+/-- Transport called-encoder memory permissions through one exact register write frame. -/
+theorem EncoderCallMachineAccess.ofWrites
+    {before after : MachineState} {writes : RegSet}
+    (access : EncoderCallMachineAccess frameSize args before)
+    (frame : WritesOnlyRegs writes before after) (pmaOutside : ¬writes pma_regions)
+    (configured : ConfiguredMachinePre EndpointMachinePc after) :
+    EncoderCallMachineAccess frameSize args after := by
+  have pmaEq := frame.get pma_regions pmaOutside
+  exact
+    { output :=
+        { configured
+          outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq
+            access.output.outputBufferStore
+          outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq
+            access.output.outputLengthStore
+          outputBufferNoMMIO := access.output.outputBufferNoMMIO
+          outputLengthNoMMIO := access.output.outputLengthNoMMIO }
+      stackAligned := access.stackAligned
+      frameOutputDisjoint := access.frameOutputDisjoint
+      frameLoad := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width bound)
+      frameStore := fun offset width bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width bound)
+      frameLoadNoMMIO := access.frameLoadNoMMIO
+      frameStoreNoMMIO := access.frameStoreNoMMIO
+      frameNotCode := access.frameNotCode }
+
 def EncoderCallEntry (entry : Nat) (exitPcs : List Nat) (frameSize : Nat)
     (bindValue : EndpointState → Value → Prop) (args : EncoderCallArgs Value)
     (state : EndpointState) : Prop :=

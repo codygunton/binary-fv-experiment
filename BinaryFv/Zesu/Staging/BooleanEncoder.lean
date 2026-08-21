@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.MachineExecution.EncoderCallFinish
+import BinaryFv.Zesu.MachineExecution.EncoderCallPrologue
 import BinaryFv.Zesu.Staging.RawEncoder
 
 /-!
@@ -39,27 +40,10 @@ private theorem EncoderCallMachineAccess.ofBooleanSeg
     (seg : Seg owned exit (fun _ _ _ _ _ => False) booleanEncoderPrefixWrites
       (byteRange (args.callerStack - 16) 16) kv fromStep count before after pc) :
     EncoderCallMachineAccess 16 args after := by
-  have pmaEq := seg.writes.get pma_regions (by
-    simp [booleanEncoderPrefixWrites, stepBookkeeping])
-  exact
-    { output :=
-        { configured := access.output.configured.mono
-            (seg.agree instructionPreserved_disjoint_booleanEncoderPrefixWrites) seg.retired
-          outputBufferStore := dataPmaAllows_of_pma_regions_eq pmaEq
-            access.output.outputBufferStore
-          outputLengthStore := dataPmaAllows_of_pma_regions_eq pmaEq
-            access.output.outputLengthStore
-          outputBufferNoMMIO := access.output.outputBufferNoMMIO
-          outputLengthNoMMIO := access.output.outputLengthNoMMIO }
-      stackAligned := access.stackAligned
-      frameOutputDisjoint := access.frameOutputDisjoint
-      frameLoad := fun offset width bound =>
-        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameLoad offset width bound)
-      frameStore := fun offset width bound =>
-        dataPmaAllows_of_pma_regions_eq pmaEq (access.frameStore offset width bound)
-      frameLoadNoMMIO := access.frameLoadNoMMIO
-      frameStoreNoMMIO := access.frameStoreNoMMIO
-      frameNotCode := access.frameNotCode }
+  exact access.ofWrites seg.writes (by
+      simp [booleanEncoderPrefixWrites, stepBookkeeping])
+    (access.output.configured.mono
+      (seg.agree instructionPreserved_disjoint_booleanEncoderPrefixWrites) seg.retired)
 
 private theorem EncoderCallMachineAccess.ofEncoderInlineFrame
     {args : EncoderCallArgs Bool} {before after : State}
@@ -159,6 +143,12 @@ private def booleanEncoderFinishSite : EncoderCallFinishSite 16 0x15bbc
     rcases listed with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
     all_goals native_decide
 
+private def booleanEncoderSubtractSite : ExactInstructionSite 0x15b9c 0x13 0x01 0x01 0xff :=
+  by native_decide
+
+private def booleanEncoderSaveReturnSite : ExactInstructionSite 0x15ba0 0x23 0x34 0x11 0x00 :=
+  by native_decide
+
 /-- The shared machine composition for the production Boolean encoder. -/
 theorem writeSuccessBooleanContract_implements :
     (encoderCallContract Elflings.writeSuccessBooleanEntry
@@ -178,54 +168,25 @@ theorem writeSuccessBooleanContract_implements :
   have frameBaseEq : frameBase = args.callerStack - 16 := rfl
   have valueBitsDef : valueBits = booleanEncoderWord args.value := rfl
   have valueBitsEq : valueBits = (if args.value then 1 else 0) := rfl
-  have seg00 := Seg.nil (pcInRanges [(0x15b9c, 0x15bac)])
-    (pcInList [0x15bac]) (fun _ _ _ _ _ => False)
-    booleanEncoderPrefixWrites (byteRange frameBase 16) fromStep
-    access.output.configured.retiredCounter (by
-      simpa [Elflings.writeSuccessBooleanEntry] using atPc)
-  have seg01 := seg00.know x1 (BitVec.ofNat 64 args.returnAddress) link
-  have seg02 := seg01.know x2 (BitVec.ofNat 64 args.callerStack) stack
-  have seg0 := seg02.know x10 valueBits (by simpa [valueBits, booleanEncoderWord] using valueReg)
-  obtain ⟨retired0, run0⟩ := booleanEncoderSubtractStep fromStep args.callerStack
-    before.machine access.output.configured
-      (by simpa [Elflings.writeSuccessBooleanEntry] using atPc)
-      stack loaded frameLower stackFits
-  have seg0' := seg0.forget
-    (kv' := [⟨x10, valueBits⟩, ⟨x1, BitVec.ofNat 64 args.returnAddress⟩]) (by simp)
-  obtain ⟨retired0', machine1, machine1Eq, seg1⟩ := seg0'.stepWitness
-    (by owned_pc [pcInRanges])
-    (by simp [pcInList]) x2
-    (BitVec.ofNat 64 frameBase) 0x15ba0 ⟨retired0, by simpa [frameBase] using run0⟩
-    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
-    (by simp [booleanEncoderPrefixWrites]) (by decide) (by decide)
-    (by simp [RegsOutside, booleanEncoderPrefixWrites, stepBookkeeping])
-  have access1 := EncoderCallMachineAccess.ofBooleanSeg access seg1
-  have loaded1 := booleanEncoderLoadedOfSeg access frameLower loaded seg1
-  obtain ⟨retired1, run1⟩ := booleanEncoderSaveReturnStep (fromStep + 1)
-    args.callerStack args.returnAddress machine1 access1 seg1.atPc
-    (by
-      have h := seg1.reg x2 (BitVec.ofNat 64 frameBase) (by simp)
-      rw [frameBaseEq] at h
-      exact h)
-    (seg1.reg x1 _ (by simp)) loaded1 frameLower stackFits
-  obtain ⟨retired1', machine2, machine2Eq, seg2⟩ := seg1.stepStoreWitness
-    (width := 8) (frameBase + 8) (BitVec.ofNat 64 args.returnAddress) 0x15ba4
-    (by owned_pc [pcInRanges])
-    (by simp [pcInList]) ⟨retired1, by simpa [frameBase] using run1⟩
-    (by native_decide) (by intro address lower upper; unfold frameBase byteRange; omega)
-    (by intro register bookkeeping; exact Or.inl bookkeeping)
-    (by simp [RegsOutside, booleanEncoderPrefixWrites, stepBookkeeping])
-  have access2 := EncoderCallMachineAccess.ofBooleanSeg access seg2
-  have loaded2 := booleanEncoderLoadedOfSeg access frameLower loaded seg2
+  obtain ⟨machine2, commonSeg, access2, loaded2, saved2⟩ :=
+    encoderCallPrologue16Seg
+      (owned := pcInRanges [(0x15b9c, 0x15bac)]) (exit := pcInList [0x15bac])
+      0x15b9c fromStep args valueBits before.machine
+      frameLower stackFits returnFits
+      (by simpa [Elflings.writeSuccessBooleanEntry] using atPc) link stack
+      (by simpa [valueBits, booleanEncoderWord] using valueReg) loaded access
+      booleanEncoderSubtractSite booleanEncoderSaveReturnSite
+      (by owned_pc [pcInRanges]) (by owned_pc [pcInRanges])
+      (by simp [pcInList]) (by simp [pcInList])
+  have seg2 := commonSeg.widenWrites (W' := booleanEncoderPrefixWrites) (by
+    intro register written
+    rcases written with bookkeeping | rfl
+    · exact Or.inl bookkeeping
+    · exact Or.inr (Or.inl rfl))
   have saved2 : UIntRep 8 machine2.mem (frameBase + 8) args.returnAddress := by
-    rw [machine2Eq]
-    simpa [tryStepStoreAfterRetired, tryStepControlFlowAfterRetired,
-      tryStepControlFlowAfterTick] using
-      uintRep_afterWriteBytes_eight
-        (coreStoreNextState (tryStepStoreAfterIncrement machine1) 0x15ba0)
-        (frameBase + 8) args.returnAddress returnFits (by omega)
+    simpa [frameBase] using saved2
   have seg2' := seg2.forget (kv' := [⟨x1, BitVec.ofNat 64 args.returnAddress⟩,
-    ⟨x2, BitVec.ofNat 64 frameBase⟩]) (by simp)
+    ⟨x2, BitVec.ofNat 64 (args.callerStack - 16)⟩]) (by simp)
   obtain ⟨retired2, run2⟩ := booleanEncoderMaskStep (fromStep + 2) args.value machine2
     access2.output.configured seg2'.atPc
     (by
@@ -247,10 +208,8 @@ theorem writeSuccessBooleanContract_implements :
     exact afterRegisterWrite_mem _ _ _ _ _
   obtain ⟨retired3, run3⟩ := booleanEncoderStoreStep (fromStep + 3) args.callerStack
     args.value machine3 access3 seg3.atPc
-    (by
-      have h := seg3.reg x2 (BitVec.ofNat 64 frameBase) (by simp)
-      rw [frameBaseEq] at h
-      exact h)
+    (by simpa [frameBase] using (seg3.reg x2
+      (BitVec.ofNat 64 (args.callerStack - 16)) (by simp)))
     (by
       have h := seg3.reg x10 valueBits (by simp)
       rw [valueBitsDef] at h
@@ -260,7 +219,7 @@ theorem writeSuccessBooleanContract_implements :
     (by owned_pc [pcInRanges])
     (by simp [pcInList])
     ⟨retired3, by simpa [frameBase, valueBits] using run3⟩ (by native_decide)
-    (by intro address lower upper; unfold frameBase byteRange; omega)
+    (by intro address lower upper; unfold byteRange; omega)
     (by intro register bookkeeping; exact Or.inl bookkeeping)
     (by simp [RegsOutside, booleanEncoderPrefixWrites, stepBookkeeping])
   have access4 := EncoderCallMachineAccess.ofBooleanSeg access seg4
@@ -292,7 +251,8 @@ theorem writeSuccessBooleanContract_implements :
       rawArgs prepared := by
     refine ⟨by simpa [prepared] using seg4.atPc, ?_, by simp [rawArgs], ?_, ?_,
       by simpa [prepared] using loaded4, by simpa [prepared] using access4.output⟩
-    · refine ⟨frameBase, by simpa [prepared] using seg4.reg x2 _ (by simp), rfl, ?_⟩
+    · refine ⟨frameBase, by simpa [prepared, frameBase] using (seg4.reg x2
+        (BitVec.ofNat 64 (args.callerStack - 16)) (by simp)), rfl, ?_⟩
       omega
     · have bytesEq : (#[if args.value then 1 else 0] : Array UInt8) =
           #[UInt8.ofNat (if args.value then 1 else 0)] := by
@@ -328,7 +288,9 @@ theorem writeSuccessBooleanContract_implements :
         lower, upper⟩)
   have childAccess := EncoderCallMachineAccess.ofEncoderInlineFrame access4 childAgree childRetired
   have childStack : childAfter.machine.regs.get? x2 = some (BitVec.ofNat 64 frameBase) :=
-    (childAgree x2 (by simp [encoderInlinePreserved])).trans (seg4.reg x2 _ (by simp))
+    (childAgree x2 (by simp [encoderInlinePreserved])).trans (by
+      simpa [frameBase] using (seg4.reg x2
+        (BitVec.ofNat 64 (args.callerStack - 16)) (by simp)))
   have savedChild : UIntRep 8 childAfter.machine.mem (frameBase + 8) args.returnAddress :=
     saved4.of_writesOnlyWithin childMem (by
       intro index bound
