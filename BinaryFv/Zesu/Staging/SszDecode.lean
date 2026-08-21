@@ -140,6 +140,9 @@ structure SszDecodeMarkerReady (args : DecodeInlineArgs) (machine : State) : Pro
   atPc : machine.regs.get? PC = some 0x1220c
   atStack : machine.regs.get? x2 =
     some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
+  stackFits : 0xbb0 ≤ args.boundary.stackPointer
+  stackAligned : args.boundary.stackPointer % 16 = 0
+  stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64
   sourceAt : machine.regs.get? x18 =
     some (BitVec.ofNat 64 (args.boundary.inputAddress + 4))
   inputAtLeastFour : 4 ≤ args.boundary.input.size
@@ -153,6 +156,9 @@ structure SszDecodeCleanupReady (args : DecodeInlineArgs) (machine : State) : Pr
   atPc : machine.regs.get? PC = some 0x1225c
   atStack : machine.regs.get? x2 =
     some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
+  stackFits : 0xbb0 ≤ args.boundary.stackPointer
+  stackAligned : args.boundary.stackPointer % 16 = 0
+  stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64
   access : DecodeBoundaryMachineAccess args.boundary machine
   configured : ConfiguredMachinePre EndpointMachinePc machine
   code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
@@ -579,6 +585,9 @@ theorem sszDecodeRejectedMarkerTrace (fromStep : Nat) (args : DecodeInlineArgs)
       atStack := by
         simpa [after] using
           (seg.get x2 (by simp [sszDecodeSchemaMarkerWrites, stepBookkeeping])).trans ready.atStack
+      stackFits := ready.stackFits
+      stackAligned := ready.stackAligned
+      stackUpper := ready.stackUpper
       access := by simpa [after] using access
       configured := by simpa [after] using access.configured
       code := by
@@ -785,6 +794,9 @@ theorem sszDecodeValidatedLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
       apply SszDecodeMarkerReady.mk
       · exact finalAtPc
       · exact finalStack
+      · exact frame.stackFits
+      · exact frame.stackAligned
+      · exact frame.stackUpper
       · exact finalSource'
       · exact bound
       · exact finalInput
@@ -935,6 +947,9 @@ theorem sszDecodeShortLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
           (minimumSeg.get x2 (by simp [sszDecodeLengthMinimumWrites, stepBookkeeping])).trans
             ((shortSeg.get x2 (by simp [sszDecodeLengthShortWrites, stepBookkeeping])).trans
               shortEntry.atStack)
+      stackFits := shortEntry.stackFits
+      stackAligned := shortEntry.stackAligned
+      stackUpper := shortEntry.stackUpper
       access := by simpa [after] using finalAccess
       configured := by simpa [after] using finalAccess.configured
       code := by

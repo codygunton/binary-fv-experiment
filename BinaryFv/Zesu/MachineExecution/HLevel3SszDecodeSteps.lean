@@ -501,6 +501,9 @@ structure SszDecodeShortLengthEntry (args : DecodeInlineArgs) (state : State) : 
   atPc : state.regs.get? PC = some 0x12200
   atStack : state.regs.get? x2 =
     some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
+  stackFits : 0xbb0 ≤ args.boundary.stackPointer
+  stackAligned : args.boundary.stackPointer % 16 = 0
+  stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64
   inputSizeAt : state.regs.get? x13 = some (BitVec.ofNat 64 args.boundary.input.size)
   access : DecodeBoundaryMachineAccess args.boundary state
   configured : ConfiguredMachinePre EndpointMachinePc state
@@ -528,7 +531,8 @@ theorem sszDecodeAllocatorShortHandoff (fromStep : Nat) (args : DecodeInlineArgs
     sszDecodeAllocatorBranchSeg fromStep args values before frame atPc allocatorAt inputSizeAt
       comparison
   have access := sszDecodeAllocatorAccessOfSeg frame seg
-  refine ⟨after, seg, seg.atPc, ?_, ?_, access, access.configured,
+  refine ⟨after, seg, seg.atPc, ?_, frame.stackFits, frame.stackAligned, frame.stackUpper,
+    ?_, access, access.configured,
     sszDecodeAllocatorCodeOfSeg frame seg⟩
   · exact (seg.get x2 (by simp [sszDecodeAllocatorPrefixWrites])).trans frame.atStack
   exact (seg.get x13 (by simp [sszDecodeAllocatorPrefixWrites])).trans inputSizeAt
@@ -1116,7 +1120,7 @@ theorem sszDecodeCleanupTemplateRep (state : State)
   | some byte =>
       rw [loaded _ _ readEq]
       have arrayByte : sszDecodeCleanupTemplateBytes[index] = byte := by
-        simp [sszDecodeCleanupTemplateBytes, fin, readEq]
+        simp [sszDecodeCleanupTemplateBytes, readEq]
       rw [arrayByte]
 
 /-- Execute one exact decoder-frame `sd zero, offset(sp)` cleanup instruction. -/
@@ -1499,8 +1503,6 @@ private theorem sszDecodeCleanupDestinationStep (stepNo : Nat) (args : DecodeInl
     (atPc : state.regs.get? PC = some 0x122a8)
     (atStack : state.regs.get? x2 =
       some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
-    (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
-    (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
     ∃ retired, Runs (try_step stepNo false) state
       (afterRegisterWrite state 0x122a8 retired x10
