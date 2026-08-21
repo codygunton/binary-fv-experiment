@@ -710,8 +710,6 @@ structure Level3ContractAssumptions : Prop where
     Proposed_mem_Allocator_alloc__anon_1432_fi_1_39b7_Contract
   ssz_decodeWithdrawal_fi_1_3a74 :
     Proposed_ssz_decodeWithdrawal_fi_1_3a74_Contract
-  ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b :
-    Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract
   ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94 :
     Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract
   ssz_decode_observation_Encoder_accessList_fi_1_3fdd :
@@ -1940,13 +1938,13 @@ private theorem resolve_writeSuccessStateRoot
 
 /--
 Resolve Level 2 field `writeSuccessTransactions` for `fi:1:3e96`.
-Level 3 contracts: `ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b`,
-`ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94`,
+Level 3 contracts: `ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94`,
 `ssz_decode_observation_Encoder_accessList_fi_1_3fdd`,
 `ssz_decode_observation_Encoder_authorizations_fi_1_406f`.
 Earlier Level 2 results: `writeSuccessInt`, `writeSuccessOptionalU64`, `writeSuccessBytes`.
 Unconditional child proofs: `BinaryFv.Zesu.Staging.proposed_integerEncoder_4494_proved`,
 `BinaryFv.Zesu.Staging.proposed_integerEncoder_43a9_proved`,
+`BinaryFv.Zesu.Staging.proposed_optionalU128_3f5b_proved`,
 `BinaryFv.Zesu.Staging.proposed_rawEncoder_4045_proved`.
 Parent-composed inline instances: `fi:1:3ec4`.
 Parent glue: 289 instructions in 24 block fragments.
@@ -2075,7 +2073,6 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessTransactions
-    (ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b : Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract)
     (ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94 : Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract)
     (ssz_decode_observation_Encoder_accessList_fi_1_3fdd : Proposed_ssz_decode_observation_Encoder_accessList_fi_1_3fdd_Contract)
     (ssz_decode_observation_Encoder_authorizations_fi_1_406f : Proposed_ssz_decode_observation_Encoder_authorizations_fi_1_406f_Contract)
@@ -2183,7 +2180,6 @@ theorem level2Contracts_of_level3_staged
     resolve_writeSuccessStateRoot
   have resolved_writeSuccessTransactions : WriteSuccessTransactionsInstanceContract :=
     resolve_writeSuccessTransactions
-      hLevel3.ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b
       hLevel3.ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94
       hLevel3.ssz_decode_observation_Encoder_accessList_fi_1_3fdd
       hLevel3.ssz_decode_observation_Encoder_authorizations_fi_1_406f

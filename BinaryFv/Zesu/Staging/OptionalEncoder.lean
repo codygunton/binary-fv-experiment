@@ -665,6 +665,8 @@ structure OptionalIntegerChildReady
   word1Fits : word1 < 2 ^ 64
   loaded : Artifacts.programImage.fileBytesLoadedFaithfully ready.machine.mem
   access : IntegerEncoderMachineAccess (args.stackPointer - 32) 32 ready.machine
+  outerAccess : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args
+    ready.machine
   stdout : ready.stdout = before.stdout
   stdin : ready.stdin = before.stdin
   stdinCursor : ready.stdinCursor = before.stdinCursor
@@ -911,6 +913,7 @@ theorem optionalIntegerCallReady
     word1Fits
     loaded := by simpa [ready, callMemEq] using loaded
     access := by simpa [ready] using callAccess.integerEncoder 32 childInsideFrame (by decide)
+    outerAccess := by simpa [ready] using callAccess
     stdout := rfl
     stdin := rfl
     stdinCursor := rfl
@@ -947,8 +950,6 @@ theorem optionalIntegerChildHandoff
         (pcInRanges integerEncoderU128ExecutionPcs) (pcInList integerEncoderU128ExitPcs))
     (ready : OptionalIntegerChildReady localFrameSize scratchOffset scratchSize fromStep
       parentCount returnPc word0 word1 executionPcs args before callState)
-    (outerAccess : OptionalEncoderMachineAccess localFrameSize scratchOffset scratchSize args
-      callState.machine)
     (childInside : 32 ≤ localFrameSize) :
     ∃ childUsed after, childUsed ≤ stepBound ∧
       OptionalIntegerCallHandoff localFrameSize scratchOffset scratchSize fromStep parentCount
@@ -975,9 +976,9 @@ theorem optionalIntegerChildHandoff
     · exact ⟨ready.word0Reg, ready.word1Reg, Or.inl rfl⟩
     · unfold pcInList
       simpa [childArgs, Nat.mod_eq_of_lt childArgs.returnFits] using ready.returnListed
-    · have frameFits := outerAccess.frameFits
+    · have frameFits := ready.outerAccess.frameFits
       simpa [childArgs] using (show 32 ≤ args.stackPointer by omega)
-    · simpa [childArgs] using outerAccess.integerEncoder 32 childInside (by decide)
+    · simpa [childArgs] using ready.outerAccess.integerEncoder 32 childInside (by decide)
   obtain ⟨childUsed, after, _unit, positive, bounded, childTrace, _exitAt, _allowed,
       childExit⟩ := child childArgs (fromStep + parentCount) callState entry
   rcases childExit with ⟨afterPc, _link, afterStack, stdout, stdin, cursor, exitCode,
@@ -997,7 +998,7 @@ theorem optionalIntegerChildHandoff
       · left
         change byteRange (args.stackPointer - 32) 32 address at childFrame
         unfold byteRange at childFrame ⊢
-        have frameFits := outerAccess.frameFits
+        have frameFits := ready.outerAccess.frameFits
         omega
       · exact Or.inr (Or.inr output))]
     exact ready.memory address outside
@@ -1020,7 +1021,7 @@ theorem optionalIntegerChildHandoff
     exitCode := by simpa [ready.exitCode] using exitCode
     memory
     frame
-    access := outerAccess.ofEncoderFrame callState childFrame }⟩
+    access := ready.outerAccess.ofEncoderFrame callState childFrame }⟩
 
 def OptionalEncoderEntry (entry localFrameSize scratchOffset scratchSize : Nat)
     (bindValue : OptionalEncoderArgs Value → EndpointState → Prop)
@@ -1107,6 +1108,8 @@ structure OptionalEncoderCompletedHandoff {Value : Type}
 
 /-- Close the shared optional-encoder exit from one route handoff. -/
 theorem OptionalEncoderCompletedHandoff.exit
+    {Value : Type} {encodePayload : Value → Array UInt8}
+    {args : OptionalEncoderArgs Value} {before after : EndpointState}
     (handoff : OptionalEncoderCompletedHandoff successPc localFrameSize scratchOffset scratchSize
       fromStep count executionPcs encodePayload args before after) :
     OptionalEncoderExit successPc localFrameSize scratchOffset scratchSize encodePayload args ()
@@ -1133,6 +1136,9 @@ structure OptionalEncoderSite {Value : Type}
 
 /-- Prove each compatible optional encoder through the shared route and exit theorem. -/
 theorem optionalEncoderInstanceContract_of_site
+    {Value : Type}
+    {encodePayload : Value → Array UInt8}
+    {bindValue : OptionalEncoderArgs Value → EndpointState → Prop}
     (site : OptionalEncoderSite entry successPc localFrameSize scratchOffset scratchSize
       executionPcs exitPcs encodePayload bindValue) :
     OptionalEncoderInstanceContract entry successPc localFrameSize scratchOffset scratchSize
@@ -1640,6 +1646,123 @@ private def optionalU128IntegerSite :
     simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
       exitContextStorePc] }
 
+private def optionalU128Site : OptionalEncoderSite 0x15118 0x15148 32 0 0
+    optionalU128ExecutionPcs optionalU128ExitPcs encodeOptionalU128Words OptionalU128Binding where
+  stepBound := 41
+  stepBoundFits := by simp [level2ContractFuel]
+  run := by
+    intro fromStep args before entry
+    rcases entry with ⟨atPc, stack, binding, loaded, access⟩
+    rcases binding with ⟨presenceAt, wordsAt⟩
+    cases valueEq : args.value with
+    | none =>
+        have presenceZero : before.machine.regs.get? x27 = some 0 := by
+          simpa [valueEq] using presenceAt
+        obtain ⟨tagState, tagReady⟩ := optionalU128AbsentTagReady fromStep args before atPc
+          stack valueEq presenceZero loaded access
+        obtain ⟨booleanUsed, after, booleanHandoff⟩ := optionalU128BooleanHandoff
+          optionalU128AbsentBooleanSite fromStep 0 (Or.inl rfl) args before tagState tagReady
+        have booleanBound := booleanHandoff.childBound
+        refine ⟨4 + booleanUsed, after, by omega, by omega, ?_⟩
+        exact {
+          trace := booleanHandoff.trace
+          atPc := booleanHandoff.atPc
+          stack := booleanHandoff.stack
+          output := ⟨Or.inl ⟨valueEq, by simpa using booleanHandoff.stdout⟩⟩
+          stdin := booleanHandoff.stdin
+          stdinCursor := booleanHandoff.stdinCursor
+          exitCode := booleanHandoff.exitCode
+          memory := booleanHandoff.memory
+          frame := booleanHandoff.frame }
+    | some value =>
+        have presenceOne : before.machine.regs.get? x27 = some 1 := by
+          simpa [valueEq] using presenceAt
+        obtain ⟨lowAt, highAt⟩ := wordsAt value valueEq
+        obtain ⟨tagState, tagReady⟩ := optionalU128PresentTagReady fromStep args value before
+          atPc stack valueEq presenceOne lowAt highAt loaded access
+        obtain ⟨booleanUsed, booleanState, booleanHandoff⟩ := optionalU128BooleanHandoff
+          optionalU128PresentBooleanSite fromStep 1 (Or.inr rfl) args before tagState tagReady
+        obtain ⟨integerReadyState, integerReady⟩ := optionalIntegerCallReady
+          optionalU128IntegerSite (fromStep + 4 + booleanUsed) args value.low value.high
+          booleanState booleanHandoff.atPc booleanHandoff.stack
+          (booleanHandoff.lowReg value valueEq) (booleanHandoff.highReg value valueEq)
+          value.lowFits value.highFits booleanHandoff.access booleanHandoff.frame.2.2.1 (by omega)
+        obtain ⟨integerUsed, integerState, integerBound, integerHandoff⟩ :=
+          optionalIntegerChildHandoff 16 integerEncoderU128Contract_implements integerReady
+            (by omega)
+        obtain ⟨retired, jumpRun⟩ := optionalU128JoinJumpStep
+          (fromStep + 4 + booleanUsed + 4 + integerUsed) integerState.machine
+          integerHandoff.access.output.configured integerHandoff.atPc
+          integerHandoff.frame.2.2.1
+        let finalMachine := tryStepControlFlowAfterRetired
+          (controlFlowJumpState (tryStepControlFlowAfterIncrement integerState.machine)
+            0x15138 0x15148) 0x15148 retired
+        let after : EndpointState := { integerState with machine := finalMachine }
+        have jumpTrace : ConfinedTrace EndpointStep EndpointPc
+            (pcInRanges optionalU128ExecutionPcs)
+            (fromStep + 4 + booleanUsed + 4 + integerUsed) 1 integerState after := by
+          apply ConfinedTrace.step _ 0 0x15138 integerState after after
+          · exact integerHandoff.atPc
+          · owned_pc [pcInRanges, optionalU128ExecutionPcs]
+          · exact endpointStep_sail _ integerState finalMachine (by
+              intro observed observedPc
+              change integerState.machine.regs.get? PC = some observed at observedPc
+              rw [integerHandoff.atPc] at observedPc
+              cases Option.some.inj observedPc
+              simp [BareMetalHostTransitionPc, readContextReturnPc, writeContextReturnPc,
+                exitContextStorePc]) jumpRun
+          · exact .refl _ _
+        have wholeTrace : ConfinedTrace EndpointStep EndpointPc
+            (pcInRanges optionalU128ExecutionPcs) fromStep
+            (9 + booleanUsed + integerUsed) before after := by
+          have integerTrace : ConfinedTrace EndpointStep EndpointPc
+              (pcInRanges optionalU128ExecutionPcs) (fromStep + (4 + booleanUsed))
+              (4 + integerUsed) booleanState integerState := by
+            simpa [Nat.add_assoc] using integerHandoff.trace
+          have throughInteger := booleanHandoff.trace.append integerTrace
+          have jumpTrace' : ConfinedTrace EndpointStep EndpointPc
+              (pcInRanges optionalU128ExecutionPcs)
+              (fromStep + (4 + booleanUsed + (4 + integerUsed))) 1 integerState after := by
+            simpa [Nat.add_assoc] using jumpTrace
+          simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+            throughInteger.append jumpTrace'
+        have jumpWrites := jumpRetirement_writes integerState.machine 0x15138 0x15148 retired
+        have jumpFrame : EncoderInlineFrame integerState after := by
+          refine ⟨?_, jumpRetirement_retired_present _ _ _ _, ?_, ⟨rfl, rfl, rfl⟩⟩
+          · exact jumpWrites.agree (by
+              intro register preserved written
+              exact encoderInlinePreserved_disjoint_optionalU128TagWrites register preserved
+                (Or.inl written))
+          · simpa [after, finalMachine, jumpRetirement_mem] using integerHandoff.frame.2.2.1
+        have frame : EncoderInlineFrame before after :=
+          ⟨booleanHandoff.frame.1.trans
+              (integerHandoff.frame.1.trans jumpFrame.1),
+            jumpFrame.2.1, jumpFrame.2.2.1,
+            jumpFrame.2.2.2.1.trans
+              (integerHandoff.frame.2.2.2.1.trans booleanHandoff.frame.2.2.2.1),
+            jumpFrame.2.2.2.2.1.trans
+              (integerHandoff.frame.2.2.2.2.1.trans booleanHandoff.frame.2.2.2.2.1),
+            jumpFrame.2.2.2.2.2.trans
+              (integerHandoff.frame.2.2.2.2.2.trans booleanHandoff.frame.2.2.2.2.2)⟩
+        have booleanBound := booleanHandoff.childBound
+        refine ⟨9 + booleanUsed + integerUsed, after, by omega, by omega, ?_⟩
+        exact {
+          trace := wholeTrace
+          atPc := by exact jumpRetirement_pc integerState.machine 0x15138 0x15148 retired
+          stack := (jumpWrites.get x2 (by simp [stepBookkeeping])).trans integerHandoff.stack
+          output := ⟨Or.inr ⟨value, valueEq, by
+            rw [integerHandoff.stdout, booleanHandoff.stdout]
+            simp [encodeOptionalU128Words, Array.append_assoc]⟩⟩
+          stdin := integerHandoff.stdin.trans booleanHandoff.stdin
+          stdinCursor := integerHandoff.stdinCursor.trans booleanHandoff.stdinCursor
+          exitCode := integerHandoff.exitCode.trans booleanHandoff.exitCode
+          memory := by
+            simpa [after, finalMachine, jumpRetirement_mem] using
+              WritesOnlyWithin.trans_same booleanHandoff.memory integerHandoff.memory
+          frame }
+  successListed := by simp [optionalU128ExitPcs]
+  successFits := by native_decide
+
 abbrev Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract : Prop :=
   OptionalEncoderInstanceContract 0x15118 0x15148 32 0 0 optionalU128ExecutionPcs
     optionalU128ExitPcs encodeOptionalU128Words OptionalU128Binding
@@ -1647,5 +1770,11 @@ abbrev Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract :
 abbrev Proposed_ssz_decode_observation_Encoder_optionalAddress_fi_1_3f94_Contract : Prop :=
   OptionalEncoderInstanceContract 0x15158 0x1519c 16 0x6d0 20 optionalAddressExecutionPcs
     optionalAddressExitPcs (fun value => value) OptionalAddressBinding
+
+/-- `fi:1:3f5b` uses the shared optional route theorem and exact U128 site data. -/
+theorem proposed_optionalU128_3f5b_proved :
+    Proposed_ssz_decode_observation_Encoder_optionalU128_fi_1_3f5b_Contract :=
+  optionalEncoderInstanceContract_of_site (Value := OptionalU128Words)
+    (encodePayload := encodeOptionalU128Words) optionalU128Site
 
 end BinaryFv.Zesu.Staging
