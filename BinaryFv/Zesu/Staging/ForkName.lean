@@ -121,11 +121,14 @@ structure ForkNameArgs where
   selected : Option ReviewedForkName
   tableAddress : Nat
 
-def forkNameSelectionEntry (args : ForkNameArgs) (state : EndpointState) : Prop :=
-  state.machine.regs.get? PC = some (BitVec.ofNat 64 0x1221c) ∧
-  state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.schema) ∧
-  ConfiguredMachinePre EndpointMachinePc state.machine ∧
-  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+def forkNameArgsForSchema (schema : Nat) : ForkNameArgs :=
+  { schema
+    selected := reviewedForkNameForSchema schema
+    tableAddress := match reviewedForkNameForSchema schema with
+      | none => 0
+      | some fork => reviewedForkNameTableAddress fork }
+
+def ForkNameSelectionFacts (args : ForkNameArgs) (state : EndpointState) : Prop :=
   match args.selected with
   | none =>
       reviewedForkNameForSchema args.schema = none ∧
@@ -142,6 +145,60 @@ def forkNameSelectionEntry (args : ForkNameArgs) (state : EndpointState) : Prop 
       Sail.BitVec.access (BitVec.ofNat 64 (reviewedForkNameTarget fork)) 1 = 0#1 ∧
       Sail.BitVec.update (BitVec.ofNat 64 (reviewedForkNameTarget fork)) 0 0#1 =
         BitVec.ofNat 64 (reviewedForkNameTarget fork)
+
+def forkNameSelectionEntry (args : ForkNameArgs) (state : EndpointState) : Prop :=
+  state.machine.regs.get? PC = some (BitVec.ofNat 64 0x1221c) ∧
+  state.machine.regs.get? x10 = some (BitVec.ofNat 64 args.schema) ∧
+  ConfiguredMachinePre EndpointMachinePc state.machine ∧
+  Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
+  ForkNameSelectionFacts args state
+
+private theorem forkNameSelectionFacts_largeSchema (schema : Nat) (large : 22 ≤ schema)
+    (schemaFits : schema < 2 ^ 8) (state : EndpointState) :
+    ForkNameSelectionFacts (forkNameArgsForSchema schema) state := by
+  obtain ⟨tail, rfl⟩ := Nat.exists_eq_add_of_le' large
+  simp only [forkNameArgsForSchema, reviewedForkNameForSchema, ForkNameSelectionFacts]
+  have signExtendedMinusOne : sign_extend (m := 64) 4095#12 = -1#64 := by
+    native_decide
+  have indexEq : forkNameSchemaIndex (tail + 22) = BitVec.ofNat 64 (tail + 21) := by
+    unfold forkNameSchemaIndex iTypeResult
+    rw [signExtendedMinusOne]
+    change BitVec.ofNat 64 (tail + 22) + (-1#64) = BitVec.ofNat 64 (tail + 21)
+    rw [show (-1#64) = -(1#64) by native_decide, ← BitVec.sub_eq_add_neg]
+    simpa only [show tail + 22 - 1 = tail + 21 by omega] using
+      BitVec.ofNat_sub_ofNat_of_le (w := 64) (tail + 22) 1 (by omega) (by omega)
+  rw [indexEq]
+  simp [zopz0zI_u, Sail.BitVec.toNatInt,
+    Nat.mod_eq_of_lt (by omega : tail + 21 < 2 ^ 64)]
+  omega
+
+/-- Build the complete child selection data from one bounded schema byte and the shared table
+access permissions. This theorem covers all accepted and rejected schema values. -/
+theorem forkNameSelectionFacts_forSchema (schema : Nat) (schemaFits : schema < 2 ^ 8)
+    (state : EndpointState)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem)
+    (tablePma : ∀ offset width, offset + width ≤ 21 * 8 →
+      LoadPmaAllows state.machine (BitVec.ofNat 64 (0x17228 + offset)) width)
+    (tableNoMMIO : ∀ offset width, offset + width ≤ 21 * 8 →
+      LoadMMIOAddressExcluded (BitVec.ofNat 64 (0x17228 + offset)) width) :
+    ForkNameSelectionFacts (forkNameArgsForSchema schema) state := by
+  have schemaCases : schema = 0 ∨ schema = 1 ∨ schema = 2 ∨ schema = 3 ∨ schema = 4 ∨
+      schema = 5 ∨ schema = 6 ∨ schema = 7 ∨ schema = 8 ∨ schema = 9 ∨ schema = 10 ∨
+      schema = 11 ∨ schema = 12 ∨ schema = 13 ∨ schema = 14 ∨ schema = 15 ∨
+      schema = 16 ∨ schema = 17 ∨ schema = 18 ∨ schema = 19 ∨ schema = 20 ∨
+      schema = 21 ∨ 22 ≤ schema := by omega
+  rcases schemaCases with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | large
+  all_goals first | exact forkNameSelectionFacts_largeSchema _ large schemaFits state | skip
+  all_goals simp only [forkNameArgsForSchema, reviewedForkNameForSchema, ForkNameSelectionFacts]
+  all_goals first
+    | native_decide
+    | refine ⟨by trivial, by native_decide, by native_decide,
+        reviewedForkNameTableRep _ loaded, ?_, ?_, by native_decide, by native_decide,
+        by native_decide, by native_decide⟩
+  all_goals first
+    | exact tablePma _ _ (by native_decide)
+    | exact tableNoMMIO _ _ (by native_decide)
 
 def forkNameSelectionExit (args : ForkNameArgs) (outcome : Option ReviewedForkName)
     (before after : EndpointState) : Prop :=
@@ -210,6 +267,7 @@ theorem forkNameSelectionContract_implements :
     forkNameSelectionContract.Implements EndpointStep EndpointPc forkNameOwnPc forkNameExitPc := by
   intro args fromStep before entry
   rcases entry with ⟨atPc, schemaAt, configured, loaded, selection⟩
+  unfold ForkNameSelectionFacts at selection
   cases selectedEq : args.selected with
   | none =>
       simp only [selectedEq] at selection

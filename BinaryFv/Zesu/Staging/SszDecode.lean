@@ -228,22 +228,7 @@ theorem sszDecodeForkNameChildHandoff (fromStep baseAddress schema : Nat)
     (configured : ConfiguredMachinePre EndpointMachinePc before.machine)
     (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.machine.mem)
     (schemaEq : args.schema = schema)
-    (selection : match args.selected with
-      | none =>
-          reviewedForkNameForSchema args.schema = none ∧
-          zopz0zI_u 20 (forkNameSchemaIndex args.schema) = true
-      | some fork =>
-          reviewedForkNameForSchema args.schema = some fork ∧
-          zopz0zI_u 20 (forkNameSchemaIndex args.schema) = false ∧
-          BitVec.ofNat 64 args.tableAddress =
-            0x17228 + forkNameTableOffset (forkNameSchemaIndex args.schema) ∧
-          UIntRep 8 before.machine.mem args.tableAddress (reviewedForkNameTarget fork) ∧
-          LoadPmaAllows before.machine (BitVec.ofNat 64 args.tableAddress) 8 ∧
-          LoadMMIOAddressExcluded (BitVec.ofNat 64 args.tableAddress) 8 ∧
-          args.tableAddress < 2 ^ 64 ∧ args.tableAddress % 8 = 0 ∧
-          Sail.BitVec.access (BitVec.ofNat 64 (reviewedForkNameTarget fork)) 1 = 0#1 ∧
-          Sail.BitVec.update (BitVec.ofNat 64 (reviewedForkNameTarget fork)) 0 0#1 =
-            BitVec.ofNat 64 (reviewedForkNameTarget fork)) :
+    (selection : ForkNameSelectionFacts args before) :
     ∃ after,
       Seg sszDecodeForkNameByteOwnPc sszDecodeForkNameByteExitPc
         (fun _ _ _ _ _ => False) sszDecodeForkNameByteWrites noMemory
@@ -271,7 +256,8 @@ theorem sszDecodeForkNameChildHandoff (fromStep baseAddress schema : Nat)
   · exact configured.mono agree seg.retired
   · rw [memory]
     exact loaded
-  · rw [schemaEq] at selection ⊢
+  · unfold ForkNameSelectionFacts at selection ⊢
+    rw [schemaEq] at selection ⊢
     cases selectedEq : args.selected with
     | none => simpa only [selectedEq] using selection
     | some fork =>
