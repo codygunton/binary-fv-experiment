@@ -238,6 +238,207 @@ macro "read_u64_low_compose " own:ident "," exit:ident "," writes:ident ","
       (by simp [RegsOutside, stepBookkeeping])
     exact ⟨after, by simpa [z0, z1, z2, z3, sh1, sh2, sh3, lo0, lo1] using seg9⟩)
 
+/-- Compose the high four loads, both half-word joins, the final join, and the success tag. -/
+macro "read_u64_high_compose " own:ident "," exit:ident "," writes:ident ","
+    instructionDisjoint:ident "," platformDisjoint:ident ";"
+    start:term ";" source:term ";" r1:term "," r2:term "," r3:term "," r0:term "," r6:term "," tag:term ";"
+    load5:ident "," load4:ident "," load6:ident "," load7:ident ","
+    shift5:ident "," or0:ident "," shift6:ident "," shift7:ident "," or1:ident ","
+    low:ident "," high:ident "," shiftHigh:ident "," result:ident "," tagStep:ident ";"
+    fromStep:term "," baseAddress:term ","
+    v0:term "," v1:term "," v2:term "," v3:term ","
+    v4:term "," v5:term "," v6:term "," v7:term ","
+    state:term "," configured:term "," prefixSeg:term ","
+    rep4:term "," rep5:term "," rep6:term "," rep7:term ","
+    pma:term "," notMMIO:term "," sourceFits:term "," loaded:term : term =>
+  `(by
+    let z0 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 $v0)
+    let z1 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 $v1)
+    let z2 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 $v2)
+    let z3 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 $v3)
+    let z4 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 $v4)
+    let z5 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 $v5)
+    let z6 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 $v6)
+    let z7 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 $v7)
+    let lo0 := (Sail.shift_bits_left z1 8#64) ||| z0
+    let lo1 := (Sail.shift_bits_left z3 24#64) ||| (Sail.shift_bits_left z2 16#64)
+    let sh5 := Sail.shift_bits_left z5 8#64
+    let hi0 := sh5 ||| z4
+    let sh6 := Sail.shift_bits_left z6 16#64
+    let sh7 := Sail.shift_bits_left z7 24#64
+    let hi1 := sh7 ||| sh6
+    let lowWord := lo1 ||| lo0
+    let highWord := hi1 ||| hi0
+    let shiftedHigh := Sail.shift_bits_left highWord 32#64
+    let final := shiftedHigh ||| lowWord
+    have configuredOfSeg {kv n cur pc}
+        (seg : Seg $own $exit (fun _ _ _ _ _ => False) $writes noMemory kv
+          $fromStep n $state cur pc) :=
+      configuredMachinePre_of_readSeg $configured $instructionDisjoint seg
+    have pmaOfSeg {kv n cur pc} (offset : Nat)
+        (seg : Seg $own $exit (fun _ _ _ _ _ => False) $writes noMemory kv
+          $fromStep n $state cur pc) (bound : offset < 8) :
+        LoadPmaAllows cur (BitVec.ofNat 64 ($baseAddress + offset)) 1 :=
+      loadPmaAllows_of_readSeg seg $platformDisjoint ($pma offset bound)
+    have loadedOfSeg {kv n cur pc}
+        (seg : Seg $own $exit (fun _ _ _ _ _ => False) $writes noMemory kv
+          $fromStep n $state cur pc) := loadedFaithfully_of_readSeg seg $loaded
+    have repOfSeg {kv n cur pc offset value}
+        (seg : Seg $own $exit (fun _ _ _ _ _ => False) $writes noMemory kv
+          $fromStep n $state cur pc) (rep : UIntRep 1 ($state).mem ($baseAddress + offset) value) :
+        UIntRep 1 cur.mem ($baseAddress + offset) value := uintRep_of_readSeg seg rep
+    have seg9 := $prefixSeg
+    obtain ⟨m10, seg10⟩ := seg9.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $r3 z5 ($start + 4)
+      ($load5 ($fromStep + 9) _ $baseAddress $v5 (configuredOfSeg seg9) seg9.atPc
+        (seg9.reg $source (BitVec.ofNat 64 $baseAddress) (by simp [z0, z1, z2, z3, lo0, lo1]))
+        (repOfSeg seg9 $rep5) (pmaOfSeg 5 seg9 (by omega)) ($notMMIO 5 (by omega))
+        (by have := $sourceFits; omega) (loadedOfSeg seg9))
+      (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨m11, seg11⟩ := seg10.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $r0 z4 ($start + 8)
+      ($load4 ($fromStep + 10) _ $baseAddress $v4 (configuredOfSeg seg10) seg10.atPc
+        (seg10.reg $source (BitVec.ofNat 64 $baseAddress) (by simp))
+        (repOfSeg seg10 $rep4) (pmaOfSeg 4 seg10 (by omega)) ($notMMIO 4 (by omega))
+        (by have := $sourceFits; omega) (loadedOfSeg seg10))
+      (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨m12, seg12⟩ := seg11.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $r6 z6 ($start + 12)
+      ($load6 ($fromStep + 11) _ $baseAddress $v6 (configuredOfSeg seg11) seg11.atPc
+        (seg11.reg $source (BitVec.ofNat 64 $baseAddress) (by simp))
+        (repOfSeg seg11 $rep6) (pmaOfSeg 6 seg11 (by omega)) ($notMMIO 6 (by omega))
+        (by have := $sourceFits; omega) (loadedOfSeg seg11))
+      (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨r13, run13⟩ := $load7 ($fromStep + 12) _ $baseAddress $v7
+      (configuredOfSeg seg12) seg12.atPc
+      (seg12.reg $source (BitVec.ofNat 64 $baseAddress) (by simp))
+      (repOfSeg seg12 $rep7) (pmaOfSeg 7 seg12 (by omega)) ($notMMIO 7 (by omega))
+      (by have := $sourceFits; omega) (loadedOfSeg seg12)
+    have seg12' := seg12.forget
+      (kv' := [⟨$r6, z6⟩, ⟨$r0, z4⟩, ⟨$r3, z5⟩,
+        ⟨$r2, lo1⟩, ⟨$r1, lo0⟩]) (by simp [z0, z1, z2, z3, lo0, lo1])
+    obtain ⟨m13, seg13⟩ := seg12'.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $source z7 ($start + 16) ⟨r13, run13⟩ (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨r14, run14⟩ := $shift5 ($fromStep + 13) _ z5
+      (configuredOfSeg seg13) seg13.atPc (seg13.reg $r3 z5 (by simp)) (loadedOfSeg seg13)
+    have seg13' := seg13.forget
+      (kv' := [⟨$source, z7⟩, ⟨$r6, z6⟩, ⟨$r0, z4⟩,
+        ⟨$r2, lo1⟩, ⟨$r1, lo0⟩]) (by simp)
+    obtain ⟨m14, seg14⟩ := seg13'.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $r3 sh5 ($start + 20) ⟨r14, run14⟩ (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨r15, run15⟩ := $or0 ($fromStep + 14) _ sh5 z4
+      (configuredOfSeg seg14) seg14.atPc (seg14.reg $r3 sh5 (by simp))
+      (seg14.reg $r0 z4 (by simp)) (loadedOfSeg seg14)
+    have seg14' := seg14.forget
+      (kv' := [⟨$source, z7⟩, ⟨$r6, z6⟩, ⟨$r2, lo1⟩, ⟨$r1, lo0⟩]) (by simp)
+    obtain ⟨m15, seg15⟩ := seg14'.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $r3 hi0 ($start + 24) ⟨r15, run15⟩ (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨r16, run16⟩ := $shift6 ($fromStep + 15) _ z6
+      (configuredOfSeg seg15) seg15.atPc (seg15.reg $r6 z6 (by simp)) (loadedOfSeg seg15)
+    have seg15' := seg15.forget
+      (kv' := [⟨$r3, hi0⟩, ⟨$source, z7⟩, ⟨$r2, lo1⟩, ⟨$r1, lo0⟩]) (by simp)
+    obtain ⟨m16, seg16⟩ := seg15'.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $r6 sh6 ($start + 28) ⟨r16, run16⟩ (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨r17, run17⟩ := $shift7 ($fromStep + 16) _ z7
+      (configuredOfSeg seg16) seg16.atPc (seg16.reg $source z7 (by simp)) (loadedOfSeg seg16)
+    have seg16' := seg16.forget
+      (kv' := [⟨$r6, sh6⟩, ⟨$r3, hi0⟩, ⟨$r2, lo1⟩, ⟨$r1, lo0⟩]) (by simp)
+    obtain ⟨m17, seg17⟩ := seg16'.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $source sh7 ($start + 32) ⟨r17, run17⟩ (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨r18, run18⟩ := $or1 ($fromStep + 17) _ sh7 sh6
+      (configuredOfSeg seg17) seg17.atPc (seg17.reg $source sh7 (by simp))
+      (seg17.reg $r6 sh6 (by simp)) (loadedOfSeg seg17)
+    have seg17' := seg17.forget
+      (kv' := [⟨$r3, hi0⟩, ⟨$r2, lo1⟩, ⟨$r1, lo0⟩]) (by simp)
+    obtain ⟨m18, seg18⟩ := seg17'.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $source hi1 ($start + 36) ⟨r18, run18⟩ (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨r19, run19⟩ := $low ($fromStep + 18) _ lo1 lo0
+      (configuredOfSeg seg18) seg18.atPc (seg18.reg $r2 lo1 (by simp))
+      (seg18.reg $r1 lo0 (by simp)) (loadedOfSeg seg18)
+    have seg18' := seg18.forget (kv' := [⟨$source, hi1⟩, ⟨$r3, hi0⟩]) (by simp)
+    obtain ⟨m19, seg19⟩ := seg18'.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $r1 lowWord ($start + 40) ⟨r19, run19⟩ (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨r20, run20⟩ := $high ($fromStep + 19) _ hi1 hi0
+      (configuredOfSeg seg19) seg19.atPc (seg19.reg $source hi1 (by simp))
+      (seg19.reg $r3 hi0 (by simp)) (loadedOfSeg seg19)
+    have seg19' := seg19.forget (kv' := [⟨$r1, lowWord⟩]) (by simp)
+    obtain ⟨m20, seg20⟩ := seg19'.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $source highWord ($start + 44) ⟨r20, run20⟩ (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨r21, run21⟩ := $shiftHigh ($fromStep + 20) _ highWord
+      (configuredOfSeg seg20) seg20.atPc (seg20.reg $source highWord (by simp))
+      (loadedOfSeg seg20)
+    have seg20' := seg20.forget (kv' := [⟨$r1, lowWord⟩]) (by simp)
+    obtain ⟨m21, seg21⟩ := seg20'.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $source shiftedHigh ($start + 48) ⟨r21, run21⟩ (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨r22, run22⟩ := $result ($fromStep + 21) _ shiftedHigh lowWord
+      (configuredOfSeg seg21) seg21.atPc (seg21.reg $source shiftedHigh (by simp))
+      (seg21.reg $r1 lowWord (by simp)) (loadedOfSeg seg21)
+    have seg21' := seg21.forget (kv' := []) (by simp)
+    obtain ⟨m22, seg22⟩ := seg21'.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $source final ($start + 52) ⟨r22, run22⟩ (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    obtain ⟨r23, run23⟩ := $tagStep ($fromStep + 22) _ (configuredOfSeg seg22)
+      seg22.atPc (loadedOfSeg seg22)
+    obtain ⟨after, seg23⟩ := seg22.step
+      (by unfold $own standardReadU64OwnPc pcInList; native_decide)
+      (by unfold $exit standardReadU64ExitPc pcInList; native_decide)
+      $tag 1 ($start + 56) ⟨r23, run23⟩ (by decide) (by intro r h; exact Or.inl h)
+      (by unfold $writes; simp [standardReadU64Writes]) (by decide) (by decide)
+      (by simp [RegsOutside, stepBookkeeping])
+    exact ⟨after, by simpa [readU64MachineValue, z0, z1, z2, z3, z4, z5, z6, z7,
+      lo0, lo1, sh5, sh6, sh7, hi0, hi1, lowWord, highWord, shiftedHigh, final] using seg23⟩)
+
 readU32UnsignedLoadSite(readU64_3203Load1; 0x12a50, 1;
   .Regidx 16#5, x16, rX_x16_run; .Regidx 17#5, x17, wX_x17_run;
   0x83, 0x48, 0x18, 0x00)
@@ -333,5 +534,74 @@ theorem readU64_3203LowRun (fromStep baseAddress v0 v1 v2 v3 : Nat) (state : Sta
     readU64_3203OrLow0, readU64_3203OrLow1;
     fromStep, baseAddress, v0, v1, v2, v3, state, configured, atPc, base,
     rep0, rep1, rep2, rep3, pma, notMMIO, sourceFits, loaded
+
+/-- The shared high-word fragment completes `fi:1:3203` after its low-word fragment. -/
+theorem readU64_3203TailRun (fromStep baseAddress v0 v1 v2 v3 v4 v5 v6 v7 : Nat)
+    (state : State) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (low : ∃ after, Seg readU64_3203OwnPc readU64_3203ExitPc
+      (fun _ _ _ _ _ => False) readU64_3203Writes noMemory
+      [⟨x5, (Sail.shift_bits_left
+          (zero_extend (m := 64) (BitVec.ofNat 8 v3)) 24#64) |||
+        (Sail.shift_bits_left (zero_extend (m := 64) (BitVec.ofNat 8 v2)) 16#64)⟩,
+       ⟨x17, (Sail.shift_bits_left
+          (zero_extend (m := 64) (BitVec.ofNat 8 v1)) 8#64) |||
+        zero_extend (m := 64) (BitVec.ofNat 8 v0)⟩,
+       ⟨x16, BitVec.ofNat 64 baseAddress⟩]
+      fromStep 9 state after (BitVec.ofNat 64 0x12a74))
+    (rep4 : UIntRep 1 state.mem (baseAddress + 4) v4)
+    (rep5 : UIntRep 1 state.mem (baseAddress + 5) v5)
+    (rep6 : UIntRep 1 state.mem (baseAddress + 6) v6)
+    (rep7 : UIntRep 1 state.mem (baseAddress + 7) v7)
+    (pma : ∀ offset, offset < 8 →
+      LoadPmaAllows state (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (notMMIO : ∀ offset, offset < 8 →
+      LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (sourceFits : baseAddress + 8 ≤ 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ after, Seg readU64_3203OwnPc readU64_3203ExitPc (fun _ _ _ _ _ => False)
+      readU64_3203Writes noMemory
+      [⟨x5, 1⟩, ⟨x16, readU64MachineValue v0 v1 v2 v3 v4 v5 v6 v7⟩]
+      fromStep 23 state after (BitVec.ofNat 64 0x12aac) := by
+  obtain ⟨afterLow, lowSeg⟩ := low
+  exact read_u64_high_compose
+    readU64_3203OwnPc, readU64_3203ExitPc, readU64_3203Writes,
+    readU64_3203InstructionDisjoint, readU64_3203PlatformDisjoint;
+    0x12a74; x16; x17, x5, x6, x7, x28, x5;
+    readU64_3203Load5, readU64_3203Load4, readU64_3203Load6, readU64_3203Load7,
+    readU64_3203Shift5, readU64_3203OrHigh0, readU64_3203Shift6,
+    readU64_3203Shift7, readU64_3203OrHigh1, readU64_3203Low, readU64_3203High,
+    readU64_3203ShiftHigh, readU64_3203Result, readU64_3203Tag;
+    fromStep, baseAddress, v0, v1, v2, v3, v4, v5, v6, v7, state, configured, lowSeg,
+    rep4, rep5, rep6, rep7, pma, notMMIO, sourceFits, loaded
+
+/-- Exact post-address-add schedule for the inlined `fi:1:3203` reader. -/
+theorem readU64_3203Run (fromStep baseAddress v0 v1 v2 v3 v4 v5 v6 v7 : Nat)
+    (state : State) (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 0x12a50))
+    (base : state.regs.get? x16 = some (BitVec.ofNat 64 baseAddress))
+    (rep0 : UIntRep 1 state.mem baseAddress v0)
+    (rep1 : UIntRep 1 state.mem (baseAddress + 1) v1)
+    (rep2 : UIntRep 1 state.mem (baseAddress + 2) v2)
+    (rep3 : UIntRep 1 state.mem (baseAddress + 3) v3)
+    (rep4 : UIntRep 1 state.mem (baseAddress + 4) v4)
+    (rep5 : UIntRep 1 state.mem (baseAddress + 5) v5)
+    (rep6 : UIntRep 1 state.mem (baseAddress + 6) v6)
+    (rep7 : UIntRep 1 state.mem (baseAddress + 7) v7)
+    (pma : ∀ offset, offset < 8 →
+      LoadPmaAllows state (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (notMMIO : ∀ offset, offset < 8 →
+      LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + offset)) 1)
+    (sourceFits : baseAddress + 8 ≤ 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ after, Seg readU64_3203OwnPc readU64_3203ExitPc (fun _ _ _ _ _ => False)
+      readU64_3203Writes noMemory
+      [⟨x5, 1⟩, ⟨x16, readU64MachineValue v0 v1 v2 v3 v4 v5 v6 v7⟩]
+      fromStep 23 state after (BitVec.ofNat 64 0x12aac) := by
+  have low := readU64_3203LowRun fromStep baseAddress v0 v1 v2 v3 state configured
+    atPc base rep0 rep1 rep2 rep3
+    (fun offset bound => pma offset (by omega))
+    (fun offset bound => notMMIO offset (by omega)) (by omega) loaded
+  exact readU64_3203TailRun fromStep baseAddress v0 v1 v2 v3 v4 v5 v6 v7 state
+    configured low rep4 rep5 rep6 rep7 pma notMMIO sourceFits loaded
 
 end BinaryFv.Zesu.MachineExecution
