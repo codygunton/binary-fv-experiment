@@ -1,4 +1,5 @@
 import BinaryFv.Zesu.Entrypoints.SszDecodeRoot.Level2Contracts
+import BinaryFv.Zesu.MachineExecution.HLevel3MemReadIntSteps
 import BinaryFv.Zesu.MachineExecution.InstructionClassSteps
 import BinaryFv.ProofProgress.OwnedPc
 import BinaryFv.RiscV.Instruction.DecodeTactic
@@ -901,5 +902,184 @@ theorem sszDecodeLengthValidatedRouteSeg (fromStep : Nat) (before : State)
     (by intro register bookkeeping; exact Or.inl bookkeeping)
     (by simp [RegsOutside, stepBookkeeping])
   exact ⟨after, by simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using seg5⟩
+
+def sszDecodeSchemaMarkerOwnPc (pc : BitVec 64) : Prop :=
+  pcInList [0x1220c, 0x12210, 0x12214] pc
+
+def sszDecodeSchemaMarkerExitPc (pc : BitVec 64) : Prop :=
+  pcInList [0x12218, 0x1225c] pc
+
+def sszDecodeSchemaMarkerWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x10 ∨ register = x12
+
+private theorem sszDecodeOfNatAddOne (base : Nat) (_fits : base + 1 < 2 ^ 64) :
+    BitVec.ofNat 64 base + sign_extend (m := 64) (1#12) = BitVec.ofNat 64 (base + 1) := by
+  rw [show sign_extend (m := 64) (1#12) = 1#64 by native_decide]
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_add, BitVec.toNat_ofNat, BitVec.toNat_ofNat, BitVec.toNat_ofNat]
+  omega
+
+/-- Exact `0x1220c: lbu a0,1(s2)`, through the shared byte-load theorem. -/
+theorem sszDecodeLoadSchemaMarkerStep (stepNo baseAddress marker : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x1220c)
+    (base : state.regs.get? x18 = some (BitVec.ofNat 64 baseAddress))
+    (rep : UIntRep 1 state.mem (baseAddress + 1) marker)
+    (pma : LoadPmaAllows state (BitVec.ofNat 64 (baseAddress + 1)) 1)
+    (notMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + 1)) 1)
+    (sumFits : baseAddress + 1 < 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x1220c retired x10
+        (zero_extend (m := 64) (BitVec.ofNat 8 marker))) false := by
+  apply configuredByteLoadFromX18Step stepNo 0x1220c 1 state (.Regidx 10#5) x10
+    (zero_extend (m := 64) (BitVec.ofNat 8 marker))
+    0x03 0x45 0x19 0x00 baseAddress marker configured atPc base rep pma notMMIO sumFits loaded
+  · configured_decode configured
+  · intro premise
+    exact wX_x10_run premise _
+  · native_decide
+  · decide
+  · decide
+  · decide
+  · decide
+  · rfl
+  · exact sszDecodeOfNatAddOne baseAddress sumFits
+
+/-- Exact `0x12210: li a2,1`. -/
+theorem sszDecodeLoadSchemaMarkerExpectedStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x12210)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x12210 retired x12 1) false := by
+  let premise := coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12210
+  have execute : Runs (execute (.ITYPE (1, .Regidx 0#5, .Regidx 12#5, .ADDI))) premise
+      { premise with regs := premise.regs.insert x12 1 } (.Retire_Success ()) := by
+    change Runs (execute_ITYPE 1 (.Regidx 0#5) (.Regidx 12#5) .ADDI) _ _ _
+    have resultEq : iTypeResult .ADDI 1 0 = 1#64 := by native_decide
+    simpa only [resultEq] using execute_ITYPE_run premise _ 1 (.Regidx 0#5)
+      (.Regidx 12#5) .ADDI 0 (rX_x0_run premise) (wX_x12_run premise _)
+  exact configuredRegisterWriteStep stepNo 0x12210 state x12 1
+    (.ITYPE (1, .Regidx 0#5, .Regidx 12#5, .ADDI)) 0x13 0x06 0x10 0x00
+    configured atPc loaded (by configured_decode configured) execute
+    (pcFits := by native_decide) (base := by rfl)
+
+private theorem sszDecodeSchemaMarkerBneRun (state : State) (marker : BitVec 64)
+    (markerAt : state.regs.get? x10 = some marker)
+    (expectedAt : state.regs.get? x12 = some 1) :
+    Runs (bTypeTaken (.Regidx 12#5) (.Regidx 10#5) .BNE) state state (marker != 1) := by
+  unfold bTypeTaken
+  exact Runs.bind (rX_x10_run state marker markerAt)
+    (Runs.bind (rX_x12_run state 1 expectedAt) rfl)
+
+/-- Exact taken or not-taken `0x12214: bne a0,a2,0x1225c`. -/
+theorem sszDecodeSchemaMarkerBranchStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x12214)
+    (markerAt : state.regs.get? x10 = some marker)
+    (expectedAt : state.regs.get? x12 = some 1)
+    (comparison : (marker != 1) = rejected)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (if rejected then
+        tryStepControlFlowAfterRetired
+          (controlFlowJumpState (tryStepControlFlowAfterIncrement state) 0x12214 0x1225c)
+          0x1225c retired
+      else
+        tryStepControlFlowAfterRetired
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12214)
+          0x12218 retired) false := by
+  cases rejected
+  · apply configuredBranchNotTakenStep stepNo 0x12214 state 0x48 (.Regidx 12#5)
+      (.Regidx 10#5) .BNE 0x63 0x14 0xc5 0x04 configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode configured
+    · simpa only [comparison] using sszDecodeSchemaMarkerBneRun
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12214)
+        marker
+        ((stepPremiseState_writes state 0x12214).get x10 (by decide) |>.trans markerAt)
+        ((stepPremiseState_writes state 0x12214).get x12 (by decide) |>.trans expectedAt)
+  · apply configuredBranchTakenStep stepNo 0x12214 0x1225c state 0x48 (.Regidx 12#5)
+      (.Regidx 10#5) .BNE 0x63 0x14 0xc5 0x04 configured atPc loaded
+      (site := by native_decide) (base := by rfl)
+    · configured_decode configured
+    · simpa only [comparison] using sszDecodeSchemaMarkerBneRun
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12214)
+        marker
+        ((stepPremiseState_writes state 0x12214).get x10 (by decide) |>.trans markerAt)
+        ((stepPremiseState_writes state 0x12214).get x12 (by decide) |>.trans expectedAt)
+    all_goals native_decide
+
+private theorem instructionPreserved_disjoint_sszDecodeSchemaMarkerWrites :
+    RegSet.Disjoint instructionPreserved sszDecodeSchemaMarkerWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  all_goals simp [instructionPreserved, platformPreserved] at preserved
+
+/-- The schema-marker load and comparison share one three-step `Seg` on both routes. -/
+theorem sszDecodeSchemaMarkerSeg (fromStep baseAddress marker : Nat) (before : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc before)
+    (atPc : before.regs.get? PC = some 0x1220c)
+    (base : before.regs.get? x18 = some (BitVec.ofNat 64 baseAddress))
+    (rep : UIntRep 1 before.mem (baseAddress + 1) marker)
+    (pma : LoadPmaAllows before (BitVec.ofNat 64 (baseAddress + 1)) 1)
+    (notMMIO : LoadMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + 1)) 1)
+    (sumFits : baseAddress + 1 < 2 ^ 64)
+    (comparison : (zero_extend (m := 64) (BitVec.ofNat 8 marker) != 1) = rejected)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.mem) :
+    ∃ after,
+      Seg sszDecodeSchemaMarkerOwnPc sszDecodeSchemaMarkerExitPc
+        (fun _ _ _ _ _ => False) sszDecodeSchemaMarkerWrites noMemory
+        [⟨x12, 1⟩, ⟨x10, zero_extend (m := 64) (BitVec.ofNat 8 marker)⟩]
+        fromStep 3 before after (if rejected then 0x1225c else 0x12218) := by
+  obtain ⟨retired, retiredRead⟩ := configured.retiredCounter
+  have seg0 := Seg.nil sszDecodeSchemaMarkerOwnPc sszDecodeSchemaMarkerExitPc
+    (fun _ _ _ _ _ => False) sszDecodeSchemaMarkerWrites noMemory
+    fromStep ⟨retired, retiredRead⟩ atPc
+  obtain ⟨s1, seg1⟩ := seg0.step
+    (by owned_pc [sszDecodeSchemaMarkerOwnPc, pcInList])
+    (by owned_pc [sszDecodeSchemaMarkerExitPc, pcInList]) x10
+    (zero_extend (m := 64) (BitVec.ofNat 8 marker)) 0x12210
+    (sszDecodeLoadSchemaMarkerStep fromStep baseAddress marker before configured atPc base rep pma
+      notMMIO sumFits loaded)
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr (Or.inl rfl)) (by decide) (by decide) (by simp [RegsOutside])
+  have configured1 := configured.mono
+    (seg1.agree instructionPreserved_disjoint_sszDecodeSchemaMarkerWrites) seg1.retired
+  have loaded1 : Artifacts.programImage.fileBytesLoadedFaithfully s1.mem := by
+    rw [seg1.memEq noMemory_empty]
+    exact loaded
+  obtain ⟨s2, seg2⟩ := seg1.step
+    (by owned_pc [sszDecodeSchemaMarkerOwnPc, pcInList])
+    (by owned_pc [sszDecodeSchemaMarkerExitPc, pcInList]) x12 1 0x12214
+    (sszDecodeLoadSchemaMarkerExpectedStep (fromStep + 1) s1 configured1 seg1.atPc loaded1)
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr (Or.inr rfl)) (by decide) (by decide) (by simp [RegsOutside])
+  have configured2 := configured.mono
+    (seg2.agree instructionPreserved_disjoint_sszDecodeSchemaMarkerWrites) seg2.retired
+  have loaded2 : Artifacts.programImage.fileBytesLoadedFaithfully s2.mem := by
+    rw [seg2.memEq noMemory_empty]
+    exact loaded
+  cases rejected
+  · obtain ⟨_, after, _, full⟩ := seg2.stepFallThroughWitness 0x12218
+      (by owned_pc [sszDecodeSchemaMarkerOwnPc, pcInList])
+      (by owned_pc [sszDecodeSchemaMarkerExitPc, pcInList])
+      (sszDecodeSchemaMarkerBranchStep (fromStep + 2) s2 configured2 seg2.atPc
+        (seg2.reg x10 (zero_extend (m := 64) (BitVec.ofNat 8 marker)) (by simp))
+        (seg2.reg x12 1 (by simp)) comparison loaded2)
+      (by intro register bookkeeping; exact Or.inl bookkeeping)
+      (by simp [RegsOutside, stepBookkeeping])
+    exact ⟨after, by simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using full⟩
+  · obtain ⟨_, after, _, full⟩ := seg2.stepJumpWitness 0x1225c
+      (by owned_pc [sszDecodeSchemaMarkerOwnPc, pcInList])
+      (by owned_pc [sszDecodeSchemaMarkerExitPc, pcInList])
+      (sszDecodeSchemaMarkerBranchStep (fromStep + 2) s2 configured2 seg2.atPc
+        (seg2.reg x10 (zero_extend (m := 64) (BitVec.ofNat 8 marker)) (by simp))
+        (seg2.reg x12 1 (by simp)) comparison loaded2)
+      (by intro register bookkeeping; exact Or.inl bookkeeping)
+      (by simp [RegsOutside, stepBookkeeping])
+    exact ⟨after, by simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using full⟩
 
 end BinaryFv.Zesu.MachineExecution
