@@ -183,6 +183,19 @@ theorem sszDecodeCleanupBaseHighFromReady (fromStep : Nat) (args : DecodeInlineA
   sszDecodeCleanupBaseHighAfterFirstStores fromStep args before ready.atPc ready.atStack
     ready.stackFits ready.stackAligned ready.stackUpper ready.access ready.configured ready.code
 
+/-- The cleanup handoff reaches the exact `memcpy` call with all four argument registers bound. -/
+theorem sszDecodeCleanupMemcpyCallReadyFromReady (fromStep : Nat) (args : DecodeInlineArgs)
+    (before : State) (ready : SszDecodeCleanupReady args before) :
+    ∃ after,
+      Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+        (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+        [⟨x1, 0x102b0⟩, ⟨x12, 256⟩,
+          ⟨x10, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330)⟩,
+          ⟨x11, 0x1755c⟩]
+        fromStep 22 before after 0x122b4 :=
+  sszDecodeCleanupMemcpyCallReady fromStep args before ready.atPc ready.atStack
+    ready.stackFits ready.stackAligned ready.stackUpper ready.access ready.configured ready.code
+
 private theorem iTypeResult_addi_four_ofNat (value : Nat) :
     iTypeResult .ADDI 4 (BitVec.ofNat 64 value) = BitVec.ofNat 64 (value + 4) := by
   unfold iTypeResult
