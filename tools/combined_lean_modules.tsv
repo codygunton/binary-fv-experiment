@@ -68,10 +68,12 @@ BinaryFv.Zesu.MachineExecution.HLevel3WriteOutputSteps	HLevel3WriteOutputSteps.l
 BinaryFv.Zesu.Staging.WriteOutput	WriteOutput.lean	compiled/BinaryFv/Zesu/Staging/WriteOutput.olean
 BinaryFv.Zesu.MachineExecution.HLevel3RawEncoderSteps	HLevel3RawEncoderSteps.lean	compiled/BinaryFv/Zesu/MachineExecution/HLevel3RawEncoderSteps.olean
 BinaryFv.Zesu.Staging.RawEncoder	RawEncoder.lean	compiled/BinaryFv/Zesu/Staging/RawEncoder.olean
+BinaryFv.Zesu.MachineExecution.EncoderCallPrologue	EncoderCallPrologue.lean	compiled/BinaryFv/Zesu/MachineExecution/EncoderCallPrologue.olean
 BinaryFv.Zesu.MachineExecution.HLevel3BooleanEncoderSteps	HLevel3BooleanEncoderSteps.lean	compiled/BinaryFv/Zesu/MachineExecution/HLevel3BooleanEncoderSteps.olean
 BinaryFv.Zesu.MachineExecution.EncoderCallFinish	EncoderCallFinish.lean	compiled/BinaryFv/Zesu/MachineExecution/EncoderCallFinish.olean
 BinaryFv.Zesu.Staging.IntegerEncoder	IntegerEncoder.lean	compiled/BinaryFv/Zesu/Staging/IntegerEncoder.olean
 BinaryFv.Zesu.Staging.BooleanEncoder	BooleanEncoder.lean	compiled/BinaryFv/Zesu/Staging/BooleanEncoder.olean
+BinaryFv.Zesu.Staging.WriteSuccessInt	WriteSuccessInt.lean	compiled/BinaryFv/Zesu/Staging/WriteSuccessInt.olean
 BinaryFv.Zesu.Staging.OptionalEncoder	OptionalEncoder.lean	compiled/BinaryFv/Zesu/Staging/OptionalEncoder.olean
 BinaryFv.Zesu.Staging.HLevel3	HLevel3.lean	compiled/BinaryFv/Zesu/Staging/HLevel3.olean
 BinaryFv.Zesu.Staging.HLevel3IdiomChecks	HLevel3IdiomChecks.lean	compiled/BinaryFv/Zesu/Staging/HLevel3IdiomChecks.olean

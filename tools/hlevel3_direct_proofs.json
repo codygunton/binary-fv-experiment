@@ -161,6 +161,10 @@
       "theorem": "BinaryFv.Zesu.Staging.proposed_booleanEncoder_4276_proved"
     },
     {
+      "field": "writeSuccessInt",
+      "theorem": "BinaryFv.Zesu.Staging.writeSuccessInt_proved"
+    },
+    {
       "field": "writeSuccessFeeRecipient",
       "theorem": "BinaryFv.Zesu.Staging.proposed_writeOutput_3db4_proved"
     },

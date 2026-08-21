@@ -12,6 +12,7 @@ import BinaryFv.Zesu.Staging.WriteOutput
 import BinaryFv.Zesu.Staging.RawEncoder
 import BinaryFv.Zesu.Staging.IntegerEncoder
 import BinaryFv.Zesu.Staging.BooleanEncoder
+import BinaryFv.Zesu.Staging.WriteSuccessInt
 import BinaryFv.Zesu.Staging.OptionalEncoder
 
 /-!
@@ -1715,8 +1716,8 @@ Frame rule: choose the complete register and memory write regions before `Seg` s
 Frame rule: use `Seg.forget` before a later write replaces a recorded register value.
 -/
 private theorem resolve_writeSuccessInt
-    : WriteSuccessIntInstanceContract := by
-  sorry
+    : WriteSuccessIntInstanceContract :=
+  BinaryFv.Zesu.Staging.writeSuccessInt_proved
 
 /--
 Resolve Level 2 field `writeSuccessBytes` for `fi:1:4333`.

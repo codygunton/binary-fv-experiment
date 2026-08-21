@@ -38,7 +38,7 @@ def integerEncoderBytes (wordCount : Nat) (args : IntegerEncoderArgs) : Array UI
     encodeNatLE 8 args.word0 ++ encodeNatLE 8 args.word1 ++
       encodeNatLE 8 args.word2 ++ encodeNatLE 8 args.word3
 
-private theorem encodeNatLE_size (width value : Nat) : (encodeNatLE width value).size = width := by
+theorem encodeNatLE_size (width value : Nat) : (encodeNatLE width value).size = width := by
   induction width generalizing value with
   | zero => rfl
   | succ width ih => simp [encodeNatLE, ih, Nat.add_comm]
@@ -66,7 +66,7 @@ private theorem encodeNatLE_get_toNat (width value index : Nat) (bound : index <
         simp [encodeNatLE, ih (value / 256) nextIndex (by omega), Nat.div_div_eq_div_mul,
           Nat.succ_eq_add_one, Nat.mul_comm, exponent']
 
-private theorem UIntRep.bytesRepEncodeNatLE {width address value : Nat}
+theorem UIntRep.bytesRepEncodeNatLE {width address value : Nat}
     {mem : Std.ExtHashMap Nat (BitVec 8)} (rep : UIntRep width mem address value) :
     BytesRep mem address (encodeNatLE width value) := by
   refine ⟨by simpa [encodeNatLE_size] using rep.2.1, ?_⟩
@@ -78,7 +78,7 @@ private theorem UIntRep.bytesRepEncodeNatLE {width address value : Nat}
   simp [BinaryFv.RiscV.Sep.leBytes, Nat.shiftRight_eq_div_pow]
   rw [Nat.mod_eq_of_lt rep.1]
 
-private theorem UIntRep.bytesRepEncodeNatLEEight {address value : Nat}
+theorem UIntRep.bytesRepEncodeNatLEEight {address value : Nat}
     {mem : Std.ExtHashMap Nat (BitVec 8)} (rep : UIntRep 8 mem address value) :
     BytesRep mem address (encodeNatLE 8 value) :=
   UIntRep.bytesRepEncodeNatLE rep

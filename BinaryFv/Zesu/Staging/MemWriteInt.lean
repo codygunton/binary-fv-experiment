@@ -88,7 +88,7 @@ def memWriteIntEntry (args : MemWriteIntArgs) (state : EndpointState) : Prop :=
   memWriteIntStorePre args state.machine
 
 def memWriteIntPreserved (register : Register) : Prop :=
-  register = x2 ∨ register = x10 ∨ inlineEncoderPreserved register
+  encoderInlinePreserved register
 
 def memWriteIntExit (args : MemWriteIntArgs) (_outcome : Unit)
     (before after : EndpointState) : Prop :=
@@ -119,11 +119,13 @@ private theorem memWriteIntPreserved_disjoint :
     RegSet.Disjoint memWriteIntPreserved stepBookkeeping := by
   intro register preserved written
   rcases written with rfl | rfl | rfl | rfl
-  all_goals simp [memWriteIntPreserved, inlineEncoderPreserved] at preserved
+  all_goals simp [memWriteIntPreserved, encoderInlinePreserved, instructionPreserved,
+    platformPreserved] at preserved
 
-/-- The production `mem.writeInt` instance satisfies its exact one-store contract. -/
-theorem proposed_memWriteInt_proved : Proposed_mem_writeInt_fi_1_45b2_Contract := by
-  refine ⟨1, by native_decide, ?_⟩
+/-- The production `mem.writeInt` instance implements its exact one-step contract. -/
+theorem memWriteIntContract_implements :
+    (memWriteIntContract (fun _ => 1)).Implements EndpointStep EndpointPc
+      (pcInList [0x15d18]) (pcInList [0x15d1c]) := by
   intro args fromStep before entry
   rcases entry with ⟨atPc, stackRead, valueRead, configured, loaded, storePre⟩
   rcases storePre with ⟨byte0, byte1, byte2, byte3, base, read0, read1, read2, read3,
@@ -208,5 +210,9 @@ theorem proposed_memWriteInt_proved : Proposed_mem_writeInt_fi_1_45b2_Contract :
         tryStepStoreAfterTick, coreStoreNextState, tryStepStoreAfterIncrement] using
         AuxStateAgree.storeRetirement before.machine (BitVec.ofNat 64 0x15d18) retired
           args.address (BitVec.ofNat 64 args.value)
+
+/-- `fi:1:45b2` is a thin use of the shared exact one-step theorem. -/
+theorem proposed_memWriteInt_proved : Proposed_mem_writeInt_fi_1_45b2_Contract :=
+  ⟨1, by native_decide, memWriteIntContract_implements⟩
 
 end BinaryFv.Zesu.Staging

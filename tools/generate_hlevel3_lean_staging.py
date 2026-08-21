@@ -86,6 +86,7 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
         "import BinaryFv.Zesu.Staging.RawEncoder",
         "import BinaryFv.Zesu.Staging.IntegerEncoder",
         "import BinaryFv.Zesu.Staging.BooleanEncoder",
+        "import BinaryFv.Zesu.Staging.WriteSuccessInt",
         "import BinaryFv.Zesu.Staging.OptionalEncoder",
         "",
         "/-!",
