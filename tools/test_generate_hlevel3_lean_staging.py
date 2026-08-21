@@ -31,10 +31,10 @@ class LeanStagingTests(unittest.TestCase):
 
     def test_exact_typed_holes(self):
         external_contracts = set(DIRECT_PROOFS)
-        self.assertEqual(self.source.count(": Prop := by\n  sorry"), 57 - len(external_contracts))
+        self.assertEqual(self.source.count(": Prop := by\n  sorry"), 43 - len(external_contracts))
         self.assertEqual(self.source.count("private theorem resolve_"), 17)
-        self.assertEqual(self.source.count("  sorry"), 57 - len(external_contracts) + 17)
-        self.assertEqual(self.source.count("def Proposed_"), 57)
+        self.assertEqual(self.source.count("  sorry"), 43 - len(external_contracts) + 17)
+        self.assertEqual(self.source.count("def Proposed_"), 43)
 
     def test_read_u32_destination_tuple_is_instance_specific(self):
         self.assertIn(

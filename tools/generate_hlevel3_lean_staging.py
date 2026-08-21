@@ -131,6 +131,7 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
                          if child["disposition"] == "unconditional-child-proof"] +
                         [DIRECT_PROOFS[field] for field in all_child_fields
                          if field in DIRECT_PROOFS])
+        parent_composed = parent.get("parentComposedInlineInstances", [])
         lines.extend([
             "/--",
             *comments(
@@ -138,9 +139,18 @@ def generate(inventory: dict, guidance: dict, admission: dict, catalogue: dict) 
                 f"Level 3 contracts: {lean_list(child_fields)}.",
                 f"Earlier Level 2 results: {lean_list(siblings)}.",
                 f"Unconditional child proofs: {lean_list(closed)}.",
+                "Parent-composed inline instances: " + lean_list(
+                    [row["instanceId"] for row in parent_composed]) + ".",
                 f"Parent glue: {len(parent['gluePcs'])} instructions in "
                 f"{len(parent['glueObligations'])} block fragments."),
         ])
+        for row in parent_composed:
+            lines.extend(comments(
+                f"Inline `{row['instanceId']}` (`{row['qualified']}`) contributes "
+                f"{len(row['executionPcs'])} scheduled instructions from "
+                f"0x{row['executionPcs'][0]:x}. It is not a standalone machine region. "
+                "Compose these instructions with the parent and reuse the shared integer-reader "
+                "load, shift, OR, and `Seg` fragments."))
         for obligation in parent["glueObligations"]:
             guide = hints[obligation["id"]]
             strategy = guide["preferredStrategy"]

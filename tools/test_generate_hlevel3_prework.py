@@ -41,10 +41,10 @@ class LiveArtifactTests(unittest.TestCase):
         result = build(*self.documents)
         self.assertEqual(17, result["summary"]["level2FieldCount"])
         self.assertEqual(17, len({row["field"] for row in result["parents"]}))
-        self.assertEqual(57, result["summary"]["level3ContractCount"])
+        self.assertEqual(43, result["summary"]["level3ContractCount"])
         self.assertEqual(88, result["summary"]["level3ChildRouteCount"])
-        self.assertEqual(2389, result["summary"]["parentGlueInstructionCount"])
-        self.assertEqual(230, result["summary"]["parentGlueObligationCount"])
+        self.assertEqual(2598, result["summary"]["parentGlueInstructionCount"])
+        self.assertEqual(215, result["summary"]["parentGlueObligationCount"])
         for parent in result["parents"]:
             covered = set(parent["gluePcs"])
             for child in parent["children"]:
@@ -54,6 +54,12 @@ class LiveArtifactTests(unittest.TestCase):
         self.assertFalse(any(row.get("machineOwner") == "fi:1:33a1"
                              for row in ssz_decode["children"]))
         self.assertTrue({76964, 76968, 76972, 76976} <= set(ssz_decode["gluePcs"]))
+        self.assertEqual(14, len(ssz_decode["parentComposedInlineInstances"]))
+        self.assertEqual(
+            {"fi:1:3167", "fi:1:31b1", "fi:1:3203", "fi:1:327b", "fi:1:32f5",
+             "fi:1:34c1", "fi:1:35ab", "fi:1:361f", "fi:1:3693", "fi:1:36dd",
+             "fi:1:3731", "fi:1:37a5", "fi:1:37cf", "fi:1:3823"},
+            {row["instanceId"] for row in ssz_decode["parentComposedInlineInstances"]})
 
     def test_every_level3_candidate_has_entry_evidence(self):
         result = build(*self.documents)
@@ -83,6 +89,12 @@ class LiveArtifactTests(unittest.TestCase):
         documents = copy.deepcopy(self.documents)
         documents[-1]["absorbedInlineAttributions"][0]["executionPcs"][0] += 4
         with self.assertRaisesRegex(ValueError, "absorbed inline attribution disagrees"):
+            build(*documents)
+
+    def test_forged_parent_composed_instance_is_rejected(self):
+        documents = copy.deepcopy(self.documents)
+        documents[-1]["parentComposedInlineInstances"][0]["qualified"] = "ssz.readU64"
+        with self.assertRaisesRegex(ValueError, "parent-composed inline instance disagrees"):
             build(*documents)
 
     def test_fork_dispatch_keeps_linked_jump_table_order(self):

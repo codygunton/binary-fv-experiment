@@ -53,7 +53,7 @@
       ]
     },
     "read-integer": {
-      "qualified": ["mem.readInt", "ssz.readU32", "ssz.readU64"],
+      "qualified": ["mem.readInt", "ssz.readU32"],
       "semanticOperation": "Read a fixed-width little-endian integer from the represented source window.",
       "reference": "deps/zesu/src/stateless/stateless/ssz.zig and zig/std/mem.zig",
       "extraClauses": [

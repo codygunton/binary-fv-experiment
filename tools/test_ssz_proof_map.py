@@ -108,9 +108,17 @@ class ProofMapTest(unittest.TestCase):
         if self.hlevel3[0]:
             prepared = result["hLevel3Preparation"]
             self.assertEqual(len(prepared["parents"]), 17)
-            self.assertEqual(prepared["summary"]["level3ContractCount"], 57)
+            self.assertEqual(prepared["summary"]["level3ContractCount"], 43)
             self.assertEqual(prepared["proofProgress"], {
-                "directProofCount": 14, "remainingContractCount": 43})
+                "directProofCount": 14, "remainingContractCount": 29,
+                "parentComposedInlineCount": 14})
+            parent_composed = [item for parent in prepared["parents"]
+                               for item in parent["parentComposedInlineInstances"]]
+            self.assertEqual({item["instanceId"] for item in parent_composed}, {
+                "fi:1:3167", "fi:1:31b1", "fi:1:3203", "fi:1:327b",
+                "fi:1:32f5", "fi:1:34c1", "fi:1:35ab", "fi:1:361f",
+                "fi:1:3693", "fi:1:36dd", "fi:1:3731", "fi:1:37a5",
+                "fi:1:37cf", "fi:1:3823"})
             proved = [child for parent in prepared["parents"] for child in parent["children"]
                       if child["proofStatus"] == "proved"]
             self.assertEqual({child["level3Field"] for child in proved},
@@ -130,7 +138,7 @@ class ProofMapTest(unittest.TestCase):
             self.assertTrue(all(child["contractStatus"] == "proved_unconditionally"
                                 for child in proved))
             self.assertEqual(sum(len(row["glueObligations"])
-                                 for row in prepared["parents"]), 230)
+                                 for row in prepared["parents"]), 215)
         if self.baseline:
             self.assertEqual(result["formalCoverage"]["directPcCount"],
                              len(self.baseline["coverage"]["directlyDischargedStepPcs"]))

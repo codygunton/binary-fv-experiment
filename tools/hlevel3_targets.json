@@ -15,6 +15,22 @@
       "reason": "DWARF assigns an error-result initialization corridor to readU32, but the corridor contains addi; sw; sh; sb and no integer read."
     }
   ],
+  "parentComposedInlineInstances": [
+    {"instanceId": "fi:1:3167", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU32"},
+    {"instanceId": "fi:1:31b1", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU32"},
+    {"instanceId": "fi:1:3203", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"},
+    {"instanceId": "fi:1:327b", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"},
+    {"instanceId": "fi:1:32f5", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU32"},
+    {"instanceId": "fi:1:34c1", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU32"},
+    {"instanceId": "fi:1:35ab", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"},
+    {"instanceId": "fi:1:361f", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"},
+    {"instanceId": "fi:1:3693", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU32"},
+    {"instanceId": "fi:1:36dd", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"},
+    {"instanceId": "fi:1:3731", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"},
+    {"instanceId": "fi:1:37a5", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"},
+    {"instanceId": "fi:1:37cf", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU32"},
+    {"instanceId": "fi:1:3823", "parentInstanceId": "fi:1:2e0f", "qualified": "ssz.readU64"}
+  ],
   "targets": [
     {"field": "sszDecode", "instanceId": "fi:1:2e0f", "schema": "decode-inline"},
     {"field": "writeSuccessParentHash", "instanceId": "fi:1:3d77", "schema": "raw-encoder"},

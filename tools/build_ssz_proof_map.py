@@ -230,6 +230,11 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
         if len(direct_by_field) != len(direct_rows):
             raise ValueError("duplicate hLevel3 direct-proof field")
         inventory_fields = {row["field"] for row in hlevel3_inventory["proposedLevel3Contracts"]}
+        parent_composed = [
+            row
+            for parent in hlevel3_inventory["parents"]
+            for row in parent.get("parentComposedInlineInstances", [])
+        ]
         unknown_direct = sorted(set(direct_by_field) - inventory_fields)
         if unknown_direct:
             raise ValueError(f"unknown hLevel3 direct-proof fields: {unknown_direct}")
@@ -239,6 +244,7 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
             "proofProgress": {
                 "directProofCount": len(direct_by_field),
                 "remainingContractCount": len(inventory_fields) - len(direct_by_field),
+                "parentComposedInlineCount": len(parent_composed),
             },
             "parents": [],
         }
@@ -262,6 +268,8 @@ def build(cfg: dict, flame: dict, manifest: dict, evidence: dict, bindings: dict
                 "field": parent["field"], "instanceId": parent["instanceId"],
                 "source": parent["source"], "glueInstructionCount": len(parent["gluePcs"]),
                 "children": children, "glueObligations": obligations,
+                "parentComposedInlineInstances": parent.get(
+                    "parentComposedInlineInstances", []),
                 "stagingTheorem": f"resolve_{parent['field']}",
             })
 

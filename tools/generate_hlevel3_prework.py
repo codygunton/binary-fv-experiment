@@ -89,6 +89,12 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
                              for row in targets.get("absorbedInlineAttributions", [])}
     if len(absorbed_attributions) != len(targets.get("absorbedInlineAttributions", [])):
         raise ValueError("duplicate absorbed inline attribution")
+    parent_composed = {row["instanceId"]: row
+                       for row in targets.get("parentComposedInlineInstances", [])}
+    if len(parent_composed) != len(targets.get("parentComposedInlineInstances", [])):
+        raise ValueError("duplicate parent-composed inline instance")
+    if set(parent_composed) & set(absorbed_attributions):
+        raise ValueError("an inline instance cannot be both absorbed and parent-composed")
     level3_rows = [row for row in level3_manifest["instances"]
                    if set(row["parentInstanceIds"]) & target_ids]
     level3_by_id = {row["id"]: row for row in level3_rows}
@@ -137,6 +143,7 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
     selected_ids = set()
     child_route_ids = set()
     consumed_attributions = set()
+    consumed_parent_composed = set()
     total_glue = set()
     for target in target_rows:
         instance_id = target["instanceId"]
@@ -157,6 +164,7 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
             raise ValueError(f"Level 2 owned PCs disagree with the CFG: {instance_id}")
         routes = {}
         attribution_glue = set()
+        parent_composed_rows = []
         for occurrence in occurrences:
             for child in occurrence.get("children", []):
                 child_meta = meta[child["key"]]
@@ -196,7 +204,23 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
                 attribution_glue.update(route["subtreePcs"])
                 consumed_attributions.add(owner)
                 continue
-            if owner in level3_by_id:
+            if owner in parent_composed:
+                correction = parent_composed[owner]
+                if (correction["parentInstanceId"] != instance_id or
+                        correction["qualified"] != route["qualified"] or
+                        not route["inline"] or not route["subtreePcs"]):
+                    raise ValueError(f"parent-composed inline instance disagrees with {owner}")
+                attribution_glue.update(route["subtreePcs"])
+                parent_composed_rows.append({
+                    "instanceId": owner,
+                    "qualified": route["qualified"],
+                    "entryPcs": route["entryPcs"],
+                    "executionPcs": route["subtreePcs"],
+                    "ownPcs": route["ownPcs"],
+                })
+                consumed_parent_composed.add(owner)
+                route["disposition"] = "parent-composed-inline"
+            elif owner in level3_by_id:
                 route["disposition"] = "level3-assumption"
                 route["level3Field"] = lean_field(owner, level3_by_id[owner]["qualified"])
             elif owner in target_ids:
@@ -234,6 +258,8 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
             "subtreeInstructionCount": parent["subtreeInstructionCount"],
             "source": parent["functionInstanceIdentity"]["function"]["declaration"],
             "inlineStack": parent["functionInstanceIdentity"]["inlineStack"],
+            "parentComposedInlineInstances": sorted(
+                parent_composed_rows, key=lambda item: item["instanceId"]),
             "glueObligations": fragments, "children": child_rows,
             "contractClauses": schema["clauses"],
             "evidence": {"entryCount": capture["entries"],
@@ -245,6 +271,9 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
     if consumed_attributions != set(absorbed_attributions):
         missing = sorted(set(absorbed_attributions) - consumed_attributions)
         raise ValueError(f"unused absorbed inline attributions: {missing}")
+    if consumed_parent_composed != set(parent_composed):
+        missing = sorted(set(parent_composed) - consumed_parent_composed)
+        raise ValueError(f"unused parent-composed inline instances: {missing}")
     dependencies = {row["field"]: set() for row in parents}
     for parent in parents:
         dependencies[parent["field"]].update(
@@ -268,7 +297,7 @@ def build(cfg: dict, flame: dict, manifest: dict, level3_manifest: dict, evidenc
         raise ValueError(f"Level 2 sibling contract dependency cycle: {cycle}")
     proposed = []
     for row in level3_rows:
-        if row["id"] in absorbed_attributions:
+        if row["id"] in absorbed_attributions or row["id"] in parent_composed:
             continue
         capture = level3_observed[row["id"]]
         jump_table = next((table for table in cfg.get("resolvedJumpTables", [])

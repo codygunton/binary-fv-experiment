@@ -16,7 +16,6 @@ DIRECT_NOW = {
 
 DIRECT_AFTER = {
     "ssz.readU32": "wrapper around the shared mem.readInt leaf",
-    "ssz.readU64": "wrapper around the shared mem.readInt leaf",
     "extern_io.write_output": "3-5 owned instructions around the proved write_output leaf",
     "ssz_decode_observation.Encoder.raw": "wrapper around extern_io.write_output",
     "ssz_decode_observation.Encoder.int": "wrapper around mem.writeInt and Encoder.raw",
@@ -82,7 +81,6 @@ def validate_direct_children(qualified: str, children: list[str]) -> None:
     names = [child_source_name(name) for name in children]
     expected = {
         "ssz.readU32": {"mem.readInt"},
-        "ssz.readU64": {"mem.readInt"},
         "extern_io.write_output": {"write_output"},
         "ssz_decode_observation.Encoder.raw": {"extern_io.write_output"},
         "ssz_decode_observation.Encoder.int": {
@@ -130,9 +128,13 @@ def render(inventory: dict, flames: list[dict]) -> str:
         })
     counts = {name: sum(row["disposition"] == name for row in rows) for name in (
         "direct-now", "direct-after-dependencies", "retain-contract")}
-    if len(rows) != 57 or counts != {
-            "direct-now": 8, "direct-after-dependencies": 40, "retain-contract": 9}:
+    parent_composed = [row for parent in inventory["parents"]
+                       for row in parent.get("parentComposedInlineInstances", [])]
+    if len(rows) != 43 or counts != {
+            "direct-now": 8, "direct-after-dependencies": 26, "retain-contract": 9}:
         raise ValueError(f"review coverage changed: instances={len(rows)}, counts={counts}")
+    if len(parent_composed) != 14:
+        raise ValueError(f"parent-composed inline instance count changed: {len(parent_composed)}")
     lines = [
         "# Level 3 direct-discharge review",
         "",
@@ -145,6 +147,7 @@ def render(inventory: dict, flames: list[dict]) -> str:
         "",
         f"Counts: {counts['direct-now']} direct now; "
         f"{counts['direct-after-dependencies']} direct after shared dependencies; "
+        f"{len(parent_composed)} parent-composed inline instances; "
         f"{counts['retain-contract']} retained contracts.",
         "",
         "| Instance | Source operation | Entry | Execution | Owned | Observed | Decision | Reason |",
@@ -157,13 +160,28 @@ def render(inventory: dict, flames: list[dict]) -> str:
             f"{row['disposition']} | {row['reason']} |")
     lines.extend([
         "",
+        "## Parent-composed inline instances",
+        "",
+        "These source instances do not form standalone machine regions. Their instructions must be",
+        "composed with `sszDecode` parent instructions through shared integer-reader fragments.",
+        "",
+        "| Instance | Source operation | Entry | Scheduled instructions |",
+        "|---|---|---:|---:|",
+    ])
+    for row in sorted(parent_composed, key=lambda value: value["executionPcs"][0]):
+        lines.append(
+            f"| `{row['instanceId']}` | `{row['qualified']}` | "
+            f"`0x{row['executionPcs'][0]:x}` | {len(row['executionPcs'])} |")
+    lines.extend([
+        "",
         "## Recommended proof order",
         "",
         "1. Prove generic `mem.readInt`, the staged `mem.writeInt`, and the five struct-field leaves.",
-        "2. Discharge all `ssz.readU32`, `ssz.readU64`, and `extern_io.write_output` wrappers.",
-        "3. Discharge `Encoder.raw`, then `Encoder.int`, then the two optional encoders.",
-        "4. Discharge `ssz.decodeWithdrawal` with the shared integer-read theorem.",
-        "5. Design assumptions only for the nine retained instances.",
+        "2. Discharge the standalone `ssz.readU32` and `extern_io.write_output` wrappers.",
+        "3. Compose the scheduled `ssz.readU32` and `ssz.readU64` fragments inside `sszDecode`.",
+        "4. Discharge `Encoder.raw`, then `Encoder.int`, then the two optional encoders.",
+        "5. Discharge `ssz.decodeWithdrawal` with the shared integer-read theorem.",
+        "6. Design assumptions only for the nine retained instances.",
         "",
         "A direct proof still needs a local semantic theorem statement. It avoids exposing that",
         "statement as an `hLevel3` premise and avoids a second refinement level for the wrapper.",
