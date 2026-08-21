@@ -620,4 +620,54 @@ theorem sszDecodeLengthMinimumBranchSeg (fromStep : Nat) (before : State)
       (by simp [RegsOutside, stepBookkeeping])
     exact ⟨after, by simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using full⟩
 
+def sszDecodeLengthShortOwnPc (pc : BitVec 64) : Prop := pc = 0x12200
+
+def sszDecodeLengthShortExitPc (pc : BitVec 64) : Prop := pc = 0x12204
+
+def sszDecodeLengthShortWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x10
+
+/-- Exact `0x12200: mv a0,a3`. -/
+theorem sszDecodeLengthShortMoveStep (stepNo : Nat) (state : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some 0x12200)
+    (inputSizeAt : state.regs.get? x13 = some inputSize)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x12200 retired x10 inputSize) false := by
+  have resultEq : inputSize = iTypeResult .ADDI 0 inputSize := by
+    change inputSize = inputSize + sign_extend (m := 64) (0#12)
+    rw [show sign_extend (m := 64) (0#12) = 0 by native_decide]
+    simp
+  apply configuredITypeX10Step stepNo 0x12200 state 0 (.Regidx 13#5) .ADDI
+    inputSize inputSize 0x13 0x85 0x06 0x00 configured atPc loaded (base := by rfl)
+  · exact resultEq
+  · intro premise writes
+    exact rX_x13_run premise inputSize ((writes.get x13 (by decide)).trans inputSizeAt)
+  · intro premise
+    rw [← resultEq]
+    exact wX_x10_run premise inputSize
+  · configured_decode configured
+
+/-- The short-input route reaches the shared minimum-length suffix. -/
+theorem sszDecodeLengthShortRouteSeg (fromStep : Nat) (before : State)
+    (configured : ConfiguredMachinePre EndpointMachinePc before)
+    (atPc : before.regs.get? PC = some 0x12200)
+    (inputSizeAt : before.regs.get? x13 = some inputSize)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully before.mem) :
+    ∃ after,
+      Seg sszDecodeLengthShortOwnPc sszDecodeLengthShortExitPc
+        (fun _ _ _ _ _ => False) sszDecodeLengthShortWrites noMemory
+        [⟨x10, inputSize⟩] fromStep 1 before after 0x12204 := by
+  obtain ⟨retired, retiredRead⟩ := configured.retiredCounter
+  have seg0 := Seg.nil sszDecodeLengthShortOwnPc sszDecodeLengthShortExitPc
+    (fun _ _ _ _ _ => False) sszDecodeLengthShortWrites noMemory
+    fromStep ⟨retired, retiredRead⟩ atPc
+  exact seg0.step
+    (by simp [sszDecodeLengthShortOwnPc])
+    (by simp [sszDecodeLengthShortExitPc]) x10 inputSize 0x12204
+    (sszDecodeLengthShortMoveStep fromStep before configured atPc inputSizeAt loaded)
+    (by native_decide) (by intro register bookkeeping; exact Or.inl bookkeeping)
+    (Or.inr rfl) (by decide) (by decide) (by simp [RegsOutside])
+
 end BinaryFv.Zesu.MachineExecution
