@@ -1137,7 +1137,7 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
       (fun _ _ _ _ _ => False) fromStep 17 args.origin.machine final := by
     simpa using finalSeg.confined 0 final endTrace
   have endpointTrace := liftDecodeInputParentTrace args.origin machineTrace
-  refine ⟨final, endpointTrace, entry', values, saved, ?_, finalSeg.atPc, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨final, endpointTrace, entry', values, saved, ?_, finalSeg.atPc, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · refine
       { stackFits := stackLower
         stackAligned := stackAligned
@@ -1160,6 +1160,8 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
         exitCode := rfl }
   · exact (finalSeg.get x1 (by simp [decodeInputParentWrites])).trans link
   · exact (finalSeg.get x10 (by simp [decodeInputParentWrites])).trans resultReg
+  · exact finalSeg.reg x8
+      (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) (by simp)
   · exact (finalSeg.get x11 (by simp [decodeInputParentWrites])).trans allocatorReg
   · exact (finalSeg.get x12 (by simp [decodeInputParentWrites])).trans inputReg
   · exact ⟨(finalSeg.get x13 (by simp [decodeInputParentWrites])).trans sizeReg,

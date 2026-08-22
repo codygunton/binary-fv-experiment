@@ -91,6 +91,8 @@ def DecodeInlineInitialEntry (args : DecodeInlineArgs) (state : EndpointState) :
     state.machine.regs.get? x1 = some (BitVec.ofNat 64 args.boundary.returnAddress) ∧
     state.machine.regs.get? x10 =
       some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) ∧
+    state.machine.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) ∧
     state.machine.regs.get? x11 =
       some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x10)) ∧
     state.machine.regs.get? x12 = some (BitVec.ofNat 64 args.boundary.inputAddress) ∧

@@ -42,6 +42,7 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual(row["occurrences"][0]["hostWrites"], [])
         self.assertEqual(row["occurrences"][0]["memoryWrites"], [])
         self.assertEqual(row["memoryAccessSummary"], {"loads": 1, "stores": 0})
+        self.assertEqual(row["bindingSnapshots"], [])
 
     def test_pairs_each_occurrence_with_its_own_host_writes(self):
         trace = copy.deepcopy(self.trace)
@@ -54,6 +55,23 @@ class EvidenceTest(unittest.TestCase):
         row = reduce_trace(self.manifest, trace, "twice")["instances"][0]
         self.assertEqual([[write["bytes"] for write in occurrence["hostWrites"]]
                           for occurrence in row["occurrences"]], [["01"], ["02"]])
+
+    def test_exports_only_declared_binding_snapshots(self):
+        manifest = {"instances": [{
+            "id": "decode", "qualified": "ssz_decode_root.decodeInput",
+            "entryPc": 0x121AC, "instructionPcs": [0x121AC],
+            "executionPcs": [0x121AC], "exitPcs": [0x121AC],
+        }]}
+        snapshot = {"available": 2 ** 32 - 1, "values": [0] * 32}
+        trace = {
+            "executed": [0x121AC],
+            "executions": [{"pc": 0x121AC, "registers": snapshot, "hostWrites": []}],
+            "registers": {0x121AC: [snapshot], 0x121B0: [snapshot]},
+            "loads": [], "stores": [], "hostWrites": [],
+            "terminalOutputs": [], "memoryWindows": [],
+        }
+        row = reduce_trace(manifest, trace, "sample")["instances"][0]
+        self.assertEqual(row["bindingSnapshots"], [{"pc": 0x121AC, "snapshots": [snapshot]}])
 
     def test_pairs_each_occurrence_with_its_own_memory_accesses(self):
         trace = copy.deepcopy(self.trace)
@@ -183,6 +201,7 @@ class EvidenceTest(unittest.TestCase):
         vector = {"label": "sample", "instances": [{
             "qualified": "ssz_decode_root.decodeInput", "entryReached": True,
             "entryRegisters": [{"values": snapshot}],
+            "bindingSnapshots": [{"pc": 0x121AC, "snapshots": [{"values": snapshot}]}],
             "memoryAccesses": [{"kind": "load", "address": 100}],
         }]}
         with tempfile.TemporaryDirectory() as directory:
@@ -206,10 +225,14 @@ class EvidenceTest(unittest.TestCase):
         ]}
         decode_regs, success_regs = [0] * 32, [0] * 32
         decode_regs[10], decode_regs[13], decode_regs[12] = 1000, 4, 100
+        decode_post = copy.deepcopy(decode_regs)
+        decode_post[8] = decode_regs[10]
         success_regs[10] = 2177
         vector = {"label": "sample", "instances": [
             {"qualified": "ssz_decode_root.decodeInput", "entryReached": True,
              "entryRegisters": [{"values": decode_regs}],
+             "bindingSnapshots": [{"pc": 0x121AC,
+                                    "snapshots": [{"values": decode_post}]}],
              "memoryAccesses": [{"kind": "load", "address": 100}]},
             {"qualified": "ssz_decode_observation.writeSuccess", "entryReached": True,
              "entryRegisters": [{"values": success_regs}], "memoryAccesses": []},
@@ -219,6 +242,48 @@ class EvidenceTest(unittest.TestCase):
             fixture.write_bytes(b"data")
             with self.assertRaisesRegex(ValueError, "decoded-result ABI slot mismatch"):
                 validate_bindings(manifest, bindings, [vector], {"sample": fixture})
+
+    def test_rejects_missing_decode_post_prologue_snapshot(self):
+        from analyze import validate_bindings
+        manifest, bindings, vector, fixture = self.decode_binding_fixture()
+        vector["instances"][0]["bindingSnapshots"] = []
+        with self.assertRaisesRegex(ValueError, "post-prologue snapshot mismatch"):
+            validate_bindings(manifest, bindings, [vector], {"sample": fixture})
+
+    def test_rejects_forged_decode_post_prologue_result_pointer(self):
+        from analyze import validate_bindings
+        manifest, bindings, vector, fixture = self.decode_binding_fixture()
+        post = vector["instances"][0]["bindingSnapshots"][0]["snapshots"][0]["values"]
+        post[8] += 1
+        with self.assertRaisesRegex(ValueError, "result pointer was not bound to x8"):
+            validate_bindings(manifest, bindings, [vector], {"sample": fixture})
+
+    def decode_binding_fixture(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        fixture = Path(directory.name) / "input"
+        fixture.write_bytes(b"data")
+        manifest = {
+            "artifact": {"sha256": "digest"},
+            "instances": [{"id": "decode", "qualified": "ssz_decode_root.decodeInput"}],
+        }
+        bindings = {
+            "artifact": manifest["artifact"],
+            "instances": [{
+                "id": "decode", "qualified": "ssz_decode_root.decodeInput",
+                "bindings": [{"name": "alloc", "addressRegister": 11}],
+            }],
+        }
+        entry, post = [0] * 32, [0] * 32
+        entry[10], entry[12], entry[13] = 1000, 100, 4
+        post[8] = entry[10]
+        vector = {"label": "sample", "instances": [{
+            "qualified": "ssz_decode_root.decodeInput", "entryReached": True,
+            "entryRegisters": [{"values": entry}],
+            "bindingSnapshots": [{"pc": 0x121AC, "snapshots": [{"values": post}]}],
+            "memoryAccesses": [{"kind": "load", "address": 100}],
+        }]}
+        return manifest, bindings, vector, fixture
 
     def test_decode_run_records_exact_observed_interval(self):
         manifest = {"instances": [

@@ -12,6 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from elf_identity import load_image_sha256
 
 
+BINDING_SNAPSHOT_PCS = {
+    "ssz_decode_root.decodeInput": {0x121AC},
+}
+
+
 def parse_trace(path: Path) -> dict:
     executed, executions, registers, loads, stores, host_writes, outputs, windows = \
         [], [], {}, [], [], [], [], []
@@ -163,6 +168,11 @@ def reduce_trace(manifest: dict, trace: dict, label: str,
             "qualified": instance["qualified"],
             "entryReached": bool(entries),
             "entryRegisters": entries,
+            "bindingSnapshots": [
+                {"pc": pc, "snapshots": trace["registers"][pc]}
+                for pc in sorted(BINDING_SNAPSHOT_PCS.get(instance["qualified"], set()))
+                if pc in trace["registers"]
+            ],
             "executedOwnedPcs": sorted(observed_owned),
             "executedExtentPcs": sorted(observed_extent),
             "observedExitTransitions": [list(pair) for pair in sorted(set(transitions))],
@@ -202,6 +212,14 @@ def validate_bindings(manifest: dict, bindings: dict, vectors: list[dict],
         if not decode["entryReached"]:
             continue
         size = inputs[vector["label"]].stat().st_size
+        snapshots_by_pc = {
+            row["pc"]: row["snapshots"] for row in decode["bindingSnapshots"]
+        }
+        prologue_snapshots = snapshots_by_pc.get(0x121AC, [])
+        if len(prologue_snapshots) != len(decode["entryRegisters"]):
+            raise ValueError(
+                f"decodeInput post-prologue snapshot mismatch for {vector['label']}"
+            )
         for snapshot in decode["entryRegisters"]:
             pointer = snapshot["values"][12]
             if snapshot["values"][13] != size:
@@ -209,12 +227,23 @@ def validate_bindings(manifest: dict, bindings: dict, vectors: list[dict],
             if not any(access["kind"] == "load" and access["address"] == pointer
                        for access in decode["memoryAccesses"]):
                 raise ValueError(f"decodeInput input pointer was not observed as a load base for {vector['label']}")
+        for entry_snapshot, prologue_snapshot in zip(
+            decode["entryRegisters"], prologue_snapshots, strict=True
+        ):
+            entry_values = entry_snapshot["values"]
+            prologue_values = prologue_snapshot["values"]
+            if prologue_values[8] != entry_values[10]:
+                raise ValueError(
+                    f"decodeInput result pointer was not bound to x8 for {vector['label']}"
+                )
         checks.append({
             "vector": vector["label"],
             "inputSize": size,
             "snapshots": len(decode["entryRegisters"]),
             "inputPointerRegister": 12,
             "inputSizeRegister": 13,
+            "postProloguePc": 0x121AC,
+            "resultPointerRegister": 8,
         })
         success = next((row for row in vector["instances"]
                         if row["qualified"] == "ssz_decode_observation.writeSuccess"), None)
