@@ -135,6 +135,8 @@ structure SszDecodeSchemaWordExit (args : DecodeInlineArgs) (readArgs : MemReadI
     some (BitVec.ofNat 64 args.boundary.input.size)
   sourceAt : state.machine.regs.get? x18 =
     some (BitVec.ofNat 64 args.boundary.inputAddress)
+  resultAt : state.machine.regs.get? x8 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20))
   schemaAt : state.machine.regs.get? x14 = some (memReadIntResult readArgs)
   input : BytesRep state.machine.mem args.boundary.inputAddress args.boundary.input
   access : DecodeBoundaryMachineAccess args.boundary state.machine
@@ -152,6 +154,8 @@ structure SszDecodeMarkerReady (args : DecodeInlineArgs) (machine : State) : Pro
   stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64
   sourceAt : machine.regs.get? x18 =
     some (BitVec.ofNat 64 (args.boundary.inputAddress + 4))
+  resultAt : machine.regs.get? x8 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20))
   inputAtLeastFour : 4 ≤ args.boundary.input.size
   input : BytesRep machine.mem args.boundary.inputAddress args.boundary.input
   access : DecodeBoundaryMachineAccess args.boundary machine
@@ -163,6 +167,8 @@ structure SszDecodeCleanupReady (args : DecodeInlineArgs) (machine : State) : Pr
   atPc : machine.regs.get? PC = some 0x1225c
   atStack : machine.regs.get? x2 =
     some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
+  resultAt : machine.regs.get? x8 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20))
   stackFits : 0xbb0 ≤ args.boundary.stackPointer
   stackAligned : args.boundary.stackPointer % 16 = 0
   stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64
@@ -257,6 +263,8 @@ theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
       Runs (try_step (fromStep + 22) false) callReady callState.machine false ∧
       callState.machine.regs.get? x2 =
         some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) ∧
+      callState.machine.regs.get? x8 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) ∧
       Agree instructionPreserved before callState.machine ∧
       callState.machine.regs.get? pma_regions = before.regs.get? pma_regions ∧
       callState = { template with machine := callState.machine } ∧
@@ -371,6 +379,10 @@ theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
       some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) := by
     exact (callWrites.get x2 (by decide)).trans
       ((seg.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans ready.atStack)
+  have callResult : callState.machine.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) := by
+    exact (callWrites.get x8 (by decide)).trans
+      ((seg.get x8 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans ready.resultAt)
   have callAgree : Agree instructionPreserved before callState.machine := by
     have parentAgree := seg.agree instructionPreserved_disjoint_sszDecodeCleanupWrites
     have stepAgree := callWrites.agree (by
@@ -380,7 +392,7 @@ theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
       · exact preserved.2 rfl)
     simpa only [callState] using parentAgree.trans stepAgree
   exact ⟨callReady, callState, seg, by simpa [callState, callMachine] using callRun,
-    callStack, callAgree, by simpa [callState] using pmaEq, by simp [callState], entry⟩
+    callStack, callResult, callAgree, by simpa [callState] using pmaEq, by simp [callState], entry⟩
 
 /-- Apply the unconditional `memcpy` contract at the cleanup call boundary. -/
 theorem sszDecodeCleanupMemcpyChild (fromStep : Nat) (args : DecodeInlineArgs)
@@ -395,6 +407,8 @@ theorem sszDecodeCleanupMemcpyChild (fromStep : Nat) (args : DecodeInlineArgs)
       Runs (try_step (fromStep + 22) false) callReady callState.machine false ∧
       callState.machine.regs.get? x2 =
         some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) ∧
+      callState.machine.regs.get? x8 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) ∧
       Agree instructionPreserved before callState.machine ∧
       callState.machine.regs.get? pma_regions = before.regs.get? pma_regions ∧
       callState = { template with machine := callState.machine } ∧
@@ -402,13 +416,13 @@ theorem sszDecodeCleanupMemcpyChild (fromStep : Nat) (args : DecodeInlineArgs)
       ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
         (fromStep + 23) used callState after ∧
       MemcpyExit (sszDecodeCleanupMemcpyArgs args) () callState after := by
-  obtain ⟨callReady, callState, seg, callRun, callStack, callAgree, callPma, callStateEq,
-    entry⟩ :=
+  obtain ⟨callReady, callState, seg, callRun, callStack, callResult, callAgree, callPma,
+    callStateEq, entry⟩ :=
     sszDecodeCleanupMemcpyEntry fromStep args template before ready
   obtain ⟨used, after, _outcome, _positive, _bounded, childTrace, _childExitPc, _allowed,
     childExit⟩ := MemcpyInstanceContract.implements memcpyInstanceContract
       (sszDecodeCleanupMemcpyArgs args) (fromStep + 23) callState entry
-  exact ⟨callReady, callState, used, after, seg, callRun, callStack, callAgree, callPma,
+  exact ⟨callReady, callState, used, after, seg, callRun, callStack, callResult, callAgree, callPma,
     callStateEq, entry, childTrace, childExit⟩
 
 private theorem instructionPreserved_abiCalleePreserved_cleanup (register : Register)
@@ -424,6 +438,8 @@ structure SszDecodeCleanupResume (args : DecodeInlineArgs) (machine : State) : P
   atPc : machine.regs.get? PC = some 0x122b8
   atStack : machine.regs.get? x2 =
     some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
+  resultAt : machine.regs.get? x8 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20))
   stackFits : 0xbb0 ≤ args.boundary.stackPointer
   stackAligned : args.boundary.stackPointer % 16 = 0
   stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64
@@ -446,8 +462,8 @@ theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
       ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
         (fromStep + 23) used callState after ∧
       SszDecodeCleanupResume args after.machine := by
-  obtain ⟨callReady, callState, used, after, seg, callRun, callStack, callAgree, callPma,
-    callStateEq, entry, childTrace, childExit⟩ :=
+  obtain ⟨callReady, callState, used, after, seg, callRun, callStack, callResult, callAgree,
+    callPma, callStateEq, entry, childTrace, childExit⟩ :=
     sszDecodeCleanupMemcpyChild fromStep args template before ready
   rcases childExit with ⟨childPc, _stdin, _cursor, _stdout, _exitCode, _destination,
     _source, codeAfter, _childMem, childFrame⟩
@@ -462,6 +478,7 @@ theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
   have resume : SszDecodeCleanupResume args after.machine :=
     { atPc := by simpa [sszDecodeCleanupMemcpyArgs] using childPc
       atStack := (childFrame.1 x2 (by simp [abiCalleePreserved])).trans callStack
+      resultAt := (childFrame.1 x8 (by simp [abiCalleePreserved])).trans callResult
       stackFits := ready.stackFits
       stackAligned := ready.stackAligned
       stackUpper := ready.stackUpper
@@ -572,14 +589,17 @@ theorem sszDecodeCleanupResumeTrace (fromStep : Nat) (args : DecodeInlineArgs)
       ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep 21
         { template with machine := before } { template with machine := after } ∧
       after.regs.get? PC = some 0x1230c ∧
-      after.regs.get? x22 = some 1 := by
+      after.regs.get? x22 = some 1 ∧
+      after.regs.get? x8 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) := by
   obtain ⟨after, seg⟩ := sszDecodeCleanupAfterMemcpyComplete fromStep args before resume.atPc
     resume.atStack resume.stackFits resume.stackAligned resume.stackUpper resume.access
     resume.access.configured resume.code
   have localTrace := scopedTraceOfSegAtExit seg (by simp [sszDecodeCleanupExitPc])
   have lifted := liftSszDecodeParentTrace sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
     sszDecodeCleanupOwnPc_in_initial sszDecodeCleanupOwnPc_not_observed template localTrace
-  exact ⟨after, by simpa using lifted, seg.atPc, seg.reg x22 1 (by simp)⟩
+  exact ⟨after, by simpa using lifted, seg.atPc, seg.reg x22 1 (by simp),
+    (seg.get x8 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans resume.resultAt⟩
 
 /-- The proved `memcpy` body and the 21-step cleanup tail execute in dependency order. -/
 theorem sszDecodeCleanupChildAndTail (fromStep : Nat) (args : DecodeInlineArgs)
@@ -591,14 +611,17 @@ theorem sszDecodeCleanupChildAndTail (fromStep : Nat) (args : DecodeInlineArgs)
       ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
         (fromStep + 23 + childUsed) 21 childAfter
         { childAfter with machine := after } ∧
-      after.regs.get? x22 = some 1 := by
+      after.regs.get? x22 = some 1 ∧
+      after.regs.get? x8 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) := by
   obtain ⟨_callReady, callState, childUsed, childAfter, _seg, _callRun, _callAtPc,
     _callStateEq, childTrace, resume⟩ :=
     sszDecodeCleanupAfterMemcpy fromStep args template before ready
-  obtain ⟨after, tailTrace, _tailPc, tag⟩ :=
+  obtain ⟨after, tailTrace, _tailPc, tag, resultAt⟩ :=
     sszDecodeCleanupResumeTrace (fromStep + 23 + childUsed) args childAfter
       childAfter.machine resume
-  exact ⟨callState, childUsed, childAfter, after, childTrace, by simpa using tailTrace, tag⟩
+  exact ⟨callState, childUsed, childAfter, after, childTrace, by simpa using tailTrace, tag,
+    resultAt⟩
 
 /-- The cleanup parent prefix, proved `memcpy` child, and return tail form one decoder trace. -/
 theorem sszDecodeCleanupTrace (fromStep : Nat) (args : DecodeInlineArgs)
@@ -607,7 +630,9 @@ theorem sszDecodeCleanupTrace (fromStep : Nat) (args : DecodeInlineArgs)
       ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep
         (23 + childUsed + 21) { template with machine := before } after ∧
       after.machine.regs.get? PC = some 0x1230c ∧
-      after.machine.regs.get? x22 = some 1 := by
+      after.machine.regs.get? x22 = some 1 ∧
+      after.machine.regs.get? x8 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) := by
   obtain ⟨callReady, callState, childUsed, childAfter, seg, callRun, callAtPc,
     callStateEq, childTrace, resume⟩ :=
     sszDecodeCleanupAfterMemcpy fromStep args template before ready
@@ -626,7 +651,7 @@ theorem sszDecodeCleanupTrace (fromStep : Nat) (args : DecodeInlineArgs)
       simpa [Nat.add_assoc] using parentMachineTrace)
   have childTrace' := childTrace.weaken (fun _ inside => memcpyPc_in_sszDecodeInitial inside)
   rw [callStateEq] at childTrace'
-  obtain ⟨tailMachine, tailTrace, tailPc, tag⟩ :=
+  obtain ⟨tailMachine, tailTrace, tailPc, tag, resultAt⟩ :=
     sszDecodeCleanupResumeTrace (fromStep + 23 + childUsed) args childAfter childAfter.machine
       resume
   rcases childAfter with ⟨childMachine, childStdin, childCursor, childStdout, childExitCode⟩
@@ -643,7 +668,7 @@ theorem sszDecodeCleanupTrace (fromStep : Nat) (args : DecodeInlineArgs)
     { machine := tailMachine, stdin := childStdin, stdinCursor := childCursor,
       stdout := childStdout, exitCode := childExitCode },
     by simpa [Nat.add_assoc] using fullTrace,
-    tailPc, tag⟩
+    tailPc, tag, resultAt⟩
 
 private theorem instructionPreserved_disjoint_sszDecodeLengthValidatedWrites_for_staging :
     RegSet.Disjoint instructionPreserved sszDecodeLengthValidatedWrites := by
@@ -998,6 +1023,9 @@ theorem sszDecodeRejectedMarkerTrace (fromStep : Nat) (args : DecodeInlineArgs)
       atStack := by
         simpa [after] using
           (seg.get x2 (by simp [sszDecodeSchemaMarkerWrites, stepBookkeeping])).trans ready.atStack
+      resultAt := by
+        simpa [after] using
+          (seg.get x8 (by simp [sszDecodeSchemaMarkerWrites, stepBookkeeping])).trans ready.resultAt
       stackFits := ready.stackFits
       stackAligned := ready.stackAligned
       stackUpper := ready.stackUpper
@@ -1019,6 +1047,8 @@ theorem sszDecodeSchemaWordPrefixAndChild (fromStep : Nat) (args : DecodeInlineA
       some (BitVec.ofNat 64 args.boundary.input.size))
     (sourceAt : before.machine.regs.get? x18 =
       some (BitVec.ofNat 64 args.boundary.inputAddress))
+    (resultAt : before.machine.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)))
     (comparison : zopz0zKzJ_u 3 (BitVec.ofNat 64 args.boundary.input.size) = false) :
     ∃ used middle after readArgs,
       readArgs.address = args.boundary.inputAddress ∧
@@ -1067,11 +1097,15 @@ theorem sszDecodeSchemaWordPrefixAndChild (fromStep : Nat) (args : DecodeInlineA
   have middleStack : middle.machine.regs.get? x2 =
       some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) :=
     (prefixSeg.get x2 (by simp [sszDecodeAllocatorPrefixWrites])).trans frame.atStack
+  have middleResult : middle.machine.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) :=
+    (prefixSeg.get x8 (by simp [sszDecodeAllocatorPrefixWrites])).trans resultAt
   have typedExit : SszDecodeSchemaWordExit args readArgs after :=
     ⟨childAtPc,
       (childWrites.get x2 (by simp [memReadIntWrites])).trans middleStack,
       (childWrites.get x13 (by simp [memReadIntWrites])).trans middleInputSize,
       (childWrites.get x18 (by simp [memReadIntWrites])).trans middleSource,
+      (childWrites.get x8 (by simp [memReadIntWrites])).trans middleResult,
       schemaAfter,
       childMachineEntry.input.of_mem_eq childMem,
       childMachineEntry.access.of_pma_regions_eq
@@ -1100,6 +1134,8 @@ theorem sszDecodeValidatedLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
       some (BitVec.ofNat 64 args.boundary.input.size))
     (sourceAt : before.machine.regs.get? x18 =
       some (BitVec.ofNat 64 args.boundary.inputAddress))
+    (resultAt : before.machine.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)))
     (fieldComparison : zopz0zKzJ_u 3 (BitVec.ofNat 64 args.boundary.input.size) = false)
     (lengthEqual : ∀ (bound : 4 ≤ args.boundary.input.size)
       (fits : args.boundary.inputAddress + args.boundary.input.size ≤ 2 ^ 64),
@@ -1116,7 +1152,7 @@ theorem sszDecodeValidatedLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
   obtain ⟨used, middle, childAfter, readArgs, readAddress, readShape, bounded,
     prefixAndChild, childReady, childExit⟩ :=
     sszDecodeSchemaWordPrefixAndChild fromStep args values before frame atPc allocatorAt
-      inputSizeAt sourceAt fieldComparison
+      inputSizeAt sourceAt resultAt fieldComparison
   rcases readShape with ⟨bound, fits, readArgsEq⟩
   subst readArgs
   let candidate := iTypeResult .ADDI 0xffc (BitVec.ofNat 64 args.boundary.input.size)
@@ -1184,6 +1220,10 @@ theorem sszDecodeValidatedLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
       (minimumSeg.get x2 (by simp [sszDecodeLengthMinimumWrites, stepBookkeeping])).trans
         ((validatedSeg.get x2
           (by simp [sszDecodeLengthValidatedWrites, stepBookkeeping])).trans childReady.atStack)
+    have finalResult :=
+      (minimumSeg.get x8 (by simp [sszDecodeLengthMinimumWrites, stepBookkeeping])).trans
+        ((validatedSeg.get x8
+          (by simp [sszDecodeLengthValidatedWrites, stepBookkeeping])).trans childReady.resultAt)
     have finalInput := childReady.input.of_mem_eq finalMemory
     have finalCode : Artifacts.programImage.fileBytesLoadedFaithfully finalMachine.mem := by
       rw [minimumMemory]
@@ -1211,6 +1251,7 @@ theorem sszDecodeValidatedLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
       · exact frame.stackAligned
       · exact frame.stackUpper
       · exact finalSource'
+      · exact finalResult
       · exact bound
       · exact finalInput
       · exact minimumAccess
@@ -1230,6 +1271,8 @@ theorem sszDecodeValidatedMarkerRoutes (fromStep : Nat) (args : DecodeInlineArgs
       some (BitVec.ofNat 64 args.boundary.input.size))
     (sourceAt : before.machine.regs.get? x18 =
       some (BitVec.ofNat 64 args.boundary.inputAddress))
+    (resultAt : before.machine.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)))
     (fieldComparison : zopz0zKzJ_u 3 (BitVec.ofNat 64 args.boundary.input.size) = false)
     (lengthEqual : ∀ (bound : 4 ≤ args.boundary.input.size)
       (fits : args.boundary.inputAddress + args.boundary.input.size ≤ 2 ^ 64),
@@ -1246,7 +1289,7 @@ theorem sszDecodeValidatedMarkerRoutes (fromStep : Nat) (args : DecodeInlineArgs
           forkNameSelectionExit (forkNameArgsForSchema schema) outcome childBefore after) := by
   obtain ⟨parentUsed, markerState, parentBound, parentTrace, markerPc, markerReady⟩ :=
     sszDecodeValidatedLengthTrace fromStep args values before frame atPc allocatorAt inputSizeAt
-      sourceAt fieldComparison lengthEqual minimumComparison
+      sourceAt resultAt fieldComparison lengthEqual minimumComparison
   have ready := markerReady rfl
   have inputAtLeastSix := inputAtLeastSix_of_minimumComparison args.boundary.input.size
     ready.inputAtLeastFour frame.inputSize.1 minimumComparison
@@ -1283,6 +1326,8 @@ theorem sszDecodeShortLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
       some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x10)))
     (inputSizeAt : before.machine.regs.get? x13 =
       some (BitVec.ofNat 64 args.boundary.input.size))
+    (resultAt : before.machine.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)))
     (fieldComparison : zopz0zKzJ_u 3 (BitVec.ofNat 64 args.boundary.input.size) = true)
     (minimumComparison : zopz0zI_u (BitVec.ofNat 64 args.boundary.input.size) 2 = short) :
     ∃ after,
@@ -1360,6 +1405,13 @@ theorem sszDecodeShortLengthTrace (fromStep : Nat) (args : DecodeInlineArgs)
           (minimumSeg.get x2 (by simp [sszDecodeLengthMinimumWrites, stepBookkeeping])).trans
             ((shortSeg.get x2 (by simp [sszDecodeLengthShortWrites, stepBookkeeping])).trans
               shortEntry.atStack)
+      resultAt := by
+        simpa [after] using
+          (minimumSeg.get x8 (by simp [sszDecodeLengthMinimumWrites, stepBookkeeping])).trans
+            ((shortSeg.get x8
+              (by simp [sszDecodeLengthShortWrites, stepBookkeeping])).trans
+              ((prefixSeg.get x8
+                (by simp [sszDecodeAllocatorPrefixWrites, stepBookkeeping])).trans resultAt))
       stackFits := shortEntry.stackFits
       stackAligned := shortEntry.stackAligned
       stackUpper := shortEntry.stackUpper
