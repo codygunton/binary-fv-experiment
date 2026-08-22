@@ -497,6 +497,28 @@ structure SszDecodeResultStoresReady (args : DecodeInlineArgs) (machine : State)
   code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
   generalRegisters : GeneralRegistersPresent machine
 
+/-- The eleven live registers consumed by the twelve result stores at `0x1230c..0x12338`. -/
+structure SszDecodeResultStoreSources (machine : State) : Prop where
+  ra : ∃ value, machine.regs.get? x1 = some value
+  t0 : ∃ value, machine.regs.get? x5 = some value
+  s1 : ∃ value, machine.regs.get? x9 = some value
+  a5 : ∃ value, machine.regs.get? x15 = some value
+  a6 : ∃ value, machine.regs.get? x16 = some value
+  a7 : ∃ value, machine.regs.get? x17 = some value
+  s3 : ∃ value, machine.regs.get? x19 = some value
+  s4 : ∃ value, machine.regs.get? x20 = some value
+  s7 : ∃ value, machine.regs.get? x23 = some value
+  s10 : ∃ value, machine.regs.get? x26 = some value
+  t6 : ∃ value, machine.regs.get? x31 = some value
+
+/-- Project only the register values required by the result-store family. -/
+theorem SszDecodeResultStoresReady.sources {args : DecodeInlineArgs} {machine : State}
+    (ready : SszDecodeResultStoresReady args machine) :
+    SszDecodeResultStoreSources machine := by
+  constructor <;>
+    apply ready.generalRegisters.read <;>
+    simp [architecturalIntegerRegisters]
+
 /-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
 theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
     (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :

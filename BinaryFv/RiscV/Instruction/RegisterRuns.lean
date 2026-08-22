@@ -83,6 +83,7 @@ gen_rx_run 27 ↦ x27, rX_x27_run
 gen_rx_run 28 ↦ x28, rX_x28_run
 gen_rx_run 29 ↦ x29, rX_x29_run
 gen_rx_run 30 ↦ x30, rX_x30_run
+gen_rx_run 31 ↦ x31, rX_x31_run
 
 gen_wx_run 1 ↦ x1, wX_x1_run
 gen_wx_run 2 ↦ x2, wX_x2_run

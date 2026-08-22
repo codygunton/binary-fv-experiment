@@ -1579,6 +1579,106 @@ private theorem sszDecodeCleanupSuccessTagStep (stepNo : Nat) (state : State)
     (by configured_decode configured) (by native_decide) (by rfl)
     (by decide) (by decide) (by decide) (by decide)
 
+/-- Execute one result word store through the shared base-register store theorem. -/
+theorem sszDecodeResultDwordStoreStep (stepNo pc offset : Nat) (imm : BitVec 12)
+    (sourceIndex : regidx) (byte0 byte1 byte2 byte3 : UInt8)
+    (args : DecodeInlineArgs) (state : State) (value : BitVec 64)
+    (access : DecodeBoundaryMachineAccess args.boundary state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (resultAt : state.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)))
+    (sourceRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits sourceIndex) premise premise value)
+    (offsetBound : 0x20 + offset + 8 ≤ 0x380)
+    (aligned : (args.boundary.stackPointer + 0x20 + offset) % 8 = 0)
+    (fits : args.boundary.stackPointer + 0x20 + offset + 8 ≤ 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (addressEq : BitVec.ofNat 64 (args.boundary.stackPointer + 0x20) +
+      sign_extend (m := 64) imm =
+        BitVec.ofNat 64 (args.boundary.stackPointer + 0x20 + offset))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
+      (.STORE (imm, sourceIndex, .Regidx 8#5, 8)))
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat)) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement state) (BitVec.ofNat 64 pc))
+          (args.boundary.stackPointer + 0x20 + offset) value)
+        (BitVec.ofNat 64 pc) retired) false := by
+  apply configuredBaseDwordStoreStep stepNo pc
+    (args.boundary.stackPointer + 0x20) offset state value imm (.Regidx 8#5) sourceIndex
+    byte0 byte1 byte2 byte3 access.configured atPc
+    (by simpa [Nat.add_assoc] using access.callerStore (0x20 + offset) 8 offsetBound)
+    (by simpa [LoadMMIOAddressExcluded, StoreMMIOAddressExcluded, Nat.add_assoc] using
+      access.callerNoMMIO (0x20 + offset) 8 offsetBound)
+    aligned fits loaded addressEq decode (site := site) (base := base)
+  · intro premise writes
+    exact rX_x8_run premise _ ((writes.get x8 (by decide)).trans resultAt)
+  · exact sourceRun
+
+/-- Declare one exact result word store from the shared base-register theorem. -/
+macro "sszDecodeResultDwordSite(" name:ident ";" pc:term "," offset:term ";"
+    sourceIndex:term "," sourceRegister:term "," sourceRun:term ";"
+    byte0:term "," byte1:term "," byte2:term "," byte3:term ")" : command =>
+  `(theorem $name (stepNo : Nat) (args : DecodeInlineArgs) (state : State)
+      (value : BitVec 64) (access : DecodeBoundaryMachineAccess args.boundary state)
+      (atPc : state.regs.get? PC = some (BitVec.ofNat 64 $pc))
+      (resultAt : state.regs.get? x8 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)))
+      (sourceAt : state.regs.get? $sourceRegister = some value)
+      (stackAligned : args.boundary.stackPointer % 16 = 0)
+      (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+      (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+      ∃ retired, Runs (try_step stepNo false) state
+        (tryStepStoreAfterRetired
+          (afterWriteBytes (width := 8)
+            (coreStoreNextState (tryStepStoreAfterIncrement state) (BitVec.ofNat 64 $pc))
+            (args.boundary.stackPointer + 0x20 + $offset) value)
+          (BitVec.ofNat 64 $pc) retired) false := by
+      apply sszDecodeResultDwordStoreStep stepNo $pc $offset (BitVec.ofNat 12 $offset)
+        $sourceIndex $byte0 $byte1 $byte2 $byte3 args state value access atPc resultAt
+      · intro premise writes
+        exact $sourceRun premise value ((writes.get $sourceRegister (by decide)).trans sourceAt)
+      · omega
+      · omega
+      · omega
+      · exact loaded
+      · change BitVec.ofNat 64 (args.boundary.stackPointer + 0x20) +
+          BitVec.ofNat 64 $offset = _
+        rw [← BitVec.ofNat_add]
+      · configured_store_decode access.configured
+      · exact (by native_decide)
+      · exact (by rfl))
+
+sszDecodeResultDwordSite(sszDecodeResultStoreS1; 0x1230c, 0x00;
+  (.Regidx 9#5), x9, rX_x9_run; 0x23, 0x30, 0x94, 0x00)
+sszDecodeResultDwordSite(sszDecodeResultStoreS10; 0x12310, 0x08;
+  (.Regidx 26#5), x26, rX_x26_run; 0x23, 0x34, 0xa4, 0x01)
+sszDecodeResultDwordSite(sszDecodeResultStoreS4; 0x12314, 0x10;
+  (.Regidx 20#5), x20, rX_x20_run; 0x23, 0x38, 0x44, 0x01)
+sszDecodeResultDwordSite(sszDecodeResultStoreS3; 0x12318, 0x18;
+  (.Regidx 19#5), x19, rX_x19_run; 0x23, 0x3c, 0x34, 0x01)
+sszDecodeResultDwordSite(sszDecodeResultStoreA7; 0x1231c, 0x20;
+  (.Regidx 17#5), x17, rX_x17_run; 0x23, 0x30, 0x14, 0x03)
+sszDecodeResultDwordSite(sszDecodeResultStoreA6; 0x12320, 0x28;
+  (.Regidx 16#5), x16, rX_x16_run; 0x23, 0x34, 0x04, 0x03)
+sszDecodeResultDwordSite(sszDecodeResultStoreT6; 0x12324, 0x30;
+  (.Regidx 31#5), x31, rX_x31_run; 0x23, 0x38, 0xf4, 0x03)
+sszDecodeResultDwordSite(sszDecodeResultStoreT0; 0x12328, 0x38;
+  (.Regidx 5#5), x5, rX_x5_run; 0x23, 0x3c, 0x54, 0x02)
+sszDecodeResultDwordSite(sszDecodeResultStoreS7First; 0x1232c, 0x40;
+  (.Regidx 23#5), x23, rX_x23_run; 0x23, 0x30, 0x74, 0x05)
+sszDecodeResultDwordSite(sszDecodeResultStoreA5; 0x12330, 0x48;
+  (.Regidx 15#5), x15, rX_x15_run; 0x23, 0x34, 0xf4, 0x04)
+sszDecodeResultDwordSite(sszDecodeResultStoreS7Second; 0x12334, 0x50;
+  (.Regidx 23#5), x23, rX_x23_run; 0x23, 0x38, 0x74, 0x05)
+sszDecodeResultDwordSite(sszDecodeResultStoreRa; 0x12338, 0x58;
+  (.Regidx 1#5), x1, rX_x1_run; 0x23, 0x3c, 0x14, 0x04)
+
 def sszDecodeCleanupOwnPc (pc : BitVec 64) : Prop :=
   0x1225c ≤ pc.toNat ∧ pc.toNat < 0x1230c
 
