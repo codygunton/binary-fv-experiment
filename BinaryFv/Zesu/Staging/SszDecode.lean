@@ -1592,6 +1592,151 @@ theorem sszDecodeFixedCopy0AfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs
       copied0 := by simpa [sszDecodeFixedCopy0Args] using destination }
   exact ⟨callState, used, after, callRun, childTrace, resume⟩
 
+/-- Common facts at any fixed-size `memcpy` call owned by `ssz.decode`. -/
+structure SszDecodeFixedMemcpyReady (args : DecodeInlineArgs) (memcpyArgs : MemcpyArgs)
+    (callPc returnPc : BitVec 64) (state : State) : Prop where
+  returnListed : memcpyArgs.returnAddress ∈ Elflings.memcpyExitPcs
+  returnEq : memcpyArgs.returnAddress = returnPc.toNat
+  sizeFits : memcpyArgs.bytes.size < 2 ^ 64
+  destinationFits : memcpyArgs.destination + memcpyArgs.bytes.size ≤ 2 ^ 64
+  sourceFits : memcpyArgs.source + memcpyArgs.bytes.size ≤ 2 ^ 64
+  disjoint : memcpyArgs.destination + memcpyArgs.bytes.size ≤ memcpyArgs.source ∨
+    memcpyArgs.source + memcpyArgs.bytes.size ≤ memcpyArgs.destination
+  atPc : state.regs.get? PC = some callPc
+  atDestination : state.regs.get? x10 = some (BitVec.ofNat 64 memcpyArgs.destination)
+  atSource : state.regs.get? x11 = some (BitVec.ofNat 64 memcpyArgs.source)
+  atSize : state.regs.get? x12 = some (BitVec.ofNat 64 memcpyArgs.bytes.size)
+  atStack : state.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
+  resultAt : state.regs.get? x8 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20))
+  source : BytesRep state.mem memcpyArgs.source memcpyArgs.bytes
+  code : Artifacts.programImage.fileBytesLoadedFaithfully state.mem
+  access : DecodeBoundaryMachineAccess args.boundary state
+  memcpyAccess : ∀ template : EndpointState,
+    MemcpyMachineAccess memcpyArgs { template with machine := state }
+  generalRegisters : GeneralRegistersPresent state
+
+/-- Execute one exact fixed-copy call and construct the shared `MemcpyEntry`. -/
+theorem sszDecodeFixedMemcpyEntry (stepNo : Nat) (args : DecodeInlineArgs)
+    (memcpyArgs : MemcpyArgs) (callPc returnPc : BitVec 64) (template : EndpointState)
+    (before : State) (ready : SszDecodeFixedMemcpyReady args memcpyArgs callPc returnPc before)
+    (call : ∃ retired, Runs (try_step stepNo false) before
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement before) callPc 0x101d4 x1 returnPc)
+        0x101d4 retired) false) :
+    ∃ callState : EndpointState,
+      Runs (try_step stepNo false) before callState.machine false ∧
+      callState = { template with machine := callState.machine } ∧
+      callState.machine.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) ∧
+      callState.machine.regs.get? x8 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) ∧
+      callState.machine.mem = before.mem ∧
+      DecodeBoundaryMachineAccess args.boundary callState.machine ∧
+      GeneralRegistersPresent callState.machine ∧
+      MemcpyEntry memcpyArgs callState := by
+  obtain ⟨retired, callRun⟩ := call
+  let callMachine := tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement before) callPc 0x101d4 x1 returnPc)
+    0x101d4 retired
+  let callState : EndpointState := { template with machine := callMachine }
+  have callWrites : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x1))
+      before callMachine := by
+    simpa [callMachine, callLinkState] using
+      callRetirement_writes before callPc 0x101d4 retired x1 returnPc
+  have pmaEq : callMachine.regs.get? pma_regions = before.regs.get? pma_regions :=
+    callWrites.get pma_regions (by simp [stepBookkeeping])
+  have callConfigured : ConfiguredMachinePre EndpointMachinePc callMachine := by
+    apply ready.access.configured.mono
+    · exact callWrites.agree (by
+        intro register preserved written
+        rcases written with bookkeeping | rfl
+        · exact platformPreserved_disjoint register preserved.1 bookkeeping
+        · exact preserved.2 rfl)
+    · simpa [callMachine] using tryStepControlFlowAfterRetired_retired_present
+        (callLinkState (tryStepControlFlowAfterIncrement before) callPc 0x101d4 x1 returnPc)
+        0x101d4 retired
+  have callMemory : callMachine.mem = before.mem := by
+    simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+      callLinkState, controlFlowJumpState_mem, tryStepControlFlowAfterIncrement_mem]
+  have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
+    rw [callMemory]
+    exact ready.code
+  have callMemcpyAccess : MemcpyMachineAccess memcpyArgs callState :=
+    { configured := callConfigured
+      sourcePma := fun index bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq
+          ((ready.memcpyAccess template).sourcePma index bound)
+      destinationPma := fun index bound =>
+        dataPmaAllows_of_pma_regions_eq pmaEq
+          ((ready.memcpyAccess template).destinationPma index bound)
+      sourceNotMMIO := (ready.memcpyAccess template).sourceNotMMIO
+      destinationNotMMIO := (ready.memcpyAccess template).destinationNotMMIO
+      destinationNotCode := (ready.memcpyAccess template).destinationNotCode }
+  have entry : MemcpyEntry memcpyArgs callState :=
+    ⟨ready.returnListed, ready.sizeFits, ready.destinationFits, ready.sourceFits, ready.disjoint, by
+      simp [callState, callMachine, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, callLinkState, Std.ExtDHashMap.get?_insert]
+      native_decide, by
+      simp [callState, callMachine, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, callLinkState, Std.ExtDHashMap.get?_insert, ready.returnEq],
+      (callWrites.get x10 (by decide)).trans ready.atDestination,
+      (callWrites.get x11 (by decide)).trans ready.atSource,
+      (callWrites.get x12 (by decide)).trans ready.atSize,
+      by simpa [callState] using ready.source.of_mem_eq callMemory,
+      by simpa [callState] using callCode, callMemcpyAccess⟩
+  have callGeneral : GeneralRegistersPresent callMachine :=
+    ready.generalRegisters.of_one_general_write (destination := x1) (value := returnPc)
+      callWrites (by
+        intro register member written
+        rcases written with bookkeeping | rfl
+        · simp only [stepBookkeeping] at bookkeeping
+          rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+            simp [architecturalIntegerRegisters] at member
+        · rfl) (by
+          simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+            callLinkState, Std.ExtDHashMap.get?_insert])
+  exact ⟨callState, callRun, rfl, (callWrites.get x2 (by decide)).trans ready.atStack,
+    (callWrites.get x8 (by decide)).trans ready.resultAt,
+    callMemory, ready.access.of_pma_regions_eq
+      (callWrites.agree (by
+        intro register preserved written
+        rcases written with bookkeeping | rfl
+        · exact platformPreserved_disjoint register preserved.1 bookkeeping
+        · exact preserved.2 rfl)) callConfigured.retiredCounter pmaEq,
+    callGeneral, entry⟩
+
+/-- Apply the unconditional `memcpy` contract after any fixed-copy call. -/
+theorem sszDecodeFixedMemcpyChild (stepNo : Nat) (args : DecodeInlineArgs)
+    (memcpyArgs : MemcpyArgs) (callPc returnPc : BitVec 64) (template : EndpointState)
+    (before : State) (ready : SszDecodeFixedMemcpyReady args memcpyArgs callPc returnPc before)
+    (call : ∃ retired, Runs (try_step stepNo false) before
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement before) callPc 0x101d4 x1 returnPc)
+        0x101d4 retired) false) :
+    ∃ (callState : EndpointState) (used : Nat) (after : EndpointState),
+      Runs (try_step stepNo false) before callState.machine false ∧
+      callState = { template with machine := callState.machine } ∧
+      callState.machine.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) ∧
+      callState.machine.regs.get? x8 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) ∧
+      callState.machine.mem = before.mem ∧
+      DecodeBoundaryMachineAccess args.boundary callState.machine ∧
+      GeneralRegistersPresent callState.machine ∧
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
+        (stepNo + 1) used callState after ∧
+      MemcpyExit memcpyArgs () callState after := by
+  obtain ⟨callState, callRun, callStateEq, callStack, callResult, callMemory, callAccess,
+    callGeneral, entry⟩ :=
+    sszDecodeFixedMemcpyEntry stepNo args memcpyArgs callPc returnPc template before ready call
+  obtain ⟨used, after, _outcome, _positive, _bounded, childTrace, _childExitPc, _allowed,
+    childExit⟩ := MemcpyInstanceContract.implements memcpyInstanceContract
+      memcpyArgs (stepNo + 1) callState entry
+  exact ⟨callState, used, after, callRun, callStateEq, callStack, callResult, callMemory,
+    callAccess, callGeneral, childTrace, childExit⟩
+
 def sszDecodeFixedCopy1OwnPc (pc : BitVec 64) : Prop :=
   0x123ac ≤ pc.toNat ∧ pc.toNat < 0x123bc
 
@@ -1707,6 +1852,102 @@ theorem sszDecodeFixedCopy1Setup (fromStep : Nat) (args : DecodeInlineArgs) (bef
       all_goals simp), by
     rw [seg4.memEq noMemory_empty]
     exact resume.zero430.bytesRep⟩
+
+def sszDecodeFixedCopy1Args (args : DecodeInlineArgs) : MemcpyArgs :=
+  { returnAddress := 0x123c0
+    destination := args.boundary.stackPointer + 0x10c
+    source := args.boundary.stackPointer - 0xbb0 + 0x430
+    bytes := sszDecodeZeroBytes32 }
+
+/-- Convert the second setup handoff into the shared fixed-copy call boundary. -/
+theorem SszDecodeFixedCopy1Ready.callReady {fromStep : Nat} {args : DecodeInlineArgs}
+    {before after : State} (setup : SszDecodeFixedCopy1Ready fromStep args before after) :
+    SszDecodeFixedMemcpyReady args (sszDecodeFixedCopy1Args args) 0x123bc 0x123c0 after := by
+  have stackFits := setup.resume.stackFits
+  have stackUpper := setup.resume.stackUpper
+  refine
+    { returnListed := by
+        change 0x123c0 ∈ Elflings.memcpyExitPcs
+        native_decide
+      returnEq := rfl
+      sizeFits := by simp [sszDecodeFixedCopy1Args, sszDecodeZeroBytes32]
+      destinationFits := by
+        simp only [sszDecodeFixedCopy1Args, sszDecodeZeroBytes32, Array.size_ofFn]
+        omega
+      sourceFits := by
+        simp only [sszDecodeFixedCopy1Args, sszDecodeZeroBytes32, Array.size_ofFn]
+        omega
+      disjoint := by
+        right
+        simp only [sszDecodeFixedCopy1Args, sszDecodeZeroBytes32, Array.size_ofFn]
+        omega
+      atPc := setup.seg.atPc
+      atDestination := setup.seg.reg x10
+        (BitVec.ofNat 64 (args.boundary.stackPointer + 0x10c)) (by simp)
+      atSource := setup.seg.reg x11
+        (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x430)) (by simp)
+      atSize := by
+        simpa [sszDecodeFixedCopy1Args, sszDecodeZeroBytes32] using
+          setup.seg.reg x12 32 (by simp)
+      atStack := (setup.seg.get x2
+        (by simp [sszDecodeFixedCopy0Writes, stepBookkeeping])).trans setup.resume.atStack
+      resultAt := (setup.seg.get x8
+        (by simp [sszDecodeFixedCopy0Writes, stepBookkeeping])).trans setup.resume.resultAt
+      source := by simpa [sszDecodeFixedCopy1Args] using setup.source
+      code := setup.code
+      access := setup.access
+      memcpyAccess := ?_
+      generalRegisters := setup.generalRegisters }
+  intro template
+  refine
+    { configured := setup.access.configured
+      sourcePma := ?_
+      destinationPma := ?_
+      sourceNotMMIO := ?_
+      destinationNotMMIO := ?_
+      destinationNotCode := ?_ }
+  · intro index indexBound
+    simp only [sszDecodeFixedCopy1Args, sszDecodeZeroBytes32, Array.size_ofFn] at indexBound ⊢
+    simpa only [Nat.add_assoc] using setup.access.frameLoad (0x430 + index) 1 (by omega)
+  · intro index indexBound
+    simp only [sszDecodeFixedCopy1Args, sszDecodeZeroBytes32, Array.size_ofFn] at indexBound ⊢
+    simpa only [Nat.add_assoc] using setup.access.callerStore (0x10c + index) 1 (by omega)
+  · intro index indexBound
+    simp only [sszDecodeFixedCopy1Args, sszDecodeZeroBytes32, Array.size_ofFn] at indexBound ⊢
+    simpa [LoadMMIOAddressExcluded, StoreMMIOAddressExcluded, Nat.add_assoc] using
+      setup.access.frameNoMMIO (0x430 + index) 1 (by omega)
+  · intro index indexBound
+    simp only [sszDecodeFixedCopy1Args, sszDecodeZeroBytes32, Array.size_ofFn] at indexBound ⊢
+    simpa [LoadMMIOAddressExcluded, StoreMMIOAddressExcluded, Nat.add_assoc] using
+      setup.access.callerNoMMIO (0x10c + index) 1 (by omega)
+  · intro index indexBound
+    simp only [sszDecodeFixedCopy1Args, sszDecodeZeroBytes32, Array.size_ofFn] at indexBound ⊢
+    exact setup.access.callerNotCode _ (by omega) (by omega)
+
+/-- Execute and discharge the second fixed-copy call through the shared call theorem. -/
+theorem sszDecodeFixedCopy1Child (fromStep : Nat) (args : DecodeInlineArgs)
+    (template : EndpointState) (before callReady : State)
+    (setup : SszDecodeFixedCopy1Ready fromStep args before callReady) :
+    ∃ (callState : EndpointState) (used : Nat) (after : EndpointState),
+      Runs (try_step (fromStep + 4) false) callReady callState.machine false ∧
+      callState.machine.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) ∧
+      callState.machine.regs.get? x8 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) ∧
+      callState.machine.mem = callReady.mem ∧
+      DecodeBoundaryMachineAccess args.boundary callState.machine ∧
+      GeneralRegistersPresent callState.machine ∧
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
+        (fromStep + 5) used callState after ∧
+      MemcpyExit (sszDecodeFixedCopy1Args args) () callState after := by
+  have call := sszDecodeFixedCopy1CallStep (fromStep + 4) callReady setup.seg.atPc
+    (setup.seg.reg x1 0x103b8 (by simp)) setup.access.configured setup.code
+  obtain ⟨callState, used, after, callRun, _callStateEq, callStack, callResult, callMemory,
+    callAccess, callGeneral, childTrace, childExit⟩ :=
+    sszDecodeFixedMemcpyChild (fromStep + 4) args (sszDecodeFixedCopy1Args args)
+      0x123bc 0x123c0 template callReady setup.callReady call
+  exact ⟨callState, used, after, callRun, callStack, callResult, callMemory, callAccess,
+    callGeneral, by simpa only [Nat.add_assoc] using childTrace, childExit⟩
 
 /-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
 theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
