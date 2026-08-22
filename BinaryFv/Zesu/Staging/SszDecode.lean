@@ -875,6 +875,227 @@ theorem sszDecodeCleanupLoads (fromStep : Nat) (args : DecodeInlineArgs)
           simp [architecturalIntegerRegisters] at member
       all_goals simp) ⟩
 
+def sszDecodeSecondStoresOwnPc (pc : BitVec 64) : Prop :=
+  0x12360 ≤ pc.toNat ∧ pc.toNat < 0x12398
+
+def sszDecodeSecondStoresExitPc (pc : BitVec 64) : Prop := pc = 0x12398
+
+def sszDecodeSecondStoresMemory (args : DecodeInlineArgs) : Region :=
+  byteRange (args.boundary.stackPointer + 0x20) 0xcc
+
+private theorem sszDecodeSecondStoresAppend {width : Nat} {args : DecodeInlineArgs}
+    {before cur : State} {a n pc} (seg : Seg sszDecodeSecondStoresOwnPc
+      sszDecodeSecondStoresExitPc (fun _ _ _ _ _ => False) stepBookkeeping
+      (sszDecodeSecondStoresMemory args) [] a n before cur pc)
+    (offset : Nat) (value : BitVec 64) (nextPc : BitVec 64)
+    (offsetBound : offset + width ≤ 0xcc)
+    (inside : sszDecodeSecondStoresOwnPc pc)
+    (run : ∃ retired, Runs (try_step (a + n) false) cur
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (width := width)
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement cur) pc)
+          (args.boundary.stackPointer + 0x20 + offset) value)
+        (Sail.BitVec.addInt pc 4) retired) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc) :
+    ∃ next, Seg sszDecodeSecondStoresOwnPc sszDecodeSecondStoresExitPc
+      (fun _ _ _ _ _ => False) stepBookkeeping (sszDecodeSecondStoresMemory args)
+      [] a (n + 1) before next nextPc := by
+  apply seg.stepStore (width := width) (args.boundary.stackPointer + 0x20 + offset) value
+    nextPc inside
+    (by intro atExit; unfold sszDecodeSecondStoresExitPc at atExit; subst pc
+        simp [sszDecodeSecondStoresOwnPc] at inside)
+    run advance
+  · intro other lower upper
+    unfold sszDecodeSecondStoresMemory byteRange
+    omega
+  · intro register bookkeeping
+    exact bookkeeping
+  · simp [RegsOutside]
+
+private theorem sszDecodeSecondStoresAccessOfSeg {args : DecodeInlineArgs} {before cur : State}
+    {a n pc} (access : DecodeBoundaryMachineAccess args.boundary before)
+    (seg : Seg sszDecodeSecondStoresOwnPc sszDecodeSecondStoresExitPc
+      (fun _ _ _ _ _ => False) stepBookkeeping (sszDecodeSecondStoresMemory args)
+      [] a n before cur pc) :
+    DecodeBoundaryMachineAccess args.boundary cur :=
+  access.of_pma_regions_eq
+    (seg.agree instructionPreserved_disjoint_stepBookkeeping) seg.retired
+    (seg.get pma_regions (by simp [stepBookkeeping]))
+
+private theorem sszDecodeSecondStoresCodeOfSeg {args : DecodeInlineArgs} {before cur : State}
+    {a n pc} (access : DecodeBoundaryMachineAccess args.boundary before)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully before.mem)
+    (seg : Seg sszDecodeSecondStoresOwnPc sszDecodeSecondStoresExitPc
+      (fun _ _ _ _ _ => False) stepBookkeeping (sszDecodeSecondStoresMemory args)
+      [] a n before cur pc) :
+    Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
+  intro address byte fileByte
+  rw [seg.mem address (by
+    intro inside
+    unfold sszDecodeSecondStoresMemory byteRange at inside
+    have outside := access.callerNotCode address (by omega) (by omega)
+    rw [fileByte] at outside
+    cases outside)]
+  exact code address byte fileByte
+
+/-- The second result-store packet ends before the first fixed-size `memcpy` setup. -/
+structure SszDecodeSecondStoresHandoff (fromStep : Nat) (args : DecodeInlineArgs)
+    (before after : State) : Prop where
+  seg : Seg sszDecodeSecondStoresOwnPc sszDecodeSecondStoresExitPc
+    (fun _ _ _ _ _ => False) stepBookkeeping (sszDecodeSecondStoresMemory args)
+    [] fromStep 14 before after 0x12398
+  access : DecodeBoundaryMachineAccess args.boundary after
+  code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
+  generalRegisters : GeneralRegistersPresent after
+
+/-- Compose the 13 dword stores and one word store after the cleanup-slot loads. -/
+theorem sszDecodeSecondStores (fromStep : Nat) (args : DecodeInlineArgs)
+    (source storeAfter loadAfter : State) (ready : SszDecodeResultStoresReady args source)
+    (stores : SszDecodeResultStoresHandoff fromStep args source storeAfter)
+    (loads : SszDecodeCleanupLoadsHandoff (fromStep + 12) args storeAfter loadAfter) :
+    ∃ after, SszDecodeSecondStoresHandoff (fromStep + 21) args loadAfter after := by
+  have resultAt : loadAfter.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) :=
+    (loads.seg.get x8 (by simp [sszDecodeCleanupLoadsWrites, stepBookkeeping])).trans
+      ((stores.seg.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+  obtain ⟨t5, t5At⟩ := loads.generalRegisters.read (register := x30)
+    (by simp [architecturalIntegerRegisters])
+  obtain ⟨t2, t2At⟩ := loads.generalRegisters.read (register := x7)
+    (by simp [architecturalIntegerRegisters])
+  obtain ⟨t1, t1At⟩ := loads.generalRegisters.read (register := x6)
+    (by simp [architecturalIntegerRegisters])
+  obtain ⟨t4, t4At⟩ := loads.generalRegisters.read (register := x29)
+    (by simp [architecturalIntegerRegisters])
+  obtain ⟨t3, t3At⟩ := loads.generalRegisters.read (register := x28)
+    (by simp [architecturalIntegerRegisters])
+  have a0At := loads.seg.reg x10 0 (by simp)
+  have a1At := loads.seg.reg x11 0 (by simp)
+  have a2At := loads.seg.reg x12 0 (by simp)
+  have a3At := loads.seg.reg x13 0 (by simp)
+  have a4At := loads.seg.reg x14 0 (by simp)
+  have a5At := loads.seg.reg x15 0 (by simp)
+  have a6At := loads.seg.reg x16 0 (by simp)
+  have a7At := loads.seg.reg x17 0 (by simp)
+  have t0At := loads.seg.reg x5 0 (by simp)
+  have seg0 := Seg.nil sszDecodeSecondStoresOwnPc sszDecodeSecondStoresExitPc
+    (fun _ _ _ _ _ => False) stepBookkeeping (sszDecodeSecondStoresMemory args)
+    (fromStep + 21) loads.access.configured.retiredCounter loads.seg.atPc
+  have run0 := sszDecodeResultStoreT5 (fromStep + 21) args loadAfter t5 loads.access seg0.atPc
+    resultAt t5At ready.stackAligned ready.stackUpper loads.code
+  obtain ⟨state1, seg1⟩ := sszDecodeSecondStoresAppend seg0 0x60 t5 0x12364
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run0 (by native_decide)
+  have access1 := sszDecodeSecondStoresAccessOfSeg loads.access seg1
+  have code1 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg1
+  have run1 := sszDecodeResultStoreT2 (fromStep + 22) args state1 t2 access1 seg1.atPc
+    ((seg1.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg1.get x7 (by simp [stepBookkeeping])).trans t2At)
+    ready.stackAligned ready.stackUpper code1
+  obtain ⟨state2, seg2⟩ := sszDecodeSecondStoresAppend seg1 0x68 t2 0x12368
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run1 (by native_decide)
+  have access2 := sszDecodeSecondStoresAccessOfSeg loads.access seg2
+  have code2 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg2
+  have run2 := sszDecodeResultStoreT1 (fromStep + 23) args state2 t1 access2 seg2.atPc
+    ((seg2.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg2.get x6 (by simp [stepBookkeeping])).trans t1At)
+    ready.stackAligned ready.stackUpper code2
+  obtain ⟨state3, seg3⟩ := sszDecodeSecondStoresAppend seg2 0x70 t1 0x1236c
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run2 (by native_decide)
+  have access3 := sszDecodeSecondStoresAccessOfSeg loads.access seg3
+  have code3 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg3
+  have run3 := sszDecodeResultStoreA0Second (fromStep + 24) args state3 0 access3 seg3.atPc
+    ((seg3.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg3.get x10 (by simp [stepBookkeeping])).trans a0At)
+    ready.stackAligned ready.stackUpper code3
+  obtain ⟨state4, seg4⟩ := sszDecodeSecondStoresAppend seg3 0x78 0 0x12370
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run3 (by native_decide)
+  have access4 := sszDecodeSecondStoresAccessOfSeg loads.access seg4
+  have code4 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg4
+  have run4 := sszDecodeResultStoreA1Second (fromStep + 25) args state4 0 access4 seg4.atPc
+    ((seg4.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg4.get x11 (by simp [stepBookkeeping])).trans a1At)
+    ready.stackAligned ready.stackUpper code4
+  obtain ⟨state5, seg5⟩ := sszDecodeSecondStoresAppend seg4 0x80 0 0x12374
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run4 (by native_decide)
+  have access5 := sszDecodeSecondStoresAccessOfSeg loads.access seg5
+  have code5 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg5
+  have run5 := sszDecodeResultStoreT4 (fromStep + 26) args state5 t4 access5 seg5.atPc
+    ((seg5.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg5.get x29 (by simp [stepBookkeeping])).trans t4At)
+    ready.stackAligned ready.stackUpper code5
+  obtain ⟨state6, seg6⟩ := sszDecodeSecondStoresAppend seg5 0x88 t4 0x12378
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run5 (by native_decide)
+  have access6 := sszDecodeSecondStoresAccessOfSeg loads.access seg6
+  have code6 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg6
+  have run6 := sszDecodeResultStoreT3 (fromStep + 27) args state6 t3 access6 seg6.atPc
+    ((seg6.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg6.get x28 (by simp [stepBookkeeping])).trans t3At)
+    ready.stackAligned ready.stackUpper code6
+  obtain ⟨state7, seg7⟩ := sszDecodeSecondStoresAppend seg6 0x90 t3 0x1237c
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run6 (by native_decide)
+  have access7 := sszDecodeSecondStoresAccessOfSeg loads.access seg7
+  have code7 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg7
+  have run7 := sszDecodeResultStoreA2Second (fromStep + 28) args state7 0 access7 seg7.atPc
+    ((seg7.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg7.get x12 (by simp [stepBookkeeping])).trans a2At)
+    ready.stackAligned ready.stackUpper code7
+  obtain ⟨state8, seg8⟩ := sszDecodeSecondStoresAppend seg7 0x98 0 0x12380
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run7 (by native_decide)
+  have access8 := sszDecodeSecondStoresAccessOfSeg loads.access seg8
+  have code8 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg8
+  have run8 := sszDecodeResultStoreA7Second (fromStep + 29) args state8 0 access8 seg8.atPc
+    ((seg8.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg8.get x17 (by simp [stepBookkeeping])).trans a7At)
+    ready.stackAligned ready.stackUpper code8
+  obtain ⟨state9, seg9⟩ := sszDecodeSecondStoresAppend seg8 0xc0 0 0x12384
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run8 (by native_decide)
+  have access9 := sszDecodeSecondStoresAccessOfSeg loads.access seg9
+  have code9 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg9
+  have run9 := sszDecodeResultStoreT0Word (fromStep + 30) args state9 0 access9 seg9.atPc
+    ((seg9.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg9.get x5 (by simp [stepBookkeeping])).trans t0At)
+    ready.stackAligned ready.stackUpper code9
+  obtain ⟨state10, seg10⟩ := sszDecodeSecondStoresAppend seg9 0xc8 0 0x12388
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run9 (by native_decide)
+  have access10 := sszDecodeSecondStoresAccessOfSeg loads.access seg10
+  have code10 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg10
+  have run10 := sszDecodeResultStoreA3Second (fromStep + 31) args state10 0 access10 seg10.atPc
+    ((seg10.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg10.get x13 (by simp [stepBookkeeping])).trans a3At)
+    ready.stackAligned ready.stackUpper code10
+  obtain ⟨state11, seg11⟩ := sszDecodeSecondStoresAppend seg10 0xa0 0 0x1238c
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run10 (by native_decide)
+  have access11 := sszDecodeSecondStoresAccessOfSeg loads.access seg11
+  have code11 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg11
+  have run11 := sszDecodeResultStoreA4Second (fromStep + 32) args state11 0 access11 seg11.atPc
+    ((seg11.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg11.get x14 (by simp [stepBookkeeping])).trans a4At)
+    ready.stackAligned ready.stackUpper code11
+  obtain ⟨state12, seg12⟩ := sszDecodeSecondStoresAppend seg11 0xa8 0 0x12390
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run11 (by native_decide)
+  have access12 := sszDecodeSecondStoresAccessOfSeg loads.access seg12
+  have code12 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg12
+  have run12 := sszDecodeResultStoreA5Second (fromStep + 33) args state12 0 access12 seg12.atPc
+    ((seg12.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg12.get x15 (by simp [stepBookkeeping])).trans a5At)
+    ready.stackAligned ready.stackUpper code12
+  obtain ⟨state13, seg13⟩ := sszDecodeSecondStoresAppend seg12 0xb0 0 0x12394
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run12 (by native_decide)
+  have access13 := sszDecodeSecondStoresAccessOfSeg loads.access seg13
+  have code13 := sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg13
+  have run13 := sszDecodeResultStoreA6Second (fromStep + 34) args state13 0 access13 seg13.atPc
+    ((seg13.get x8 (by simp [stepBookkeeping])).trans resultAt)
+    ((seg13.get x16 (by simp [stepBookkeeping])).trans a6At)
+    ready.stackAligned ready.stackUpper code13
+  obtain ⟨state14, seg14⟩ := sszDecodeSecondStoresAppend seg13 0xb8 0 0x12398
+    (by omega) (by simp [sszDecodeSecondStoresOwnPc]) run13 (by native_decide)
+  exact ⟨state14, seg14, sszDecodeSecondStoresAccessOfSeg loads.access seg14,
+    sszDecodeSecondStoresCodeOfSeg loads.access loads.code seg14,
+    generalRegistersOfSeg loads.generalRegisters seg14 (by
+      intro register member bookkeeping
+      simp only [stepBookkeeping] at bookkeeping
+      rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+        simp [architecturalIntegerRegisters] at member)⟩
+
 /-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
 theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
     (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
