@@ -266,6 +266,20 @@ theorem sszDecodeCleanupMemcpyCallReadyFromReady (fromStep : Nat) (args : Decode
   sszDecodeCleanupMemcpyCallReady fromStep args before ready.atPc ready.atStack
     ready.stackFits ready.stackAligned ready.stackUpper ready.access ready.configured ready.code
 
+/-- The cleanup handoff reaches `memcpy` and retains the nine later load sources. -/
+theorem sszDecodeCleanupMemcpyCallReadyFromReadyWithZeroSlots (fromStep : Nat)
+    (args : DecodeInlineArgs) (before : State) (ready : SszDecodeCleanupReady args before) :
+    ∃ after,
+      Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+        (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+        [⟨x1, 0x102b0⟩, ⟨x12, 256⟩,
+          ⟨x10, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330)⟩,
+          ⟨x11, 0x1755c⟩]
+        fromStep 22 before after 0x122b4 ∧
+      SszDecodeCleanupZeroSlots args after :=
+  sszDecodeCleanupMemcpyCallReadyWithZeroSlots fromStep args before ready.atPc ready.atStack
+    ready.stackFits ready.stackAligned ready.stackUpper ready.access ready.configured ready.code
+
 /-- The exact call step constructs the existing proved `memcpy` entry without a new contract. -/
 theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
     (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
@@ -285,8 +299,10 @@ theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
       callState.machine.regs.get? pma_regions = before.regs.get? pma_regions ∧
       callState = { template with machine := callState.machine } ∧
       GeneralRegistersPresent callState.machine ∧
+      SszDecodeCleanupZeroSlots args callState.machine ∧
       MemcpyEntry (sszDecodeCleanupMemcpyArgs args) callState := by
-  obtain ⟨callReady, seg⟩ := sszDecodeCleanupMemcpyCallReadyFromReady fromStep args before ready
+  obtain ⟨callReady, seg, readySlots⟩ :=
+    sszDecodeCleanupMemcpyCallReadyFromReadyWithZeroSlots fromStep args before ready
   obtain ⟨retired, callRun⟩ := sszDecodeCleanupMemcpyCallRun seg ready.stackFits
     ready.access ready.code
   let callMachine := tryStepControlFlowAfterRetired
@@ -321,6 +337,10 @@ theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
   have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
     simpa [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
       sszDecodeCleanupCodeOfSeg ready.stackFits ready.access ready.code seg
+  have callSlots : SszDecodeCleanupZeroSlots args callMachine :=
+    readySlots.of_mem_eq (by
+      simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+        callLinkState, controlFlowJumpState_mem, tryStepControlFlowAfterIncrement_mem])
   have stackFits := ready.stackFits
   have stackUpper := ready.stackUpper
   have windowsDisjoint := sszDecodeCleanupMemcpyWindowsDisjoint ready
@@ -428,7 +448,7 @@ theorem sszDecodeCleanupMemcpyEntry (fromStep : Nat) (args : DecodeInlineArgs)
         tryStepControlFlowAfterTick, callLinkState, Std.ExtDHashMap.get?_insert]
   exact ⟨callReady, callState, seg, by simpa [callState, callMachine] using callRun,
     callStack, callResult, callAgree, by simpa [callState] using pmaEq, by simp [callState],
-    callGeneral, entry⟩
+    callGeneral, callSlots, entry⟩
 
 /-- Apply the unconditional `memcpy` contract at the cleanup call boundary. -/
 theorem sszDecodeCleanupMemcpyChild (fromStep : Nat) (args : DecodeInlineArgs)
@@ -449,18 +469,19 @@ theorem sszDecodeCleanupMemcpyChild (fromStep : Nat) (args : DecodeInlineArgs)
       callState.machine.regs.get? pma_regions = before.regs.get? pma_regions ∧
       callState = { template with machine := callState.machine } ∧
       GeneralRegistersPresent callState.machine ∧
+      SszDecodeCleanupZeroSlots args callState.machine ∧
       MemcpyEntry (sszDecodeCleanupMemcpyArgs args) callState ∧
       ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
         (fromStep + 23) used callState after ∧
       MemcpyExit (sszDecodeCleanupMemcpyArgs args) () callState after := by
   obtain ⟨callReady, callState, seg, callRun, callStack, callResult, callAgree, callPma,
-    callStateEq, callGeneral, entry⟩ :=
+    callStateEq, callGeneral, callSlots, entry⟩ :=
     sszDecodeCleanupMemcpyEntry fromStep args template before ready
   obtain ⟨used, after, _outcome, _positive, _bounded, childTrace, _childExitPc, _allowed,
     childExit⟩ := MemcpyInstanceContract.implements memcpyInstanceContract
       (sszDecodeCleanupMemcpyArgs args) (fromStep + 23) callState entry
   exact ⟨callReady, callState, used, after, seg, callRun, callStack, callResult, callAgree, callPma,
-    callStateEq, callGeneral, entry, childTrace, childExit⟩
+    callStateEq, callGeneral, callSlots, entry, childTrace, childExit⟩
 
 private theorem instructionPreserved_abiCalleePreserved_cleanup (register : Register)
     (preserved : instructionPreserved register) : abiCalleePreserved register := by
@@ -483,6 +504,7 @@ structure SszDecodeCleanupResume (args : DecodeInlineArgs) (machine : State) : P
   access : DecodeBoundaryMachineAccess args.boundary machine
   code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
   generalRegisters : GeneralRegistersPresent machine
+  zeroSlots : SszDecodeCleanupZeroSlots args machine
 
 /-- Facts required by the result stores after the complete rejection cleanup. -/
 structure SszDecodeResultStoresReady (args : DecodeInlineArgs) (machine : State) : Prop where
@@ -492,12 +514,14 @@ structure SszDecodeResultStoresReady (args : DecodeInlineArgs) (machine : State)
   resultAt : machine.regs.get? x8 =
     some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20))
   statusAt : machine.regs.get? x22 = some 1
+  stackFits : 0xbb0 ≤ args.boundary.stackPointer
   stackAligned : args.boundary.stackPointer % 16 = 0
   stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64
   access : DecodeBoundaryMachineAccess args.boundary machine
   configured : ConfiguredMachinePre EndpointMachinePc machine
   code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
   generalRegisters : GeneralRegistersPresent machine
+  zeroSlots : SszDecodeCleanupZeroSlots args machine
 
 /-- The eleven live registers consumed by the twelve result stores at `0x1230c..0x12338`. -/
 structure SszDecodeResultStoreSources (machine : State) : Prop where
@@ -529,6 +553,7 @@ structure SszDecodeResultStoresHandoff (fromStep : Nat) (args : DecodeInlineArgs
     [] fromStep 12 before after 0x1233c
   access : DecodeBoundaryMachineAccess args.boundary after
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
+  zeroSlots : SszDecodeCleanupZeroSlots args after
 
 /-- Compose all twelve result stores through one shared store family and `Seg`. -/
 theorem sszDecodeResultStores (fromStep : Nat) (args : DecodeInlineArgs) (before : State)
@@ -646,8 +671,15 @@ theorem sszDecodeResultStores (fromStep : Nat) (args : DecodeInlineArgs) (before
       ((seg11.get x1 (by simp [stepBookkeeping])).trans raAt)
       ready.stackAligned ready.stackUpper code11) (by native_decide)
     (by simp [RegsOutside, stepBookkeeping])
+  have stackFits := ready.stackFits
+  have zeroSlots := ready.zeroSlots.of_writesOnlyWithin seg12.mem (by
+    intro address width member
+    unfold sszDecodeResultStoresMemory byteRange
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+    rcases member with h | h | h | h | h | h | h | h | h <;> cases h <;>
+      intro index indexBound inside <;> omega)
   exact ⟨machine12, seg12, sszDecodeResultStoresAccessOfSeg ready.access seg12,
-    sszDecodeResultStoresCodeOfSeg ready.access ready.code seg12⟩
+    sszDecodeResultStoresCodeOfSeg ready.access ready.code seg12, zeroSlots⟩
 
 /-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
 theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
@@ -666,10 +698,10 @@ theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
         (fromStep + 23) used callState after ∧
       SszDecodeCleanupResume args after.machine := by
   obtain ⟨callReady, callState, used, after, seg, callRun, callStack, callResult, callAgree,
-    callPma, callStateEq, callGeneral, entry, childTrace, childExit⟩ :=
+    callPma, callStateEq, callGeneral, callSlots, entry, childTrace, childExit⟩ :=
     sszDecodeCleanupMemcpyChild fromStep args template before ready
   rcases childExit with ⟨childPc, _stdin, _cursor, _stdout, _exitCode, _destination,
-    _source, codeAfter, _childMem, childFrame, childGeneralPreserved⟩
+    _source, codeAfter, childMem, childFrame, childGeneralPreserved⟩
   rcases childFrame with ⟨childRegisters, childRetired, childCode, childChoice, childTags,
     childOutput⟩
   unfold MemcpyEntry at entry
@@ -689,7 +721,12 @@ theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
       stackUpper := ready.stackUpper
       access := ready.access.of_pma_regions_eq wholeAgree childRetired childPma
       code := codeAfter
-      generalRegisters := childGeneralPreserved callGeneral }
+      generalRegisters := childGeneralPreserved callGeneral
+      zeroSlots := callSlots.of_lowerFrameWrites childMem (by
+        intro address inside
+        unfold byteRange sszDecodeCleanupMemcpyArgs at inside
+        simp only [sszDecodeCleanupTemplateBytes, Array.size_ofFn] at inside
+        omega) }
   exact ⟨callReady, callState, used, after, seg, callRun, by simpa using _atPc, callStateEq, by
     simpa only using childTrace, resume⟩
 
@@ -809,6 +846,7 @@ theorem sszDecodeCleanupResumeTrace (fromStep : Nat) (args : DecodeInlineArgs)
       resultAt := (seg.get x8 (by simp [sszDecodeCleanupTailWrites, stepBookkeeping])).trans
         resume.resultAt
       statusAt := seg.reg x22 1 (by simp)
+      stackFits := resume.stackFits
       stackAligned := resume.stackAligned
       stackUpper := resume.stackUpper
       access := access
@@ -820,7 +858,11 @@ theorem sszDecodeCleanupResumeTrace (fromStep : Nat) (args : DecodeInlineArgs)
         · simp only [stepBookkeeping] at bookkeeping
           rcases bookkeeping with rfl | rfl | rfl | rfl <;>
             simp [architecturalIntegerRegisters] at member
-        · simp) }⟩
+        · simp)
+      zeroSlots := resume.zeroSlots.of_lowerFrameWrites seg.mem (by
+        intro address inside
+        unfold sszDecodeCleanupTailMemory byteRange at inside
+        omega) }⟩
 
 /-- The proved `memcpy` body and the 21-step cleanup tail execute in dependency order. -/
 theorem sszDecodeCleanupChildAndTail (fromStep : Nat) (args : DecodeInlineArgs)
