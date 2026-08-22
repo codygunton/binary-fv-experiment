@@ -681,6 +681,8 @@ structure MemcpyInv (dst src n retAddr : BitVec 64) (image : ProgramImage)
   hsailOutput : s.sailOutput = sInit.sailOutput
   /-- Every register outside the loop's write set `W` still agrees with the reference state. -/
   hstable : StableAgree sInit s
+  /-- The loop does not remove architectural integer registers when they are present at entry. -/
+  hgeneral : GeneralRegistersPreserved sInit s
   /-- The exact memory delta so far: every address not among the copied window `[dst, dst+i)` still
   reads its reference-state value. -/
   hframe : ∀ addr : Nat, (∀ j : Nat, j < i → addr ≠ (dst + BitVec.ofNat 64 j).toNat) →
@@ -1215,6 +1217,36 @@ theorem memcpy_adv (dst src n retAddr : BitVec 64) (image : ProgramImage)
   have hAux7 : MachineAuxAgree s s7 := hAux6.trans hAux67
   have hmemS7 : s7.mem = s.mem.insert (dst + BitVec.ofNat 64 i).toNat (srcByte i) :=
     hmem7.trans hmem6
+  have hx13_7 : s7.regs.get? x13 = some (zero_extend (m := 64) (srcByte i)) :=
+    (w6.get x13 (by decide)).trans ((w5.get x13 (by decide)).trans hx13_5)
+  have hx14_7 : s7.regs.get? x14 = some (dst + BitVec.ofNat 64 i) :=
+    (w6.get x14 (by decide)).trans ((w5.get x14 (by decide)).trans hx14_5)
+  have hx15_7 : s7.regs.get? x15 =
+      some (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) :=
+    (w6.get x15 (by decide)).trans ((w5.get x15 (by decide)).trans hx15_5)
+  have general7 : GeneralRegistersPreserved sInit s7 := by
+    intro initialGeneral
+    have currentGeneral := hInv.hgeneral initialGeneral
+    intro register member
+    by_cases isX13 : register = x13
+    · subst register
+      exact ⟨_, hx13_7⟩
+    by_cases isX14 : register = x14
+    · subst register
+      exact ⟨_, hx14_7⟩
+    by_cases isX15 : register = x15
+    · subst register
+      exact ⟨_, hx15_7⟩
+    obtain ⟨value, read⟩ := currentGeneral register member
+    have notBookkeeping : register ≠ PC ∧ register ≠ nextPC ∧
+        register ≠ minstret ∧ register ≠ minstret_increment := by
+      simp [architecturalIntegerRegisters] at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide
+    exact ⟨value,
+      (hSt7 register ⟨notBookkeeping.1, notBookkeeping.2.1, notBookkeeping.2.2.1,
+        notBookkeeping.2.2.2, isX13, isX14, isX15⟩).trans read⟩
   -- Assemble the 7-step trace and re-establish the invariant at i+1.
   have htr : Trace (start + i * 7) 7 s s7 := by trace_steps [h0, h1, h2, h3, h4, h5, h6]
   refine ⟨s7, htr, ⟨s1, s2, s3, s4, s5, s6, hInv.hPC, hsum0 ▸ hPC1, hsum24 ▸ hPC2, hsum28 ▸ hPC3,
@@ -1222,7 +1254,7 @@ theorem memcpy_adv (dst src n retAddr : BitVec 64) (image : ProgramImage)
   refine ⟨?hPC, ?ha5, ?ha0, ?ha1, ?ha2, ?hra, ?hcur, ?hmstatus, ?hmprv, ?hmseccfg, ?hhart,
       ?hinhibit, ?hnotInhibited, ?hcfg, ?hmachineEnabled, ?hminstret, ?himageEq, ?hmatches, ?hsrc,
       ?hcopy, ?hle, ?hnLt, ?hsrcFits, ?hdstFits, ?hdstImg, ?hdisj, ?hplat, ?hdata, ?hElp,
-      ?hchoiceState, ?htags, ?hsailOutput, ?hstable, ?hframe⟩
+      ?hchoiceState, ?htags, ?hsailOutput, ?hstable, ?hgeneral, ?hframe⟩
   case hPC => exact hsumJ ▸ hPC7
   case ha5 =>
     have hcarry : s7.regs.get? x15 = some (BitVec.ofNat 64 i + sign_extend (m := 64) 1#12) := by
@@ -1274,6 +1306,7 @@ theorem memcpy_adv (dst src n retAddr : BitVec 64) (image : ProgramImage)
   case htags => exact hAux7.2.1.trans hInv.htags
   case hsailOutput => exact hAux7.2.2.trans hInv.hsailOutput
   case hstable => exact hInv.hstable.trans hSt7
+  case hgeneral => exact general7
   case hframe => rw [hmemS7]; exact frame_insert_step hInv.hframe
 
 /-! ## Deliverable 3: whole-loop trace `memcpy_loop` -/
@@ -1451,7 +1484,8 @@ theorem memcpy_reach_ret (dst src n retAddr : BitVec 64) (image : ProgramImage)
       final.regs.get? x10 = some dst ∧ final.regs.get? x11 = some src ∧
       final.regs.get? x12 = some n ∧ final.regs.get? x1 = some retAddr ∧
       image.fileBytesLoadedFaithfully final.mem ∧ StableAgree sInit final ∧
-      MachineAuxAgree sInit final ∧ MemFramed dst n sInit final ∧
+      MachineAuxAgree sInit final ∧ GeneralRegistersPreserved sInit final ∧
+      MemFramed dst n sInit final ∧
       RetiredCounterPresent final := by
   obtain ⟨retired, retiredRead⟩ := hInv.hminstret
   obtain ⟨platform, counters⟩ := mkStepBundles hInv (StableAgree.refl s) hInv.hPC
@@ -1467,7 +1501,8 @@ theorem memcpy_reach_ret (dst src n retAddr : BitVec 64) (image : ProgramImage)
       ((xGet s (BitVec.ofNat 64 0x101d8) x15 (by decide) (by decide)).trans hInv.ha5)
       ((xGet s (BitVec.ofNat 64 0x101d8) x12 (by decide) (by decide)).trans hInv.ha2) equal)
   refine ⟨final, Trace.one start s final step, step, hsumL4 ▸ atExit, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
-    ?_, ?_, ⟨_, counter⟩⟩
+    ?_, (fun initialGeneral => (hInv.hgeneral initialGeneral).of_bookkeeping w0),
+    ?_, ⟨_, counter⟩⟩
   · intro j hj
     rw [memory]
     exact hInv.hcopy j hj
@@ -1501,12 +1536,13 @@ theorem memcpy_loop_to_ret (dst src n retAddr : BitVec 64) (image : ProgramImage
       final.regs.get? x10 = some dst ∧ final.regs.get? x11 = some src ∧
       final.regs.get? x12 = some n ∧ final.regs.get? x1 = some retAddr ∧
       image.fileBytesLoadedFaithfully final.mem ∧ StableAgree sInit final ∧
-      MachineAuxAgree sInit final ∧ MemFramed dst n sInit final ∧
+      MachineAuxAgree sInit final ∧ GeneralRegistersPreserved sInit final ∧
+      MemFramed dst n sInit final ∧
       RetiredCounterPresent final := by
   by_cases done : i = n.toNat
   · subst i
     obtain ⟨final, _, step, atExit, copied, x10Final, x11Final, x12Final, x1Final,
-      imageFinal, stable, aux, frame, counter⟩ := memcpy_reach_ret dst src n retAddr image mseccfgBits
+      imageFinal, stable, aux, general, frame, counter⟩ := memcpy_reach_ret dst src n retAddr image mseccfgBits
         mstatusBits inhibit cfg srcByte sInit (start + n.toNat * 7) s hInv
     have region : IsBodyPc (BitVec.ofNat 64 0x101d8) := by simp [IsBodyPc]
     have notExit : BitVec.ofNat 64 0x101d8 ≠ BitVec.ofNat 64 0x101dc := by decide
@@ -1515,19 +1551,19 @@ theorem memcpy_loop_to_ret (dst src n retAddr : BitVec 64) (image : ProgramImage
       refine .step _ 0 _ s final final hInv.hPC region notExit step ?_
       exact .exitAt _ final _ atExit rfl
     exact ⟨final, by simpa using confined, atExit, copied, x10Final, x11Final,
-      x12Final, x1Final, imageFinal, stable, aux, frame, counter⟩
+      x12Final, x1Final, imageFinal, stable, aux, general, frame, counter⟩
   · have beforeEnd : i < n.toNat := Nat.lt_of_le_of_ne indexBound done
     obtain ⟨next, _, iteration, nextInv⟩ := memcpy_adv dst src n retAddr image mseccfgBits
       mstatusBits inhibit cfg srcByte sInit start i s beforeEnd hInv
     obtain ⟨final, rest, atExit, copied, x10Final, x11Final, x12Final, x1Final,
-      imageFinal, stable, aux, frame, counter⟩ := memcpy_loop_to_ret dst src n retAddr image mseccfgBits
+      imageFinal, stable, aux, general, frame, counter⟩ := memcpy_loop_to_ret dst src n retAddr image mseccfgBits
         mstatusBits inhibit cfg srcByte sInit start (i + 1) next (by omega) nextInv
     have restAtExpected : FunctionTrace IsBodyPc (fun pc => pc = BitVec.ofNat 64 0x101dc)
         (start + i * 7 + 7) ((n.toNat - (i + 1)) * 7 + 1) next final := by
       simpa only [Nat.add_mul, Nat.one_mul, Nat.add_assoc] using rest
     have combined := iteration.prepend restAtExpected
     refine ⟨final, ?_, atExit, copied, x10Final, x11Final, x12Final, x1Final,
-      imageFinal, stable, aux, frame, counter⟩
+      imageFinal, stable, aux, general, frame, counter⟩
     have countArithmetic : ((n.toNat - (i + 1)) * 7 + 1) + 7 =
         (n.toNat - i) * 7 + 1 := by omega
     simpa only [countArithmetic] using combined
@@ -1658,6 +1694,7 @@ theorem memcpy_contract (dst src n retAddr : BitVec 64) (image : ProgramImage)
       (fun j hj => absurd hj (Nat.not_lt_zero j)), Nat.zero_le _, hnLt, hsrcFits, hdstFits, hdstImg,
       hdisj, AbstractPlatform.mono hSt0 hplat, AbstractDataAccess.mono hSt0 hdata,
       AbstractElp.mono hSt0 hElp, hAux0.1, hAux0.2.1, hAux0.2.2, hSt0,
+      (fun general => general.of_bookkeeping_write w0 hx15_0),
       (fun addr _ => by rw [hmem0])⟩
   -- Loop.
   obtain ⟨sN, htrLoop, hInvN⟩ := memcpy_loop dst src n retAddr image mseccfgBits mstatusBits inhibit
@@ -1713,6 +1750,7 @@ theorem memcpy_body (dst src n retAddr : BitVec 64) (image : ProgramImage)
       -- every register outside `W` is preserved (in particular `x2`/`sp`, a leaf function),
       StableAgree s s'' ∧ s''.regs.get? x2 = s.regs.get? x2 ∧
       MachineAuxAgree s s'' ∧
+      GeneralRegistersPreserved s s'' ∧
       -- memory changes only inside the destination window `[dst, dst+n)`,
       MemFramed dst n s s'' ∧
       -- and the source region is preserved (from the frame plus the non-overlap premise).
@@ -1747,10 +1785,11 @@ theorem memcpy_body (dst src n retAddr : BitVec 64) (image : ProgramImage)
       (fun j hj => absurd hj (Nat.not_lt_zero j)), Nat.zero_le _, hnLt, hsrcFits, hdstFits, hdstImg,
       hdisj, AbstractPlatform.mono hSt0 hplat, AbstractDataAccess.mono hSt0 hdata,
       AbstractElp.mono hSt0 hElp, hAux0.1, hAux0.2.1, hAux0.2.2, hSt0,
+      (fun general => general.of_bookkeeping_write w0 hx15_0),
       (fun addr _ => by rw [hmem0])⟩
   -- Execute the runtime loop and stop at the generated return exit.
   obtain ⟨s'', htrLoop, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN,
-    hStableExit, hAuxExit, hFrameExit, hCounterExit⟩ :=
+    hStableExit, hAuxExit, hGeneralExit, hFrameExit, hCounterExit⟩ :=
     memcpy_loop_to_ret dst src n retAddr image mseccfgBits mstatusBits inhibit cfg srcByte s
       (start + 1) 0 _ (by omega) hInv0
   have hentryRegion : IsBodyPc (BitVec.ofNat 64 0x101d4) := by simp [IsBodyPc]
@@ -1762,7 +1801,7 @@ theorem memcpy_body (dst src n retAddr : BitVec 64) (image : ProgramImage)
     simpa only [Nat.zero_mul, Nat.sub_zero, Nat.zero_add, Nat.add_assoc,
       Nat.add_comm, Nat.add_left_comm] using hcombined
   refine ⟨s'', hconfined.toTrace, hconfined, hPCret, hcopyN, hx10, hx11, hx12, hx1N, hmatchesN,
-    hStableExit, hStableExit x2 (by decide), hAuxExit, hFrameExit,
+    hStableExit, hStableExit x2 (by decide), hAuxExit, hGeneralExit, hFrameExit,
     fun k hk => MemFramed.source_preserved hFrameExit hdisj k hk, hCounterExit⟩
 
 /-! ## Current endpoint-machine adapters -/
@@ -2028,7 +2067,7 @@ theorem memcpyInstanceContract : MemcpyInstanceContract := by
       have sizeEq : args.bytes.size = 0 := by omega
       simp [destinationEq, sizeEq]
   obtain ⟨bodyMachine, _bodyTrace, bodyConfined, bodyPc, copied, destinationBody,
-    sourceBody, sizeBody, returnBody, codeBody, stableBody, _spBody, auxBody, memoryBody,
+    sourceBody, sizeBody, returnBody, codeBody, stableBody, _spBody, auxBody, bodyGeneral, memoryBody,
     sourcePreserved, bodyCounter⟩ :=
     memcpy_body (BitVec.ofNat 64 args.destination) (BitVec.ofNat 64 args.source)
       (BitVec.ofNat 64 args.bytes.size) (BitVec.ofNat 64 args.returnAddress)
@@ -2064,7 +2103,7 @@ theorem memcpyInstanceContract : MemcpyInstanceContract := by
       (stableBody minstretcfg (by simp [NonW])).trans config,
       by native_decide, by native_decide, bodyRetiredRead⟩
   obtain ⟨misaBits, _mstatusBits, _pcRead, misaRead, _rest⟩ := bodyPlatform.1
-  obtain ⟨afterMachine, returnStep, _returnWrites, returnStable, returnAux, afterPc,
+  obtain ⟨afterMachine, returnStep, returnWrites, returnStable, returnAux, afterPc,
     afterCounterRead, returnMemory⟩ :=
     jumpStepPost (memcpy_step_ret (fromStep + (args.bytes.size * 7 + 2)) bodyMachine
       (BitVec.ofNat 64 args.returnAddress) bodyRetired mseccfgBits misaBits 0 0 bodyPlatform
@@ -2111,6 +2150,8 @@ theorem memcpyInstanceContract : MemcpyInstanceContract := by
     rw [← countEq]
     exact bodyEndpoint'.append returnTrace
   have stableAfter : StableAgree before.machine afterMachine := stableBody.trans returnStable
+  have generalAfter : GeneralRegistersPreserved before.machine afterMachine := fun initialGeneral =>
+    (bodyGeneral initialGeneral).of_bookkeeping returnWrites
   have auxAfter : MachineAuxAgree before.machine afterMachine := auxBody.trans returnAux
   have memoryAfter : afterMachine.mem = bodyMachine.mem := returnMemory
   refine ⟨args.bytes.size * 7 + 3, after, (), by omega, Nat.le_refl _, fullTrace, ?_, trivial, ?_⟩
@@ -2120,7 +2161,7 @@ theorem memcpyInstanceContract : MemcpyInstanceContract := by
         rw [pcInList, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (memcpyReturnFits returnListed)]
         exact returnListed⟩
   · refine ⟨afterPc.trans (congrArg some (memcpyReturnUpdate returnListed)), rfl, rfl, rfl, rfl,
-      ?_, ?_, ?_, ?_, ?_⟩
+      ?_, ?_, ?_, ?_, ?_, ?_⟩
     · refine ⟨destinationFits, ?_⟩
       intro index inBounds
       rw [memoryAfter]
@@ -2160,5 +2201,6 @@ theorem memcpyInstanceContract : MemcpyInstanceContract := by
         ⟨_, afterCounterRead⟩, ?_, auxAfter.1, auxAfter.2.1, auxAfter.2.2⟩
       rw [memoryAfter]
       exact codeBody
+    · exact generalAfter
 
 end BinaryFv.Zesu.MachineExecution

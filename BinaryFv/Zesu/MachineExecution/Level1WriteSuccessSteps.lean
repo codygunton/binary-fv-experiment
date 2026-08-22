@@ -2005,7 +2005,7 @@ theorem writeSuccessMemcpyHandoff (fromStep : Nat) (args : WriteSuccessArgs)
   have childTrace' := childTrace.weaken (fun _ inside => memcpyPc_in_writeSuccess inside)
   have fullTrace := parentTrace.append childTrace'
   rcases childExit with ⟨childPc, stdin, cursor, stdout, exitCode, destinationRep,
-    sourceRepAfter, codeAfter, childMem, childFrame⟩
+    sourceRepAfter, codeAfter, childMem, childFrame, _generalPreserved⟩
   have savedAfter : SavedWordReps after.machine (writeSuccessSavedWords args values) := by
     intro word member
     exact (savedWords word member).of_writesOnlyWithin childMem (by
@@ -4781,7 +4781,7 @@ theorem writeSuccessSecondMemcpyHandoff (child : WriteSuccessPrefixInstanceContr
     simpa [callState] using liftWriteSuccessParentTrace prefixState setupMachineTrace
   have childTrace' := childTrace.weaken (fun _ inside => memcpyPc_in_writeSuccess inside)
   rcases childExit with ⟨childPc, stdin, cursor, stdout, exitCode, destinationRep,
-    sourceRepAfter, codeAfter, childMem, childFrame⟩
+    sourceRepAfter, codeAfter, childMem, childFrame, _generalPreserved⟩
   have childStack : childAfter.machine.regs.get? x2 =
       some (BitVec.ofNat 64 (args.stackPointer - 0x7d0)) := by
     exact (childFrame.1 x2 (by simp [abiCalleePreserved])).trans

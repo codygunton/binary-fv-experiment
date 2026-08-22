@@ -514,7 +514,8 @@ theorem memReadIntRun (fromStep baseAddress byte0 byte1 byte2 byte3 : Nat) (stat
               (Sail.BitVec.extractLsb (8#6)
                 (LeanRV64DExecutable.Functions.log2_xlen -i 1) 0)) |||
             zero_extend (m := 64) (BitVec.ofNat 8 byte0))⟩]
-        fromStep 10 state after (BitVec.ofNat 64 0x121ec) := by
+        fromStep 10 state after (BitVec.ofNat 64 0x121ec) ∧
+      GeneralRegistersPreserved state after := by
   let b0 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 byte0)
   let b1 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 byte1)
   let b2 : BitVec 64 := zero_extend (m := 64) (BitVec.ofNat 8 byte2)
@@ -634,7 +635,18 @@ theorem memReadIntRun (fromStep baseAddress byte0 byte1 byte2 byte3 : Nat) (stat
     (by decide) (by intro r h; exact Or.inl h) (Or.inr (Or.inr (Or.inr (Or.inl rfl))))
     (by decide) (by decide) (by simp [RegsOutside, stepBookkeeping])
   have final := seg10.forget (kv' := [⟨x14, result⟩]) (by simp)
-  refine ⟨after, ?_⟩
-  simpa [b0, b1, b2, b3, s1, s2, s3, low, high, result, Nat.add_assoc] using final
+  refine ⟨after, ?_, ?_⟩
+  · simpa [b0, b1, b2, b3, s1, s2, s3, low, high, result, Nat.add_assoc] using final
+  · intro general
+    apply general.of_writesOnlyRegs seg10.writes
+    intro register member written
+    rcases written with bookkeeping | rfl | rfl | rfl | rfl
+    · simp only [stepBookkeeping] at bookkeeping
+      rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+        simp [architecturalIntegerRegisters] at member
+    · exact ⟨low, seg10.reg x10 low (by simp)⟩
+    · exact ⟨b0, seg10.reg x12 b0 (by simp)⟩
+    · exact ⟨result, seg10.reg x14 result (by simp)⟩
+    · exact ⟨s3, seg10.reg x15 s3 (by simp)⟩
 
 end BinaryFv.Zesu.MachineExecution

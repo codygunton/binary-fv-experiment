@@ -69,6 +69,10 @@ def GeneralRegistersPresent (state : MachineState) : Prop :=
   ∀ register ∈ architecturalIntegerRegisters,
     ∃ value, state.regs.get? register = some value
 
+/-- A machine transition does not remove an architectural integer register. -/
+def GeneralRegistersPreserved (before after : MachineState) : Prop :=
+  GeneralRegistersPresent before → GeneralRegistersPresent after
+
 theorem GeneralRegistersPresent.read {state : MachineState}
     (present : GeneralRegistersPresent state) {register : Register}
     (member : register ∈ architecturalIntegerRegisters) :

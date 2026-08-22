@@ -646,7 +646,8 @@ def MemcpyExit (args : MemcpyArgs) (_outcome : Unit)
   Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
   BinaryFv.RiscV.WritesOnlyWithin
     (BinaryFv.RiscV.byteRange args.destination args.bytes.size) before.machine after.machine ∧
-  EndpointCallFrame before after
+  EndpointCallFrame before after ∧
+  GeneralRegistersPreserved before.machine after.machine
 
 def memcpyContract (stepBound : Nat → Nat) :
     RelationalMachineContract EndpointState MemcpyArgs Unit :=

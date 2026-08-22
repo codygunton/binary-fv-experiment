@@ -60,7 +60,8 @@ def memReadIntExit (args : MemReadIntArgs) (_outcome : Unit)
   after.stdout = before.stdout ∧ after.exitCode = before.exitCode ∧
   RetiredCounterPresent after.machine ∧
   Artifacts.programImage.fileBytesLoadedFaithfully after.machine.mem ∧
-  EndpointMachineAuxAgree before.machine after.machine
+  EndpointMachineAuxAgree before.machine after.machine ∧
+  GeneralRegistersPreserved before.machine after.machine
 
 def memReadIntContract : RelationalMachineContract EndpointState MemReadIntArgs Unit :=
   { allows := fun _ _ => True
@@ -113,7 +114,7 @@ theorem memReadIntContract_implements :
     memReadIntContract.Implements EndpointStep EndpointPc memReadIntOwnPc memReadIntExitPc := by
   intro args fromStep before entry
   rcases entry with ⟨atPc, base, rep0, rep1, rep2, rep3, pma, notMMIO, configured, loaded⟩
-  obtain ⟨finalMachine, seg⟩ := memReadIntRun fromStep args.address args.byte0 args.byte1
+  obtain ⟨finalMachine, seg, generalPreserved⟩ := memReadIntRun fromStep args.address args.byte0 args.byte1
     args.byte2 args.byte3 before.machine configured atPc base rep0 rep1 rep2 rep3 pma notMMIO
     args.sourceFits loaded
   let after : EndpointState := { before with machine := finalMachine }
@@ -131,12 +132,12 @@ theorem memReadIntContract_implements :
     unfold memReadIntExitPc pcInList
     native_decide
   · refine ⟨seg.atPc, ?_, seg.writes, seg.memEq noMemory_empty, rfl, rfl, rfl, rfl,
-      seg.retired, ?_, ?_⟩
+      seg.retired, ?_, seg.aux, ?_⟩
     · rw [memReadIntResult]
       exact seg.reg x14 _ (by simp)
     · rw [seg.memEq noMemory_empty]
       exact loaded
-    · exact seg.aux
+    · exact generalPreserved
 
 def Proposed_mem_readInt_fi_1_2fa7_Contract : Prop :=
   memReadIntContract.Implements EndpointStep EndpointPc memReadIntOwnPc memReadIntExitPc
