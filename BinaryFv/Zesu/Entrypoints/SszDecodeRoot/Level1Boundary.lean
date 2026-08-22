@@ -209,6 +209,7 @@ def DecodeBoundaryEntry (args : DecodeBoundaryArgs) (state : EndpointState) : Pr
   UIntRep 8 state.machine.mem (args.stackPointer + 0x378) args.savedReturnAddress ∧
   BytesRep state.machine.mem args.inputAddress args.input ∧
   DecodeBoundaryMachineAccess args state.machine ∧
+  GeneralRegistersPresent state.machine ∧
   ∃ values, DecodeCalleeSavedAtRegisters values state
 
 theorem decodeBoundaryEntry_rejects_overlapping_input

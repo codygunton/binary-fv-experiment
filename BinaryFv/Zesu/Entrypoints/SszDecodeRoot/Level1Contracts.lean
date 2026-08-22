@@ -91,7 +91,8 @@ def ReadInputEntry (args : ReadInputArgs) (state : EndpointState) : Prop :=
   (∀ address, args.bufferSlot ≤ address → address < args.bufferSlot + 16 →
     Artifacts.programImage.readFileByte? address = none) ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
-  ConfiguredMachinePre EndpointMachinePc state.machine
+  ConfiguredMachinePre EndpointMachinePc state.machine ∧
+  GeneralRegistersPresent state.machine
 
 def ReadInputExit (args : ReadInputArgs) (outcome : ReadInputOutcome)
     (before after : EndpointState) : Prop :=
@@ -106,7 +107,8 @@ def ReadInputExit (args : ReadInputArgs) (outcome : ReadInputOutcome)
   WritesOnlyWithin
     (Region.union (byteRange args.bufferSlot 8) (byteRange args.sizeSlot 8))
     before.machine after.machine ∧
-  EndpointCallFrame before after
+  EndpointCallFrame before after ∧
+  GeneralRegistersPresent after.machine
 
 def readInputContract (stepBound : ReadInputArgs → Nat) :
     RelationalMachineContract EndpointState ReadInputArgs ReadInputOutcome :=
@@ -158,7 +160,8 @@ def AllocatorGetEntry (args : AllocatorGetArgs) (state : EndpointState) : Prop :
     address < args.stackPointer + 0x20 →
     Artifacts.programImage.readFileByte? address = none) ∧
   Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem ∧
-  ConfiguredMachinePre EndpointMachinePc state.machine
+  ConfiguredMachinePre EndpointMachinePc state.machine ∧
+  GeneralRegistersPresent state.machine
 
 def AllocatorGetExit (args : AllocatorGetArgs) (outcome : AllocatorGetOutcome)
     (before after : EndpointState) : Prop :=
@@ -180,7 +183,8 @@ def AllocatorGetExit (args : AllocatorGetArgs) (outcome : AllocatorGetOutcome)
       (byteRange (args.stackPointer + 0x18) 8)) before.machine after.machine ∧
   after.stdin = before.stdin ∧ after.stdinCursor = before.stdinCursor ∧
   after.stdout = before.stdout ∧ after.exitCode = before.exitCode ∧
-  EndpointCallFrame before after
+  EndpointCallFrame before after ∧
+  GeneralRegistersPresent after.machine
 
 def allocatorGetContract (stepBound : AllocatorGetArgs → Nat) :
     RelationalMachineContract EndpointState AllocatorGetArgs AllocatorGetOutcome :=

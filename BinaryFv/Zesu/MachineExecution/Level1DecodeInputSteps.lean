@@ -1004,7 +1004,8 @@ theorem decodeInputFinishPrologue {fromStep : Nat} {args : DecodeInlineArgs}
         decodeInputParentWrites (decodeInputFrameMemory args)
         [⟨x8, BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)⟩,
          ⟨x18, BitVec.ofNat 64 args.boundary.inputAddress⟩,
-         ⟨x2, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)⟩]
+         ⟨x2, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)⟩,
+         ⟨x22, values.s6⟩]
         fromStep 17 args.origin.machine final 0x121ac ∧
       DecodeCalleeSavedAtStack (args.boundary.stackPointer - 0xbb0)
         args.boundary.returnAddress values { args.origin with machine := final } := by
@@ -1012,7 +1013,8 @@ theorem decodeInputFinishPrologue {fromStep : Nat} {args : DecodeInlineArgs}
     stackUpper, _inputFits, _separated, _stackRead, _link, resultReg, _allocatorReg, inputReg,
     _sizeReg, _inputAddress, _inputSize, _allocatorState, _allocatorVtable, _savedReturn,
     _input, access, _entrySaved⟩
-  have seg0 := seg.forget (kv' := []) (by simp)
+  have seg0 := seg.forget (kv' := [⟨x22, values.s6⟩]) (by
+    simp [decodeInputIncomingRegs])
   have configured0 := access.configured.mono
     (seg0.agree instructionPreserved_disjoint_decodeInputParentWrites) seg0.retired
   have code0 := decodeInputCodeOfSeg access loaded seg0 rfl stackLower
@@ -1089,7 +1091,7 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
   rcases entry with ⟨stdin, returnPc, allocator, atPc, loaded, stackLower, stackAligned,
     stackUpper, inputFits, separated, stackRead, link, resultReg, allocatorReg, inputReg, sizeReg,
     inputAddressRep, inputSizeRep, allocatorStateRep, allocatorVtableRep, savedReturnRep,
-    inputRep, access, entrySaved⟩
+    inputRep, access, general, entrySaved⟩
   rcases entrySaved with ⟨values, saved⟩
   obtain ⟨state14, seg14, saved14⟩ := decodeInputSavePrefix fromStep args values entry' saved
   obtain ⟨final, finalSeg, finalSaved⟩ := decodeInputFinishPrologue entry' seg14 saved14
@@ -1127,6 +1129,20 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
   have accessFinal := access.of_pma_regions_eq
     (finalSeg.agree instructionPreserved_disjoint_decodeInputParentWrites) finalSeg.retired
     (finalSeg.get pma_regions (by simp [decodeInputParentWrites, stepBookkeeping]))
+  have generalFinal : GeneralRegistersPresent final := by
+    apply general.of_writesOnlyRegs finalSeg.writes
+    intro register member written
+    rcases written with bookkeeping | rfl | rfl | rfl | rfl
+    · simp only [stepBookkeeping] at bookkeeping
+      rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+        simp [architecturalIntegerRegisters] at member
+    · exact ⟨BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0),
+        finalSeg.reg x2 _ (by simp)⟩
+    · exact ⟨BitVec.ofNat 64 (args.boundary.stackPointer + 0x20),
+        finalSeg.reg x8 _ (by simp)⟩
+    · exact ⟨BitVec.ofNat 64 args.boundary.inputAddress,
+        finalSeg.reg x18 _ (by simp)⟩
+    · exact ⟨values.s6, finalSeg.reg x22 _ (by simp)⟩
   have endTrace : ScopedTrace decodeInputParentPc DecodeInlineInitialExecutionPc
       (fun _ _ _ _ _ => False) (fromStep + 17) 0 final final :=
     .exitAt (fromStep + 17) final 0x121ac finalSeg.atPc (by
@@ -1154,6 +1170,7 @@ theorem decodeInputInitialHandoff (fromStep : Nat) (args : DecodeInlineArgs)
         code := codeFinal
         configured := configuredFinal
         access := accessFinal
+        generalRegisters := generalFinal
         stdin := rfl
         stdinCursor := rfl
         stdout := rfl
@@ -1179,15 +1196,21 @@ theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
         fromStep 2 before after ∧
       DecodeInlineResumeEntry
         { inline := args, saved := values, status := status } after := by
+  obtain ⟨x8Value, x8At⟩ := frame.generalRegisters.read (register := x8)
+    (by simp [architecturalIntegerRegisters])
+  obtain ⟨x18Value, x18At⟩ := frame.generalRegisters.read (register := x18)
+    (by simp [architecturalIntegerRegisters])
   let seg0 := Seg.nil decodeInputParentPc DecodeInlineInitialExecutionPc
     (fun _ _ _ _ _ => False) decodeInputParentWrites noMemory fromStep
     frame.configured.retiredCounter atPc
   have seg0Regs : RegsHold before.machine
-      [⟨x2, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)⟩, ⟨x10, status⟩] :=
-    .cons _ _ frame.atStack (.cons _ _ statusAt (.nil _))
+      [⟨x2, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)⟩, ⟨x8, x8Value⟩,
+        ⟨x18, x18Value⟩, ⟨x10, status⟩] :=
+    .cons _ _ frame.atStack (.cons _ _ x8At (.cons _ _ x18At (.cons _ _ statusAt (.nil _))))
   have seg0' : Seg decodeInputParentPc DecodeInlineInitialExecutionPc
       (fun _ _ _ _ _ => False) decodeInputParentWrites noMemory
-      [⟨x2, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)⟩, ⟨x10, status⟩]
+      [⟨x2, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)⟩, ⟨x8, x8Value⟩,
+        ⟨x18, x18Value⟩, ⟨x10, status⟩]
       fromStep 0 before.machine before.machine 0x14ca8 := { seg0 with regs := seg0Regs }
   obtain ⟨retired0, run0⟩ := decodeInputBindErrorS6Step fromStep before.machine status
     frame.configured atPc statusAt frame.code
@@ -1247,6 +1270,17 @@ theorem decodeInputErrorHandoff (fromStep : Nat) (args : DecodeInlineArgs)
         access := frame.access.of_pma_regions_eq
           (seg2.agree instructionPreserved_disjoint_decodeInputParentWrites) seg2.retired
           (seg2.get pma_regions (by simp [decodeInputParentWrites, stepBookkeeping]))
+        generalRegisters := frame.generalRegisters.of_writesOnlyRegs seg2.writes (by
+          intro register member written
+          rcases written with bookkeeping | rfl | rfl | rfl | rfl
+          · simp only [stepBookkeeping] at bookkeeping
+            rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+              simp [architecturalIntegerRegisters] at member
+          · exact ⟨BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0),
+              seg2.reg x2 _ (by simp)⟩
+          · exact ⟨x8Value, seg2.reg x8 _ (by simp)⟩
+          · exact ⟨x18Value, seg2.reg x18 _ (by simp)⟩
+          · exact ⟨status, seg2.reg x22 _ (by simp)⟩)
         stdin := frame.stdin
         stdinCursor := frame.stdinCursor
         stdout := frame.stdout

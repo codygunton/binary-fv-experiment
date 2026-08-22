@@ -490,6 +490,10 @@ theorem initialEndpointState_mainEntry (input : Array UInt8)
     configured := configured
     code := code
     dataAccess := dataAccess
+    generalRegisters := by
+      simp [GeneralRegistersPresent, architecturalIntegerRegisters, finalMachine, returnState,
+        pcState, contextState, afterWriteBytes_regs, inputRegsBase, endpointBaseRegs,
+        endpointConfiguredMachine, Std.ExtDHashMap.get?_insert]
     calleeSaved := by
       refine ⟨DecodeCalleeSavedValues.mk 0 0 0 0 0 0 0 0 0 0 0 0, ?_⟩
       simp [DecodeCalleeSavedAtRegisters, finalMachine, returnState, pcState, contextState,

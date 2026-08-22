@@ -6,6 +6,7 @@ import BinaryFv.RiscV.Logic.MemoryWriteFrame
 import BinaryFv.RiscV.Logic.RegisterAgree
 import BinaryFv.RiscV.Logic.LoadedImage
 import BinaryFv.RiscV.Platform.NormalState
+import BinaryFv.RiscV.Step.ControlFlow
 
 /-!
 # Execution of the linked bare-metal endpoint
@@ -86,6 +87,44 @@ theorem GeneralRegistersPresent.of_writesOnlyRegs {written : RegSet} {before aft
   · exact writtenPresent register member changed
   · obtain ⟨value, read⟩ := present register member
     exact ⟨value, (frame.get register changed).trans read⟩
+
+/-- One ordinary integer-register write preserves the complete integer-register domain. -/
+theorem GeneralRegistersPresent.of_one_general_write {written : RegSet}
+    {before after : MachineState} {destination : Register} {value : RegisterType destination}
+    (present : GeneralRegistersPresent before) (frame : WritesOnlyRegs written before after)
+    (onlyDestination : ∀ register ∈ architecturalIntegerRegisters,
+      written register → register = destination)
+    (destinationAt : after.regs.get? destination = some value) :
+    GeneralRegistersPresent after := by
+  apply present.of_writesOnlyRegs frame
+  intro register member changed
+  have equal := onlyDestination register member changed
+  subst register
+  exact ⟨value, destinationAt⟩
+
+theorem GeneralRegistersPresent.of_bookkeeping_write {before after : MachineState}
+    {destination : Register} {value : RegisterType destination}
+    (present : GeneralRegistersPresent before)
+    (frame : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only destination)) before after)
+    (destinationAt : after.regs.get? destination = some value) :
+    GeneralRegistersPresent after := by
+  apply present.of_one_general_write frame _ destinationAt
+  intro register member changed
+  rcases changed with bookkeeping | destination
+  · simp only [stepBookkeeping] at bookkeeping
+    rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+      simp [architecturalIntegerRegisters] at member
+  · exact destination
+
+theorem GeneralRegistersPresent.of_bookkeeping {before after : MachineState}
+    (present : GeneralRegistersPresent before)
+    (frame : WritesOnlyRegs stepBookkeeping before after) :
+    GeneralRegistersPresent after := by
+  apply present.of_writesOnlyRegs frame
+  intro register member changed
+  simp only [stepBookkeeping] at changed
+  rcases changed with rfl | rfl | rfl | rfl <;>
+    simp [architecturalIntegerRegisters] at member
 
 theorem not_generalRegistersPresent_of_missing_x17 {state : MachineState}
     (missing : state.regs.get? x17 = none) : ¬GeneralRegistersPresent state := by

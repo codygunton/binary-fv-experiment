@@ -44,8 +44,23 @@ def endpointPmaRegion : PMA_Region :=
   let regs := regs.insert sig_meip (0 : BitVec 1)
   let regs := regs.insert htif_tohost_base none
   let regs := regs.insert pma_regions [endpointPmaRegion]
+  let regs := regs.insert x1 (0 : BitVec 64)
+  let regs := regs.insert x2 (0 : BitVec 64)
+  let regs := regs.insert x3 (0 : BitVec 64)
+  let regs := regs.insert x4 (0 : BitVec 64)
+  let regs := regs.insert x5 (0 : BitVec 64)
+  let regs := regs.insert x6 (0 : BitVec 64)
+  let regs := regs.insert x7 (0 : BitVec 64)
   let regs := regs.insert x8 (0 : BitVec 64)
   let regs := regs.insert x9 (0 : BitVec 64)
+  let regs := regs.insert x10 (0 : BitVec 64)
+  let regs := regs.insert x11 (0 : BitVec 64)
+  let regs := regs.insert x12 (0 : BitVec 64)
+  let regs := regs.insert x13 (0 : BitVec 64)
+  let regs := regs.insert x14 (0 : BitVec 64)
+  let regs := regs.insert x15 (0 : BitVec 64)
+  let regs := regs.insert x16 (0 : BitVec 64)
+  let regs := regs.insert x17 (0 : BitVec 64)
   let regs := regs.insert x18 (0 : BitVec 64)
   let regs := regs.insert x19 (0 : BitVec 64)
   let regs := regs.insert x20 (0 : BitVec 64)
@@ -56,6 +71,10 @@ def endpointPmaRegion : PMA_Region :=
   let regs := regs.insert x25 (0 : BitVec 64)
   let regs := regs.insert x26 (0 : BitVec 64)
   let regs := regs.insert x27 (0 : BitVec 64)
+  let regs := regs.insert x28 (0 : BitVec 64)
+  let regs := regs.insert x29 (0 : BitVec 64)
+  let regs := regs.insert x30 (0 : BitVec 64)
+  let regs := regs.insert x31 (0 : BitVec 64)
   { initialState with regs }
 
 /-- Static Zig runtime state read before its first explicit write. -/

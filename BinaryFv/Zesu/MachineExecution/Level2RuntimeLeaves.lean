@@ -1363,7 +1363,7 @@ theorem allocatorGetInstanceContract : AllocatorGetInstanceContract := by
   have entryCopy := entry
   rcases entry with ⟨returnPc, atPc, stackRead, aligned, fits, pointerRep, sizeRep, savedRep,
     inputRep, pointerPma, sizePma, pointerMMIO, sizeMMIO, statePma, vtablePma,
-    stateMMIO, vtableMMIO, inputOutside, notFile, loaded, configured⟩
+    stateMMIO, vtableMMIO, inputOutside, notFile, loaded, configured, general⟩
   obtain ⟨retired0, retiredRead0⟩ := configured.retiredCounter
   have seg0 := Seg.nil (pcInRanges Elflings.allocatorGetExecutionPcRanges)
     (pcInList Elflings.allocatorGetExitPcs) allocatorWrites (allocatorMemory args) fromStep
@@ -1533,6 +1533,17 @@ theorem allocatorGetInstanceContract : AllocatorGetInstanceContract := by
   have code8 := allocatorLoadedOfSeg notFile loaded seg8
   have nonRegister : NonRegisterFrame before.machine s8 := by
     simpa [NonRegisterFrame, AuxStateAgree] using seg8.aux
+  have general8 : GeneralRegistersPresent s8 := by
+    apply general.of_writesOnlyRegs seg8.writes
+    intro register member written
+    rcases written with bookkeeping | rfl | rfl | rfl | rfl
+    · simp only [stepBookkeeping] at bookkeeping
+      rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+        simp [architecturalIntegerRegisters] at member
+    · exact ⟨BitVec.ofNat 64 0x2401a0b0, seg8.reg x10 _ (by simp)⟩
+    · exact ⟨BitVec.ofNat 64 Elflings.allocatorVtableAddress, seg8.reg x11 _ (by simp)⟩
+    · exact ⟨BitVec.ofNat 64 args.inputAddress, seg8.reg x12 _ (by simp)⟩
+    · exact ⟨BitVec.ofNat 64 args.input.size, seg8.reg x13 _ (by simp)⟩
   exact ⟨pointerAfter, sizeAfter, stateAfter, vtableAfter, savedAfter, inputAfter, seg8.mem,
     rfl, rfl, rfl, rfl,
     ⟨seg8.agree (by
@@ -1541,7 +1552,7 @@ theorem allocatorGetInstanceContract : AllocatorGetInstanceContract := by
         · rcases bookkeeping with rfl | rfl | rfl | rfl <;>
             simp [abiCalleePreserved] at preserved
         all_goals simp [abiCalleePreserved] at preserved),
-      seg8.retired, code8, nonRegister.1, nonRegister.2.1, nonRegister.2.2⟩⟩
+      seg8.retired, code8, nonRegister.1, nonRegister.2.1, nonRegister.2.2⟩, general8⟩
 
 /-- The seven ordinary instructions plus the observed return implement bare-metal `read_input`. -/
 theorem readInputInstanceContract : ReadInputInstanceContract := by
@@ -1551,7 +1562,7 @@ theorem readInputInstanceContract : ReadInputInstanceContract := by
   rcases entry with ⟨returnPc, inputBound, stdin, cursor, atPc, link, bufferReg, sizeReg,
     sizeEq, aligned, fits, inputRep, contextRep, savedRep, bufferPma, sizePma, contextPma,
     bufferMMIO, sizeMMIO, inputOutside, contextOutside, savedOutside, notFile, loaded,
-    configured⟩
+    configured, general⟩
   obtain ⟨retired0, retiredRead0⟩ := configured.retiredCounter
   have seg0 := Seg.nil (pcInRanges Elflings.readInputExecutionPcRanges)
     (pcInList Elflings.readInputExitPcs) readInputWrites (readInputMemory args) fromStep
@@ -1730,6 +1741,18 @@ theorem readInputInstanceContract : ReadInputInstanceContract := by
   have finalPc : state8.regs.get? PC = some (BitVec.ofNat 64 args.returnAddress) := by
     simp [state8, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
       controlFlowJumpState, Std.ExtDHashMap.get?_insert, targetEq]
+  have general7 : GeneralRegistersPresent state7 := by
+    apply general.of_writesOnlyRegs seg7.writes
+    intro register member written
+    rcases written with bookkeeping | rfl | rfl
+    · simp only [stepBookkeeping] at bookkeeping
+      rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+        simp [architecturalIntegerRegisters] at member
+    · exact ⟨BitVec.ofNat 64 Elflings.ioContextAddress, seg7.reg x5 _ (by simp)⟩
+    · exact ⟨BitVec.ofNat 64 args.input.size, seg7.reg x6 _ (by simp)⟩
+  have general8 : GeneralRegistersPresent state8 :=
+    general7.of_bookkeeping (jumpRetirement_writes state7 0x1015c
+      (Sail.BitVec.update (BitVec.ofNat 64 args.returnAddress) 0 0#1) retired8)
   have inputRep7 : BytesRep state7.mem Elflings.inputBufferAddress args.input := by
     refine ⟨inputRep.1, ?_⟩
     intro index bound
@@ -1785,7 +1808,7 @@ theorem readInputInstanceContract : ReadInputInstanceContract := by
     rw [returnEq]
     unfold pcInList
     native_decide
-  · refine ⟨finalPc, rfl, rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · refine ⟨finalPc, rfl, rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
     · have pointerRep3 : UIntRep 8 state3.mem args.bufferSlot
           Elflings.inputBufferAddress := by
         simpa [state3, tryStepStoreAfterRetired, tryStepStoreAfterTick] using
@@ -1831,6 +1854,7 @@ theorem readInputInstanceContract : ReadInputInstanceContract := by
       · exact frame8.1
       · exact frame8.2.1
       · exact frame8.2.2
+    · exact general8
 
 /-- Production `0x101c4: auipc t0, 0x2400a`. -/
 theorem zkvmExitLoadContextBaseStep (stepNo : Nat) (state : State)

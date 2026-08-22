@@ -77,6 +77,7 @@ structure DecodeInlineFrame (args : DecodeInlineArgs) (values : DecodeCalleeSave
   code : Artifacts.programImage.fileBytesLoadedFaithfully state.machine.mem
   configured : ConfiguredMachinePre EndpointMachinePc state.machine
   access : DecodeBoundaryMachineAccess args.boundary state.machine
+  generalRegisters : GeneralRegistersPresent state.machine
   stdin : state.stdin = args.origin.stdin
   stdinCursor : state.stdinCursor = args.origin.stdinCursor
   stdout : state.stdout = args.origin.stdout
