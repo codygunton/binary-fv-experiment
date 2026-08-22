@@ -446,6 +446,18 @@ structure SszDecodeCleanupResume (args : DecodeInlineArgs) (machine : State) : P
   access : DecodeBoundaryMachineAccess args.boundary machine
   code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
 
+/-- Facts required by the result stores after the complete rejection cleanup. -/
+structure SszDecodeResultStoresReady (args : DecodeInlineArgs) (machine : State) : Prop where
+  atPc : machine.regs.get? PC = some 0x1230c
+  atStack : machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
+  resultAt : machine.regs.get? x8 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20))
+  statusAt : machine.regs.get? x22 = some 1
+  access : DecodeBoundaryMachineAccess args.boundary machine
+  configured : ConfiguredMachinePre EndpointMachinePc machine
+  code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
+
 /-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
 theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
     (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
@@ -588,18 +600,24 @@ theorem sszDecodeCleanupResumeTrace (fromStep : Nat) (args : DecodeInlineArgs)
     ∃ after,
       ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep 21
         { template with machine := before } { template with machine := after } ∧
-      after.regs.get? PC = some 0x1230c ∧
-      after.regs.get? x22 = some 1 ∧
-      after.regs.get? x8 =
-        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) := by
+      SszDecodeResultStoresReady args after := by
   obtain ⟨after, seg⟩ := sszDecodeCleanupAfterMemcpyComplete fromStep args before resume.atPc
     resume.atStack resume.stackFits resume.stackAligned resume.stackUpper resume.access
     resume.access.configured resume.code
   have localTrace := scopedTraceOfSegAtExit seg (by simp [sszDecodeCleanupExitPc])
   have lifted := liftSszDecodeParentTrace sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
     sszDecodeCleanupOwnPc_in_initial sszDecodeCleanupOwnPc_not_observed template localTrace
-  exact ⟨after, by simpa using lifted, seg.atPc, seg.reg x22 1 (by simp),
-    (seg.get x8 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans resume.resultAt⟩
+  have access := sszDecodeCleanupAccessOfSeg resume.access seg
+  exact ⟨after, by simpa using lifted,
+    { atPc := seg.atPc
+      atStack := (seg.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans
+        resume.atStack
+      resultAt := (seg.get x8 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans
+        resume.resultAt
+      statusAt := seg.reg x22 1 (by simp)
+      access := access
+      configured := access.configured
+      code := sszDecodeCleanupCodeOfSeg resume.stackFits resume.access resume.code seg }⟩
 
 /-- The proved `memcpy` body and the 21-step cleanup tail execute in dependency order. -/
 theorem sszDecodeCleanupChildAndTail (fromStep : Nat) (args : DecodeInlineArgs)
@@ -611,17 +629,15 @@ theorem sszDecodeCleanupChildAndTail (fromStep : Nat) (args : DecodeInlineArgs)
       ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc
         (fromStep + 23 + childUsed) 21 childAfter
         { childAfter with machine := after } ∧
-      after.regs.get? x22 = some 1 ∧
-      after.regs.get? x8 =
-        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) := by
+      SszDecodeResultStoresReady args after := by
   obtain ⟨_callReady, callState, childUsed, childAfter, _seg, _callRun, _callAtPc,
     _callStateEq, childTrace, resume⟩ :=
     sszDecodeCleanupAfterMemcpy fromStep args template before ready
-  obtain ⟨after, tailTrace, _tailPc, tag, resultAt⟩ :=
+  obtain ⟨after, tailTrace, storeReady⟩ :=
     sszDecodeCleanupResumeTrace (fromStep + 23 + childUsed) args childAfter
       childAfter.machine resume
-  exact ⟨callState, childUsed, childAfter, after, childTrace, by simpa using tailTrace, tag,
-    resultAt⟩
+  exact ⟨callState, childUsed, childAfter, after, childTrace, by simpa using tailTrace,
+    storeReady⟩
 
 /-- The cleanup parent prefix, proved `memcpy` child, and return tail form one decoder trace. -/
 theorem sszDecodeCleanupTrace (fromStep : Nat) (args : DecodeInlineArgs)
@@ -629,10 +645,7 @@ theorem sszDecodeCleanupTrace (fromStep : Nat) (args : DecodeInlineArgs)
     ∃ (childUsed : Nat) (after : EndpointState),
       ConfinedTrace EndpointStep EndpointPc DecodeInlineInitialExecutionPc fromStep
         (23 + childUsed + 21) { template with machine := before } after ∧
-      after.machine.regs.get? PC = some 0x1230c ∧
-      after.machine.regs.get? x22 = some 1 ∧
-      after.machine.regs.get? x8 =
-        some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) := by
+      SszDecodeResultStoresReady args after.machine := by
   obtain ⟨callReady, callState, childUsed, childAfter, seg, callRun, callAtPc,
     callStateEq, childTrace, resume⟩ :=
     sszDecodeCleanupAfterMemcpy fromStep args template before ready
@@ -651,7 +664,7 @@ theorem sszDecodeCleanupTrace (fromStep : Nat) (args : DecodeInlineArgs)
       simpa [Nat.add_assoc] using parentMachineTrace)
   have childTrace' := childTrace.weaken (fun _ inside => memcpyPc_in_sszDecodeInitial inside)
   rw [callStateEq] at childTrace'
-  obtain ⟨tailMachine, tailTrace, tailPc, tag, resultAt⟩ :=
+  obtain ⟨tailMachine, tailTrace, storeReady⟩ :=
     sszDecodeCleanupResumeTrace (fromStep + 23 + childUsed) args childAfter childAfter.machine
       resume
   rcases childAfter with ⟨childMachine, childStdin, childCursor, childStdout, childExitCode⟩
@@ -668,7 +681,7 @@ theorem sszDecodeCleanupTrace (fromStep : Nat) (args : DecodeInlineArgs)
     { machine := tailMachine, stdin := childStdin, stdinCursor := childCursor,
       stdout := childStdout, exitCode := childExitCode },
     by simpa [Nat.add_assoc] using fullTrace,
-    tailPc, tag, resultAt⟩
+    storeReady⟩
 
 private theorem instructionPreserved_disjoint_sszDecodeLengthValidatedWrites_for_staging :
     RegSet.Disjoint instructionPreserved sszDecodeLengthValidatedWrites := by
