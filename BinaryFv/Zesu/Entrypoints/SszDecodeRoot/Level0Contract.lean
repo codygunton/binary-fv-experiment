@@ -1530,12 +1530,27 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
       simp [decodeArgs, callMachine, callLinkState, tryStepControlFlowAfterRetired,
         tryStepControlFlowAfterTick, Std.ExtDHashMap.get?_insert]
     have access : DecodeBoundaryMachineAccess decodeArgs callState.machine := by
-      refine ⟨ConfiguredMachinePre.afterCall 0x14cf8 0x12168 0x14cfc retired configured,
-        ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-      · intro offset width bound
-        exact callDataAccess.stackLoad offset width bound
-      · intro offset width bound
-        exact entry.stackNoMMIO offset width bound
+      refine
+        { configured := ConfiguredMachinePre.afterCall 0x14cf8 0x12168 0x14cfc retired configured
+          callerLoad := callDataAccess.stackLoad
+          callerStore := callDataAccess.stackStore
+          callerNoMMIO := entry.stackNoMMIO
+          callerNotCode := ?_
+          inputLoad := ?_
+          inputNoMMIO := ?_
+          forkNameTableLoad := callDataAccess.forkNameTableLoad
+          forkNameTableNoMMIO := entry.forkNameTableNoMMIO
+          cleanupTemplateLoad := callDataAccess.cleanupTemplateLoad
+          cleanupTemplateNoMMIO := entry.cleanupTemplateNoMMIO
+          frameLoad := callDataAccess.decodeFrameLoad
+          frameStore := callDataAccess.decodeFrameStore
+          frameNoMMIO := entry.decodeFrameNoMMIO
+          frameNotCode := ?_ }
+      · intro address lower upper
+        apply entry.stackNotFileBacked address
+        · dsimp [decodeArgs] at lower ⊢
+          omega
+        · simpa [decodeArgs] using upper
       · intro offset width bound
         have addressEq : decodeArgs.inputAddress + offset =
             Elflings.inputBufferAddress + offset := by
@@ -1550,20 +1565,6 @@ theorem main_call_decode (contracts : Level1ResolvedContracts) (args : MainArgs)
           rw [inputAddressExact]
         rw [addressEq]
         exact entry.inputNoMMIO offset width (by simpa [decodeArgs] using bound)
-      · intro offset width bound
-        exact callDataAccess.forkNameTableLoad offset width bound
-      · intro offset width bound
-        exact entry.forkNameTableNoMMIO offset width bound
-      · intro offset width bound
-        exact callDataAccess.cleanupTemplateLoad offset width bound
-      · intro offset width bound
-        exact entry.cleanupTemplateNoMMIO offset width bound
-      · intro offset width bound
-        exact callDataAccess.decodeFrameLoad offset width bound
-      · intro offset width bound
-        exact callDataAccess.decodeFrameStore offset width bound
-      · intro offset width bound
-        exact entry.decodeFrameNoMMIO offset width bound
       · intro address lower upper
         apply entry.stackNotFileBacked address
         · simpa [decodeArgs] using lower

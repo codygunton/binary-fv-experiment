@@ -202,7 +202,10 @@ class EvidenceTest(unittest.TestCase):
             "qualified": "ssz_decode_root.decodeInput", "entryReached": True,
             "entryRegisters": [{"values": snapshot}],
             "bindingSnapshots": [{"pc": 0x121AC, "snapshots": [{"values": snapshot}]}],
-            "memoryAccesses": [{"kind": "load", "address": 100}],
+            "memoryAccesses": [
+                {"kind": "load", "address": 100},
+                {"kind": "store", "pc": 0x1230C, "address": 0, "width": 8},
+            ],
         }]}
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory) / "input"
@@ -233,7 +236,10 @@ class EvidenceTest(unittest.TestCase):
              "entryRegisters": [{"values": decode_regs}],
              "bindingSnapshots": [{"pc": 0x121AC,
                                     "snapshots": [{"values": decode_post}]}],
-             "memoryAccesses": [{"kind": "load", "address": 100}]},
+             "memoryAccesses": [
+                 {"kind": "load", "address": 100},
+                 {"kind": "store", "pc": 0x1230C, "address": 1000, "width": 8},
+             ]},
             {"qualified": "ssz_decode_observation.writeSuccess", "entryReached": True,
              "entryRegisters": [{"values": success_regs}], "memoryAccesses": []},
         ]}
@@ -256,6 +262,15 @@ class EvidenceTest(unittest.TestCase):
         post = vector["instances"][0]["bindingSnapshots"][0]["snapshots"][0]["values"]
         post[8] += 1
         with self.assertRaisesRegex(ValueError, "result pointer was not bound to x8"):
+            validate_bindings(manifest, bindings, [vector], {"sample": fixture})
+
+    def test_rejects_missing_first_result_store(self):
+        from analyze import validate_bindings
+        manifest, bindings, vector, fixture = self.decode_binding_fixture()
+        vector["instances"][0]["memoryAccesses"] = [
+            {"kind": "load", "address": 100},
+        ]
+        with self.assertRaisesRegex(ValueError, "first result store was not observed"):
             validate_bindings(manifest, bindings, [vector], {"sample": fixture})
 
     def decode_binding_fixture(self):
@@ -281,7 +296,10 @@ class EvidenceTest(unittest.TestCase):
             "qualified": "ssz_decode_root.decodeInput", "entryReached": True,
             "entryRegisters": [{"values": entry}],
             "bindingSnapshots": [{"pc": 0x121AC, "snapshots": [{"values": post}]}],
-            "memoryAccesses": [{"kind": "load", "address": 100}],
+            "memoryAccesses": [
+                {"kind": "load", "address": 100},
+                {"kind": "store", "pc": 0x1230C, "address": 1000, "width": 8},
+            ],
         }]}
         return manifest, bindings, vector, fixture
 

@@ -102,8 +102,12 @@ structure DecodeBoundaryMachineAccess (args : DecodeBoundaryArgs) (state : Machi
   configured : ConfiguredMachinePre EndpointMachinePc state
   callerLoad : ∀ offset width, offset + width ≤ 0x380 →
     LoadPmaAllows state (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  callerStore : ∀ offset width, offset + width ≤ 0x380 →
+    StorePmaAllows state (BitVec.ofNat 64 (args.stackPointer + offset)) width
   callerNoMMIO : ∀ offset width, offset + width ≤ 0x380 →
     LoadMMIOAddressExcluded (BitVec.ofNat 64 (args.stackPointer + offset)) width
+  callerNotCode : ∀ address, args.stackPointer ≤ address →
+    address < args.stackPointer + 0x380 → Artifacts.programImage.readFileByte? address = none
   inputLoad : ∀ offset width, offset + width ≤ args.input.size →
     LoadPmaAllows state (BitVec.ofNat 64 (args.inputAddress + offset)) width
   inputNoMMIO : ∀ offset width, offset + width ≤ args.input.size →
@@ -136,7 +140,10 @@ theorem of_pma_regions_eq {args : DecodeBoundaryArgs} {before after : MachineSta
   configured := access.configured.mono agree retired
   callerLoad offset width bound :=
     dataPmaAllows_of_pma_regions_eq regions (access.callerLoad offset width bound)
+  callerStore offset width bound :=
+    dataPmaAllows_of_pma_regions_eq regions (access.callerStore offset width bound)
   callerNoMMIO := access.callerNoMMIO
+  callerNotCode := access.callerNotCode
   inputLoad offset width bound :=
     dataPmaAllows_of_pma_regions_eq regions (access.inputLoad offset width bound)
   inputNoMMIO := access.inputNoMMIO

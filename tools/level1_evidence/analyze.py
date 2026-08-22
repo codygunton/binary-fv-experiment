@@ -236,6 +236,14 @@ def validate_bindings(manifest: dict, bindings: dict, vectors: list[dict],
                 raise ValueError(
                     f"decodeInput result pointer was not bound to x8 for {vector['label']}"
                 )
+            if not any(
+                access["kind"] == "store" and access["pc"] == 0x1230C
+                and access["address"] == entry_values[10] and access["width"] == 8
+                for access in decode["memoryAccesses"]
+            ):
+                raise ValueError(
+                    f"decodeInput first result store was not observed for {vector['label']}"
+                )
         checks.append({
             "vector": vector["label"],
             "inputSize": size,
@@ -244,6 +252,7 @@ def validate_bindings(manifest: dict, bindings: dict, vectors: list[dict],
             "inputSizeRegister": 13,
             "postProloguePc": 0x121AC,
             "resultPointerRegister": 8,
+            "firstResultStorePc": 0x1230C,
         })
         success = next((row for row in vector["instances"]
                         if row["qualified"] == "ssz_decode_observation.writeSuccess"), None)
@@ -259,7 +268,7 @@ def validate_bindings(manifest: dict, bindings: dict, vectors: list[dict],
                 "decodeResultRegister": 10,
                 "writeSuccessArgumentRegister": 10,
             })
-    return {"source": "same-ELF DWARF and ABI callsite checked against QEMU snapshots and loads",
+    return {"source": "same-ELF DWARF and ABI callsite checked against QEMU snapshots and accesses",
             "decodeInputBindings": checks,
             "decodeResultBindings": decoded_checks}
 
