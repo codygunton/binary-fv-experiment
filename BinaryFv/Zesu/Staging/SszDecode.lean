@@ -2237,6 +2237,82 @@ theorem sszDecodeFixedCopy2Child (fromStep : Nat) (args : DecodeInlineArgs)
   exact ⟨callState, used, after, callRun, callStack, callResult, callMemory, callAccess,
     callGeneral, by simpa only [Nat.add_assoc] using childTrace, childExit⟩
 
+/-- The 256-byte copy returns with all three completed result windows. -/
+structure SszDecodeFixedCopy2Resume (args : DecodeInlineArgs) (machine : State) : Prop where
+  atPc : machine.regs.get? PC = some 0x123d4
+  atStack : machine.regs.get? x2 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0))
+  resultAt : machine.regs.get? x8 =
+    some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20))
+  stackFits : 0xbb0 ≤ args.boundary.stackPointer
+  stackAligned : args.boundary.stackPointer % 16 = 0
+  stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64
+  access : DecodeBoundaryMachineAccess args.boundary machine
+  code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
+  generalRegisters : GeneralRegistersPresent machine
+  zeroSlots : SszDecodeCleanupZeroSlots args machine
+  copied0 : BytesRep machine.mem
+    (args.boundary.stackPointer + 0xec) sszDecodeZeroBytes32
+  copied1 : BytesRep machine.mem
+    (args.boundary.stackPointer + 0x10c) sszDecodeZeroBytes32
+  copied2 : BytesRep machine.mem
+    (args.boundary.stackPointer + 0x12c) sszDecodeCleanupTemplateBytes
+
+/-- Reconstruct the exact `0x123d4` return from the shared fixed-copy child theorem. -/
+theorem sszDecodeFixedCopy2AfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
+    (template : EndpointState) (before callReady : State)
+    (setup : SszDecodeFixedCopy2Ready fromStep args before callReady) :
+    ∃ (callState : EndpointState) (used : Nat) (after : EndpointState),
+      Runs (try_step (fromStep + 4) false) callReady callState.machine false ∧
+      ConfinedTrace EndpointStep EndpointPc (pcInRanges Elflings.memcpyExecutionPcRanges)
+        (fromStep + 5) used callState after ∧
+      SszDecodeFixedCopy2Resume args after.machine := by
+  obtain ⟨callState, used, after, callRun, callStack, callResult, callMemory, callAccess,
+    callGeneral, childTrace, childExit⟩ :=
+    sszDecodeFixedCopy2Child fromStep args template before callReady setup
+  rcases childExit with ⟨childPc, _stdin, _cursor, _stdout, _exitCode, destination,
+    _source, codeAfter, childMem, childFrame, childGeneralPreserved⟩
+  rcases childFrame with ⟨childRegisters, childRetired, _childCode, _childChoice, _childTags,
+    _childOutput⟩
+  have childAgree : Agree instructionPreserved callState.machine after.machine :=
+    childRegisters.weaken instructionPreserved_abiCalleePreserved_cleanup
+  have childPma := childRegisters pma_regions (by simp [abiCalleePreserved])
+  have wholeCallMemory := callMemory.trans (setup.seg.memEq noMemory_empty)
+  have callSlots := setup.resume.zeroSlots.of_mem_eq wholeCallMemory
+  have callCopied0 := setup.resume.copied0.of_mem_eq wholeCallMemory
+  have callCopied1 := setup.resume.copied1.of_mem_eq wholeCallMemory
+  have resume : SszDecodeFixedCopy2Resume args after.machine :=
+    { atPc := by simpa [sszDecodeFixedCopy2Args] using childPc
+      atStack := (childRegisters x2 (by simp [abiCalleePreserved])).trans callStack
+      resultAt := (childRegisters x8 (by simp [abiCalleePreserved])).trans callResult
+      stackFits := setup.resume.stackFits
+      stackAligned := setup.resume.stackAligned
+      stackUpper := setup.resume.stackUpper
+      access := callAccess.of_pma_regions_eq childAgree childRetired childPma
+      code := codeAfter
+      generalRegisters := childGeneralPreserved callGeneral
+      zeroSlots := callSlots.of_writesOnlyWithin childMem (by
+        intro address width member index indexBound inside
+        unfold byteRange sszDecodeFixedCopy2Args at inside
+        simp only [sszDecodeCleanupTemplateBytes, Array.size_ofFn] at inside
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+        rcases member with h | h | h | h | h | h | h | h | h <;> cases h <;>
+          have := setup.resume.stackFits <;> omega)
+      copied0 := callCopied0.of_writesOnlyWithin childMem (by
+        intro index indexBound inside
+        unfold byteRange sszDecodeFixedCopy2Args at inside
+        simp only [sszDecodeZeroBytes32, sszDecodeCleanupTemplateBytes, Array.size_ofFn]
+          at indexBound inside
+        omega)
+      copied1 := callCopied1.of_writesOnlyWithin childMem (by
+        intro index indexBound inside
+        unfold byteRange sszDecodeFixedCopy2Args at inside
+        simp only [sszDecodeZeroBytes32, sszDecodeCleanupTemplateBytes, Array.size_ofFn]
+          at indexBound inside
+        omega)
+      copied2 := by simpa [sszDecodeFixedCopy2Args] using destination }
+  exact ⟨callState, used, after, callRun, childTrace, resume⟩
+
 /-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
 theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
     (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
