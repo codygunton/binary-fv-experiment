@@ -554,6 +554,7 @@ structure SszDecodeResultStoresHandoff (fromStep : Nat) (args : DecodeInlineArgs
   access : DecodeBoundaryMachineAccess args.boundary after
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
   zeroSlots : SszDecodeCleanupZeroSlots args after
+  generalRegisters : GeneralRegistersPresent after
 
 /-- Compose all twelve result stores through one shared store family and `Seg`. -/
 theorem sszDecodeResultStores (fromStep : Nat) (args : DecodeInlineArgs) (before : State)
@@ -679,7 +680,12 @@ theorem sszDecodeResultStores (fromStep : Nat) (args : DecodeInlineArgs) (before
     rcases member with h | h | h | h | h | h | h | h | h <;> cases h <;>
       intro index indexBound inside <;> omega)
   exact ⟨machine12, seg12, sszDecodeResultStoresAccessOfSeg ready.access seg12,
-    sszDecodeResultStoresCodeOfSeg ready.access ready.code seg12, zeroSlots⟩
+    sszDecodeResultStoresCodeOfSeg ready.access ready.code seg12, zeroSlots,
+    generalRegistersOfSeg ready.generalRegisters seg12 (by
+      intro register member bookkeeping
+      simp only [stepBookkeeping] at bookkeeping
+      rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+        simp [architecturalIntegerRegisters] at member)⟩
 
 def sszDecodeCleanupLoadsOwnPc (pc : BitVec 64) : Prop :=
   0x1233c ≤ pc.toNat ∧ pc.toNat < 0x12360
@@ -743,6 +749,7 @@ structure SszDecodeCleanupLoadsHandoff (fromStep : Nat) (args : DecodeInlineArgs
     fromStep 9 before after 0x12360
   access : DecodeBoundaryMachineAccess args.boundary after
   code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
+  generalRegisters : GeneralRegistersPresent after
 
 /-- Compose all nine cleanup-slot loads through one `Seg`. -/
 theorem sszDecodeCleanupLoads (fromStep : Nat) (args : DecodeInlineArgs)
@@ -860,7 +867,13 @@ theorem sszDecodeCleanupLoads (fromStep : Nat) (args : DecodeInlineArgs)
     (by simp [RegsOutside, stepBookkeeping])
   exact ⟨state9, seg9, sszDecodeCleanupLoadsAccessOfSeg stores.access seg9, by
     rw [seg9.memEq noMemory_empty]
-    exact stores.code⟩
+    exact stores.code, generalRegistersOfSeg stores.generalRegisters seg9 (by
+      intro register member written
+      rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      · simp only [stepBookkeeping] at bookkeeping
+        rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+          simp [architecturalIntegerRegisters] at member
+      all_goals simp) ⟩
 
 /-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
 theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)

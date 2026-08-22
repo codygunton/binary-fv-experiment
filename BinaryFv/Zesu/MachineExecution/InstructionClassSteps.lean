@@ -991,6 +991,106 @@ theorem configuredStackDwordStoreStep (stepNo pc stackPointer offset : Nat)
     (pcFits := site.pcFits) (pcAligned := site.pcAligned) (base := base)
     (read0 := site.read0) (read1 := site.read1) (read2 := site.read2) (read3 := site.read3)
 
+/-- Retire one exact `sw offset(base)` with generated base and source register witnesses. -/
+theorem configuredBaseWordStoreStep (stepNo pc baseAddress offset : Nat)
+    (state : State) (value : BitVec 64) (imm : BitVec 12) (baseIndex rs2 : regidx)
+    (byte0 byte1 byte2 byte3 : UInt8)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (pma : StorePmaAllows state (BitVec.ofNat 64 (baseAddress + offset)) 4)
+    (notMMIO : StoreMMIOAddressExcluded (BitVec.ofNat 64 (baseAddress + offset)) 4)
+    (aligned : (baseAddress + offset) % 4 = 0)
+    (fits : baseAddress + offset + 4 ≤ 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (addressEq : BitVec.ofNat 64 baseAddress + sign_extend (m := 64) imm =
+      BitVec.ofNat 64 (baseAddress + offset))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.STORE (imm, rs2, baseIndex, 4)))
+    (baseRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits baseIndex) premise premise (BitVec.ofNat 64 baseAddress))
+    (dataRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits rs2) premise premise value)
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3 := by native_decide)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat) := by native_decide) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (width := 4)
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pc))
+          (baseAddress + offset) value)
+        (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
+  let premise := coreControlFlowNextState
+    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
+  have agree : Agree platformPreserved state premise :=
+    (stepPremiseState_writes state (BitVec.ofNat 64 pc)).agree platformPreserved_disjoint
+  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := configured.mstatusStoreMode
+  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := configured.seccfgPresent
+  have mstatusPremise := (agree mstatus (by simp [platformPreserved])).trans mstatusRead
+  have privilegePremise :=
+    (agree cur_privilege (by simp [platformPreserved])).trans configured.normal.2.1
+  have mseccfgPremise := (agree mseccfg (by simp [platformPreserved])).trans mseccfgRead
+  have addressRun : Runs
+      (get_transformed_data_addr baseIndex (sign_extend (m := 64) imm) (Store Data) 4)
+      premise premise (.Ext_DataAddr_OK
+        (virtaddr.Virtaddr (BitVec.ofNat 64 (baseAddress + offset)))) := by
+    simpa [addressEq] using get_transformed_data_addr_machine_data_run .store premise
+      baseIndex 4 (BitVec.ofNat 64 baseAddress) (sign_extend (m := 64) imm)
+      mstatusBits mseccfgBits
+      (baseRun premise (stepPremiseState_writes state (BitVec.ofNat 64 pc)))
+      mstatusPremise privilegePremise mprvZero mseccfgPremise pmmDisabled
+  have physical := phys_access_check_machine_store_allowed premise
+    (BitVec.ofNat 64 (baseAddress + offset)) 4
+    (fetchPmpDisabled_of_normal (normalExecutionState_of_platformPreserved agree configured.normal))
+    (storePmaAllows_of_agree agree pma)
+    (configuredOfNatAlignedFour (baseAddress + offset) (by omega) aligned).2
+  have noMMIO := storeMemoryNoMMIO_of_state_layout_excluded premise
+    (BitVec.ofNat 64 (baseAddress + offset)) 4 notMMIO
+    ((agree htif_tohost_base (by simp [platformPreserved])).trans configured.htifDisabled)
+  let afterWrite := afterWriteBytes (width := 4) premise (baseAddress + offset) value
+  have write : Runs (PreSail.writeBytes (n := 4)
+      (BitVec.ofNat 64 (baseAddress + offset)).toNat
+      (Sail.BitVec.extractLsb value 31 0)) premise afterWrite true := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+    exact writeBytes_run_exact premise (baseAddress + offset)
+      (Sail.BitVec.extractLsb value 31 0)
+  have execute : Runs (execute (.STORE (imm, rs2, baseIndex, 4))) premise afterWrite
+      (.Retire_Success ()) := by
+    change Runs (execute_STORE imm rs2 baseIndex 4) _ _ _
+    exact execute_STORE_word_aligned_run premise afterWrite rs2 baseIndex imm
+      (BitVec.ofNat 64 (baseAddress + offset)) mstatusBits value mstatusPremise privilegePremise
+      mprvZero (dataRun premise (stepPremiseState_writes state (BitVec.ofNat 64 pc))) addressRun
+      (configuredOfNatAlignedFour (baseAddress + offset) (by omega) aligned).1 physical noMMIO write
+  obtain ⟨retired, counters⟩ := configured.counters
+  obtain ⟨platform, noFetchMMIO, interrupts, notExpected⟩ :=
+    configured.stepContext (BitVec.ofNat 64 pc) atPc
+      ⟨by simpa using site.pcAligned, ⟨byte0, by
+        simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt site.pcFits] using site.read0⟩⟩
+  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
+      (tryStepControlFlowAfterIncrement state).mem := by
+    simpa [tryStepControlFlowAfterIncrement] using loaded
+  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Artifacts.programImage
+    (tryStepControlFlowAfterIncrement state) pc site.pcFits loadedAfter byte0 byte1 byte2 byte3
+      site.read0 site.read1 site.read2 site.read3
+  have regsEq : afterWrite.regs = premise.regs :=
+    writeBytes_preserves_regs _ _ premise afterWrite write
+  refine ⟨retired, tryStepFallThroughRetires stepNo state afterWrite (BitVec.ofNat 64 pc) retired
+    0 0 (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
+    (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)
+    (.STORE (imm, rs2, baseIndex, 4)) platform noFetchMMIO bytes interrupts base decode
+    notExpected execute ?_ ?_ ?_ ?_ counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1
+    counters.2.2.2.2.1 counters.2.2.2.2.2⟩
+  · rw [regsEq]
+    simp [premise, coreControlFlowNextState]
+  · rw [regsEq]
+    simp [premise, coreControlFlowNextState, Std.ExtDHashMap.get?_insert]
+  · rw [regsEq]
+    simp [premise, coreControlFlowNextState, Std.ExtDHashMap.get?_insert]
+  · rw [regsEq]
+    simp [premise, coreControlFlowNextState, Std.ExtDHashMap.get?_insert]
+
 /-- Retire one exact `sw offset(sp)` with a generated source-register witness. -/
 theorem configuredStackWordStoreStep (stepNo pc stackPointer offset : Nat)
     (state : State) (value : BitVec 64) (imm : BitVec 12) (rs2 : regidx)
@@ -1021,75 +1121,12 @@ theorem configuredStackWordStoreStep (stepNo pc stackPointer offset : Nat)
             (BitVec.ofNat 64 pc))
           (stackPointer + offset) value)
         (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
-  let premise := coreControlFlowNextState
-    (tryStepControlFlowAfterIncrement state) (BitVec.ofNat 64 pc)
-  have agree : Agree platformPreserved state premise :=
-    (stepPremiseState_writes state (BitVec.ofNat 64 pc)).agree platformPreserved_disjoint
-  obtain ⟨mstatusBits, mstatusRead, mprvZero⟩ := configured.mstatusStoreMode
-  obtain ⟨mseccfgBits, mseccfgRead, pmmDisabled⟩ := configured.seccfgPresent
-  have mstatusPremise := (agree mstatus (by simp [platformPreserved])).trans mstatusRead
-  have privilegePremise :=
-    (agree cur_privilege (by simp [platformPreserved])).trans configured.normal.2.1
-  have mseccfgPremise := (agree mseccfg (by simp [platformPreserved])).trans mseccfgRead
-  have stackPremise := (stepPremiseState_writes state (BitVec.ofNat 64 pc)).get x2
-    (by decide) |>.trans stackRead
-  have addressRun : Runs
-      (get_transformed_data_addr (.Regidx 2#5) (sign_extend (m := 64) imm) (Store Data) 4)
-      premise premise (.Ext_DataAddr_OK
-        (virtaddr.Virtaddr (BitVec.ofNat 64 (stackPointer + offset)))) := by
-    simpa [addressEq] using get_transformed_data_addr_machine_data_run .store premise
-      (.Regidx 2#5) 4 (BitVec.ofNat 64 stackPointer) (sign_extend (m := 64) imm)
-      mstatusBits mseccfgBits (rX_x2_run premise (BitVec.ofNat 64 stackPointer) stackPremise)
-      mstatusPremise privilegePremise mprvZero mseccfgPremise pmmDisabled
-  have physical := phys_access_check_machine_store_allowed premise
-    (BitVec.ofNat 64 (stackPointer + offset)) 4
-    (fetchPmpDisabled_of_normal (normalExecutionState_of_platformPreserved agree configured.normal))
-    (storePmaAllows_of_agree agree pma)
-    (configuredOfNatAlignedFour (stackPointer + offset) (by omega) aligned).2
-  have noMMIO := storeMemoryNoMMIO_of_state_layout_excluded premise
-    (BitVec.ofNat 64 (stackPointer + offset)) 4 notMMIO
-    ((agree htif_tohost_base (by simp [platformPreserved])).trans configured.htifDisabled)
-  let afterWrite := afterWriteBytes (width := 4) premise (stackPointer + offset) value
-  have write : Runs (PreSail.writeBytes (n := 4)
-      (BitVec.ofNat 64 (stackPointer + offset)).toNat
-      (Sail.BitVec.extractLsb value 31 0)) premise afterWrite true := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
-    exact writeBytes_run_exact premise (stackPointer + offset)
-      (Sail.BitVec.extractLsb value 31 0)
-  have execute : Runs (execute (.STORE (imm, rs2, .Regidx 2#5, 4))) premise afterWrite
-      (.Retire_Success ()) := by
-    change Runs (execute_STORE imm rs2 (.Regidx 2#5) 4) _ _ _
-    exact execute_STORE_word_aligned_run premise afterWrite rs2 (.Regidx 2#5) imm
-      (BitVec.ofNat 64 (stackPointer + offset)) mstatusBits value mstatusPremise privilegePremise
-      mprvZero (dataRun premise (stepPremiseState_writes state (BitVec.ofNat 64 pc))) addressRun
-      (configuredOfNatAlignedFour (stackPointer + offset) (by omega) aligned).1 physical noMMIO write
-  obtain ⟨retired, counters⟩ := configured.counters
-  obtain ⟨platform, noFetchMMIO, interrupts, notExpected⟩ :=
-    configured.stepContext (BitVec.ofNat 64 pc) atPc
-      ⟨by simpa using site.pcAligned, ⟨byte0, by
-        simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt site.pcFits] using site.read0⟩⟩
-  have loadedAfter : Artifacts.programImage.fileBytesLoadedFaithfully
-      (tryStepControlFlowAfterIncrement state).mem := by
-    simpa [tryStepControlFlowAfterIncrement] using loaded
-  have bytes := BinaryFv.Binary.ProgramImage.fetchBytesAt_of_file_bytes Artifacts.programImage
-    (tryStepControlFlowAfterIncrement state) pc site.pcFits loadedAfter byte0 byte1 byte2 byte3
-      site.read0 site.read1 site.read2 site.read3
-  have regsEq : afterWrite.regs = premise.regs :=
-    writeBytes_preserves_regs _ _ premise afterWrite write
-  refine ⟨retired, tryStepFallThroughRetires stepNo state afterWrite (BitVec.ofNat 64 pc) retired
-    0 0 (BitVec.ofNat 8 byte0.toNat) (BitVec.ofNat 8 byte1.toNat)
-    (BitVec.ofNat 8 byte2.toNat) (BitVec.ofNat 8 byte3.toNat)
-    (.STORE (imm, rs2, .Regidx 2#5, 4)) platform noFetchMMIO bytes interrupts base decode
-    notExpected execute ?_ ?_ ?_ ?_ counters.1 counters.2.1 counters.2.2.1 counters.2.2.2.1
-    counters.2.2.2.2.1 counters.2.2.2.2.2⟩
-  · rw [regsEq]
-    simp [premise, coreControlFlowNextState]
-  · rw [regsEq]
-    simp [premise, coreControlFlowNextState, Std.ExtDHashMap.get?_insert]
-  · rw [regsEq]
-    simp [premise, coreControlFlowNextState, Std.ExtDHashMap.get?_insert]
-  · rw [regsEq]
-    simp [premise, coreControlFlowNextState, Std.ExtDHashMap.get?_insert]
+  apply configuredBaseWordStoreStep stepNo pc stackPointer offset state value imm
+    (.Regidx 2#5) rs2 byte0 byte1 byte2 byte3 configured atPc pma notMMIO aligned fits loaded
+    addressEq decode (site := site) (base := base)
+  · intro premise writes
+    exact rX_x2_run premise _ ((writes.get x2 (by decide)).trans stackRead)
+  · exact dataRun
 
 /-- Retire one exact `sh offset(sp)` with a generated source-register witness. -/
 theorem configuredStackHalfStoreStep (stepNo pc stackPointer offset : Nat)

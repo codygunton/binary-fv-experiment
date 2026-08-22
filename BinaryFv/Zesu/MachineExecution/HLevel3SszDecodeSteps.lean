@@ -1620,6 +1620,48 @@ theorem sszDecodeResultDwordStoreStep (stepNo pc offset : Nat) (imm : BitVec 12)
     exact rX_x8_run premise _ ((writes.get x8 (by decide)).trans resultAt)
   · exact sourceRun
 
+/-- Execute one result word store through the shared base-register store theorem. -/
+theorem sszDecodeResultWordStoreStep (stepNo pc offset : Nat) (imm : BitVec 12)
+    (sourceIndex : regidx) (byte0 byte1 byte2 byte3 : UInt8)
+    (args : DecodeInlineArgs) (state : State) (value : BitVec 64)
+    (access : DecodeBoundaryMachineAccess args.boundary state)
+    (atPc : state.regs.get? PC = some (BitVec.ofNat 64 pc))
+    (resultAt : state.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)))
+    (sourceRun : ∀ premise, WritesOnlyRegs stepBookkeeping state premise →
+      Runs (rX_bits sourceIndex) premise premise value)
+    (offsetBound : 0x20 + offset + 4 ≤ 0x380)
+    (aligned : (args.boundary.stackPointer + 0x20 + offset) % 4 = 0)
+    (fits : args.boundary.stackPointer + 0x20 + offset + 4 ≤ 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem)
+    (addressEq : BitVec.ofNat 64 (args.boundary.stackPointer + 0x20) +
+      sign_extend (m := 64) imm =
+        BitVec.ofNat 64 (args.boundary.stackPointer + 0x20 + offset))
+    (decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 byte0.toNat)
+      (BitVec.ofNat 8 byte1.toNat) (BitVec.ofNat 8 byte2.toNat)
+      (BitVec.ofNat 8 byte3.toNat)))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.STORE (imm, sourceIndex, .Regidx 8#5, 4)))
+    (site : ExactInstructionSite pc byte0 byte1 byte2 byte3)
+    (base : BaseInstructionEncoding (BitVec.ofNat 8 byte0.toNat)) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (width := 4)
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state)
+            (BitVec.ofNat 64 pc))
+          (args.boundary.stackPointer + 0x20 + offset) value)
+        (Sail.BitVec.addInt (BitVec.ofNat 64 pc) 4) retired) false := by
+  apply configuredBaseWordStoreStep stepNo pc
+    (args.boundary.stackPointer + 0x20) offset state value imm (.Regidx 8#5) sourceIndex
+    byte0 byte1 byte2 byte3 access.configured atPc
+    (by simpa [Nat.add_assoc] using access.callerStore (0x20 + offset) 4 offsetBound)
+    (by simpa [LoadMMIOAddressExcluded, StoreMMIOAddressExcluded, Nat.add_assoc] using
+      access.callerNoMMIO (0x20 + offset) 4 offsetBound)
+    aligned fits loaded addressEq decode (site := site) (base := base)
+  · intro premise writes
+    exact rX_x8_run premise _ ((writes.get x8 (by decide)).trans resultAt)
+  · exact sourceRun
+
 /-- Declare one exact result word store from the shared base-register theorem. -/
 macro "sszDecodeResultDwordSite(" name:ident ";" pc:term "," offset:term ";"
     sourceIndex:term "," sourceRegister:term "," sourceRun:term ";"
@@ -1678,6 +1720,61 @@ sszDecodeResultDwordSite(sszDecodeResultStoreS7Second; 0x12334, 0x50;
   (.Regidx 23#5), x23, rX_x23_run; 0x23, 0x38, 0x74, 0x05)
 sszDecodeResultDwordSite(sszDecodeResultStoreRa; 0x12338, 0x58;
   (.Regidx 1#5), x1, rX_x1_run; 0x23, 0x3c, 0x14, 0x04)
+
+-- The next result-store packet uses the same base, access frame, and exact store theorem.
+sszDecodeResultDwordSite(sszDecodeResultStoreT5; 0x12360, 0x60;
+  (.Regidx 30#5), x30, rX_x30_run; 0x23, 0x30, 0xe4, 0x07)
+sszDecodeResultDwordSite(sszDecodeResultStoreT2; 0x12364, 0x68;
+  (.Regidx 7#5), x7, rX_x7_run; 0x23, 0x34, 0x74, 0x06)
+sszDecodeResultDwordSite(sszDecodeResultStoreT1; 0x12368, 0x70;
+  (.Regidx 6#5), x6, rX_x6_run; 0x23, 0x38, 0x64, 0x06)
+sszDecodeResultDwordSite(sszDecodeResultStoreA0Second; 0x1236c, 0x78;
+  (.Regidx 10#5), x10, rX_x10_run; 0x23, 0x3c, 0xa4, 0x06)
+sszDecodeResultDwordSite(sszDecodeResultStoreA1Second; 0x12370, 0x80;
+  (.Regidx 11#5), x11, rX_x11_run; 0x23, 0x30, 0xb4, 0x08)
+sszDecodeResultDwordSite(sszDecodeResultStoreT4; 0x12374, 0x88;
+  (.Regidx 29#5), x29, rX_x29_run; 0x23, 0x34, 0xd4, 0x09)
+sszDecodeResultDwordSite(sszDecodeResultStoreT3; 0x12378, 0x90;
+  (.Regidx 28#5), x28, rX_x28_run; 0x23, 0x38, 0xc4, 0x09)
+sszDecodeResultDwordSite(sszDecodeResultStoreA2Second; 0x1237c, 0x98;
+  (.Regidx 12#5), x12, rX_x12_run; 0x23, 0x3c, 0xc4, 0x08)
+sszDecodeResultDwordSite(sszDecodeResultStoreA7Second; 0x12380, 0xc0;
+  (.Regidx 17#5), x17, rX_x17_run; 0x23, 0x30, 0x14, 0x0d)
+sszDecodeResultDwordSite(sszDecodeResultStoreA3Second; 0x12388, 0xa0;
+  (.Regidx 13#5), x13, rX_x13_run; 0x23, 0x30, 0xd4, 0x0a)
+sszDecodeResultDwordSite(sszDecodeResultStoreA4Second; 0x1238c, 0xa8;
+  (.Regidx 14#5), x14, rX_x14_run; 0x23, 0x34, 0xe4, 0x0a)
+sszDecodeResultDwordSite(sszDecodeResultStoreA5Second; 0x12390, 0xb0;
+  (.Regidx 15#5), x15, rX_x15_run; 0x23, 0x38, 0xf4, 0x0a)
+sszDecodeResultDwordSite(sszDecodeResultStoreA6Second; 0x12394, 0xb8;
+  (.Regidx 16#5), x16, rX_x16_run; 0x23, 0x3c, 0x04, 0x0b)
+
+/-- Exact `0x12384: sw t0,0xc8(s0)`. -/
+theorem sszDecodeResultStoreT0Word (stepNo : Nat) (args : DecodeInlineArgs)
+    (state : State) (value : BitVec 64)
+    (access : DecodeBoundaryMachineAccess args.boundary state)
+    (atPc : state.regs.get? PC = some 0x12384)
+    (resultAt : state.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)))
+    (sourceAt : state.regs.get? x5 = some value)
+    (stackAligned : args.boundary.stackPointer % 16 = 0)
+    (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (width := 4)
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) 0x12384)
+          (args.boundary.stackPointer + 0x20 + 0xc8) value)
+        0x12388 retired) false := by
+  apply sszDecodeResultWordStoreStep stepNo 0x12384 0xc8 0x0c8 (.Regidx 5#5)
+    0x23 0x24 0x54 0x0c args state value access atPc resultAt
+    (fun premise writes => rX_x5_run premise value ((writes.get x5 (by decide)).trans sourceAt))
+    (by omega) (by omega) (by omega) loaded
+  · change BitVec.ofNat 64 (args.boundary.stackPointer + 0x20) + 0xc8#64 = _
+    rw [← BitVec.ofNat_add]
+  · configured_decode access.configured
+  · native_decide
+  · rfl
 
 def sszDecodeResultStoresOwnPc (pc : BitVec 64) : Prop :=
   0x1230c ≤ pc.toNat ∧ pc.toNat < 0x1233c
