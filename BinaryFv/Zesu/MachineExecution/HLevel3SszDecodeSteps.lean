@@ -1564,6 +1564,97 @@ private theorem sszDecodeCleanupMemcpyCallStep (stepNo : Nat) (state : State)
     0xe7 0x80 0x40 0xf2 configured atPc baseAt loaded
     (base := by rfl) (decode := by configured_decode configured)
 
+/-- Exact `0x12398: addi a0,s0,0xcc`, for the first fixed result copy. -/
+theorem sszDecodeFixedCopy0DestinationStep (stepNo : Nat) (args : DecodeInlineArgs)
+    (state : State) (atPc : state.regs.get? PC = some 0x12398)
+    (resultAt : state.regs.get? x8 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)))
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x12398 retired x10
+        (BitVec.ofNat 64 (args.boundary.stackPointer + 0xec))) false := by
+  have resultEq : BitVec.ofNat 64 (args.boundary.stackPointer + 0xec) =
+      iTypeResult .ADDI 0xcc (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20)) := by
+    change BitVec.ofNat 64 (args.boundary.stackPointer + 0xec) =
+      BitVec.ofNat 64 (args.boundary.stackPointer + 0x20) + sign_extend (m := 64) (0xcc#12)
+    rw [show sign_extend (m := 64) (0xcc#12) = 0xcc#64 by native_decide,
+      ← BitVec.ofNat_add]
+  apply configuredITypeX10Step stepNo 0x12398 state 0xcc (.Regidx 8#5) .ADDI
+    _ _ 0x13 0x05 0xc4 0x0c configured atPc loaded (base := by rfl)
+  · exact resultEq
+  · intro premise writes
+    exact rX_x8_run premise _ ((writes.get x8 (by decide)).trans resultAt)
+  · intro premise
+    rw [← resultEq]
+    exact wX_x10_run premise _
+  · configured_decode configured
+
+/-- Exact `0x1239c: addi a1,sp,0x450`, for the first fixed result copy. -/
+theorem sszDecodeFixedCopy0SourceStep (stepNo : Nat) (args : DecodeInlineArgs)
+    (state : State) (atPc : state.regs.get? PC = some 0x1239c)
+    (atStack : state.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x1239c retired x11
+        (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x450))) false := by
+  let source := BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)
+  let result := BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x450)
+  have resultEq : result = iTypeResult .ADDI 0x450 source := by
+    change BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x450) =
+      BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) + sign_extend (m := 64) (0x450#12)
+    rw [show sign_extend (m := 64) (0x450#12) = 0x450#64 by native_decide,
+      ← BitVec.ofNat_add]
+  apply configuredITypeX11Step stepNo 0x1239c state 0x450 (.Regidx 2#5) .ADDI
+    source result 0x93 0x05 0x01 0x45 configured atPc loaded (base := by rfl)
+  · intro premise writes
+    exact rX_x2_run premise source ((writes.get x2 (by decide)).trans atStack)
+  · intro premise
+    rw [← resultEq]
+    exact wX_x11_run premise result
+  · configured_decode configured
+
+/-- Exact `0x123a0: li a2,32`, for every 32-byte result copy. -/
+theorem sszDecodeFixedCopy0SizeStep (stepNo : Nat) (state : State)
+    (atPc : state.regs.get? PC = some 0x123a0)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x123a0 retired x12 32) false := by
+  exact configuredITypeRegisterStep stepNo 0x123a0 state 0x20 (.Regidx 0#5)
+    (.Regidx 12#5) x12 .ADDI 0 32 0x13 0x06 0x00 0x02 configured atPc loaded
+    (by intro premise _; exact rX_x0_run premise)
+    (by intro premise; exact wX_x12_run premise 32)
+    (by configured_decode configured) (by native_decide) (by rfl)
+    (by decide) (by decide) (by decide) (by decide)
+
+/-- Exact `0x123a4: auipc ra,0xffffe`, for the first fixed result copy. -/
+theorem sszDecodeFixedCopy0CallBaseStep (stepNo : Nat) (state : State)
+    (atPc : state.regs.get? PC = some 0x123a4)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x123a4 retired x1 0x103a4) false := by
+  simpa using configuredAuipcStep stepNo state 0x123a4 0xffffe
+    0x97 0xe0 0xff 0xff configured atPc loaded
+    (base := by rfl) (decode := by configured_decode configured)
+
+/-- Exact `0x123a8: jalr -0x1d0(ra)`, entering the proved `memcpy`. -/
+theorem sszDecodeFixedCopy0CallStep (stepNo : Nat) (state : State)
+    (atPc : state.regs.get? PC = some 0x123a8)
+    (baseAt : state.regs.get? x1 = some 0x103a4)
+    (configured : ConfiguredMachinePre EndpointMachinePc state)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (callLinkState (tryStepControlFlowAfterIncrement state) 0x123a8 0x101d4 x1 0x123ac)
+        0x101d4 retired) false := by
+  exact configuredJalrCallStep stepNo state 0x123a8 0x103a4 0xe30 0x101d4 0x123ac
+    0xe7 0x80 0x00 0xe3 configured atPc baseAt loaded
+    (base := by rfl) (decode := by configured_decode configured)
+
 /-- Exact `0x12308: li s6,1`, after cleanup initialization. -/
 private theorem sszDecodeCleanupSuccessTagStep (stepNo : Nat) (state : State)
     (configured : ConfiguredMachinePre EndpointMachinePc state)
@@ -2066,6 +2157,37 @@ structure SszDecodeZeroWindow32 (state : State) (address : Nat) : Prop where
   word1 : UIntRep 8 state.mem (address + 8) 0
   word2 : UIntRep 8 state.mem (address + 16) 0
   word3 : UIntRep 8 state.mem (address + 24) 0
+
+/-- The byte payload represented by each four-dword zero window. -/
+def sszDecodeZeroBytes32 : Array UInt8 := Array.ofFn (fun _ : Fin 32 => 0)
+
+/-- Convert the reusable four-dword representation into the public `memcpy` byte relation. -/
+theorem SszDecodeZeroWindow32.bytesRep {state : State} {address : Nat}
+    (window : SszDecodeZeroWindow32 state address) :
+    BytesRep state.mem address sszDecodeZeroBytes32 := by
+  refine ⟨by simpa [sszDecodeZeroBytes32] using (show address + 32 ≤ 2 ^ 64 by
+    have := window.word3.2.1
+    omega), ?_⟩
+  intro index indexBound
+  have bound : index < 32 := by simpa [sszDecodeZeroBytes32] using indexBound
+  by_cases first : index < 8
+  · rw [window.word0.2.2 index first]
+    rw [UIntRep.byteAt_eq]
+    simp [sszDecodeZeroBytes32]
+  by_cases second : index < 16
+  · rw [show address + index = address + 8 + (index - 8) by omega]
+    rw [window.word1.2.2 (index - 8) (by omega)]
+    rw [UIntRep.byteAt_eq]
+    simp [sszDecodeZeroBytes32]
+  by_cases third : index < 24
+  · rw [show address + index = address + 16 + (index - 16) by omega]
+    rw [window.word2.2.2 (index - 16) (by omega)]
+    rw [UIntRep.byteAt_eq]
+    simp [sszDecodeZeroBytes32]
+  · rw [show address + index = address + 24 + (index - 24) by omega]
+    rw [window.word3.2.2 (index - 24) (by omega)]
+    rw [UIntRep.byteAt_eq]
+    simp [sszDecodeZeroBytes32]
 
 /-- Preserve a zero-filled source window across an exact memory equality. -/
 theorem SszDecodeZeroWindow32.of_mem_eq {before after : State} {address : Nat}
