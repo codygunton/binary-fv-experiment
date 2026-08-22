@@ -1906,6 +1906,77 @@ private theorem sszDecodeCleanupAppendDwordSite {args : DecodeInlineArgs}
   apply sszDecodeCleanupAppendStore seg offset (0 : BitVec 64) nextPc offsetFits inRegion keep
     site advance
 
+/-- The cleanup fields that the result-construction loads read at `0x1233c..0x1235c`.
+Each field is zero because the parent stores zero into it before the fixed-template `memcpy` call. -/
+structure SszDecodeCleanupZeroSlots (args : DecodeInlineArgs) (state : State) : Prop where
+  slot470 : UIntRep 8 state.mem (args.boundary.stackPointer - 0xbb0 + 0x470) 0
+  slot478 : UIntRep 8 state.mem (args.boundary.stackPointer - 0xbb0 + 0x478) 0
+  slot480 : UIntRep 4 state.mem (args.boundary.stackPointer - 0xbb0 + 0x480) 0
+  slot488 : UIntRep 8 state.mem (args.boundary.stackPointer - 0xbb0 + 0x488) 0
+  slot490 : UIntRep 8 state.mem (args.boundary.stackPointer - 0xbb0 + 0x490) 0
+  slot498 : UIntRep 8 state.mem (args.boundary.stackPointer - 0xbb0 + 0x498) 0
+  slot4a0 : UIntRep 8 state.mem (args.boundary.stackPointer - 0xbb0 + 0x4a0) 0
+  slot4a8 : UIntRep 8 state.mem (args.boundary.stackPointer - 0xbb0 + 0x4a8) 0
+  slot4b0 : UIntRep 8 state.mem (args.boundary.stackPointer - 0xbb0 + 0x4b0) 0
+
+/-- Preserve all nine cleanup fields across a memory frame that excludes their byte windows. -/
+theorem SszDecodeCleanupZeroSlots.of_writesOnlyWithin {args : DecodeInlineArgs}
+    {before after : State} {owned : Region} (slots : SszDecodeCleanupZeroSlots args before)
+    (writes : WritesOnlyWithin owned before after)
+    (outside : ∀ address width, (address, width) ∈
+      [(0x470, 8), (0x478, 8), (0x480, 4), (0x488, 8), (0x490, 8),
+       (0x498, 8), (0x4a0, 8), (0x4a8, 8), (0x4b0, 8)] →
+      ∀ index, index < width →
+        ¬ owned (args.boundary.stackPointer - 0xbb0 + address + index)) :
+    SszDecodeCleanupZeroSlots args after := by
+  constructor
+  · exact slots.slot470.of_writesOnlyWithin writes (outside 0x470 8 (by simp) )
+  · exact slots.slot478.of_writesOnlyWithin writes (outside 0x478 8 (by simp) )
+  · exact slots.slot480.of_writesOnlyWithin writes (outside 0x480 4 (by simp) )
+  · exact slots.slot488.of_writesOnlyWithin writes (outside 0x488 8 (by simp) )
+  · exact slots.slot490.of_writesOnlyWithin writes (outside 0x490 8 (by simp) )
+  · exact slots.slot498.of_writesOnlyWithin writes (outside 0x498 8 (by simp) )
+  · exact slots.slot4a0.of_writesOnlyWithin writes (outside 0x4a0 8 (by simp) )
+  · exact slots.slot4a8.of_writesOnlyWithin writes (outside 0x4a8 8 (by simp) )
+  · exact slots.slot4b0.of_writesOnlyWithin writes (outside 0x4b0 8 (by simp) )
+
+/-- Append one exact zero dword store and retain its little-endian representation. -/
+private theorem sszDecodeCleanupAppendZeroDwordWitness {args : DecodeInlineArgs}
+    {before cur : State} {kv a n pc} (seg : Seg sszDecodeCleanupOwnPc
+      sszDecodeCleanupExitPc (fun _ _ _ _ _ => False) sszDecodeCleanupWrites
+      (sszDecodeCleanupMemory args) kv a n before cur pc)
+    (offset : Nat) (nextPc : BitVec 64) (offsetFits : offset + 8 ≤ 0xbb0)
+    (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+    (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+    (inRegion : sszDecodeCleanupOwnPc pc)
+    (site : ∃ retired, Runs (try_step (a + n) false) cur
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement cur) pc)
+          (args.boundary.stackPointer - 0xbb0 + offset) 0)
+        pc retired) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc)
+    (keep : RegsOutside stepBookkeeping kv) :
+    ∃ next, Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+        (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+        kv a (n + 1) before next nextPc ∧
+      UIntRep 8 next.mem (args.boundary.stackPointer - 0xbb0 + offset) 0 := by
+  obtain ⟨retired, next, nextEq, nextSeg⟩ := seg.stepStoreWitness
+    (width := 8) (args.boundary.stackPointer - 0xbb0 + offset) 0 nextPc inRegion
+    (by
+      intro atExit
+      unfold sszDecodeCleanupExitPc at atExit
+      rcases atExit with rfl | rfl <;> simp [sszDecodeCleanupOwnPc] at inRegion)
+    site advance
+    (by intro other lower upper; simp [sszDecodeCleanupMemory, byteRange]; omega)
+    (by intro register bookkeeping; exact Or.inl bookkeeping) keep
+  refine ⟨next, nextSeg, ?_⟩
+  rw [nextEq]
+  simpa [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+    uintRep_afterWriteBytes_eight
+      (coreStoreNextState (tryStepStoreAfterIncrement cur) pc)
+      (args.boundary.stackPointer - 0xbb0 + offset) 0 (by omega) (by omega)
+
 private theorem sszDecodeCleanupTailAppendStore {width : Nat} {args : DecodeInlineArgs}
     {before cur : State} {kv a n pc} (seg : Seg sszDecodeCleanupOwnPc
       sszDecodeCleanupExitPc (fun _ _ _ _ _ => False) sszDecodeCleanupTailWrites
