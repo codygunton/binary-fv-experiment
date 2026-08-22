@@ -2011,6 +2011,77 @@ theorem SszDecodeCleanupZeroSlots.of_lowerFrameWrites {args : DecodeInlineArgs}
     simp only [List.mem_cons, List.not_mem_nil, or_false] at member
     rcases member with h | h | h | h | h | h | h | h | h <;> cases h <;> omega)
 
+/-- Declare one exact zero-valued dword load through the shared instruction-class theorem. -/
+macro "sszDecodeCleanupZeroDwordLoadSite(" name:ident ";" pc:term "," offset:term ";"
+    rd:term "," destination:term "," writeRun:term ";"
+    byte0:term "," byte1:term "," byte2:term "," byte3:term ")" : command =>
+  `(theorem $name (stepNo : Nat) (args : DecodeInlineArgs) (state : State)
+      (atPc : state.regs.get? PC = some (BitVec.ofNat 64 $pc))
+      (atStack : state.regs.get? x2 =
+        some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+      (rep : UIntRep 8 state.mem (args.boundary.stackPointer - 0xbb0 + $offset) 0)
+      (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+      (stackAligned : args.boundary.stackPointer % 16 = 0)
+      (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+      (access : DecodeBoundaryMachineAccess args.boundary state)
+      (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+      ∃ retired, Runs (try_step stepNo false) state
+        (afterRegisterWrite state $pc retired $destination 0) false := by
+    apply configuredStackDwordLoadStep stepNo $pc
+      (args.boundary.stackPointer - 0xbb0) $offset 0 state $offset $rd $destination 0
+      $byte0 $byte1 $byte2 $byte3 access.configured atPc atStack rep
+      (access.frameLoad $offset 8 (by omega))
+      (by simpa [LoadMMIOAddressExcluded, StoreMMIOAddressExcluded] using
+        access.frameNoMMIO $offset 8 (by omega))
+      (by omega) (by omega) loaded (base := by rfl)
+    · change BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) +
+        BitVec.ofNat 64 $offset = _
+      rw [← BitVec.ofNat_add]
+    · exact fun premise => $writeRun premise 0
+    · configured_decode access.configured)
+
+sszDecodeCleanupZeroDwordLoadSite(sszDecodeCleanupLoadA0; 0x1233c, 0x4a8;
+  (.Regidx 10#5), x10, wX_x10_run; 0x03, 0x35, 0x81, 0x4a)
+sszDecodeCleanupZeroDwordLoadSite(sszDecodeCleanupLoadA1; 0x12340, 0x4b0;
+  (.Regidx 11#5), x11, wX_x11_run; 0x83, 0x35, 0x01, 0x4b)
+sszDecodeCleanupZeroDwordLoadSite(sszDecodeCleanupLoadA2; 0x12344, 0x488;
+  (.Regidx 12#5), x12, wX_x12_run; 0x03, 0x36, 0x81, 0x48)
+sszDecodeCleanupZeroDwordLoadSite(sszDecodeCleanupLoadA3; 0x12348, 0x490;
+  (.Regidx 13#5), x13, wX_x13_run; 0x83, 0x36, 0x01, 0x49)
+sszDecodeCleanupZeroDwordLoadSite(sszDecodeCleanupLoadA4; 0x1234c, 0x498;
+  (.Regidx 14#5), x14, wX_x14_run; 0x03, 0x37, 0x81, 0x49)
+sszDecodeCleanupZeroDwordLoadSite(sszDecodeCleanupLoadA5; 0x12350, 0x4a0;
+  (.Regidx 15#5), x15, wX_x15_run; 0x83, 0x37, 0x01, 0x4a)
+sszDecodeCleanupZeroDwordLoadSite(sszDecodeCleanupLoadA6; 0x12354, 0x470;
+  (.Regidx 16#5), x16, wX_x16_run; 0x03, 0x38, 0x01, 0x47)
+sszDecodeCleanupZeroDwordLoadSite(sszDecodeCleanupLoadA7; 0x12358, 0x478;
+  (.Regidx 17#5), x17, wX_x17_run; 0x83, 0x38, 0x81, 0x47)
+
+/-- Exact `0x1235c: lw t0,0x480(sp)` from the zero-valued cleanup word. -/
+theorem sszDecodeCleanupLoadT0 (stepNo : Nat) (args : DecodeInlineArgs) (state : State)
+    (atPc : state.regs.get? PC = some 0x1235c)
+    (atStack : state.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)))
+    (rep : UIntRep 4 state.mem (args.boundary.stackPointer - 0xbb0 + 0x480) 0)
+    (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+    (stackAligned : args.boundary.stackPointer % 16 = 0)
+    (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+    (access : DecodeBoundaryMachineAccess args.boundary state)
+    (loaded : Artifacts.programImage.fileBytesLoadedFaithfully state.mem) :
+    ∃ retired, Runs (try_step stepNo false) state
+      (afterRegisterWrite state 0x1235c retired x5 0) false := by
+  apply configuredStackWordLoadStep stepNo 0x1235c
+    (args.boundary.stackPointer - 0xbb0) 0x480 0 state 0x480 (.Regidx 5#5) x5 0
+    0x83 0x22 0x01 0x48 access.configured atPc atStack rep
+    (access.frameLoad 0x480 4 (by omega))
+    (by simpa [LoadMMIOAddressExcluded, StoreMMIOAddressExcluded] using
+      access.frameNoMMIO 0x480 4 (by omega))
+    (by omega) (by omega) loaded (base := by rfl)
+  · change BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0) + 0x480#64 = _
+    rw [← BitVec.ofNat_add]
+  · exact fun premise => wX_x5_run premise 0
+  · configured_decode access.configured
+
 /-- Append one register-only step and preserve all nine cleanup slots. -/
 private theorem sszDecodeCleanupAppendRegisterWithZeroSlots {args : DecodeInlineArgs}
     {before cur : State} {kv a n pc} (seg : Seg sszDecodeCleanupOwnPc

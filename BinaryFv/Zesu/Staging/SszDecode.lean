@@ -681,6 +681,187 @@ theorem sszDecodeResultStores (fromStep : Nat) (args : DecodeInlineArgs) (before
   exact ⟨machine12, seg12, sszDecodeResultStoresAccessOfSeg ready.access seg12,
     sszDecodeResultStoresCodeOfSeg ready.access ready.code seg12, zeroSlots⟩
 
+def sszDecodeCleanupLoadsOwnPc (pc : BitVec 64) : Prop :=
+  0x1233c ≤ pc.toNat ∧ pc.toNat < 0x12360
+
+def sszDecodeCleanupLoadsExitPc (pc : BitVec 64) : Prop := pc = 0x12360
+
+def sszDecodeCleanupLoadsWrites : RegSet := fun register =>
+  stepBookkeeping register ∨ register = x5 ∨ register = x10 ∨ register = x11 ∨
+    register = x12 ∨ register = x13 ∨ register = x14 ∨ register = x15 ∨
+    register = x16 ∨ register = x17
+
+private theorem instructionPreserved_disjoint_sszDecodeCleanupLoadsWrites :
+    RegSet.Disjoint instructionPreserved sszDecodeCleanupLoadsWrites := by
+  intro register preserved written
+  rcases written with bookkeeping | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact platformPreserved_disjoint register preserved.1 bookkeeping
+  all_goals simp [instructionPreserved, platformPreserved] at preserved
+
+private theorem sszDecodeCleanupLoadsAppend {before cur : State} {kv a n pc}
+    (seg : Seg sszDecodeCleanupLoadsOwnPc sszDecodeCleanupLoadsExitPc
+      (fun _ _ _ _ _ => False) sszDecodeCleanupLoadsWrites noMemory
+      kv a n before cur pc)
+    (destination : Register) (value : RegisterType destination) (nextPc : BitVec 64)
+    (inside : sszDecodeCleanupLoadsOwnPc pc)
+    (run : ∃ retired, Runs (try_step (a + n) false) cur
+      (afterRegisterWrite cur pc retired destination value) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc)
+    (written : sszDecodeCleanupLoadsWrites destination)
+    (destinationNotPc : destination ≠ PC) (destinationNotRetired : destination ≠ minstret)
+    (keep : RegsOutside (RegSet.union stepBookkeeping (RegSet.only destination)) kv) :
+    ∃ next, Seg sszDecodeCleanupLoadsOwnPc sszDecodeCleanupLoadsExitPc
+      (fun _ _ _ _ _ => False) sszDecodeCleanupLoadsWrites noMemory
+      (⟨destination, value⟩ :: kv) a (n + 1) before next nextPc := by
+  obtain ⟨retired, run⟩ := run
+  exact ⟨_, seg.stepKnown inside (by
+      intro atExit
+      unfold sszDecodeCleanupLoadsExitPc at atExit
+      subst pc
+      simp [sszDecodeCleanupLoadsOwnPc] at inside)
+    destination value nextPc retired run advance
+    (by intro register bookkeeping; exact Or.inl bookkeeping) written
+    destinationNotPc destinationNotRetired keep⟩
+
+private theorem sszDecodeCleanupLoadsAccessOfSeg {args : DecodeInlineArgs} {before cur : State}
+    {kv a n pc} (access : DecodeBoundaryMachineAccess args.boundary before)
+    (seg : Seg sszDecodeCleanupLoadsOwnPc sszDecodeCleanupLoadsExitPc
+      (fun _ _ _ _ _ => False) sszDecodeCleanupLoadsWrites noMemory
+      kv a n before cur pc) :
+    DecodeBoundaryMachineAccess args.boundary cur :=
+  access.of_pma_regions_eq
+    (seg.agree instructionPreserved_disjoint_sszDecodeCleanupLoadsWrites) seg.retired
+    (seg.get pma_regions (by simp [sszDecodeCleanupLoadsWrites, stepBookkeeping]))
+
+/-- The nine cleanup loads reach the next result-construction store with all loaded values zero. -/
+structure SszDecodeCleanupLoadsHandoff (fromStep : Nat) (args : DecodeInlineArgs)
+    (before after : State) : Prop where
+  seg : Seg sszDecodeCleanupLoadsOwnPc sszDecodeCleanupLoadsExitPc
+    (fun _ _ _ _ _ => False) sszDecodeCleanupLoadsWrites noMemory
+    [⟨x5, 0⟩, ⟨x17, 0⟩, ⟨x16, 0⟩, ⟨x15, 0⟩, ⟨x14, 0⟩,
+      ⟨x13, 0⟩, ⟨x12, 0⟩, ⟨x11, 0⟩, ⟨x10, 0⟩]
+    fromStep 9 before after 0x12360
+  access : DecodeBoundaryMachineAccess args.boundary after
+  code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
+
+/-- Compose all nine cleanup-slot loads through one `Seg`. -/
+theorem sszDecodeCleanupLoads (fromStep : Nat) (args : DecodeInlineArgs)
+    (source storeAfter : State) (ready : SszDecodeResultStoresReady args source)
+    (stores : SszDecodeResultStoresHandoff fromStep args source storeAfter) :
+    ∃ after, SszDecodeCleanupLoadsHandoff (fromStep + 12) args storeAfter after := by
+  have stackAt : storeAfter.regs.get? x2 =
+      some (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0)) :=
+    (stores.seg.get x2 (by simp [stepBookkeeping])).trans ready.atStack
+  have seg0 := Seg.nil sszDecodeCleanupLoadsOwnPc sszDecodeCleanupLoadsExitPc
+    (fun _ _ _ _ _ => False) sszDecodeCleanupLoadsWrites noMemory
+    (fromStep + 12) stores.access.configured.retiredCounter stores.seg.atPc
+  have run0 := sszDecodeCleanupLoadA0 (fromStep + 12) args storeAfter seg0.atPc stackAt
+    stores.zeroSlots.slot4a8 ready.stackFits ready.stackAligned ready.stackUpper stores.access
+    stores.code
+  obtain ⟨state1, seg1⟩ := sszDecodeCleanupLoadsAppend seg0 x10 0 0x12340
+    (by simp [sszDecodeCleanupLoadsOwnPc]) run0 (by native_decide)
+    (by simp [sszDecodeCleanupLoadsWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access1 := sszDecodeCleanupLoadsAccessOfSeg stores.access seg1
+  have code1 : Artifacts.programImage.fileBytesLoadedFaithfully state1.mem := by
+    rw [seg1.memEq noMemory_empty]
+    exact stores.code
+  have slots1 := stores.zeroSlots.of_mem_eq (seg1.memEq noMemory_empty)
+  have run1 := sszDecodeCleanupLoadA1 (fromStep + 13) args state1 seg1.atPc
+    ((seg1.get x2 (by simp [sszDecodeCleanupLoadsWrites, stepBookkeeping])).trans stackAt)
+    slots1.slot4b0 ready.stackFits ready.stackAligned ready.stackUpper access1 code1
+  obtain ⟨state2, seg2⟩ := sszDecodeCleanupLoadsAppend seg1 x11 0 0x12344
+    (by simp [sszDecodeCleanupLoadsOwnPc]) run1 (by native_decide)
+    (by simp [sszDecodeCleanupLoadsWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access2 := sszDecodeCleanupLoadsAccessOfSeg stores.access seg2
+  have code2 : Artifacts.programImage.fileBytesLoadedFaithfully state2.mem := by
+    rw [seg2.memEq noMemory_empty]
+    exact stores.code
+  have slots2 := stores.zeroSlots.of_mem_eq (seg2.memEq noMemory_empty)
+  have run2 := sszDecodeCleanupLoadA2 (fromStep + 14) args state2 seg2.atPc
+    ((seg2.get x2 (by simp [sszDecodeCleanupLoadsWrites, stepBookkeeping])).trans stackAt)
+    slots2.slot488 ready.stackFits ready.stackAligned ready.stackUpper access2 code2
+  obtain ⟨state3, seg3⟩ := sszDecodeCleanupLoadsAppend seg2 x12 0 0x12348
+    (by simp [sszDecodeCleanupLoadsOwnPc]) run2 (by native_decide)
+    (by simp [sszDecodeCleanupLoadsWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access3 := sszDecodeCleanupLoadsAccessOfSeg stores.access seg3
+  have code3 : Artifacts.programImage.fileBytesLoadedFaithfully state3.mem := by
+    rw [seg3.memEq noMemory_empty]
+    exact stores.code
+  have slots3 := stores.zeroSlots.of_mem_eq (seg3.memEq noMemory_empty)
+  have run3 := sszDecodeCleanupLoadA3 (fromStep + 15) args state3 seg3.atPc
+    ((seg3.get x2 (by simp [sszDecodeCleanupLoadsWrites, stepBookkeeping])).trans stackAt)
+    slots3.slot490 ready.stackFits ready.stackAligned ready.stackUpper access3 code3
+  obtain ⟨state4, seg4⟩ := sszDecodeCleanupLoadsAppend seg3 x13 0 0x1234c
+    (by simp [sszDecodeCleanupLoadsOwnPc]) run3 (by native_decide)
+    (by simp [sszDecodeCleanupLoadsWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access4 := sszDecodeCleanupLoadsAccessOfSeg stores.access seg4
+  have code4 : Artifacts.programImage.fileBytesLoadedFaithfully state4.mem := by
+    rw [seg4.memEq noMemory_empty]
+    exact stores.code
+  have slots4 := stores.zeroSlots.of_mem_eq (seg4.memEq noMemory_empty)
+  have run4 := sszDecodeCleanupLoadA4 (fromStep + 16) args state4 seg4.atPc
+    ((seg4.get x2 (by simp [sszDecodeCleanupLoadsWrites, stepBookkeeping])).trans stackAt)
+    slots4.slot498 ready.stackFits ready.stackAligned ready.stackUpper access4 code4
+  obtain ⟨state5, seg5⟩ := sszDecodeCleanupLoadsAppend seg4 x14 0 0x12350
+    (by simp [sszDecodeCleanupLoadsOwnPc]) run4 (by native_decide)
+    (by simp [sszDecodeCleanupLoadsWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access5 := sszDecodeCleanupLoadsAccessOfSeg stores.access seg5
+  have code5 : Artifacts.programImage.fileBytesLoadedFaithfully state5.mem := by
+    rw [seg5.memEq noMemory_empty]
+    exact stores.code
+  have slots5 := stores.zeroSlots.of_mem_eq (seg5.memEq noMemory_empty)
+  have run5 := sszDecodeCleanupLoadA5 (fromStep + 17) args state5 seg5.atPc
+    ((seg5.get x2 (by simp [sszDecodeCleanupLoadsWrites, stepBookkeeping])).trans stackAt)
+    slots5.slot4a0 ready.stackFits ready.stackAligned ready.stackUpper access5 code5
+  obtain ⟨state6, seg6⟩ := sszDecodeCleanupLoadsAppend seg5 x15 0 0x12354
+    (by simp [sszDecodeCleanupLoadsOwnPc]) run5 (by native_decide)
+    (by simp [sszDecodeCleanupLoadsWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access6 := sszDecodeCleanupLoadsAccessOfSeg stores.access seg6
+  have code6 : Artifacts.programImage.fileBytesLoadedFaithfully state6.mem := by
+    rw [seg6.memEq noMemory_empty]
+    exact stores.code
+  have slots6 := stores.zeroSlots.of_mem_eq (seg6.memEq noMemory_empty)
+  have run6 := sszDecodeCleanupLoadA6 (fromStep + 18) args state6 seg6.atPc
+    ((seg6.get x2 (by simp [sszDecodeCleanupLoadsWrites, stepBookkeeping])).trans stackAt)
+    slots6.slot470 ready.stackFits ready.stackAligned ready.stackUpper access6 code6
+  obtain ⟨state7, seg7⟩ := sszDecodeCleanupLoadsAppend seg6 x16 0 0x12358
+    (by simp [sszDecodeCleanupLoadsOwnPc]) run6 (by native_decide)
+    (by simp [sszDecodeCleanupLoadsWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access7 := sszDecodeCleanupLoadsAccessOfSeg stores.access seg7
+  have code7 : Artifacts.programImage.fileBytesLoadedFaithfully state7.mem := by
+    rw [seg7.memEq noMemory_empty]
+    exact stores.code
+  have slots7 := stores.zeroSlots.of_mem_eq (seg7.memEq noMemory_empty)
+  have run7 := sszDecodeCleanupLoadA7 (fromStep + 19) args state7 seg7.atPc
+    ((seg7.get x2 (by simp [sszDecodeCleanupLoadsWrites, stepBookkeeping])).trans stackAt)
+    slots7.slot478 ready.stackFits ready.stackAligned ready.stackUpper access7 code7
+  obtain ⟨state8, seg8⟩ := sszDecodeCleanupLoadsAppend seg7 x17 0 0x1235c
+    (by simp [sszDecodeCleanupLoadsOwnPc]) run7 (by native_decide)
+    (by simp [sszDecodeCleanupLoadsWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access8 := sszDecodeCleanupLoadsAccessOfSeg stores.access seg8
+  have code8 : Artifacts.programImage.fileBytesLoadedFaithfully state8.mem := by
+    rw [seg8.memEq noMemory_empty]
+    exact stores.code
+  have slots8 := stores.zeroSlots.of_mem_eq (seg8.memEq noMemory_empty)
+  have run8 := sszDecodeCleanupLoadT0 (fromStep + 20) args state8 seg8.atPc
+    ((seg8.get x2 (by simp [sszDecodeCleanupLoadsWrites, stepBookkeeping])).trans stackAt)
+    slots8.slot480 ready.stackFits ready.stackAligned ready.stackUpper access8 code8
+  obtain ⟨state9, seg9⟩ := sszDecodeCleanupLoadsAppend seg8 x5 0 0x12360
+    (by simp [sszDecodeCleanupLoadsOwnPc]) run8 (by native_decide)
+    (by simp [sszDecodeCleanupLoadsWrites]) (by decide) (by decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  exact ⟨state9, seg9, sszDecodeCleanupLoadsAccessOfSeg stores.access seg9, by
+    rw [seg9.memEq noMemory_empty]
+    exact stores.code⟩
+
 /-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
 theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
     (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
