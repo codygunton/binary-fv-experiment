@@ -57,6 +57,44 @@ def abiCalleePreserved : Register → Prop := fun register =>
     register = x22 ∨ register = x23 ∨ register = x24 ∨ register = x25 ∨
     register = x26 ∨ register = x27
 
+/-- The architectural integer registers represented in the extracted Sail machine state. -/
+def architecturalIntegerRegisters : List Register :=
+  [x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16,
+    x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, x30, x31]
+
+/-- Every architectural integer register has a value. A real instruction can replace a value, but
+it cannot remove the register from the machine register file. -/
+def GeneralRegistersPresent (state : MachineState) : Prop :=
+  ∀ register ∈ architecturalIntegerRegisters,
+    ∃ value, state.regs.get? register = some value
+
+theorem GeneralRegistersPresent.read {state : MachineState}
+    (present : GeneralRegistersPresent state) {register : Register}
+    (member : register ∈ architecturalIntegerRegisters) :
+    ∃ value, state.regs.get? register = some value :=
+  present register member
+
+/-- A register write frame preserves the complete integer-register domain when every possibly
+written integer register remains present. -/
+theorem GeneralRegistersPresent.of_writesOnlyRegs {written : RegSet} {before after : MachineState}
+    (present : GeneralRegistersPresent before) (frame : WritesOnlyRegs written before after)
+    (writtenPresent : ∀ register ∈ architecturalIntegerRegisters, written register →
+      ∃ value, after.regs.get? register = some value) :
+    GeneralRegistersPresent after := by
+  intro register member
+  by_cases changed : written register
+  · exact writtenPresent register member changed
+  · obtain ⟨value, read⟩ := present register member
+    exact ⟨value, (frame.get register changed).trans read⟩
+
+theorem not_generalRegistersPresent_of_missing_x17 {state : MachineState}
+    (missing : state.regs.get? x17 = none) : ¬GeneralRegistersPresent state := by
+  intro present
+  obtain ⟨value, read⟩ := present.read (register := x17)
+    (by simp [architecturalIntegerRegisters])
+  rw [missing] at read
+  contradiction
+
 /-- State preserved by every returning Level 1 ABI boundary. Memory permissions are contract-specific. -/
 def EndpointCallFrame (before after : EndpointState) : Prop :=
   Agree abiCalleePreserved before.machine after.machine ∧
