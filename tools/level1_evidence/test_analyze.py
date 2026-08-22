@@ -44,6 +44,12 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual(row["memoryAccessSummary"], {"loads": 1, "stores": 0})
         self.assertEqual(row["bindingSnapshots"], [])
 
+    def test_rejects_missing_architectural_register(self):
+        trace = copy.deepcopy(self.trace)
+        trace["registers"][4][0]["available"] ^= 1 << 17
+        with self.assertRaisesRegex(ValueError, "unavailable register in snapshot"):
+            reduce_trace(self.manifest, trace, "missing-register")
+
     def test_pairs_each_occurrence_with_its_own_host_writes(self):
         trace = copy.deepcopy(self.trace)
         first = trace["executions"][2]
