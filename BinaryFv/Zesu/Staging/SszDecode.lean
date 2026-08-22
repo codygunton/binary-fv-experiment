@@ -1264,6 +1264,141 @@ theorem sszDecodeFixedCopy0Setup (fromStep : Nat) (args : DecodeInlineArgs)
       rw [seg4.memEq noMemory_empty]
       exact sourceAtSecond.bytesRep⟩
 
+def sszDecodeFixedCopy0Args (args : DecodeInlineArgs) : MemcpyArgs :=
+  { returnAddress := 0x123ac
+    destination := args.boundary.stackPointer + 0xec
+    source := args.boundary.stackPointer - 0xbb0 + 0x450
+    bytes := sszDecodeZeroBytes32 }
+
+/-- Execute the first fixed-copy call and construct the existing `MemcpyEntry`. -/
+theorem sszDecodeFixedCopy0Entry (fromStep : Nat) (args : DecodeInlineArgs)
+    (template : EndpointState) (before callReady : State)
+    (ready : SszDecodeResultStoresReady args before)
+    (setup : SszDecodeFixedCopy0Ready fromStep args before callReady) :
+    ∃ callState : EndpointState,
+      Runs (try_step (fromStep + 4) false) callReady callState.machine false ∧
+      callState = { template with machine := callState.machine } ∧
+      GeneralRegistersPresent callState.machine ∧
+      MemcpyEntry (sszDecodeFixedCopy0Args args) callState := by
+  have run := sszDecodeFixedCopy0CallStep (fromStep + 4) callReady setup.seg.atPc
+    (setup.seg.reg x1 0x103a4 (by simp)) setup.access.configured setup.code
+  obtain ⟨retired, callRun⟩ := run
+  let callMachine := tryStepControlFlowAfterRetired
+    (callLinkState (tryStepControlFlowAfterIncrement callReady) 0x123a8 0x101d4 x1 0x123ac)
+    0x101d4 retired
+  let callState : EndpointState := { template with machine := callMachine }
+  have callWrites : WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x1))
+      callReady callMachine := by
+    simpa [callMachine, callLinkState] using
+      callRetirement_writes callReady 0x123a8 0x101d4 retired x1 0x123ac
+  have pmaEq : callMachine.regs.get? pma_regions = before.regs.get? pma_regions :=
+    (callWrites.get pma_regions (by simp [stepBookkeeping])).trans
+      (setup.seg.get pma_regions (by simp [sszDecodeFixedCopy0Writes, stepBookkeeping]))
+  have callCode : Artifacts.programImage.fileBytesLoadedFaithfully callMachine.mem := by
+    simpa [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using setup.code
+  have stackFits := ready.stackFits
+  have stackUpper := ready.stackUpper
+  have callConfigured : ConfiguredMachinePre EndpointMachinePc callMachine := by
+    apply setup.access.configured.mono
+    · exact callWrites.agree (by
+        intro register preserved written
+        rcases written with bookkeeping | rfl
+        · exact platformPreserved_disjoint register preserved.1 bookkeeping
+        · exact preserved.2 rfl)
+    · simpa [callMachine] using tryStepControlFlowAfterRetired_retired_present
+        (callLinkState (tryStepControlFlowAfterIncrement callReady) 0x123a8 0x101d4 x1 0x123ac)
+        0x101d4 retired
+  have entry : MemcpyEntry (sszDecodeFixedCopy0Args args) callState := by
+    unfold MemcpyEntry
+    constructor
+    · change 0x123ac ∈ Elflings.memcpyExitPcs
+      native_decide
+    constructor
+    · simp [sszDecodeFixedCopy0Args, sszDecodeZeroBytes32]
+    constructor
+    · simp only [sszDecodeFixedCopy0Args, sszDecodeZeroBytes32, Array.size_ofFn]
+      omega
+    constructor
+    · simp only [sszDecodeFixedCopy0Args, sszDecodeZeroBytes32, Array.size_ofFn]
+      omega
+    constructor
+    · right
+      simp only [sszDecodeFixedCopy0Args, sszDecodeZeroBytes32, Array.size_ofFn]
+      omega
+    constructor
+    · simp [callState, callMachine, tryStepControlFlowAfterRetired,
+        tryStepControlFlowAfterTick, callLinkState, Std.ExtDHashMap.get?_insert]
+      native_decide
+    constructor
+    · simp [sszDecodeFixedCopy0Args, callState, callMachine,
+        tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick, callLinkState,
+        Std.ExtDHashMap.get?_insert]
+    constructor
+    · exact (callWrites.get x10 (by decide)).trans
+        (setup.seg.reg x10 (BitVec.ofNat 64 (args.boundary.stackPointer + 0xec)) (by simp))
+    constructor
+    · exact (callWrites.get x11 (by decide)).trans
+        (setup.seg.reg x11
+          (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x450)) (by simp))
+    constructor
+    · simp only [sszDecodeFixedCopy0Args, sszDecodeZeroBytes32, Array.size_ofFn]
+      exact (callWrites.get x12 (by decide)).trans (setup.seg.reg x12 32 (by simp))
+    constructor
+    · simpa only [sszDecodeFixedCopy0Args, callState, callMachine,
+        tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using setup.source
+    constructor
+    · simpa only [callState] using callCode
+    · refine
+        { configured := callConfigured
+          sourcePma := ?_
+          destinationPma := ?_
+          sourceNotMMIO := ?_
+          destinationNotMMIO := ?_
+          destinationNotCode := ?_ }
+      · intro index indexBound
+        simp only [sszDecodeFixedCopy0Args, sszDecodeZeroBytes32, Array.size_ofFn]
+          at indexBound ⊢
+        simpa only [Nat.add_assoc] using dataPmaAllows_of_pma_regions_eq pmaEq
+          (ready.access.frameLoad (0x450 + index) 1 (by omega))
+      · intro index indexBound
+        simp only [sszDecodeFixedCopy0Args, sszDecodeZeroBytes32, Array.size_ofFn]
+          at indexBound ⊢
+        simpa only [Nat.add_assoc] using dataPmaAllows_of_pma_regions_eq pmaEq
+          (ready.access.callerStore (0xec + index) 1 (by omega))
+      · intro index indexBound
+        simp only [sszDecodeFixedCopy0Args, sszDecodeZeroBytes32, Array.size_ofFn]
+          at indexBound ⊢
+        simpa [LoadMMIOAddressExcluded, StoreMMIOAddressExcluded, Nat.add_assoc] using
+          ready.access.frameNoMMIO (0x450 + index) 1 (by omega)
+      · intro index indexBound
+        simp only [sszDecodeFixedCopy0Args, sszDecodeZeroBytes32, Array.size_ofFn]
+          at indexBound ⊢
+        simpa [LoadMMIOAddressExcluded, StoreMMIOAddressExcluded, Nat.add_assoc] using
+          ready.access.callerNoMMIO (0xec + index) 1 (by omega)
+      · intro index indexBound
+        simp only [sszDecodeFixedCopy0Args, sszDecodeZeroBytes32, Array.size_ofFn]
+          at indexBound ⊢
+        exact ready.access.callerNotCode _ (by omega) (by omega)
+  have setupGeneral := generalRegistersOfSeg ready.generalRegisters setup.seg (by
+    intro register member written
+    rcases written with bookkeeping | rfl | rfl | rfl | rfl
+    · simp only [stepBookkeeping] at bookkeeping
+      rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+        simp [architecturalIntegerRegisters] at member
+    all_goals simp)
+  have callGeneral : GeneralRegistersPresent callMachine :=
+    setupGeneral.of_one_general_write (destination := x1) (value := (0x123ac : BitVec 64))
+      callWrites (by
+      intro register member written
+      rcases written with bookkeeping | rfl
+      · simp only [stepBookkeeping] at bookkeeping
+        rcases bookkeeping with rfl | rfl | rfl | rfl <;>
+          simp [architecturalIntegerRegisters] at member
+      · rfl) (by
+        simp [callMachine, tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick,
+          callLinkState, Std.ExtDHashMap.get?_insert])
+  exact ⟨callState, callRun, rfl, callGeneral, entry⟩
+
 /-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
 theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
     (template : EndpointState) (before : State) (ready : SszDecodeCleanupReady args before) :
