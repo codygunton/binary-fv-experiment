@@ -2060,6 +2060,41 @@ structure SszDecodeCleanupZeroSlots (args : DecodeInlineArgs) (state : State) : 
   slot4a8 : UIntRep 8 state.mem (args.boundary.stackPointer - 0xbb0 + 0x4a8) 0
   slot4b0 : UIntRep 8 state.mem (args.boundary.stackPointer - 0xbb0 + 0x4b0) 0
 
+/-- Four adjacent zero dwords form one 32-byte source for a fixed-size result copy. -/
+structure SszDecodeZeroWindow32 (state : State) (address : Nat) : Prop where
+  word0 : UIntRep 8 state.mem address 0
+  word1 : UIntRep 8 state.mem (address + 8) 0
+  word2 : UIntRep 8 state.mem (address + 16) 0
+  word3 : UIntRep 8 state.mem (address + 24) 0
+
+/-- Preserve a zero-filled source window across an exact memory equality. -/
+theorem SszDecodeZeroWindow32.of_mem_eq {before after : State} {address : Nat}
+    (window : SszDecodeZeroWindow32 before address) (memory : after.mem = before.mem) :
+    SszDecodeZeroWindow32 after address :=
+  { word0 := window.word0.of_mem_eq memory
+    word1 := window.word1.of_mem_eq memory
+    word2 := window.word2.of_mem_eq memory
+    word3 := window.word3.of_mem_eq memory }
+
+/-- Preserve a zero-filled source window across writes outside its 32 bytes. -/
+theorem SszDecodeZeroWindow32.of_writesOnlyWithin {before after : State} {address : Nat}
+    {owned : Region} (window : SszDecodeZeroWindow32 before address)
+    (writes : WritesOnlyWithin owned before after)
+    (outside : ∀ index, index < 32 → ¬ owned (address + index)) :
+    SszDecodeZeroWindow32 after address := by
+  constructor
+  · exact window.word0.of_writesOnlyWithin writes (by
+      intro index bound; exact outside index (by omega))
+  · exact window.word1.of_writesOnlyWithin writes (by
+      intro index bound
+      simpa only [Nat.add_assoc] using outside (8 + index) (by omega))
+  · exact window.word2.of_writesOnlyWithin writes (by
+      intro index bound
+      simpa only [Nat.add_assoc] using outside (16 + index) (by omega))
+  · exact window.word3.of_writesOnlyWithin writes (by
+      intro index bound
+      simpa only [Nat.add_assoc] using outside (24 + index) (by omega))
+
 /-- Preserve all cleanup slots across an exact memory equality. -/
 theorem SszDecodeCleanupZeroSlots.of_mem_eq {args : DecodeInlineArgs} {before after : State}
     (slots : SszDecodeCleanupZeroSlots args before) (memory : after.mem = before.mem) :
@@ -2197,7 +2232,8 @@ private theorem sszDecodeCleanupAppendRegisterWithZeroSlots {args : DecodeInline
       Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
         (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
         (⟨dest, value⟩ :: kv) a (n + 1) before next nextPc ∧
-      SszDecodeCleanupZeroSlots args next := by
+      SszDecodeCleanupZeroSlots args next ∧
+      next.mem = cur.mem := by
   obtain ⟨retired, run⟩ := run
   let next := afterRegisterWrite cur pc retired dest value
   have nextSeg := seg.stepKnown inRegion (by
@@ -2207,7 +2243,8 @@ private theorem sszDecodeCleanupAppendRegisterWithZeroSlots {args : DecodeInline
     dest value nextPc retired run advance
     (by intro register bookkeeping; exact Or.inl bookkeeping) destination
     destNotPc destNotRetired keep
-  exact ⟨next, nextSeg, slots.of_mem_eq (afterRegisterWrite_mem cur pc retired dest value)⟩
+  exact ⟨next, nextSeg, slots.of_mem_eq (afterRegisterWrite_mem cur pc retired dest value),
+    afterRegisterWrite_mem cur pc retired dest value⟩
 
 /-- Append one exact zero dword store and retain all earlier disjoint dword representations. -/
 private theorem sszDecodeCleanupAppendZeroDwordWitness {args : DecodeInlineArgs}
@@ -2367,6 +2404,73 @@ private theorem sszDecodeCleanupAppendLowerDwordWithZeroSlots {args : DecodeInli
     intro address inside
     unfold byteRange at inside
     omega)⟩
+
+/-- Append one lower-frame zero dword while retaining prior dwords and the load-source slots. -/
+private theorem sszDecodeCleanupAppendLowerDwordWitness {args : DecodeInlineArgs}
+    {before cur : State} {kv a n pc} (seg : Seg sszDecodeCleanupOwnPc
+      sszDecodeCleanupExitPc (fun _ _ _ _ _ => False) sszDecodeCleanupWrites
+      (sszDecodeCleanupMemory args) kv a n before cur pc)
+    (slots : SszDecodeCleanupZeroSlots args cur)
+    (words : List (Nat × Nat)) (wordsRep : CleanupDwordReps cur words)
+    (offset : Nat) (nextPc : BitVec 64) (belowSlots : offset + 8 ≤ 0x470)
+    (stackFits : 0xbb0 ≤ args.boundary.stackPointer)
+    (stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64)
+    (inRegion : sszDecodeCleanupOwnPc pc)
+    (site : ∃ retired, Runs (try_step (a + n) false) cur
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement cur) pc)
+          (args.boundary.stackPointer - 0xbb0 + offset) 0)
+        pc retired) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc)
+    (keep : RegsOutside stepBookkeeping kv)
+    (disjoint : ∀ word, word ∈ words →
+      word.1 + 8 ≤ args.boundary.stackPointer - 0xbb0 + offset ∨
+      args.boundary.stackPointer - 0xbb0 + offset + 8 ≤ word.1) :
+    ∃ next, Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
+        (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
+        kv a (n + 1) before next nextPc ∧
+      SszDecodeCleanupZeroSlots args next ∧
+      CleanupDwordReps next
+        ((args.boundary.stackPointer - 0xbb0 + offset, 0) :: words) := by
+  obtain ⟨retired, next, nextEq, nextSeg⟩ := seg.stepStoreWitness
+    (width := 8) (args.boundary.stackPointer - 0xbb0 + offset) 0 nextPc inRegion
+    (by
+      intro atExit
+      unfold sszDecodeCleanupExitPc at atExit
+      rcases atExit with rfl | rfl <;> simp [sszDecodeCleanupOwnPc] at inRegion)
+    site advance
+    (by intro other lower upper; simp [sszDecodeCleanupMemory, byteRange]; omega)
+    (by intro register bookkeeping; exact Or.inl bookkeeping) keep
+  have stepWrites : WritesOnlyWithin
+      (byteRange (args.boundary.stackPointer - 0xbb0 + offset) 8) cur next := by
+    intro address outside
+    rw [nextEq]
+    exact storeRetirement_mem_writes cur pc (Sail.BitVec.addInt pc 4) retired
+      (args.boundary.stackPointer - 0xbb0 + offset) 0 address outside
+  have nextSlots := slots.of_lowerFrameWrites stepWrites (by
+    intro address inside
+    unfold byteRange at inside
+    omega)
+  have oldReps : CleanupDwordReps next words := by
+    intro word member
+    exact (wordsRep word member).of_writesOnlyWithin stepWrites (by
+      intro index indexBound inside
+      unfold byteRange at inside
+      rcases disjoint word member with below | above <;> omega)
+  have currentRep : UIntRep 8 next.mem
+      (args.boundary.stackPointer - 0xbb0 + offset) 0 := by
+    rw [nextEq]
+    simpa [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick] using
+      uintRep_afterWriteBytes_eight
+        (coreStoreNextState (tryStepStoreAfterIncrement cur) pc)
+        (args.boundary.stackPointer - 0xbb0 + offset) 0 (by omega) (by omega)
+  refine ⟨next, nextSeg, nextSlots, ?_⟩
+  intro word member
+  simp only [List.mem_cons] at member
+  rcases member with rfl | member
+  · exact currentRep
+  · exact oldReps word member
 
 private theorem sszDecodeCleanupTailAppendStore {width : Nat} {args : DecodeInlineArgs}
     {before cur : State} {kv a n pc} (seg : Seg sszDecodeCleanupOwnPc
@@ -2752,38 +2856,50 @@ private theorem sszDecodeCleanupBeforeBaseLowWithZeroSlots (fromStep : Nat)
       Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
         (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
         [⟨x10, 0x17264⟩] fromStep 14 before after 0x12294 ∧
-      SszDecodeCleanupZeroSlots args after := by
+      SszDecodeCleanupZeroSlots args after ∧
+      CleanupDwordReps after
+        [(args.boundary.stackPointer - 0xbb0 + 0x468, 0),
+         (args.boundary.stackPointer - 0xbb0 + 0x460, 0),
+         (args.boundary.stackPointer - 0xbb0 + 0x458, 0),
+         (args.boundary.stackPointer - 0xbb0 + 0x450, 0)] := by
   obtain ⟨state10, seg10, slots10⟩ := sszDecodeCleanupZeroSlotsAt12284 fromStep args
     before atPc atStack stackFits stackAligned stackUpper access configured code
   have run11 := sszDecodeCleanupStore450 (fromStep + 10) args state10 stackFits stackAligned
     stackUpper (sszDecodeCleanupAccessOfSeg access seg10) seg10.atPc
     ((seg10.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
     (sszDecodeCleanupCodeOfSeg stackFits access code seg10)
-  obtain ⟨state11, seg11, slots11⟩ := sszDecodeCleanupAppendLowerDwordWithZeroSlots
-    seg10 slots10 0x450 0x12288 (by omega) (by simp [sszDecodeCleanupOwnPc]) run11
-    (by native_decide) (by simp [RegsOutside, stepBookkeeping])
+  have reps10 : CleanupDwordReps state10 [] := by simp [CleanupDwordReps]
+  obtain ⟨state11, seg11, slots11, reps11⟩ := sszDecodeCleanupAppendLowerDwordWitness
+    seg10 slots10 [] reps10 0x450 0x12288 (by omega) stackFits stackUpper
+    (by simp [sszDecodeCleanupOwnPc]) run11 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping]) (by simp)
   have run12 := sszDecodeCleanupStore458 (fromStep + 11) args state11 stackFits stackAligned
     stackUpper (sszDecodeCleanupAccessOfSeg access seg11) seg11.atPc
     ((seg11.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
     (sszDecodeCleanupCodeOfSeg stackFits access code seg11)
-  obtain ⟨state12, seg12, slots12⟩ := sszDecodeCleanupAppendLowerDwordWithZeroSlots
-    seg11 slots11 0x458 0x1228c (by omega) (by simp [sszDecodeCleanupOwnPc]) run12
-    (by native_decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨state12, seg12, slots12, reps12⟩ := sszDecodeCleanupAppendLowerDwordWitness
+    seg11 slots11 _ reps11 0x458 0x1228c (by omega) stackFits stackUpper
+    (by simp [sszDecodeCleanupOwnPc]) run12 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping]) (by intro word member; simp at member; rcases member with rfl; omega)
   have run13 := sszDecodeCleanupStore460 (fromStep + 12) args state12 stackFits stackAligned
     stackUpper (sszDecodeCleanupAccessOfSeg access seg12) seg12.atPc
     ((seg12.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
     (sszDecodeCleanupCodeOfSeg stackFits access code seg12)
-  obtain ⟨state13, seg13, slots13⟩ := sszDecodeCleanupAppendLowerDwordWithZeroSlots
-    seg12 slots12 0x460 0x12290 (by omega) (by simp [sszDecodeCleanupOwnPc]) run13
-    (by native_decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨state13, seg13, slots13, reps13⟩ := sszDecodeCleanupAppendLowerDwordWitness
+    seg12 slots12 _ reps12 0x460 0x12290 (by omega) stackFits stackUpper
+    (by simp [sszDecodeCleanupOwnPc]) run13 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping]) (by
+      intro word member; simp at member; rcases member with rfl | rfl <;> omega)
   have run14 := sszDecodeCleanupStore468 (fromStep + 13) args state13 stackFits stackAligned
     stackUpper (sszDecodeCleanupAccessOfSeg access seg13) seg13.atPc
     ((seg13.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
     (sszDecodeCleanupCodeOfSeg stackFits access code seg13)
-  obtain ⟨state14, seg14, slots14⟩ := sszDecodeCleanupAppendLowerDwordWithZeroSlots
-    seg13 slots13 0x468 0x12294 (by omega) (by simp [sszDecodeCleanupOwnPc]) run14
-    (by native_decide) (by simp [RegsOutside, stepBookkeeping])
-  exact ⟨state14, by simpa only [Nat.add_assoc] using seg14, slots14⟩
+  obtain ⟨state14, seg14, slots14, reps14⟩ := sszDecodeCleanupAppendLowerDwordWitness
+    seg13 slots13 _ reps13 0x468 0x12294 (by omega) stackFits stackUpper
+    (by simp [sszDecodeCleanupOwnPc]) run14 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping]) (by
+      intro word member; simp at member; rcases member with rfl | rfl | rfl <;> omega)
+  exact ⟨state14, by simpa only [Nat.add_assoc] using seg14, slots14, reps14⟩
 
 /-- All cleanup stores before the template-address low immediate reach `0x12294`. -/
 theorem sszDecodeCleanupBeforeBaseLow (fromStep : Nat) (args : DecodeInlineArgs)
@@ -2800,7 +2916,7 @@ theorem sszDecodeCleanupBeforeBaseLow (fromStep : Nat) (args : DecodeInlineArgs)
       Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
         (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
         [⟨x10, 0x17264⟩] fromStep 14 before after 0x12294 := by
-  obtain ⟨after, seg, _slots⟩ := sszDecodeCleanupBeforeBaseLowWithZeroSlots
+  obtain ⟨after, seg, _slots, _reps⟩ := sszDecodeCleanupBeforeBaseLowWithZeroSlots
     fromStep args before atPc atStack stackFits stackAligned stackUpper access configured code
   exact ⟨after, seg⟩
 
@@ -2820,47 +2936,87 @@ private theorem sszDecodeCleanupBeforeDestinationWithZeroSlots (fromStep : Nat)
       Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
         (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
         [⟨x11, 0x1755c⟩, ⟨x10, 0x17264⟩] fromStep 19 before after 0x122a8 ∧
-      SszDecodeCleanupZeroSlots args after := by
-  obtain ⟨state14, seg14, slots14⟩ := sszDecodeCleanupBeforeBaseLowWithZeroSlots
+      SszDecodeCleanupZeroSlots args after ∧
+      SszDecodeZeroWindow32 after
+        (args.boundary.stackPointer - 0xbb0 + 0x450) ∧
+      SszDecodeZeroWindow32 after
+        (args.boundary.stackPointer - 0xbb0 + 0x430) := by
+  obtain ⟨state14, seg14, slots14, reps14⟩ := sszDecodeCleanupBeforeBaseLowWithZeroSlots
     fromStep args before atPc atStack stackFits stackAligned stackUpper access configured code
   have run15 := sszDecodeCleanupBaseLowStep (fromStep + 14) state14
     (sszDecodeCleanupAccessOfSeg access seg14).configured seg14.atPc
     (seg14.reg x10 0x17264 (by simp))
     (sszDecodeCleanupCodeOfSeg stackFits access code seg14)
-  obtain ⟨state15, seg15, slots15⟩ := sszDecodeCleanupAppendRegisterWithZeroSlots
+  obtain ⟨state15, seg15, slots15, memory15⟩ :=
+    sszDecodeCleanupAppendRegisterWithZeroSlots
     seg14 slots14 x11 0x1755c 0x12298
     (by simp [sszDecodeCleanupOwnPc]) run15 (by native_decide)
     (by simp [sszDecodeCleanupWrites]) (by decide) (by decide)
     (by simp [RegsOutside, stepBookkeeping])
+  have reps15 := cleanupDwordRepsOfMemEq reps14 memory15
   have run16 := sszDecodeCleanupStore430 (fromStep + 15) args state15 stackFits stackAligned
     stackUpper (sszDecodeCleanupAccessOfSeg access seg15) seg15.atPc
     ((seg15.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
     (sszDecodeCleanupCodeOfSeg stackFits access code seg15)
-  obtain ⟨state16, seg16, slots16⟩ := sszDecodeCleanupAppendLowerDwordWithZeroSlots
-    seg15 slots15 0x430 0x1229c (by omega) (by simp [sszDecodeCleanupOwnPc]) run16
-    (by native_decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨state16, seg16, slots16, reps16⟩ := sszDecodeCleanupAppendLowerDwordWitness
+    seg15 slots15 _ reps15 0x430 0x1229c (by omega) stackFits stackUpper
+    (by simp [sszDecodeCleanupOwnPc]) run16 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping]) (by
+      intro word member
+      simp at member
+      rcases member with rfl | rfl | rfl | rfl <;> omega)
   have run17 := sszDecodeCleanupStore438 (fromStep + 16) args state16 stackFits stackAligned
     stackUpper (sszDecodeCleanupAccessOfSeg access seg16) seg16.atPc
     ((seg16.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
     (sszDecodeCleanupCodeOfSeg stackFits access code seg16)
-  obtain ⟨state17, seg17, slots17⟩ := sszDecodeCleanupAppendLowerDwordWithZeroSlots
-    seg16 slots16 0x438 0x122a0 (by omega) (by simp [sszDecodeCleanupOwnPc]) run17
-    (by native_decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨state17, seg17, slots17, reps17⟩ := sszDecodeCleanupAppendLowerDwordWitness
+    seg16 slots16 _ reps16 0x438 0x122a0 (by omega) stackFits stackUpper
+    (by simp [sszDecodeCleanupOwnPc]) run17 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping]) (by
+      intro word member
+      simp at member
+      rcases member with rfl | rfl | rfl | rfl | rfl <;> omega)
   have run18 := sszDecodeCleanupStore440 (fromStep + 17) args state17 stackFits stackAligned
     stackUpper (sszDecodeCleanupAccessOfSeg access seg17) seg17.atPc
     ((seg17.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
     (sszDecodeCleanupCodeOfSeg stackFits access code seg17)
-  obtain ⟨state18, seg18, slots18⟩ := sszDecodeCleanupAppendLowerDwordWithZeroSlots
-    seg17 slots17 0x440 0x122a4 (by omega) (by simp [sszDecodeCleanupOwnPc]) run18
-    (by native_decide) (by simp [RegsOutside, stepBookkeeping])
+  obtain ⟨state18, seg18, slots18, reps18⟩ := sszDecodeCleanupAppendLowerDwordWitness
+    seg17 slots17 _ reps17 0x440 0x122a4 (by omega) stackFits stackUpper
+    (by simp [sszDecodeCleanupOwnPc]) run18 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping]) (by
+      intro word member
+      simp at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl <;> omega)
   have run19 := sszDecodeCleanupStore448 (fromStep + 18) args state18 stackFits stackAligned
     stackUpper (sszDecodeCleanupAccessOfSeg access seg18) seg18.atPc
     ((seg18.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
     (sszDecodeCleanupCodeOfSeg stackFits access code seg18)
-  obtain ⟨state19, seg19, slots19⟩ := sszDecodeCleanupAppendLowerDwordWithZeroSlots
-    seg18 slots18 0x448 0x122a8 (by omega) (by simp [sszDecodeCleanupOwnPc]) run19
-    (by native_decide) (by simp [RegsOutside, stepBookkeeping])
-  exact ⟨state19, by simpa only [Nat.add_assoc] using seg19, slots19⟩
+  obtain ⟨state19, seg19, slots19, reps19⟩ := sszDecodeCleanupAppendLowerDwordWitness
+    seg18 slots18 _ reps18 0x448 0x122a8 (by omega) stackFits stackUpper
+    (by simp [sszDecodeCleanupOwnPc]) run19 (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping]) (by
+      intro word member
+      simp at member
+      rcases member with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> omega)
+  have rep430 := reps19 (args.boundary.stackPointer - 0xbb0 + 0x430, 0) (by simp)
+  have rep438 := reps19 (args.boundary.stackPointer - 0xbb0 + 0x438, 0) (by simp)
+  have rep440 := reps19 (args.boundary.stackPointer - 0xbb0 + 0x440, 0) (by simp)
+  have rep448 := reps19 (args.boundary.stackPointer - 0xbb0 + 0x448, 0) (by simp)
+  have rep450 := reps19 (args.boundary.stackPointer - 0xbb0 + 0x450, 0) (by simp)
+  have rep458 := reps19 (args.boundary.stackPointer - 0xbb0 + 0x458, 0) (by simp)
+  have rep460 := reps19 (args.boundary.stackPointer - 0xbb0 + 0x460, 0) (by simp)
+  have rep468 := reps19 (args.boundary.stackPointer - 0xbb0 + 0x468, 0) (by simp)
+  refine ⟨state19, by simpa only [Nat.add_assoc] using seg19, slots19, ?_, ?_⟩
+  · exact
+      { word0 := rep450
+        word1 := by simpa only [Nat.add_assoc] using rep458
+        word2 := by simpa only [Nat.add_assoc] using rep460
+        word3 := by simpa only [Nat.add_assoc] using rep468 }
+  · exact
+      { word0 := rep430
+        word1 := by simpa only [Nat.add_assoc] using rep438
+        word2 := by simpa only [Nat.add_assoc] using rep440
+        word3 := by simpa only [Nat.add_assoc] using rep448 }
 
 /-- The template address and its final empty descriptor group reach the memcpy destination setup. -/
 theorem sszDecodeCleanupBeforeDestination (fromStep : Nat) (args : DecodeInlineArgs)
@@ -2877,7 +3033,8 @@ theorem sszDecodeCleanupBeforeDestination (fromStep : Nat) (args : DecodeInlineA
       Seg sszDecodeCleanupOwnPc sszDecodeCleanupExitPc
         (fun _ _ _ _ _ => False) sszDecodeCleanupWrites (sszDecodeCleanupMemory args)
         [⟨x11, 0x1755c⟩, ⟨x10, 0x17264⟩] fromStep 19 before after 0x122a8 := by
-  obtain ⟨after, seg, _slots⟩ := sszDecodeCleanupBeforeDestinationWithZeroSlots
+  obtain ⟨after, seg, _slots, _window450, _window430⟩ :=
+    sszDecodeCleanupBeforeDestinationWithZeroSlots
     fromStep args before atPc atStack stackFits stackAligned stackUpper access configured code
   exact ⟨after, seg⟩
 
@@ -2900,15 +3057,21 @@ theorem sszDecodeCleanupMemcpyCallReadyWithZeroSlots (fromStep : Nat)
           ⟨x10, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330)⟩,
           ⟨x11, 0x1755c⟩]
         fromStep 22 before after 0x122b4 ∧
-      SszDecodeCleanupZeroSlots args after := by
-  obtain ⟨state19, seg19, slots19⟩ := sszDecodeCleanupBeforeDestinationWithZeroSlots
+      SszDecodeCleanupZeroSlots args after ∧
+      SszDecodeZeroWindow32 after
+        (args.boundary.stackPointer - 0xbb0 + 0x450) ∧
+      SszDecodeZeroWindow32 after
+        (args.boundary.stackPointer - 0xbb0 + 0x430) := by
+  obtain ⟨state19, seg19, slots19, window450, window430⟩ :=
+    sszDecodeCleanupBeforeDestinationWithZeroSlots
     fromStep args before atPc atStack stackFits stackAligned stackUpper access configured code
   have seg19' := seg19.forget (kv' := [⟨x11, 0x1755c⟩]) (by simp)
   have run20 := sszDecodeCleanupDestinationStep (fromStep + 19) args state19
     (sszDecodeCleanupAccessOfSeg access seg19').configured seg19'.atPc
     ((seg19'.get x2 (by simp [sszDecodeCleanupWrites, stepBookkeeping])).trans atStack)
     (sszDecodeCleanupCodeOfSeg stackFits access code seg19')
-  obtain ⟨state20, seg20, slots20⟩ := sszDecodeCleanupAppendRegisterWithZeroSlots
+  obtain ⟨state20, seg20, slots20, memory20⟩ :=
+    sszDecodeCleanupAppendRegisterWithZeroSlots
     seg19' slots19 x10
     (BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330)) 0x122ac
     (by simp [sszDecodeCleanupOwnPc]) run20 (by native_decide)
@@ -2917,7 +3080,10 @@ theorem sszDecodeCleanupMemcpyCallReadyWithZeroSlots (fromStep : Nat)
   have run21 := sszDecodeCleanupSizeStep (fromStep + 20) state20
     (sszDecodeCleanupAccessOfSeg access seg20).configured seg20.atPc
     (sszDecodeCleanupCodeOfSeg stackFits access code seg20)
-  obtain ⟨state21, seg21, slots21⟩ := sszDecodeCleanupAppendRegisterWithZeroSlots
+  have window450At20 := window450.of_mem_eq memory20
+  have window430At20 := window430.of_mem_eq memory20
+  obtain ⟨state21, seg21, slots21, memory21⟩ :=
+    sszDecodeCleanupAppendRegisterWithZeroSlots
     seg20 slots20 x12 256 0x122b0
     (by simp [sszDecodeCleanupOwnPc]) run21 (by native_decide)
     (by simp [sszDecodeCleanupWrites]) (by decide) (by decide)
@@ -2925,12 +3091,16 @@ theorem sszDecodeCleanupMemcpyCallReadyWithZeroSlots (fromStep : Nat)
   have run22 := sszDecodeCleanupCallBaseStep (fromStep + 21) state21
     (sszDecodeCleanupAccessOfSeg access seg21).configured seg21.atPc
     (sszDecodeCleanupCodeOfSeg stackFits access code seg21)
-  obtain ⟨state22, seg22, slots22⟩ := sszDecodeCleanupAppendRegisterWithZeroSlots
+  have window450At21 := window450At20.of_mem_eq memory21
+  have window430At21 := window430At20.of_mem_eq memory21
+  obtain ⟨state22, seg22, slots22, memory22⟩ :=
+    sszDecodeCleanupAppendRegisterWithZeroSlots
     seg21 slots21 x1 0x102b0 0x122b4
     (by simp [sszDecodeCleanupOwnPc]) run22 (by native_decide)
     (by simp [sszDecodeCleanupWrites]) (by decide) (by decide)
     (by simp [RegsOutside, stepBookkeeping])
-  exact ⟨state22, by simpa only [Nat.add_assoc] using seg22, slots22⟩
+  exact ⟨state22, by simpa only [Nat.add_assoc] using seg22, slots22,
+    window450At21.of_mem_eq memory22, window430At21.of_mem_eq memory22⟩
 
 /-- The complete parent-owned setup reaches the exact `memcpy` call instruction. -/
 theorem sszDecodeCleanupMemcpyCallReady (fromStep : Nat) (args : DecodeInlineArgs)
@@ -2950,7 +3120,8 @@ theorem sszDecodeCleanupMemcpyCallReady (fromStep : Nat) (args : DecodeInlineArg
           ⟨x10, BitVec.ofNat 64 (args.boundary.stackPointer - 0xbb0 + 0x330)⟩,
           ⟨x11, 0x1755c⟩]
         fromStep 22 before after 0x122b4 := by
-  obtain ⟨after, seg, _slots⟩ := sszDecodeCleanupMemcpyCallReadyWithZeroSlots
+  obtain ⟨after, seg, _slots, _window450, _window430⟩ :=
+    sszDecodeCleanupMemcpyCallReadyWithZeroSlots
     fromStep args before atPc atStack stackFits stackAligned stackUpper access configured code
   exact ⟨after, seg⟩
 
