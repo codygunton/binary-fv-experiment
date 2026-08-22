@@ -492,6 +492,8 @@ structure SszDecodeResultStoresReady (args : DecodeInlineArgs) (machine : State)
   resultAt : machine.regs.get? x8 =
     some (BitVec.ofNat 64 (args.boundary.stackPointer + 0x20))
   statusAt : machine.regs.get? x22 = some 1
+  stackAligned : args.boundary.stackPointer % 16 = 0
+  stackUpper : args.boundary.stackPointer + 0x380 < 2 ^ 64
   access : DecodeBoundaryMachineAccess args.boundary machine
   configured : ConfiguredMachinePre EndpointMachinePc machine
   code : Artifacts.programImage.fileBytesLoadedFaithfully machine.mem
@@ -518,6 +520,134 @@ theorem SszDecodeResultStoresReady.sources {args : DecodeInlineArgs} {machine : 
   constructor <;>
     apply ready.generalRegisters.read <;>
     simp [architecturalIntegerRegisters]
+
+/-- The twelve result stores reach the first post-store instruction without exposing successors. -/
+structure SszDecodeResultStoresHandoff (fromStep : Nat) (args : DecodeInlineArgs)
+    (before after : State) : Prop where
+  seg : Seg sszDecodeResultStoresOwnPc sszDecodeResultStoresExitPc
+    (fun _ _ _ _ _ => False) stepBookkeeping (sszDecodeResultStoresMemory args)
+    [] fromStep 12 before after 0x1233c
+  access : DecodeBoundaryMachineAccess args.boundary after
+  code : Artifacts.programImage.fileBytesLoadedFaithfully after.mem
+
+/-- Compose all twelve result stores through one shared store family and `Seg`. -/
+theorem sszDecodeResultStores (fromStep : Nat) (args : DecodeInlineArgs) (before : State)
+    (ready : SszDecodeResultStoresReady args before) :
+    ∃ after, SszDecodeResultStoresHandoff fromStep args before after := by
+  rcases ready.sources with ⟨⟨ra, raAt⟩, ⟨t0, t0At⟩, ⟨s1, s1At⟩, ⟨a5, a5At⟩,
+    ⟨a6, a6At⟩, ⟨a7, a7At⟩, ⟨s3, s3At⟩, ⟨s4, s4At⟩, ⟨s7, s7At⟩,
+    ⟨s10, s10At⟩, ⟨t6, t6At⟩⟩
+  have seg0 := Seg.nil sszDecodeResultStoresOwnPc sszDecodeResultStoresExitPc
+    (fun _ _ _ _ _ => False) stepBookkeeping (sszDecodeResultStoresMemory args)
+    fromStep ready.configured.retiredCounter ready.atPc
+  obtain ⟨machine1, seg1⟩ := sszDecodeResultStoresAppend seg0 0 s1 0x12310 (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreS1 fromStep args before s1 ready.access seg0.atPc
+      ((seg0.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg0.get x9 (by simp [stepBookkeeping])).trans s1At)
+      ready.stackAligned ready.stackUpper ready.code) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access1 := sszDecodeResultStoresAccessOfSeg ready.access seg1
+  have code1 := sszDecodeResultStoresCodeOfSeg ready.access ready.code seg1
+  obtain ⟨machine2, seg2⟩ := sszDecodeResultStoresAppend seg1 8 s10 0x12314 (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreS10 (fromStep + 1) args machine1 s10 access1 seg1.atPc
+      ((seg1.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg1.get x26 (by simp [stepBookkeeping])).trans s10At)
+      ready.stackAligned ready.stackUpper code1) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access2 := sszDecodeResultStoresAccessOfSeg ready.access seg2
+  have code2 := sszDecodeResultStoresCodeOfSeg ready.access ready.code seg2
+  obtain ⟨machine3, seg3⟩ := sszDecodeResultStoresAppend seg2 0x10 s4 0x12318 (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreS4 (fromStep + 2) args machine2 s4 access2 seg2.atPc
+      ((seg2.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg2.get x20 (by simp [stepBookkeeping])).trans s4At)
+      ready.stackAligned ready.stackUpper code2) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access3 := sszDecodeResultStoresAccessOfSeg ready.access seg3
+  have code3 := sszDecodeResultStoresCodeOfSeg ready.access ready.code seg3
+  obtain ⟨machine4, seg4⟩ := sszDecodeResultStoresAppend seg3 0x18 s3 0x1231c (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreS3 (fromStep + 3) args machine3 s3 access3 seg3.atPc
+      ((seg3.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg3.get x19 (by simp [stepBookkeeping])).trans s3At)
+      ready.stackAligned ready.stackUpper code3) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access4 := sszDecodeResultStoresAccessOfSeg ready.access seg4
+  have code4 := sszDecodeResultStoresCodeOfSeg ready.access ready.code seg4
+  obtain ⟨machine5, seg5⟩ := sszDecodeResultStoresAppend seg4 0x20 a7 0x12320 (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreA7 (fromStep + 4) args machine4 a7 access4 seg4.atPc
+      ((seg4.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg4.get x17 (by simp [stepBookkeeping])).trans a7At)
+      ready.stackAligned ready.stackUpper code4) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access5 := sszDecodeResultStoresAccessOfSeg ready.access seg5
+  have code5 := sszDecodeResultStoresCodeOfSeg ready.access ready.code seg5
+  obtain ⟨machine6, seg6⟩ := sszDecodeResultStoresAppend seg5 0x28 a6 0x12324 (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreA6 (fromStep + 5) args machine5 a6 access5 seg5.atPc
+      ((seg5.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg5.get x16 (by simp [stepBookkeeping])).trans a6At)
+      ready.stackAligned ready.stackUpper code5) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access6 := sszDecodeResultStoresAccessOfSeg ready.access seg6
+  have code6 := sszDecodeResultStoresCodeOfSeg ready.access ready.code seg6
+  obtain ⟨machine7, seg7⟩ := sszDecodeResultStoresAppend seg6 0x30 t6 0x12328 (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreT6 (fromStep + 6) args machine6 t6 access6 seg6.atPc
+      ((seg6.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg6.get x31 (by simp [stepBookkeeping])).trans t6At)
+      ready.stackAligned ready.stackUpper code6) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access7 := sszDecodeResultStoresAccessOfSeg ready.access seg7
+  have code7 := sszDecodeResultStoresCodeOfSeg ready.access ready.code seg7
+  obtain ⟨machine8, seg8⟩ := sszDecodeResultStoresAppend seg7 0x38 t0 0x1232c (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreT0 (fromStep + 7) args machine7 t0 access7 seg7.atPc
+      ((seg7.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg7.get x5 (by simp [stepBookkeeping])).trans t0At)
+      ready.stackAligned ready.stackUpper code7) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access8 := sszDecodeResultStoresAccessOfSeg ready.access seg8
+  have code8 := sszDecodeResultStoresCodeOfSeg ready.access ready.code seg8
+  obtain ⟨machine9, seg9⟩ := sszDecodeResultStoresAppend seg8 0x40 s7 0x12330 (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreS7First (fromStep + 8) args machine8 s7 access8 seg8.atPc
+      ((seg8.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg8.get x23 (by simp [stepBookkeeping])).trans s7At)
+      ready.stackAligned ready.stackUpper code8) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access9 := sszDecodeResultStoresAccessOfSeg ready.access seg9
+  have code9 := sszDecodeResultStoresCodeOfSeg ready.access ready.code seg9
+  obtain ⟨machine10, seg10⟩ := sszDecodeResultStoresAppend seg9 0x48 a5 0x12334 (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreA5 (fromStep + 9) args machine9 a5 access9 seg9.atPc
+      ((seg9.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg9.get x15 (by simp [stepBookkeeping])).trans a5At)
+      ready.stackAligned ready.stackUpper code9) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access10 := sszDecodeResultStoresAccessOfSeg ready.access seg10
+  have code10 := sszDecodeResultStoresCodeOfSeg ready.access ready.code seg10
+  obtain ⟨machine11, seg11⟩ := sszDecodeResultStoresAppend seg10 0x50 s7 0x12338 (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreS7Second (fromStep + 10) args machine10 s7 access10 seg10.atPc
+      ((seg10.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg10.get x23 (by simp [stepBookkeeping])).trans s7At)
+      ready.stackAligned ready.stackUpper code10) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  have access11 := sszDecodeResultStoresAccessOfSeg ready.access seg11
+  have code11 := sszDecodeResultStoresCodeOfSeg ready.access ready.code seg11
+  obtain ⟨machine12, seg12⟩ := sszDecodeResultStoresAppend seg11 0x58 ra 0x1233c (by omega)
+    (by simp [sszDecodeResultStoresOwnPc])
+    (sszDecodeResultStoreRa (fromStep + 11) args machine11 ra access11 seg11.atPc
+      ((seg11.get x8 (by simp [stepBookkeeping])).trans ready.resultAt)
+      ((seg11.get x1 (by simp [stepBookkeeping])).trans raAt)
+      ready.stackAligned ready.stackUpper code11) (by native_decide)
+    (by simp [RegsOutside, stepBookkeeping])
+  exact ⟨machine12, seg12, sszDecodeResultStoresAccessOfSeg ready.access seg12,
+    sszDecodeResultStoresCodeOfSeg ready.access ready.code seg12⟩
 
 /-- The cleanup child return carries the exact facts required by the remaining parent stores. -/
 theorem sszDecodeCleanupAfterMemcpy (fromStep : Nat) (args : DecodeInlineArgs)
@@ -679,6 +809,8 @@ theorem sszDecodeCleanupResumeTrace (fromStep : Nat) (args : DecodeInlineArgs)
       resultAt := (seg.get x8 (by simp [sszDecodeCleanupTailWrites, stepBookkeeping])).trans
         resume.resultAt
       statusAt := seg.reg x22 1 (by simp)
+      stackAligned := resume.stackAligned
+      stackUpper := resume.stackUpper
       access := access
       configured := access.configured
       code := sszDecodeCleanupTailCodeOfSeg resume.stackFits resume.access resume.code seg

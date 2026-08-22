@@ -1679,6 +1679,74 @@ sszDecodeResultDwordSite(sszDecodeResultStoreS7Second; 0x12334, 0x50;
 sszDecodeResultDwordSite(sszDecodeResultStoreRa; 0x12338, 0x58;
   (.Regidx 1#5), x1, rX_x1_run; 0x23, 0x3c, 0x14, 0x04)
 
+def sszDecodeResultStoresOwnPc (pc : BitVec 64) : Prop :=
+  0x1230c ≤ pc.toNat ∧ pc.toNat < 0x1233c
+
+def sszDecodeResultStoresExitPc (pc : BitVec 64) : Prop := pc = 0x1233c
+
+def sszDecodeResultStoresMemory (args : DecodeInlineArgs) : Region :=
+  byteRange (args.boundary.stackPointer + 0x20) 0x60
+
+theorem instructionPreserved_disjoint_stepBookkeeping :
+    RegSet.Disjoint instructionPreserved stepBookkeeping := by
+  intro register preserved bookkeeping
+  exact platformPreserved_disjoint register preserved.1 bookkeeping
+
+theorem sszDecodeResultStoresAccessOfSeg {args : DecodeInlineArgs} {before cur : State}
+    {kv a n pc} (access : DecodeBoundaryMachineAccess args.boundary before)
+    (seg : Seg sszDecodeResultStoresOwnPc sszDecodeResultStoresExitPc
+      (fun _ _ _ _ _ => False) stepBookkeeping (sszDecodeResultStoresMemory args)
+      kv a n before cur pc) :
+    DecodeBoundaryMachineAccess args.boundary cur :=
+  access.of_pma_regions_eq
+    (seg.agree instructionPreserved_disjoint_stepBookkeeping) seg.retired
+    (seg.get pma_regions (by simp [stepBookkeeping]))
+
+theorem sszDecodeResultStoresCodeOfSeg {args : DecodeInlineArgs} {before cur : State}
+    {kv a n pc} (access : DecodeBoundaryMachineAccess args.boundary before)
+    (code : Artifacts.programImage.fileBytesLoadedFaithfully before.mem)
+    (seg : Seg sszDecodeResultStoresOwnPc sszDecodeResultStoresExitPc
+      (fun _ _ _ _ _ => False) stepBookkeeping (sszDecodeResultStoresMemory args)
+      kv a n before cur pc) :
+    Artifacts.programImage.fileBytesLoadedFaithfully cur.mem := by
+  intro address byte fileByte
+  rw [seg.mem address (by
+    intro inside
+    unfold sszDecodeResultStoresMemory byteRange at inside
+    have outside := access.callerNotCode address (by omega) (by omega)
+    rw [fileByte] at outside
+    cases outside)]
+  exact code address byte fileByte
+
+theorem sszDecodeResultStoresAppend {args : DecodeInlineArgs}
+    {before cur : State} {kv a n pc} (seg : Seg sszDecodeResultStoresOwnPc
+      sszDecodeResultStoresExitPc (fun _ _ _ _ _ => False) stepBookkeeping
+      (sszDecodeResultStoresMemory args) kv a n before cur pc)
+    (offset : Nat) (value : BitVec 64) (nextPc : BitVec 64)
+    (offsetBound : offset + 8 ≤ 0x60)
+    (inRegion : sszDecodeResultStoresOwnPc pc)
+    (run : ∃ retired, Runs (try_step (a + n) false) cur
+      (tryStepStoreAfterRetired
+        (afterWriteBytes (width := 8)
+          (coreStoreNextState (tryStepStoreAfterIncrement cur) pc)
+          (args.boundary.stackPointer + 0x20 + offset) value)
+        pc retired) false)
+    (advance : Sail.BitVec.addInt pc 4 = nextPc)
+    (keep : RegsOutside stepBookkeeping kv) :
+    ∃ next, Seg sszDecodeResultStoresOwnPc sszDecodeResultStoresExitPc
+      (fun _ _ _ _ _ => False) stepBookkeeping (sszDecodeResultStoresMemory args)
+      kv a (n + 1) before next nextPc := by
+  apply seg.stepStore (args.boundary.stackPointer + 0x20 + offset) value nextPc inRegion
+    (by intro atExit; unfold sszDecodeResultStoresExitPc at atExit; subst pc
+        simp [sszDecodeResultStoresOwnPc] at inRegion)
+    run advance
+  · intro other lower upper
+    unfold sszDecodeResultStoresMemory byteRange
+    omega
+  · intro register bookkeeping
+    exact bookkeeping
+  · exact keep
+
 def sszDecodeCleanupOwnPc (pc : BitVec 64) : Prop :=
   0x1225c ≤ pc.toNat ∧ pc.toNat < 0x1230c
 
