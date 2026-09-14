@@ -7,6 +7,8 @@ let
   runtimeSrc = builtins.path {
     path = ../runtime/riscv64;
     name = "binary-fv-riscv64-runtime";
+    filter = path: type: !(builtins.elem (baseNameOf path)
+      [ "riscv64_zkvm_layout.ld" "riscv64_zkvm_start.S" ]);
   };
 
   mcl = pkgs.stdenv.mkDerivation {
@@ -169,6 +171,28 @@ let
     '';
   };
 
+  # The default source path and its debug metadata remain unchanged.
+  zkvmRuntimeSrc = builtins.path {
+    path = ../runtime/riscv64;
+    name = "binary-fv-riscv64-zkvm-runtime";
+  };
+  zesuSszDecodeZkvmElf = zesuSszDecodeRv64Elf.overrideAttrs (old: {
+    pname = "zesu-ssz-decode-zkvm-rv64im-elf";
+    buildPhase = builtins.replaceStrings
+      [ "${runtimeSrc}/riscv64_runtime.c" "-DBINARY_FV_BARE_METAL -c"
+        "${runtimeSrc}/riscv64_baremetal_start.S"
+        "${runtimeSrc}/riscv64_baremetal_layout.ld" "runHook preBuild" ]
+      [ "runtime-zkvm.c" "-DBINARY_FV_BARE_METAL -DBINARY_FV_HEAP_MIB=384 -c"
+        "${zkvmRuntimeSrc}/riscv64_zkvm_start.S"
+        "${zkvmRuntimeSrc}/riscv64_zkvm_layout.ld"
+        "runHook preBuild\n      sed 's/HEAP_CAPACITY = 512/HEAP_CAPACITY = BINARY_FV_HEAP_MIB/' ${runtimeSrc}/riscv64_runtime.c > runtime-zkvm.c" ]
+      old.buildPhase;
+    installPhase = builtins.replaceStrings
+      [ "'optimize=ReleaseSmall; static=true; linked=true'" ]
+      [ "'optimize=ReleaseSmall; static=true; linked=true' 'layout=zkvm; ZisK=v1.2.0-alpha; OpenVM=16c26a32'" ]
+      old.installPhase;
+  });
+
   zesuSszDecodeSmoke = pkgs.runCommand "zesu-ssz-decode-smoke-d67f28c" {
     nativeBuildInputs = [ pkgs.python3 ];
   } ''
@@ -281,7 +305,7 @@ let
 in
 {
   public = {
-    inherit zesuRv64Object zesuSszDecodeRv64Object zesuSszDecodeRv64Elf
+    inherit zesuRv64Object zesuSszDecodeRv64Object zesuSszDecodeRv64Elf zesuSszDecodeZkvmElf
       zesuSszDecodeLinuxRv64Elf zesuSszDecodeSmoke
       zesuSszDecodeSourceProbe;
     zesu-rv64-object = zesuRv64Object;
