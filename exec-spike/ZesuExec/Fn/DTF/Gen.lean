@@ -379,6 +379,66 @@ theorem out_ptr {d : CutData} {σ : Sig} {m : Machine} {ko k : Nat} (hpc : d.pc 
     congr 1
     simp only [w]; rw [F1.add_add_ofNat]
 
+/-- A loaded frame word is what `init` reads there. -/
+theorem frame_init {sh : Shape} {σ : Sig} {m : Machine} {o : Nat} {v : Word}
+    (h : m.load (σ.fr + w o) 8 = some v) : (Sym.init 0 o 8).eval (envOf sh σ m) = v := by
+  have hb : BytesAt m (σ.fr + w o) ((List.range 8).map (byteOf v)) := fun i hi => by
+    simp only [List.length_map, List.length_range] at hi
+    rw [load_bytes h (Nat.le_refl _) i hi]
+    simp
+  have := init_frame (sh := sh) (off := 0) (n := 8) hb (by simp)
+  rw [Nat.add_zero] at this
+  rw [this, List.drop_zero, List.take_of_length_le (by simp)]
+  exact ofBytesLE_bytes8 v
+
+/-- At a `decodeItem` return site, when item `k` decodes: the outcome's payload length word and
+payload pointer word are `result40`'s. -/
+theorem f2_words {d : CutData} {σ : Sig} {m : Machine} {ko k : Nat} (hpc : d.pc ≠ entry)
+    (hsrc : SrcOk d = true) (hadv : advOf d = some (ko, k)) (hA : (mkCut d).A σ m) :
+    ∀ c, skip k σ.payload = some c → ∀ l h p, F2.decode (σ.payload.drop c) = .success l h p →
+      (Sym.init 0 (ko + 8) 8).eval (envOf d.shape σ m) = w p ∧
+      TX.wordAt m (σ.fr + w ko) =
+        if (σ.payload.drop c).head? = some 128 then 1 else σ.inp + w (c + h) := by
+  intro c hs l h p hd
+  obtain ⟨c1, before, hs1, -, hko, hres⟩ := f2_out hpc hsrc hadv hA
+  rw [hs, Option.some.injEq] at hs1
+  subst hs1
+  have hav : Avail σ m := (facts_of_A hpc hsrc hA).common.avail
+  have hrl : (F2.result40 (σ.inp + w c) (σ.payload.drop c) before).length = 40 := by
+    simp [F2.result40]
+  refine ⟨?_, ?_⟩
+  · rw [init_frame hres (by rw [hrl]; omega), result40_len]
+    simp only [F2.resultByte, hd, F2.successByte]
+    have e : ∀ j ∈ List.range 8, (if 8 + j < 8 then
+          byteOf (if (σ.payload.drop c).head? = some 128 then 1 else
+            σ.inp + w c + BitVec.ofNat 64 h) (8 + j)
+        else if 8 + j < 16 then byteOf (BitVec.ofNat 64 p) (8 + j - 8)
+        else if 8 + j = 16 then (if l = true then 1 else 0)
+        else if 8 + j < 24 then before.getD (8 + j) 0
+        else if 8 + j < 32 then byteOf (BitVec.ofNat 64 (h + p)) (8 + j - 24)
+        else if 8 + j < 34 then 0 else before.getD (8 + j) 0) =
+        byteOf (BitVec.ofNat 64 p) j := by
+      intro j hj
+      simp only [List.mem_range] at hj
+      rw [if_neg (by omega), if_pos (by omega), show 8 + j - 8 = j by omega]
+    rw [List.map_congr_left e]
+    exact ofBytesLE_bytes8 _
+  · have hl := frame_load hav (o := ko) (by omega)
+    have hb := load_bytes hl (by omega)
+    apply word_of_bytes
+    intro t ht
+    have h1 := hb t ht
+    have h2 := hres t (by rw [hrl]; omega)
+    rw [h1] at h2
+    simp only [Option.some.injEq] at h2
+    rw [h2]
+    simp only [F2.result40, List.getElem_map, List.getElem_range, F2.resultByte, hd,
+      F2.successByte, if_pos ht]
+    split
+    · rfl
+    · congr 1
+      simp only [w]; rw [F1.add_add_ofNat]
+
 /-! ## `decodeItem`'s precondition at a call -/
 
 /-- A leaf callee's 16 bytes below DTF's frame (`sp = fr` at every call). -/
@@ -594,7 +654,7 @@ theorem tx_rest {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.pc �
     rw [hrst, show (8 : Word) = BitVec.ofNat 64 8 from rfl]; simp only [w]
     rw [F1.add_add_ofNat]
   -- TX's input is the payload after `c0`
-  have hidx := hsite.2.2.2.2.2
+  have hidx := hsite.2.2.2.2.2.1
   rw [hkind] at hidx
   obtain ⟨hpre, -⟩ := hidx
   obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, hib, hil, -⟩ := hpre
@@ -1185,6 +1245,195 @@ theorem outObl_holds {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.
   simp only [Oblig.holds, env_size3, hyx, hxc, w, BitVec.toNat_ofNat]
   omega
 
+/-! ## Item values at call sites, `memcpy` calls -/
+
+/-- `rest` after `k + 1` items means item `k` decodes. -/
+theorem skip_succ_inv : ∀ {k : Nat} {b : List Byte} {c' : Nat}, skip (k + 1) b = some c' →
+    ∃ c l h p, skip k b = some c ∧ F2.decode (b.drop c) = .success l h p
+  | 0, b, c', hs => by
+    simp only [skip] at hs
+    split at hs
+    · next l h p hd => exact ⟨0, l, h, p, rfl, by simpa using hd⟩
+    · cases hs
+  | k + 1, b, c', hs => by
+    simp only [skip] at hs
+    split at hs
+    · next l0 h0 p0 hd0 =>
+      obtain ⟨c'', h', rfl⟩ := Option.map_eq_some_iff.mp hs
+      obtain ⟨c, l, h, p, hs1, hd⟩ := skip_succ_inv h'
+      refine ⟨TX.itemConsumed h0 p0 + c, l, h, p, ?_, ?_⟩
+      · show (match F2.decode b with
+          | .success _ h p => (skip k (b.drop (TX.itemConsumed h p))).map
+              (TX.itemConsumed h p + ·)
+          | .error => none) = _
+        rw [hd0]; simp [hs1]
+      · rwa [List.drop_drop] at hd
+    · cases hs
+
+/-- A target site's item value from the source's `decodeItem` outcome: a length location holds the
+outcome's length word, a pointer location the outcome's pointer word. -/
+def fieldFrom (d : CutData) (l : Leaf) (f : Loc × FieldVal) : Bool :=
+  f.1.fine && match advOf d with
+  | some (ko, k) => f.2.k == k && match f.2 with
+    | .len _ => f.1.sym l.S == .init 0 (ko + 8) 8
+    | .ptr _ => decide (ko + 8 ≤ frameBytes) && f.1.sym l.S == (Loc.slot ko).sym d.shape.S
+  | none => false
+
+def fieldsFrom (d : CutData) (l : Leaf) (fs : List (Loc × FieldVal)) : Bool :=
+  fs.all (fieldFrom d l)
+
+theorem fieldsFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
+    (C : Ctx d l σ m m') (hpc : d.pc ≠ entry) (hsrc : SrcOk d = true) (hA : (mkCut d).A σ m)
+    {fs : List (Loc × FieldVal)} (h : fieldsFrom d l fs = true) : FieldsOk σ m' fs := by
+  rintro ⟨loc, v⟩ hf
+  have h1 := List.all_eq_true.mp h _ hf
+  simp only [fieldFrom, Bool.and_eq_true] at h1
+  obtain ⟨hfine, h1⟩ := h1
+  split at h1
+  case h_2 => cases h1
+  next ko k hadv =>
+  simp only [Bool.and_eq_true, beq_iff_eq] at h1
+  obtain ⟨hk, h1⟩ := h1
+  show FieldVal.Holds σ v (loc.word σ m')
+  rw [loc_word_eval C.wf' C.hm' C.hS' hfine]
+  intro c hs l' hh p hd
+  rw [hk] at hs
+  obtain ⟨hlen, hptr⟩ := f2_words hpc hsrc hadv hA c hs l' hh p hd
+  cases v with
+  | len k' =>
+    simp only [beq_iff_eq] at h1
+    rw [h1, hlen]
+  | ptr k' =>
+    simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h1
+    rw [h1.2, ← loc_word_eval C.wf C.hm C.hS (loc := .slot ko)
+      (by simp only [Loc.fine, decide_eq_true_eq]; exact h1.1)]
+    exact hptr
+
+/-- `memcpy`'s domain from its arguments: a nonzero length's source readable and present, its
+destination RAM and present. -/
+theorem memcpy_pre_gen {m : Machine} (hra : RetAligned m) (hscr : Present m TX.scratch 8)
+    (h : 0 < (m.reg 12).toNat → Machine.readable (m.reg 11).toNat (m.reg 12).toNat = true ∧
+      Present m (m.reg 11) (m.reg 12).toNat ∧ RamRange (m.reg 10) (m.reg 12).toNat ∧
+      Present m (m.reg 10) (m.reg 12).toNat) : MemcpyPre m := by
+  unfold MemcpyPre ziskMemcpyDomain
+  simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq]
+  refine ⟨⟨⟨hra, by decide⟩, ?_⟩, ?_⟩
+  · unfold Machine.present
+    exact readBytes_isSome_of fun t ht => by
+      have := hscr t ht
+      rwa [show TX.scratch + BitVec.ofNat 64 t = BitVec.ofNat 64 (Layout.extraParams + t) by
+        simp only [TX.scratch]; bv_omega] at this
+  · rcases Nat.eq_zero_or_pos (m.reg 12).toNat with h0 | h0
+    · exact .inl h0
+    · obtain ⟨r1, p1, r0, p0⟩ := h h0
+      unfold RamRange at r0
+      refine .inr ⟨⟨⟨r1, ?_⟩, ?_⟩, ?_⟩
+      · unfold Machine.present
+        exact readBytes_isSome_of fun t ht => by rw [ofNat_toNat_add]; exact p1 t ht
+      · simp only [Machine.writable, Machine.inRange, Layout.ramLo, Layout.ramHi,
+          Bool.and_eq_true, decide_eq_true_eq] at r0 ⊢; omega
+      · unfold Machine.present
+        exact readBytes_isSome_of fun t ht => by rw [ofNat_toNat_add]; exact p0 t ht
+
+/-- The item whose length a call site keeps in `a1` (the allocator's size). -/
+def allocItem (r : Nat) : Option Nat :=
+  ((siteFields r).find? (·.1 == .reg 11)).bind fun f => match f.2 with
+    | .len k => some k
+    | _ => none
+
+theorem allocItem_spec {r k : Nat} (h : allocItem r = some k) :
+    (Loc.reg 11, FieldVal.len k) ∈ siteFields r := by
+  unfold allocItem at h
+  obtain ⟨f, hf, h2⟩ := Option.bind_eq_some_iff.mp h
+  have hm := List.mem_of_find?_eq_some hf
+  have h11 : f.1 = .reg 11 := by simpa using List.find?_some hf
+  obtain ⟨loc, v⟩ := f
+  cases v with
+  | len k' =>
+    simp only [Option.some.injEq] at h2
+    simp only at h11
+    subst h2 h11
+    exact hm
+  | ptr _ => simp at h2
+
+/-- A location a call keeps, as the return site's leaves read it: a callee-saved register or a
+frame word. -/
+def keptSym : Loc → Option Sym
+  | .reg i => if i < 32 ∧ Fin.ofNat 32 i ∈ calleeSaved then some (.var i) else none
+  | .slot o => if o + 8 ≤ frameBytes then some (.init 0 o 8) else none
+
+/-- The same location read as a payload pointer (base plus offset). -/
+def keptPtr : Loc → Option Sym
+  | .reg i => if i < 32 ∧ Fin.ofNat 32 i ∈ calleeSaved then
+      some (.bin .add (.ptr 3 0) (.var (32 + i))) else none
+  | .slot o => if o + 8 ≤ frameBytes ∧ o % 8 = 0 then
+      some (.bin .add (.ptr 3 0) (.var (64 + o / 8))) else none
+
+theorem kept_sym {sh : Shape} {σ : Sig} {mc m : Machine} (hav : Avail σ m) (hret : Returns mc m)
+    (hkeep : ∀ o, o + 8 ≤ frameBytes → m.load (σ.fr + w o) 8 = mc.load (σ.fr + w o) 8)
+    {loc : Loc} {s : Sym} (h : keptSym loc = some s) : s.eval (envOf sh σ m) = loc.word σ mc := by
+  cases loc with
+  | reg i =>
+    simp only [keptSym] at h
+    split at h
+    · next hi =>
+      simp only [Option.some.injEq] at h
+      subst h
+      simp only [Sym.eval, envOf, hi.1, if_true, Loc.word]
+      exact hret.2 _ hi.2
+    · cases h
+  | slot o =>
+    simp only [keptSym] at h
+    split at h
+    · next ho =>
+      simp only [Option.some.injEq] at h
+      subst h
+      rw [frame_init (frame_load hav ho)]
+      simp only [Loc.word, TX.wordAt, hkeep o ho]
+    · cases h
+
+theorem kept_ptr {sh : Shape} {σ : Sig} {mc m : Machine} (hret : Returns mc m)
+    (hkeep : ∀ o, o + 8 ≤ frameBytes → m.load (σ.fr + w o) 8 = mc.load (σ.fr + w o) 8)
+    {loc : Loc} {s : Sym} (h : keptPtr loc = some s) : s.eval (envOf sh σ m) = loc.word σ mc := by
+  cases loc with
+  | reg i =>
+    simp only [keptPtr] at h
+    split at h
+    · next hi =>
+      simp only [Option.some.injEq] at h
+      subst h
+      simp only [Sym.eval, BinOp.eval, env_base3, Loc.word]
+      simp only [envOf, show ¬ (32 + i < 32) by omega, show 32 + i < 64 by omega, if_false,
+        if_true, show 32 + i - 32 = i by omega]
+      rw [hret.2 _ hi.2]
+      bv_omega
+    · cases h
+  | slot o =>
+    simp only [keptPtr] at h
+    split at h
+    · next ho =>
+      simp only [Option.some.injEq] at h
+      subst h
+      simp only [Sym.eval, BinOp.eval, env_base3, Loc.word]
+      simp only [envOf, show ¬ (64 + o / 8 < 32) by omega, show ¬ (64 + o / 8 < 64) by omega,
+        if_false, show 8 * (64 + o / 8 - 64) = o by omega]
+      simp only [TX.wordAt, hkeep o ho.1]
+      bv_omega
+    · cases h
+
+/-- A `memcpy` call's arguments: a zero length, or, from an allocator return site, the new
+block (`a0`, nonzero by the leaf's condition) and the copied item's length and payload pointer
+the call site kept (`siteFields`), of an item that decoded (`rest` is past it) and fits. -/
+def memcpyArgs (d : CutData) (l : Leaf) : Bool :=
+  l.conds.contains (.eq (l.S.reg 12) (.lit 0)) ||
+  (!d.plain && (match d.site with | some s => s.kind == .alloc | none => false) &&
+   l.S.reg 10 == .var 10 && l.conds.contains (.ne (.var 10) (.lit 0)) &&
+   match allocItem d.pc with
+   | some k => armsFit d.arms k && (kRest d).any (·.k == k + 1) &&
+       (siteFields d.pc).any (fun g => g.2 == .len k && keptSym g.1 == some (l.S.reg 12)) &&
+       (siteFields d.pc).any (fun g => g.2 == .ptr k && keptPtr g.1 == some (l.S.reg 11))
+   | none => false)
+
 /-- An `alloc` call's arguments: alignment `a2 ≤ 3`; size `a1` a literal in `(0, 2^63)`, or the
 payload length of the source's `decodeItem` outcome, nonzero by the leaf's condition, of an item
 whose header fits (`armsFit`: then it is at most the payload length). -/
@@ -1207,6 +1456,7 @@ def argsOk (d : CutData) (l : Leaf) (s : Site) : Bool :=
     | some (ko, _) => decide (ko % 8 = 0)
     | none => false
   | .alloc => allocArgs d l
+  | .memcpy => memcpyArgs d l
   | _ => false
 
 /-- The payload is shorter than `2^63` (it is in the input buffer or RAM). -/
@@ -1304,6 +1554,127 @@ theorem call_idx {d : CutData} {l : Leaf} {s : Site} {σ : Sig} {m m' : Machine}
     unfold frameBytes stackBytes TX.stackBytes Layout.ramLo at *
     exact (stack_R hpre (by rw [e2]; unfold stackBytes TX.stackBytes; omega) (by rw [e2]; omega)
       ha).2 (priv_sub hpre hlive hP)
+  · next hkind =>
+    have hscr : Present m' TX.scratch 8 := hcm.2.2.2.2.2.2.1
+    refine ⟨([], [], ⟨[], []⟩), ?_⟩
+    rw [hkind]
+    have e10 : m'.reg 10 = (l.S.reg 10).eval (envOf d.shape σ m) := (C.hm'.regs 10).symm
+    have e11 : m'.reg 11 = (l.S.reg 11).eval (envOf d.shape σ m) := (C.hm'.regs 11).symm
+    have e12 : m'.reg 12 = (l.S.reg 12).eval (envOf d.shape σ m) := (C.hm'.regs 12).symm
+    simp only [memcpyArgs, Bool.or_eq_true, beq_iff_eq] at hargs
+    rcases hargs with h0 | hargs
+    · have h0' := hc _ (List.contains_iff_mem.mp h0)
+      simp only [SBool.eval, Sym.eval_lit, beq_iff_eq] at h0'
+      have hz : (m'.reg 12).toNat = 0 := by rw [e12, h0']; rfl
+      exact ⟨memcpy_pre_gen hraM hscr fun h => absurd hz (by omega), .inl hz⟩
+    simp only [Bool.and_eq_true, Bool.not_eq_true', beq_iff_eq, List.contains_iff_mem] at hargs
+    obtain ⟨⟨⟨⟨hpl, hsk⟩, h10⟩, hne⟩, hk⟩ := hargs
+    split at hsk
+    case h_2 => cases hsk
+    next s0 hs0 =>
+    simp only [beq_iff_eq] at hsk
+    have F := facts_of_A hpc hsrc hA
+    have hA' := hA
+    simp only [mkCut, if_neg hpc, ACut, hs0, hpl, Bool.false_eq_true, false_and, false_or,
+      Option.some.injEq, exists_eq_left'] at hA'
+    obtain ⟨mc, x, hsite, hpost⟩ := hA'
+    have hSF0 : s0.kind.SiteFine s0 = true := by
+      simp only [SrcOk, hs0, RetCheck, Bool.and_eq_true] at hsrc; exact hsrc.1.1.1
+    obtain ⟨hret, -, hkeep⟩ := ret_common hSF0 hsite hpost
+    have hkeep' : ∀ o, o + 8 ≤ frameBytes → m.load (σ.fr + w o) 8 = mc.load (σ.fr + w o) 8 :=
+      fun o ho => hkeep o ho (by rw [hsk]; rfl)
+    have hix := hsite.2.2.2.2.2.1
+    rw [hsk] at hix
+    obtain ⟨hapre, X, hlive⟩ := hix
+    have hpost' : allocPost σ.A x.1 mc m := by have := hpost.1; rw [hsk] at this; exact this
+    have hfld := hsite.2.2.2.2.2.2
+    split at hk
+    case h_2 => cases hk
+    next k hak =>
+    simp only [Bool.and_eq_true, List.any_eq_true, beq_iff_eq] at hk
+    obtain ⟨⟨⟨hfit, r, hr, hrk⟩, g, hg, hgv, hgs⟩, g', hg', hgv', hgs'⟩ := hk
+    -- item `k` decodes and fits
+    obtain ⟨c', hs', -⟩ := F.rest r hr
+    rw [hrk] at hs'
+    obtain ⟨c, l0, h, p, hs, hd⟩ := skip_succ_inv hs'
+    have hf := fit_of_arms hpre F.arms hfit hs
+    obtain ⟨-, hhp, hhp64⟩ := TX.fits_bounds hf hd
+    have hlen := payload_len hpre
+    have hcl := skip_le hs
+    simp only [List.length_drop] at hhp
+    have hlt := len_lt hpre
+    -- the values the call site kept
+    have hv11 := hfld _ (allocItem_spec hak) c hs l0 h p hd
+    have hv12 := hfld g hg
+    have hv11' := hfld g' hg'
+    rw [hgv] at hv12
+    rw [hgv'] at hv11'
+    have ha2 : m'.reg 12 = w p := by
+      rw [e12, kept_sym (sh := d.shape) F.common.avail hret hkeep' hgs]
+      exact hv12 c hs l0 h p hd
+    have ha1 : m'.reg 11 =
+        if (σ.payload.drop c).head? = some 128 then 1 else σ.inp + w (c + h) := by
+      rw [e11, kept_ptr (sh := d.shape) hret hkeep' hgs']
+      exact hv11' c hs l0 h p hd
+    have hsz : (mc.reg 11).toNat = p := by
+      have : mc.reg 11 = w p := hv11
+      rw [this]; simp only [w, BitVec.toNat_ofNat]; omega
+    have hp12 : (m'.reg 12).toNat = p := by rw [ha2]; simp only [w, BitVec.toNat_ofNat]; omega
+    -- the new block
+    have ha0 : m'.reg 10 = m.reg 10 := by
+      rw [e10, h10]; simp [Sym.eval, envOf]
+    have hb0 := hc _ hne
+    simp only [SBool.eval, Sym.eval_lit, bne_iff_ne, ne_eq] at hb0
+    have hb0' : m.reg 10 ≠ 0 := by
+      intro h0; apply hb0; simp [Sym.eval, envOf, h0]
+    obtain ⟨-, -, hnew⟩ := hpost'
+    rcases hnew with ⟨h0, -⟩ | ⟨-, hheap, hram, hpres, hin, -⟩
+    · exact absurd h0 hb0'
+    rw [hsz] at hheap hram hpres hin
+    have hliveM : Live σ m (x.1 ++ [(m.reg 10, p)]) (X ++ [(m.reg 10, p)]) := by
+      refine ⟨hheap, by rw [← List.append_assoc]; exact hlive.2.1.append_right _,
+        fun b hb => ?_⟩
+      rcases List.mem_append.mp hb with hb | hb
+      · exact hlive.2.2 b hb
+      · simp only [List.mem_singleton] at hb
+        subst hb
+        exact ⟨by have := hapre.2.1; omega, hram, fun a ha => priv_sub hpre hlive (hin a ha)⟩
+    have hpM : Preserved m m' := F1.preserved_of_leaf C.wf C.hm'
+      (Nat.le_of_eq (congrArg List.length ((show d.shape.S.regions = baseRegions from C.hS).trans
+        (show l.S.regions = baseRegions from C.hS').symm))) C.so
+    have hliveM' : Live σ m' (x.1 ++ [(m.reg 10, p)]) (X ++ [(m.reg 10, p)]) :=
+      live_keep hliveM C.so hpM fun a hw hP =>
+        owned_not_priv hpre (inWritable_owned hpre C.hS hw).1 (priv_sub hpre hliveM hP)
+    refine ⟨memcpy_pre_gen hraM hscr fun hpos => ?_, .inr ⟨_, _, hliveM',
+      (m.reg 10, p), List.mem_append_right _ (List.mem_singleton_self _), fun j hj => ?_⟩⟩
+    · rw [hp12] at hpos ⊢
+      obtain ⟨hh9, h128⟩ := decode_hdr hd
+      have hnot : (σ.payload.drop c).head? ≠ some 128 := fun h' => by
+        have := h128 h'; omega
+      rw [if_neg hnot] at ha1
+      have hia : (Layout.inputLo ≤ σ.inp.toNat ∧ σ.inp.toNat + σ.len ≤ Layout.inputHi) ∨
+          (Layout.ramLo ≤ σ.inp.toNat ∧ σ.inp.toNat + σ.len ≤ Layout.ramHi) :=
+        hpre.2.2.2.2.2.2.2.2.2.2.1
+      have hio : (m'.reg 11).toNat = σ.inp.toNat + (c + h) := by
+        rw [ha1]; exact toNat_add_ofNat (by unfold Layout.inputHi Layout.ramHi at hia; omega)
+      refine ⟨?_, fun j hj => ?_, ?_, ?_⟩
+      · rw [hio]
+        simp only [Machine.readable, Machine.inRange, Layout.rodataLo, Layout.rodataHi,
+          Layout.inputLo, Layout.inputHi, Layout.ramLo, Layout.ramHi, Bool.or_eq_true,
+          Bool.and_eq_true, decide_eq_true_eq]
+        unfold Layout.inputLo Layout.inputHi Layout.ramLo Layout.ramHi at hia
+        omega
+      · have := input_present hcm.avail (j := c + h + j) (by omega)
+        rwa [ha1, show σ.inp + w (c + h) + BitVec.ofNat 64 j = σ.inp + BitVec.ofNat 64 (c + h + j) by
+          simp only [w]; rw [F1.add_add_ofNat]]
+      · rw [ha0]; exact hram
+      · rw [ha0]; exact Present.of_preserved hpres hpM
+    · rw [hp12] at hj
+      rw [ha0]
+      unfold RamRange at hram
+      simp only [InRange]
+      rw [toNat_add_ofNat (by unfold Layout.ramHi at hram; omega)]
+      omega
   · cases hargs
 
 /-- The checks of `leaf_gen`: a leaf whose only obligations are the reads at a byte-loop
@@ -1335,7 +1706,8 @@ def GenCheck (d : CutData) (l : Leaf) : Bool :=
           restFrom d.shape.S l.S adv (srcRest d l) s.rest &&
           lenFrom d.shape.S l.S adv d.rest (srcRest d l) d'.rest && restRet d' s &&
           l.S.reg 1 == .lit r && decide ((w r &&& ~~~(1 : Word)).toNat = r) &&
-          decide (r % 4 = 0) && budgetCall d.pc d'.pc s.kind.bound steps
+          decide (r % 4 = 0) && budgetCall d.pc d'.pc s.kind.bound steps &&
+          fieldsFrom d l (siteFields r)
       | none => false
     | none => false
   | _ => false
@@ -1420,9 +1792,9 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     case h_2 => cases hex
     rename_i s hs
     simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq, decide_eq_true_eq] at hex
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨ht', hne⟩, hsrc'⟩, hargs⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlen⟩, hrr⟩,
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨ht', hne⟩, hsrc'⟩, hargs⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlen⟩, hrr⟩,
       hra1⟩,
-      hra⟩, hr4⟩, hbud⟩ := hex
+      hra⟩, hr4⟩, hbud⟩, hfld⟩ := hex
     simp only [budgetCall] at hbud
     split at hbud
     case h_2 => cases hbud
@@ -1443,7 +1815,8 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
       rw [← C.hm'.regs 1]; show (l.S.reg 1).eval _ = _; rw [hra1]; rfl
     have hraM : RetAligned m' := by unfold RetAligned; rw [hr1, hra]; exact hr4
     obtain ⟨x0, hidx⟩ := call_idx C hpc hsrc hA hc hcm hshp hrst hSF hargs hraM
-    have hsite : SiteA s d'.pc σ x0 m' := ⟨by rw [hpc']; exact hr1, hcm, hshp, harm, hrst, hidx⟩
+    have hsite : SiteA s d'.pc σ x0 m' := ⟨by rw [hpc']; exact hr1, hcm, hshp, harm, hrst, hidx,
+      by rw [hpc']; exact fieldsFrom_sound C hpc hsrc hA hfld⟩
     refine ⟨calleeOf s.kind, x0, ?_, ?_, hidx.1, fun m'' hpost => ?_⟩
     · show calleeAt r = _
       unfold calleeAt

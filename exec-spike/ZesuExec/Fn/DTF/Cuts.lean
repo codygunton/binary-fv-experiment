@@ -142,6 +142,39 @@ def RestOk (σ : Sig) (m : Machine) (rs : List RestLoc) : Prop :=
   ∀ r ∈ rs, ∃ c, skip r.k σ.payload = some c ∧
     r.loc.word σ m = if r.len then w σ.len - w c else σ.inp + w c
 
+/-- A value derived from a top-level item (open assertion item 1, the `data` copy so far): its
+payload pointer as `decodeItem` reports it, or its payload length. -/
+inductive FieldVal
+  | ptr (k : Nat)
+  | len (k : Nat)
+  deriving DecidableEq, Repr
+
+def FieldVal.k : FieldVal → Nat
+  | .ptr k => k
+  | .len k => k
+
+/-- `x` is `v` of item `v.k` when that item decodes (`decodeItem`'s `result40`: the empty string
+`0x80` reports pointer 1); nothing is said otherwise. -/
+def FieldVal.Holds (σ : Sig) (v : FieldVal) (x : Word) : Prop :=
+  ∀ c, skip v.k σ.payload = some c → ∀ l h p, F2.decode (σ.payload.drop c) = .success l h p →
+    x = match v with
+      | .ptr _ => if (σ.payload.drop c).head? = some 128 then 1 else σ.inp + w (c + h)
+      | .len _ => w p
+
+def FieldsOk (σ : Sig) (m : Machine) (fs : List (Loc × FieldVal)) : Prop :=
+  ∀ f ∈ fs, f.2.Holds σ (f.1.word σ m)
+
+/-- Item values a call site holds, by return address: the `data` item's length and payload
+pointer across the allocator call that copies it (`0x800016e8` and the typed arms' copies). -/
+def siteFieldsTable : List (Nat × List (Loc × FieldVal)) := [
+  (0x80001708, [(.reg 11, .len 5), (.reg 18, .len 5), (.reg 25, .ptr 5)]),
+  (0x800017a0, [(.reg 11, .len 6), (.slot 0xf0, .len 6), (.slot 0x128, .ptr 6)]),
+  (0x800018fc, [(.reg 11, .len 7), (.slot 0xf0, .len 7), (.slot 0xe0, .ptr 7)]),
+  (0x80001998, [(.reg 11, .len 7), (.slot 0xf0, .len 7), (.slot 0xe0, .ptr 7)]),
+  (0x80001a34, [(.reg 11, .len 7), (.slot 0xf0, .len 7), (.slot 0xe0, .ptr 7)])]
+
+def siteFields (r : Nat) : List (Loc × FieldVal) := (siteFieldsTable.lookup r).getD []
+
 /-- A buffer slot of `n` bytes at `a0`, carved from the allocator's private memory. -/
 def SlotOk (σ : Sig) (m : Machine) (n : Nat) : Prop :=
   RamRange (m.reg 10) n ∧ Present m (m.reg 10) n ∧ ∀ a, InRange (m.reg 10) n a → σ.A.Priv σ.g.L a
@@ -241,13 +274,20 @@ theorem Kind.spec : ∀ (k : Kind) (σ : Sig) (x : Idx),
 def calleeOf (k : Kind) : Callee Sig zesuImage :=
   famCallee k.entry k.bound k.Pre k.Post k.spec
 
+/-- A `memcpy` destination: nothing, or bytes of one of DTF's blocks (open assertion item 3). -/
+def MemDst (σ : Sig) (m : Machine) : Prop :=
+  (m.reg 12).toNat = 0 ∨ ∃ L X, Live σ m L X ∧
+    ∃ b ∈ X, ∀ j < (m.reg 12).toNat, InRange b.1 b.2 (m.reg 10 + BitVec.ofNat 64 j)
+
 /-- What the call site says about the callee's index: the callee's precondition, and the live list
-is DTF's `Live` list (allocator calls, F1, F4, TX; TX's parameters carry it too). The return-site
-cut lemmas need both (`Live` after an `alloc`, its size positive). -/
+is DTF's `Live` list (allocator calls, F1, F4, TX; TX's parameters carry it too); a `memcpy`
+writes into one of DTF's blocks. The return-site cut lemmas need these (`Live` after an `alloc`,
+its size positive; `Common` after a `memcpy`). -/
 def IdxOk (k : Kind) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   k.Pre σ x m ∧
   match k with
-  | .f2 | .memcpy | .remap => True
+  | .f2 | .remap => True
+  | .memcpy => MemDst σ m
   | .tx => x.2.2.L = x.1 ∧ ∃ X, Live σ m x.1 X
   | _ => ∃ X, Live σ m x.1 X
 
@@ -447,7 +487,7 @@ def PlainA (d : CutData) (σ : Sig) (m : Machine) : Prop :=
 /-- The call-site predicate of the call returning to `r`. -/
 def SiteA (s : Site) (r : Nat) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   m.reg 1 = w r ∧ Common σ m ∧ ShapeOk σ s.shape m ∧ ArmOk σ s.arms ∧ RestOk σ m s.rest ∧
-    IdxOk s.kind σ x m
+    IdxOk s.kind σ x m ∧ FieldsOk σ m (siteFields r)
 
 def RetA (s : Site) (r : Nat) (σ : Sig) (m : Machine) : Prop :=
   ∃ mc x, SiteA s r σ x mc ∧ (calleeOf s.kind).Post σ x mc m

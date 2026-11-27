@@ -314,6 +314,20 @@ theorem DTF.cut_80001d54 : CutOK DTF.plan DTF.plan.cuts[95]! :=
   cut_ret (table[95]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
 theorem DTF.cut_80001ec4 : CutOK DTF.plan DTF.plan.cuts[101]! :=
   cut_ret (table[101]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+theorem DTF.cut_800017c4 : CutOK DTF.plan DTF.plan.cuts[74]! :=
+  cut_ret (table[74]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+theorem DTF.cut_80001a5c : CutOK DTF.plan DTF.plan.cuts[83]! :=
+  cut_ret (table[83]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+theorem DTF.cut_80001c84 : CutOK DTF.plan DTF.plan.cuts[91]! :=
+  cut_ret (table[91]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+theorem DTF.cut_80001d40 : CutOK DTF.plan DTF.plan.cuts[94]! :=
+  cut_ret (table[94]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+theorem DTF.cut_80001eb0 : CutOK DTF.plan DTF.plan.cuts[100]! :=
+  cut_ret (table[100]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+theorem DTF.cut_80002a38 : CutOK DTF.plan DTF.plan.cuts[143]! :=
+  cut_ret (table[143]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+theorem DTF.cut_80002ee0 : CutOK DTF.plan DTF.plan.cuts[154]! :=
+  cut_ret (table[154]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
 
 /-! ## The entry and the cuts with region 4 -/
 
