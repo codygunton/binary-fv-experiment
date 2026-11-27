@@ -1,0 +1,20 @@
+{
+ "contracts": {
+  "f_8004218c": {"contract": "draft", "review": "unreviewed", "reviewer": "",
+                 "source": "F0 alt_fl_alloc.remap: not in zesislar (warm-up; replaces altFlRemapCallSpec, ZesuSsz/Contracts/AltFlAllocPremises.v:251); STATEMENTS.md F0"},
+  "f_800cb40c": {"contract": "transcribed", "review": "unreviewed", "reviewer": "",
+                 "source": "F1: ZesuSsz/Contracts/KeysEnsureCapacityContract.v:53 (keysEnsureCapacityDomain), ArrayListContract.v; STATEMENTS.md F1"},
+  "f_800d6960": {"contract": "transcribed", "review": "unreviewed", "reviewer": "",
+                 "source": "F2: ZesuSsz/Contracts/RlpDecodeItemContract.v, DecodeItemCallSpec2.v:22-40, DecodeItemCompositional.v:17-76; STATEMENTS.md F2"},
+  "f_800d6274": {"contract": "transcribed", "review": "unreviewed", "reviewer": "",
+                 "source": "F3: ZesuSsz/Contracts/NextUint64Contract.v:13-48, NextUint64CallSpec2.v:23-48; STATEMENTS.md F3"},
+  "f_800d677c": {"contract": "transcribed", "review": "unreviewed", "reviewer": "",
+                 "source": "F4: ZesuSsz/Contracts/ArrayListContract.v:156 (toOwnedSliceDomain), KeysToOwnedSliceCallSpec2.v; STATEMENTS.md F4"},
+  "f_800d6554": {"contract": "transcribed", "review": "unreviewed", "reviewer": "",
+                 "source": "F5: ZesuSsz/Contracts/EntriesToOwnedSliceContract.v:23, EntriesToOwnedSliceCallSpec2.v; STATEMENTS.md F5"},
+  "f_800d5cb8": {"contract": "transcribed", "review": "unreviewed", "reviewer": "",
+                 "source": "F6: ZesuSsz/Contracts/ParentHeaderContract.v:108-143; STATEMENTS.md F6"}
+ },
+ "assumed": ["f_80042494", "f_80041f38"],
+ "services": ["f_800e06c0"]
+}

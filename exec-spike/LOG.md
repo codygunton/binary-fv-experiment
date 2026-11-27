@@ -345,3 +345,29 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   namespace or its parent. `lake build` 253 jobs OK; `tools/verify.sh` 2, 3, 9 PASS; `lake exe
   zesu-status | jq .` valid, F0-F6 `legacy: true` with spec/sail true, compliance true for F2, F3, F6.
   No elaborator fallback needed (no `gen-vc`). Gate S2 passed.
+- S3 (2026-11-27): `tools/zmap/` `merge.py` (states by the plan's first-applies rule, leaf-to-CFG join by
+  cut pc and exit target, ledger totals per function and kind with status ids such as `F1`/`TX`
+  mapped to `f_<entry>`, `trust` list), `workqueue.py` (queue order of the plan; card and next action),
+  commands `merge`, `queue`, `show`, `next`, `site`; `Makefile` target `map` (static rebuilt only when
+  the ELF hash differs from `static.json`'s; status from `lake exe zesu-status` (S2, a0b9205e) into
+  `map/status.json`; merge; queue; site). `map/reviews.json`: F1-F6 transcribed/unreviewed, F0
+  draft/unreviewed (sources from STATEMENTS.md), assumed `alt_fl_alloc.alloc`/`free`, service `memcpy`.
+  Page `W/tools/binary-regions-ui/map.html` (link added in `index.html`'s header): tabs Overview
+  (treemap by state; area instructions / log10 leaves_estimate / open items; set filter; search),
+  Function (CFG at precomputed x,y; cuts, loop heads, joins, call kinds, blocker sites, back and
+  table edges, leaf arcs coloured auto/manual/open; card, leaves, source hints), Calls, Queue, Cost,
+  Trust; data from `map-data.js` (`window.ZMAP`, `window.ZQUEUE`), opens from file://; opened from
+  `tools/binary-regions-ui/` it loads `../../exec-spike/map/site/map-data.js`. `map/site/` is
+  generated (gitignored); `map.json` (13 MB), `status.json`, `queue.json`, `QUEUE.md` committed.
+  `tools/verify.sh` gains "map freshness": fails if `map.json` is missing or older than `static.json`
+  or `status.json`, or `status.json` differs from the current `lake exe zesu-status` output.
+  Gate: `make -C tools/zmap map` OK (3 s with lake cached); `tools/verify.sh` 2, 3, 9, map freshness
+  PASS; headless Chromium on `file://…/map/site/map.html` (dump-dom and screenshots
+  `/home/cody/.cache/zesu-tmp/zmap/overview.png`, `tx.png`): header text "524 functions ·
+  closed+compliance 3 · closed+sail 4 · assumed 3 · blocked 318 · ready 18 · waiting 46 · out 132"
+  (F2, F3, F6 closed+compliance; F0, F1, F4, F5 closed+sail); all six tabs render without page
+  errors; `txAccessList` shows 53 blocks, 2 loop heads, 15 cuts, 11 joins. `zmap show f_800cb40c`
+  prints F1's card (state closed+sail, legacy, f1_spec/f1_sail). `zmap next` head: 18 `ready`
+  functions (bottom-up), then 44 blocker classes by target-set instructions. Note: `blocked` precedes
+  `out` in the rule order, so 318 includes functions outside the target set. Unit tests 18 OK
+  (merge/queue on the legacy fixture `tests/fixtures/status_legacy.json`, tests only). Gate S3 passed.

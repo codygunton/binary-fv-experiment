@@ -1,0 +1,153 @@
+{
+ "schema": "zmap.status.v1",
+ "source": "fixture: legacy F0-F6 (ZesuExec/Fn/F*/Spec.lean entries, Proof/Sail/Compliance theorem names); used until lake exe zesu-status exists",
+ "functions": [
+  {
+   "id": "f_8004218c",
+   "entry": 2147754380,
+   "legacy": true,
+   "cuts": [],
+   "theorems": {
+    "reach": false,
+    "spec": true,
+    "sail": true,
+    "compliance": false
+   },
+   "names": {
+    "reach": null,
+    "spec": "f0_spec",
+    "sail": "f0_sail",
+    "compliance": null
+   },
+   "fn": "F0",
+   "open": [],
+   "assembled": false
+  },
+  {
+   "id": "f_800cb40c",
+   "entry": 2148316172,
+   "legacy": true,
+   "cuts": [],
+   "theorems": {
+    "reach": false,
+    "spec": true,
+    "sail": true,
+    "compliance": false
+   },
+   "names": {
+    "reach": null,
+    "spec": "f1_spec",
+    "sail": "f1_sail",
+    "compliance": null
+   },
+   "fn": "F1",
+   "open": [],
+   "assembled": false
+  },
+  {
+   "id": "f_800d6960",
+   "entry": 2148362592,
+   "legacy": true,
+   "cuts": [],
+   "theorems": {
+    "reach": false,
+    "spec": true,
+    "sail": true,
+    "compliance": true
+   },
+   "names": {
+    "reach": null,
+    "spec": "f2_spec",
+    "sail": "f2_sail",
+    "compliance": "f2_compliance"
+   },
+   "fn": "F2",
+   "open": [],
+   "assembled": false
+  },
+  {
+   "id": "f_800d6274",
+   "entry": 2148360820,
+   "legacy": true,
+   "cuts": [],
+   "theorems": {
+    "reach": false,
+    "spec": true,
+    "sail": true,
+    "compliance": true
+   },
+   "names": {
+    "reach": null,
+    "spec": "f3_spec",
+    "sail": "f3_sail",
+    "compliance": "f3_compliance"
+   },
+   "fn": "F3",
+   "open": [],
+   "assembled": false
+  },
+  {
+   "id": "f_800d677c",
+   "entry": 2148362108,
+   "legacy": true,
+   "cuts": [],
+   "theorems": {
+    "reach": false,
+    "spec": true,
+    "sail": true,
+    "compliance": false
+   },
+   "names": {
+    "reach": null,
+    "spec": "f4_spec",
+    "sail": "f4_sail",
+    "compliance": null
+   },
+   "fn": "F4",
+   "open": [],
+   "assembled": false
+  },
+  {
+   "id": "f_800d6554",
+   "entry": 2148361556,
+   "legacy": true,
+   "cuts": [],
+   "theorems": {
+    "reach": false,
+    "spec": true,
+    "sail": true,
+    "compliance": false
+   },
+   "names": {
+    "reach": null,
+    "spec": "f5_spec",
+    "sail": "f5_sail",
+    "compliance": null
+   },
+   "fn": "F5",
+   "open": [],
+   "assembled": false
+  },
+  {
+   "id": "f_800d5cb8",
+   "entry": 2148359352,
+   "legacy": true,
+   "cuts": [],
+   "theorems": {
+    "reach": false,
+    "spec": true,
+    "sail": true,
+    "compliance": true
+   },
+   "names": {
+    "reach": null,
+    "spec": "f6_spec",
+    "sail": "f6_sail",
+    "compliance": "f6_compliance"
+   },
+   "fn": "F6",
+   "open": [],
+   "assembled": false
+  }
+ ]
+}

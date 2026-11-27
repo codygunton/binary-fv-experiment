@@ -51,6 +51,17 @@ if [ -z "$lay" ]; then record "3 layering" PASS; else record "3 layering" FAIL; 
 echo "== 9. image tables vs ELF"
 if tools/check_image.sh; then record "9 image check" PASS; else record "9 image check" FAIL; fi
 
+echo "== map freshness (map.json vs static.json and zesu-status output)"
+fresh=""
+if [ ! -f map/map.json ] || [ ! -f map/status.json ]; then fresh="map/map.json or map/status.json missing"
+elif [ map/map.json -ot map/static.json ] || [ map/map.json -ot map/status.json ]; then
+  fresh="map/map.json is older than map/static.json or map/status.json"
+elif ! lake exe zesu-status 2>/dev/null | cmp -s - map/status.json; then
+  fresh="map/status.json differs from the current lake exe zesu-status output"
+fi
+if [ -z "$fresh" ]; then record "map freshness" PASS
+else echo "$fresh; run make -C tools/zmap map"; record "map freshness" FAIL; fi
+
 echo "== summary"
 printf '%s\n' "${RESULTS[@]}"
 exit $FAIL

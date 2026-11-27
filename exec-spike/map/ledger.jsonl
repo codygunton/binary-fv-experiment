@@ -1,2 +1,4 @@
 {"ts": "2026-11-27T16:56:52Z", "fn": null, "item": "S0 baseline", "kind": "infra", "agent": "coordinator", "minutes": 5.0, "usd": null, "requests": null, "outcome": "closed", "note": null}
 {"ts": "2026-11-27T16:57:08Z", "fn": null, "item": "S1 static map and ledger", "kind": "infra", "agent": "S1StaticMap", "minutes": 10.0, "usd": null, "requests": null, "outcome": "closed", "note": "tools/zmap, map/static.json; tests 15 OK"}
+{"ts": "2026-11-27T17:02:45Z", "fn": null, "item": "S2 Vc framework", "kind": "infra", "agent": "S2VcFramework", "minutes": 15.0, "usd": null, "requests": null, "outcome": "closed", "note": "vc_sound, zesu_assemble elaborator, zesu-status; a0b9205e"}
+{"ts": "2026-11-27T17:04:11Z", "fn": null, "item": "S3 merged map, queue, page", "kind": "infra", "agent": "S1StaticMap", "minutes": 8.0, "usd": null, "requests": null, "outcome": "closed", "note": "merge/queue/show/next/site, map.html, Makefile map, verify.sh freshness"}
