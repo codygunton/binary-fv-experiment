@@ -5,23 +5,27 @@ import BinaryFv.RiscV.Step.Context
 /-!
 # Abstract step premises, and what discharges them
 
-The premises a machine-loop contract carries rather than re-establishes at every step: that the
-configured machine's fetch path is enabled at every body pc, and that the Zicfilp landing-pad update
-is a no-op at the return. Both are stated over all states agreeing with a base state off the loop's
-write set, so that they survive each step.
+exec-spike repair: the specialised model has no MMIO, interrupt dispatch or landing-pad checks, so
+`AbstractPlatform` now carries only the base-fetch platform, and the Zicfilp abstraction
+`AbstractElp` (with `AbstractElp.mono`, `abstractElp_of_base`, `witnessState_abstractElp`) was
+deleted: the specialised `execute_JALR` performs no `update_elp_state`, so nothing consumes it.
 
-Each is parameterized by the register set `P` the loop preserves and by the address set `Pcs` of the
+The premise a machine-loop contract carries rather than re-establishes at every step: that the
+configured machine's fetch path is enabled at every body pc. It is stated over all states agreeing
+with a base state off the loop's write set, so that it survives each step.
+
+It is parameterized by the register set `P` the loop preserves and by the address set `Pcs` of the
 function's fetch addresses. Which registers and which addresses those are is a target fact.
 
-**They are assumptions of the loop, not of the layer.** `abstractPlatform_of_base` and
-`abstractElp_of_base` build them from register-level facts about the base state alone, so a contract
-holding those facts owes nothing further. `witnessState` below is a concrete state satisfying both,
-so "the contract may assume this" is not standing in for "no state satisfies this".
+**It is an assumption of the loop, not of the layer.** `abstractPlatform_of_base` builds it from
+register-level facts about the base state alone, so a contract holding those facts owes nothing
+further. `witnessState` below is a concrete state satisfying it, so "the contract may assume this"
+is not standing in for "no state satisfies this".
 
 The `Ext_Zca` premise of the same rules deliberately gets **no** abstraction of its own:
 `Platform/Fetch.lean`'s `currentlyEnabledZca_run` turns a single `misa` read into the run, `misa` is
 in `platformPreserved`, and so `currentlyEnabledZca_run_of_agree` covers every state the loop
-reaches. A third `Abstract…` wrapper would carry no information the `misa` clause does not.
+reaches. A second `Abstract…` wrapper would carry no information the `misa` clause does not.
 -/
 
 namespace BinaryFv.RiscV
@@ -31,33 +35,18 @@ open LeanRV64DExecutable.Functions
 open Register
 open extension
 
-/-- For any state agreeing with `base` off the write set and positioned at one of the function's
+/-- exec-spike repair: the `FetchMemoryNoMMIO`, `InterruptDisabled` and `LandingPadNotExpected`
+conjuncts were removed.
+For any state agreeing with `base` off the write set and positioned at one of the function's
 fetch addresses, the generated base-fetch path is enabled. -/
 def AbstractPlatform (P : Register → Prop) (Pcs : BitVec 64 → Prop) (base : State) : Prop :=
   ∀ (t : State) (pc : BitVec 64), Agree P base t → t.regs.get? PC = some pc → Pcs pc →
-    FetchBasePlatform t pc ∧ FetchMemoryNoMMIO t pc ∧ InterruptDisabled t ∧ LandingPadNotExpected t
+    FetchBasePlatform t pc
 
 /-- The abstract platform survives to an `Agree`-equal state. -/
 theorem AbstractPlatform.mono {P : Register → Prop} {Pcs : BitVec 64 → Prop} {s s' : State}
     (h : Agree P s s') (hp : AbstractPlatform P Pcs s) : AbstractPlatform P Pcs s' :=
   fun t pc hst hPC hbody => hp t pc (Agree.trans h hst) hPC hbody
-
-/-- The Zicfilp landing-pad update for a return through link register `r` is a no-op.
-
-`R` is a parameter rather than a fixed `x1`: a leaf helper returning through `ra` fixes `R` to `x1`,
-while a caller that returns through several link registers quantifies over them. Collapsing this to
-a single `∀ rs1` would silently strengthen the leaf's assumed premise.
-
-That the parameterization is now free rather than merely careful is `abstractElp_of_base`'s doing: it
-proves the update is a no-op at *every* `r`, so no instantiation of `R` costs a caller anything. The
-parameter is kept because it records what a contract actually relies on. -/
-def AbstractElp (P : Register → Prop) (R : regidx → Prop) (base : State) : Prop :=
-  ∀ (t : State) (r : regidx), R r → Agree P base t → Runs (update_elp_state r) t t ()
-
-/-- The abstract Zicfilp update survives to an `Agree`-equal state. -/
-theorem AbstractElp.mono {P : Register → Prop} {R : regidx → Prop} {s s' : State}
-    (h : Agree P s s') (he : AbstractElp P R s) : AbstractElp P R s' :=
-  fun t r hr hst => he t r hr (Agree.trans h hst)
 
 /-! ## The two transports `Platform/Fetch.lean` cannot state
 
@@ -84,43 +73,28 @@ theorem currentlyEnabledZca_run_of_agree {before after : State} {misaBits : BitV
 
 /-! ## Constructors
 
-Both abstractions are built from facts about the base state alone. The quantified `t` is handled by
-the six transports (four in `Platform/Fetch.lean`, one in `Platform/FetchMmio.lean`, one above), and
+exec-spike repair: only `AbstractPlatform` remains. It is built from facts about the base state
+alone. The quantified `t` is handled by `fetchBasePlatform_of_agree` in `Platform/Fetch.lean`, and
 the `PC` read `t` is required to satisfy is supplied by `AbstractPlatform`'s own hypothesis — which
 is exactly the split `fetchBasePlatform_of_agree` was narrowed to express. -/
 
 /--
 **The abstract platform, from the base state's configuration.**
 
-`platform` and `noMMIO` are per-address because two of the nine off-`PC` conjuncts (the PMA lookup)
-and the MMIO exclusion depend on the address; everything else is a register fact holding once.
+exec-spike repair: the `noMMIO`, `interrupts` and `notExpected` premises were removed.
+
+`platform` is per-address because one of the eight off-`PC` conjuncts (the PMA lookup) depends on
+the address; everything else is a register fact holding once.
 
 Note what is *not* a hypothesis: nothing says the base state is at any of the `Pcs`. It cannot,
 because the loop's states are at different pcs, and it need not, because `fetchBasePlatform_of_agree`
 takes the landing pc from `t`.
 -/
 theorem abstractPlatform_of_base {Pcs : BitVec 64 → Prop} {base : State}
-    (platform : ∀ pc, Pcs pc → FetchBasePlatformOffPC base pc)
-    (noMMIO : ∀ pc, Pcs pc → FetchMemoryNoMMIO base pc)
-    (interrupts : InterruptDisabled base) (notExpected : LandingPadNotExpected base) :
+    (platform : ∀ pc, Pcs pc → FetchBasePlatformOffPC base pc) :
     AbstractPlatform platformPreserved Pcs base := by
   intro t pc agree landed hpc
-  exact ⟨fetchBasePlatform_of_agree agree landed (platform pc hpc),
-    fetchMemoryNoMMIO_of_agree agree (noMMIO pc hpc),
-    interruptDisabled_of_agree agree interrupts,
-    landingPadNotExpected_of_agree agree notExpected⟩
-
-/-- **The abstract Zicfilp update, from two reads at the base state.**
-
-`R` is unconstrained: the update is a no-op for every link register, so a caller never has to justify
-which one it returns through. -/
-theorem abstractElp_of_base {R : regidx → Prop} {base : State} {mseccfgBits : BitVec 64}
-    (privilegeRead : base.regs.get? cur_privilege = some Privilege.Machine)
-    (seccfgRead : base.regs.get? mseccfg = some mseccfgBits) :
-    AbstractElp platformPreserved R base := fun t r _ agree =>
-  updateElpState_run t r mseccfgBits
-    ((agree cur_privilege (by simp [platformPreserved])).trans privilegeRead)
-    ((platformPreserved_mseccfg agree).trans seccfgRead)
+  exact fetchBasePlatform_of_agree agree landed (platform pc hpc)
 
 /-! ## The two premises at the state `tryStepRetRetires` actually asks about
 
@@ -205,8 +179,9 @@ theorem fetchBasePlatform_of_agree_at_moved_pc {before : State} {entryPc exitPc 
 Every predicate in this module and in `Platform/Fetch.lean` is an existential over register contents,
 and an existential whose registers are mutually unsatisfiable proves everything. One concrete state
 settles it: `witnessState` is `initialState` with nineteen registers set, and the theorems below
-exhibit it satisfying `NormalExecutionState`, the whole off-`PC` fetch platform, the MMIO exclusion,
-the interrupt exclusion, and both abstractions at once.
+exhibit it satisfying `NormalExecutionState`, the whole off-`PC` fetch platform, the interrupt
+exclusion, and the abstraction at once. (exec-spike repair: `witnessState_noMMIO` was deleted with
+`FetchMemoryNoMMIO`, and `witnessState_abstractElp` with `AbstractElp`.)
 
 It is a generic state, not the SSZ target's: the region table and the fetch address are chosen here.
 That is deliberate — a satisfiability witness borrowed from the target would prove the target's
@@ -268,32 +243,17 @@ theorem witnessState_offPC (pc : BitVec 64) :
   · simp [witnessState, Std.ExtDHashMap.get?_insert]
   · decide
 
-theorem witnessState_noMMIO (pc : BitVec 64) : FetchMemoryNoMMIO (witnessState pc) witnessPc := by
-  refine fetchMemoryNoMMIO_of_state_layout_excluded _ _ ⟨?_, ?_⟩
-  · exact fetch_mmio_address_excluded_of_before_layout witnessPc (by decide) (by decide)
-  · simp [witnessState, Std.ExtDHashMap.get?_insert]
-    rfl
-
 theorem witnessState_interrupts (pc : BitVec 64) : InterruptDisabled (witnessState pc) := by
   refine interruptDisabled_of_normal (mstatusBits := 0) (witnessState_normal pc) ?_ ⟨0, ?_⟩ <;>
     simp [witnessState, Std.ExtDHashMap.get?_insert]
 
-/-- **`AbstractPlatform` is inhabited**, at the single-address set `{witnessPc}`. -/
+/-- **`AbstractPlatform` is inhabited**, at the single-address set `{witnessPc}`.
+(exec-spike repair: the `noMMIO`, `interrupts` and `notExpected` arguments are gone.) -/
 theorem witnessState_abstractPlatform (pc : BitVec 64) :
     AbstractPlatform platformPreserved (fun q => q = witnessPc) (witnessState pc) := by
-  refine abstractPlatform_of_base ?_ ?_ (witnessState_interrupts pc)
-    (landingPadNotExpected_of_normal (witnessState_normal pc))
-  · rintro q rfl
-    exact witnessState_offPC pc
-  · rintro q rfl
-    exact witnessState_noMMIO pc
-
-/-- **`AbstractElp` is inhabited**, at every link-register set `R` — the update is a no-op whatever
-the return is made through, so `R` is unconstrained here as it is in the constructor. -/
-theorem witnessState_abstractElp (pc : BitVec 64) (R : regidx → Prop) :
-    AbstractElp platformPreserved R (witnessState pc) := by
-  refine abstractElp_of_base (mseccfgBits := 0) ?_ ?_ <;>
-    simp [witnessState, Std.ExtDHashMap.get?_insert]
+  refine abstractPlatform_of_base ?_
+  rintro q rfl
+  exact witnessState_offPC pc
 
 /-- **The transport, at a concrete entry state sitting at `0x2000` and a target of `0x1000`.**
 

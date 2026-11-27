@@ -33,11 +33,13 @@ unsafe def elabSymRun : CommandElab := fun stx => do
     let dv : DefinitionVal :=
       { name := lname, levelParams := [], type := lty, value := toExpr ls,
         hints := .regular 0, safety := .safe }
-    addDecl (Declaration.defnDecl dv)
+    addAndCompile (Declaration.defnDecl dv)
+    enableRealizationsForConst lname
     let e := mkApp2 (mkConst ``Option.some [0]) lty (mkConst lname)
     let stmt ← mkEq t e
     let prf ← mkEqRefl e
     addDecl (Declaration.thmDecl { name, levelParams := [], type := stmt, value := prf })
+    enableRealizationsForConst name
     let mut i := 0
     let mut msg := s!"{name}: {ls.length} leaves"
     for l in ls do
