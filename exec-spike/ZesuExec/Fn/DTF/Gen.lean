@@ -173,7 +173,7 @@ theorem f2_out {d : CutData} {σ : Sig} {m : Machine} {ko k : Nat} (hpc : d.pc �
   simp only [Option.some.injEq] at hs'
   subst hs'
   simp only [SrcOk, hs, RetCheck, Bool.and_eq_true] at hsrc
-  have hfine := hsrc.1.1.1.1
+  have hfine := hsrc.1.1.1
   rw [hkind] at hfine
   simp only [Kind.SiteFine, hko, Bool.and_eq_true, decide_eq_true_eq] at hfine
   have hko' := hfine.2
@@ -434,12 +434,166 @@ def restFrom (S S' : SState) (adv : Option (Nat × Nat)) (rs rs' : List RestLoc)
 
 /-- The target's `rest` length location against a source length location of the same item count
 as the source's first (all of them hold the same length, `RestOk`). -/
-def lenFrom (S S' : SState) (adv : Option (Nat × Nat)) (rs rs' : List RestLoc) : Bool :=
+def lenFrom (S S' : SState) (adv : Option (Nat × Nat)) (rs kr rs' : List RestLoc) : Bool :=
   match rs'.find? (·.len) with
   | none => true
   | some r' => match rs.find? (·.len) with
-    | some r => rs.any fun r0 => r0.len && r0.k == r.k && locFrom S S' adv r0 r'
+    | some r => kr.contains r && kr.any fun r0 => r0.len && r0.k == r.k && locFrom S S' adv r0 r'
     | none => false
+
+/-! ## `rest` after an accepted access list (TX return sites) -/
+
+/-- A TX call site: the frame offsets of TX's result and of the `rest` slice it moves. -/
+def txSite (s : Site) : Option (Nat × Nat) :=
+  if s.kind = .tx then
+    match regFr s 10, regFr s 12 with
+    | some ko, some ro => some (ko, ro)
+    | _, _ => none
+  else none
+
+theorem txSite_spec {s : Site} {ko ro : Nat} (h : txSite s = some (ko, ro)) :
+    s.kind = .tx ∧ regFr s 10 = some ko ∧ regFr s 12 = some ro := by
+  unfold txSite at h
+  split at h
+  · next hk =>
+    split at h
+    · next a b ha hb =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      exact ⟨hk, ha, hb⟩
+    · cases h
+  · cases h
+
+/-- A return-site `rest` location of the slice TX moved, one item on from the call's, whose two
+words the call site locates. -/
+def txLoc (s : Site) (ro : Nat) (r : RestLoc) : Bool :=
+  decide (0 < r.k) &&
+    (r == ⟨.slot ro, false, r.k⟩ || r == ⟨.slot (ro + 8), true, r.k⟩) &&
+    s.rest.contains ⟨.slot ro, false, r.k - 1⟩ && s.rest.contains ⟨.slot (ro + 8), true, r.k - 1⟩
+
+/-- The return site's moved `rest` locations, for a leaf that tests TX's error halfword zero. -/
+def txRest (d : CutData) (l : Leaf) : List RestLoc :=
+  match d.site with
+  | some s =>
+    match txSite s with
+    | some (ko, ro) =>
+      if d.plain = false ∧ l.conds.contains (.eq (.init 0 (ko + 16) 2) (.lit 0)) then
+        d.rest.filter (txLoc s ro)
+      else []
+    | none => []
+  | none => []
+
+/-- The source's `rest` locations a leaf may use. -/
+def srcRest (d : CutData) (l : Leaf) : List RestLoc := kRest d ++ txRest d l
+
+theorem bytes_unique {m : Machine} {a : Word} {xs ys : List Byte} (hx : BytesAt m a xs)
+    (hy : BytesAt m a ys) (hl : xs.length = ys.length) : xs = ys :=
+  List.ext_getElem hl fun i h1 h2 => by
+    have e := (hx i h1).symm.trans (hy i h2)
+    simpa using e
+
+/-- TX's result word at a frame offset is three: its halfword reads three. -/
+theorem init_three {sh : Shape} {σ : Sig} {m : Machine} {o : Nat}
+    (h : m.load (σ.fr + w o) 8 = some 3) : (Sym.init 0 o 2).eval (envOf sh σ m) = 3 := by
+  have hb : BytesAt m (σ.fr + w o) ((List.range 8).map (byteOf 3)) := fun i hi => by
+    simp only [List.length_map, List.length_range] at hi
+    rw [load_bytes h (Nat.le_refl _) i hi]
+    simp
+  have := init_frame (sh := sh) (off := 0) (n := 2) hb (by simp)
+  rw [Nat.add_zero] at this
+  rw [this]
+  decide
+
+theorem tx_rest {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.pc ≠ entry)
+    (hA : (mkCut d).A σ m) (hc : ∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) :
+    RestOk σ m (txRest d l) := by
+  intro r hr
+  unfold txRest at hr
+  split at hr
+  case h_2 => cases hr
+  next s hs =>
+  split at hr
+  case h_2 => cases hr
+  next ko ro hts =>
+  split at hr
+  case isFalse => cases hr
+  next hcond =>
+  obtain ⟨hpl, hcond⟩ := hcond
+  obtain ⟨hkind, hko, hro⟩ := txSite_spec hts
+  obtain ⟨-, hloc⟩ := List.mem_filter.mp hr
+  simp only [txLoc, Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq, decide_eq_true_eq,
+    List.contains_iff_mem] at hloc
+  obtain ⟨⟨⟨hk0, hrl⟩, hp⟩, hn⟩ := hloc
+  simp only [mkCut, if_neg hpc, ACut, hs, hpl, Bool.false_eq_true, false_and, false_or,
+    Option.some.injEq, exists_eq_left'] at hA
+  obtain ⟨mc, x, hsite, hpost⟩ := hA
+  have hcm := hsite.2.1
+  have hav := hcm.avail
+  have hlen := payload_len hcm.2.1
+  have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
+  have hres : mc.reg 10 = σ.fr + w ko := hsite.2.2.1.1 _ (lookup_mem (regFr_spec hko)) _ rfl
+  have hrst : mc.reg 12 = σ.fr + w ro := hsite.2.2.1.1 _ (lookup_mem (regFr_spec hro)) _ rfl
+  -- `rest` at the call
+  obtain ⟨c0, hs0, hw0⟩ := hsite.2.2.2.2.1 _ hp
+  obtain ⟨c1, hs1, hw1⟩ := hsite.2.2.2.2.1 _ hn
+  rw [hs0, Option.some.injEq] at hs1
+  subst hs1
+  simp only [Loc.word, Bool.false_eq_true, if_false, if_true] at hw0 hw1
+  have hcl : c0 ≤ σ.len := by have := skip_le hs0; omega
+  have hr8 : mc.reg 12 + 8 = σ.fr + w (ro + 8) := by
+    rw [hrst, show (8 : Word) = BitVec.ofNat 64 8 from rfl]; simp only [w]
+    rw [F1.add_add_ofNat]
+  -- TX's input is the payload after `c0`
+  have hidx := hsite.2.2.2.2.2
+  rw [hkind] at hidx
+  obtain ⟨hpre, -⟩ := hidx
+  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, hib, hil, -⟩ := hpre
+  rw [hrst] at hib
+  rw [hr8] at hil
+  rw [hw0] at hib
+  rw [hw1] at hil
+  have hil' : x.2.2.input.length = σ.len - c0 := by
+    rw [hil]; simp only [w, BitVec.toNat_sub, BitVec.toNat_ofNat]; omega
+  have hin : x.2.2.input = σ.payload.drop c0 :=
+    bytes_unique hib (input_bytes hav hcl) (by rw [hil', List.length_drop, hlen])
+  -- TX's outcome
+  obtain ⟨hq, -⟩ := hpost
+  replace hq : TX.Post σ.A x.2.2 mc m := by rw [hkind] at hq; exact hq
+  obtain ⟨-, -, -, cls, consumed, hallow, hl0, hl8, himg⟩ := hq
+  simp only at hl0 hl8 himg
+  have hok : ∃ h p, F2.decode (σ.payload.drop c0) = .success true h p ∧
+      consumed = TX.itemConsumed h p := by
+    cases cls with
+    | ok es =>
+      simp only [TX.OutcomeAllowed, TX.candidate, TX.walk, hin] at hallow
+      split at hallow
+      · next h p hd =>
+        split at hallow
+        · simp only [TX.Candidate.accepted.injEq] at hallow
+          exact ⟨h, p, hd, hallow.2.symm⟩
+        · cases hallow
+      · cases hallow
+    | invalidInput | allocationFailure =>
+      exfalso
+      obtain ⟨-, -, h3, -⟩ := himg
+      rw [hres, show σ.fr + w ko + 16 = σ.fr + w (ko + 16) by
+        rw [show (16 : Word) = BitVec.ofNat 64 16 from rfl]; simp only [w]
+        rw [F1.add_add_ofNat]] at h3
+      have := hc _ (List.contains_iff_mem.mp hcond)
+      simp only [SBool.eval, Sym.eval_lit, beq_iff_eq, init_three h3] at this
+      exact absurd this (by decide)
+  obtain ⟨h, p, hd, rfl⟩ := hok
+  have hskip := skip_snoc hs0 hd
+  rw [show r.k - 1 + 1 = r.k by omega] at hskip
+  refine ⟨c0 + TX.itemConsumed h p, hskip, ?_⟩
+  rcases hrl with e | e <;> rw [e] <;>
+    simp only [Loc.word, Bool.false_eq_true, if_false, if_true, TX.wordAt]
+  · rw [← hrst, hl0, hrst, hw0]
+    simp only [Option.getD_some, w]
+    rw [F1.add_add_ofNat]
+  · rw [← hr8, hl8, hr8, hw1]
+    simp only [Option.getD_some, w]
+    bv_omega
 
 /-- What a leaf of the source cut `d` ending in `m'` knows. -/
 structure Ctx (d : CutData) (l : Leaf) (σ : Sig) (m m' : Machine) : Prop where
@@ -454,15 +608,17 @@ structure Ctx (d : CutData) (l : Leaf) (σ : Sig) (m m' : Machine) : Prop where
   low : writesLow l.S = true
   adv : ∀ ko k, advUse d l = some (ko, k) →
     AdvOk d σ m ko k ∧ (Sym.init 0 (ko + 32) 2).eval (envOf d.shape σ m) = 0
+  rest : RestOk σ m (srcRest d l)
 
 theorem locFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    {r r' : RestLoc} (hr : r ∈ d.rest) (h : locFrom d.shape.S l.S (advUse d l) r r' = true) :
+    {r r' : RestLoc} (hr : r ∈ srcRest d l)
+    (h : locFrom d.shape.S l.S (advUse d l) r r' = true) :
     (∃ c, skip r'.k σ.payload = some c ∧
       r'.loc.word σ m' = if r'.len then w σ.len - w c else σ.inp + w c) ∧
     (r'.len = true → (r'.loc.word σ m').toNat ≤ (r.loc.word σ m).toNat) := by
   simp only [locFrom, Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at h
   obtain ⟨⟨⟨hf, hf'⟩, hlen⟩, h⟩ := h
-  obtain ⟨c, hs, hw⟩ := C.F.rest r hr
+  obtain ⟨c, hs, hw⟩ := C.rest r hr
   have e' := loc_word_eval C.wf' C.hm' C.hS' hf'
   have e := loc_word_eval C.wf C.hm C.hS hf
   rcases h with ⟨hk, hsym⟩ | h
@@ -493,14 +649,15 @@ theorem locFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : 
     · cases h
 
 theorem restFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    {rs' : List RestLoc} (h : restFrom d.shape.S l.S (advUse d l) d.rest rs' = true) :
+    {rs' : List RestLoc} (h : restFrom d.shape.S l.S (advUse d l) (srcRest d l) rs' = true) :
     RestOk σ m' rs' := fun r' hr' => by
   simp only [restFrom, List.all_eq_true, List.any_eq_true] at h
   obtain ⟨r, hr, hl⟩ := h r' hr'
   exact (locFrom_sound C hr hl).1
 
 theorem lenFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    {rs' : List RestLoc} (h : lenFrom d.shape.S l.S (advUse d l) d.rest rs' = true) :
+    {rs' : List RestLoc}
+    (h : lenFrom d.shape.S l.S (advUse d l) d.rest (srcRest d l) rs' = true) :
     (match rs'.find? (·.len) with
       | some r => (r.loc.word σ m').toNat
       | none => 0) ≤ restLen d σ m := by
@@ -514,11 +671,11 @@ theorem lenFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : 
       rw [h', hr]
       have hl' : r'.len = true := by have := List.find?_some h'; simpa using this
       have hrl : r.len = true := by have := List.find?_some hr; simpa using this
-      simp only [List.any_eq_true, Bool.and_eq_true, beq_iff_eq] at h
-      obtain ⟨r0, hr0, ⟨hl0, hk0⟩, h0⟩ := h
+      simp only [Bool.and_eq_true, List.contains_iff_mem, List.any_eq_true, beq_iff_eq] at h
+      obtain ⟨hrk, r0, hr0, ⟨hl0, hk0⟩, h0⟩ := h
       have hle := (locFrom_sound C hr0 h0).2 hl'
-      obtain ⟨c0, hs0, hw0⟩ := C.F.rest r0 hr0
-      obtain ⟨c, hs, hw⟩ := C.F.rest r (List.mem_of_find?_eq_some hr)
+      obtain ⟨c0, hs0, hw0⟩ := C.rest r0 hr0
+      obtain ⟨c, hs, hw⟩ := C.rest r hrk
       rw [hk0, hs] at hs0
       simp only [Option.some.injEq] at hs0
       subst hs0
@@ -532,7 +689,7 @@ theorem lenFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : 
 theorem target_facts {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
     {sh : Shape} {arms : List Nat} {rs : List RestLoc} (hfine : sh.Fine = true)
     (hsh : shapeHolds l.S sh = true) (harms : armsKeep d.arms arms = true)
-    (hrest : restFrom d.shape.S l.S (advUse d l) d.rest rs = true) :
+    (hrest : restFrom d.shape.S l.S (advUse d l) (srcRest d l) rs = true) :
     Common σ m' ∧ ShapeOk σ sh m' ∧ ArmOk σ arms ∧ RestOk σ m' rs := by
   refine ⟨common_leaf C.F.common C.wf C.hS C.hS' C.hm' C.so C.low, ⟨?_, ?_⟩,
     armOk_keep harms C.F.arms, restFrom_sound C hrest⟩
@@ -566,7 +723,7 @@ theorem ret_loc_keep {d : CutData} {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc
     (hpost : (calleeOf s.kind).Post σ x mc m) (hrr : restRet d s = true) {r0 : RestLoc}
     (hr : r0 ∈ d.rest) : r0.loc.word σ m = r0.loc.word σ mc := by
   obtain ⟨hret, -, hkeep⟩ := ret_common hk hsite hpost
-  simp only [restRet, List.all_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hrr
+  simp only [restRet, retKeep, List.all_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hrr
   obtain ⟨-, hloc⟩ := hrr r0 hr
   revert hloc
   cases r0.loc with
@@ -992,7 +1149,8 @@ def GenCheck (d : CutData) (l : Leaf) : Bool :=
     | some d' => d'.pc != entry && d'.plain && (noExtra d'.pc || errDone d'.pc l) &&
         d'.shape.extra.isEmpty &&
         d'.shape.Fine && shapeHolds l.S d'.shape && armsKeep d.arms d'.arms &&
-        restFrom d.shape.S l.S adv d.rest d'.rest && lenFrom d.shape.S l.S adv d.rest d'.rest &&
+        restFrom d.shape.S l.S adv (srcRest d l) d'.rest &&
+        lenFrom d.shape.S l.S adv d.rest (srcRest d l) d'.rest &&
         tgtOk d l d'.pc
     | none => false
   | .call t r =>
@@ -1003,7 +1161,8 @@ def GenCheck (d : CutData) (l : Leaf) : Bool :=
         match f2Site s with
         | some (ko, _) => t == F2.entry && d'.pc != entry && SrcOk d' && decide (ko % 8 = 0) &&
             s.shape.Fine && shapeHolds l.S s.shape && armsKeep d.arms s.arms &&
-            restFrom d.shape.S l.S adv d.rest s.rest && lenFrom d.shape.S l.S adv d.rest d'.rest &&
+            restFrom d.shape.S l.S adv (srcRest d l) s.rest &&
+            lenFrom d.shape.S l.S adv d.rest (srcRest d l) d'.rest && restRet d' s &&
             l.S.reg 1 == .lit r && decide ((w r &&& ~~~(1 : Word)).toNat = r) &&
             decide (r % 4 = 0) && budgetCall d.pc d'.pc F2.bound steps
         | none => false
@@ -1050,6 +1209,8 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     simp only [Bool.or_eq_true] at h
     exact h.elim (curObl_holds hpc hA hm) (outObl_holds hpc hsrc hA hwf hm hS hc)
   have hsteps0 : d.shape.S.steps = 0 := by simp [Shape.S, entryState]
+  have hrest0 : RestOk σ m (srcRest d l) := fun r hr =>
+    (List.mem_append.mp hr).elim (F.rest r) (tx_rest hpc hA hc r)
   cases hexit : l.exit with
   | «at» pc' =>
     rw [hexit] at hex
@@ -1063,7 +1224,7 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     refine ⟨hob', tgt_steps hpc hA hm hbud, fun m' hm' hexok hso => ?_⟩
     simp only [mkCut] at hm' hso
     simp only [ExitOk] at hexok
-    have C : Ctx d l σ m m' := ⟨F, hwf, hm, hS, hwf', hm', hS', hso, hlow, hadv⟩
+    have C : Ctx d l σ m m' := ⟨F, hwf, hm, hS, hwf', hm', hS', hso, hlow, hadv, hrest0⟩
     obtain ⟨hcm, hshp, harm, hrst⟩ := target_facts C hfine' hsh harms hrest
     have hlen' := lenFrom_sound C hlen
     obtain ⟨hcur', hbud'⟩ := tgt_ok C hpc hsrc hA hc
@@ -1093,7 +1254,8 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     rename_i ko k' hf2
     obtain ⟨hkind, hko, ⟨r1, hm1, hl1, hn1, hk1⟩, ⟨r2, hm2, hl2, hn2, hk2⟩⟩ := f2Site_spec hf2
     simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq, decide_eq_true_eq] at hex
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨ht', hne⟩, hsrc'⟩, hko8⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlen⟩, hra1⟩,
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨ht', hne⟩, hsrc'⟩, hko8⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlen⟩, hrr⟩,
+      hra1⟩,
       hra⟩, hr4⟩, hbud⟩ := hex
     simp only [budgetCall] at hbud
     split at hbud
@@ -1105,14 +1267,12 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
       unfold budgetOf; omega
     simp only [mkCut] at hm' hso
     simp only [ExitOk] at hexok
-    have C : Ctx d l σ m m' := ⟨F, hwf, hm, hS, hwf', hm', hS', hso, hlow, hadv⟩
+    have C : Ctx d l σ m m' := ⟨F, hwf, hm, hS, hwf', hm', hS', hso, hlow, hadv, hrest0⟩
     obtain ⟨hcm, hshp, harm, hrst⟩ := target_facts C hfine' hsh harms hrest
     have hlen' := lenFrom_sound C hlen
     -- the call site's facts
     have hSF : s.kind.SiteFine s = true := by
-      simp only [SrcOk, hs, RetCheck, Bool.and_eq_true] at hsrc'; exact hsrc'.1.1.1.1
-    have hrr : restRet d' s = true := by
-      simp only [SrcOk, hs, Bool.and_eq_true] at hsrc'; exact hsrc'.2
+      simp only [SrcOk, hs, RetCheck, Bool.and_eq_true] at hsrc'; exact hsrc'.1.1.1
     have hSF' := hSF
     rw [hkind] at hSF'
     simp only [Kind.SiteFine, hko, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hSF'

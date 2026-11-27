@@ -953,6 +953,15 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     byte-loop entries from tuple items 7, region-4 sources 6, the two success writes into the
     result (`0x80001400`, `0x80002dc4` → `Done`, field values) 2, the `Extra`-slot target
     `0x80002434` 1, the entry 1.
+  - Return sites (`Keep.lean`, `Gen.lean`): `Facts.rest` is over `kRest` (all `rest` locations at a
+    cut reached by jumps; at a return site those the call keeps, `retKeep`), so `SrcOk` no longer
+    requires every return-site location kept (`restRet` moved into `GenCheck`'s call branch, for
+    the target's budget). At a TX return site a leaf testing TX's error halfword zero may also use
+    the moved `rest` slot (`txRest`, `tx_rest`: `TX.Pre`'s input is the payload after `c`
+    (`bytes_unique`), the error halfword zero excludes the error outcomes (`init_three`), so the
+    outcome is `ok`, `candidate` accepted, `decode` a list success and `consumed = itemConsumed`,
+    `skip_snoc`). The 8 TX return leaves close. **Counts: manual 546 → 554, open 101 → 93**
+    (leaves open 82; `LeavesGen.lean` 403 instances).
 - S6 TX second hand (P2Summaries, 2026-11-27): (1) Cuts.lean assertion fix (Main-approved, S6.6
   wrong-assertion rule): `OuterWalked`/`KeysWalked` carry `WalkFits`/`KeysFits` (HeaderFits of
   every call the rest of the walk reaches; from `Domain` at 068_3), since `EntryOk`/`AKeyStore`

@@ -16,6 +16,7 @@ import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+OUT = ROOT / 'ZesuExec/Fn/DTF/LeavesGen.lean'
 LEAVES = ROOT / 'ZesuExec/Fn/DTF/Leaves.lean'
 HAND = [LEAVES, ROOT / 'ZesuExec/Fn/DTF/Exit.lean']
 
