@@ -266,7 +266,7 @@ theorem p_pos {σ : Sig} {o : Obs} (hw : OuterWalked (pl σ o) o.p o.done) (hne 
   rcases Nat.eq_zero_or_pos o.p with h0 | h
   · exfalso
     have hpl : pl σ o = [] := by simp [pl, itemPayload, h0]
-    have := hw.2
+    have := hw.2.1
     rw [hpl] at this
     simp [entriesWalk] at this
     exact hne this
