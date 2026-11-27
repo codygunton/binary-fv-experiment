@@ -83,6 +83,40 @@ let
     touch "$out"
   '';
 
+  # exec-spike S1: the pinned model with the Zesu profile configuration and the reviewed
+  # specialisation patch; otherwise identical to sailRiscvRegeneratedRaw/sailRiscvRegenerated.
+  zesuSailRiscvRaw = sailRiscvRegeneratedRaw.overrideAttrs (_: {
+    pname = "zesu-sail-riscv-lean-rv64";
+    patches = [
+      ../exec-spike/sail/01-profile-config.patch
+      ../exec-spike/sail/02-specialise.patch
+    ];
+  });
+
+  zesuSailRiscvLean = pkgs.runCommand "zesu-sail-riscv-lean-rv64-regenerated" { } ''
+    cp -R ${zesuSailRiscvRaw} "$out"
+    chmod -R u+w "$out"
+    rm -rf "$out/LeanRV64DExecutable/Sail"
+    mkdir "$out/Sail"
+    cp ${leanSail}/Sail.lean "$out/Sail.lean"
+    cp ${leanSail}/Sail/{Attr,BitVec,IntRange,Sail}.lean "$out/Sail/"
+    find "$out/LeanRV64DExecutable" -name '*.lean' -type f -exec sed -i \
+      's/import LeanRV64DExecutable\.Sail\./import Sail./g' {} +
+    substituteInPlace "$out/LeanRV64DExecutable/HexBitsSigned.lean" \
+      --replace-fail '(parse_hex_bits n (String.drop str 1))' \
+        '(parse_hex_bits n (String.drop str 1).toString)' \
+      --replace-fail '(valid_hex_bits n (String.drop str 1))' \
+        '(valid_hex_bits n (String.drop str 1).toString)'
+  '';
+
+  zesuSailRiscvLeanRegenerationCheck = pkgs.runCommand "zesu-sail-riscv-lean-regeneration-check" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    python ${repo}/tools/compare_generated_tree.py \
+      ${repo}/exec-spike/sail-riscv-lean ${zesuSailRiscvLean}
+    touch "$out"
+  '';
+
   zesuSszDecodeProgramImageLean = pkgs.runCommand "zesu-ssz-decode-program-image-lean" {
     nativeBuildInputs = [ (pkgs.python3.withPackages (ps: [ ps.pyelftools ])) ];
   } ''
@@ -129,6 +163,7 @@ in
 {
   public = {
     inherit binaryFvLean sailRiscvLean sailRiscvLeanRegenerationCheck;
+    inherit zesuSailRiscvRaw zesuSailRiscvLean zesuSailRiscvLeanRegenerationCheck;
     binary-fv-lean = binaryFvLean;
     sail-riscv-lean = sailRiscvLean;
   };

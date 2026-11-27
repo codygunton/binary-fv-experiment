@@ -1,0 +1,185 @@
+diff --git a/config/config.json.in b/config/config.json.in
+index 11038a26..0206cca8 100644
+--- a/config/config.json.in
++++ b/config/config.json.in
+@@ -147,11 +147,11 @@
+       "grain": 0,
+       // This specifies the number of PMP entries present.
+       // The value must be one of 0, 16, or 64.
+-      "count": 16,
++      "count": 0,
+       // This specifies the number of usable PMP entries.
+       // Entries higher than this are read-only-zero.
+       // The value must be less than or equal to `count`.
+-      "usable_count": 16,
++      "usable_count": 0,
+       "tor_supported": true,
+       "na4_supported": true,
+       "napot_supported": true
+@@ -217,20 +217,20 @@
+     // the `misaligned` PMA attribute for a region, see the comments for
+     // `memory.misaligned.exceptions` above.
+     "regions": [
+-      // ROM
++      // ZESU input (read-only)
+       {
+         "base": {
+           "len": 64,
+-          "value": "0x1000"
++          "value": "0x40000000"
+         },
+         "size": {
+           "len": 64,
+-          "value": "0x1000"
++          "value": "0x40000000"
+         },
+         "attributes": {
+-          "mem_type" : "IOMemory",
++          "mem_type": "MainMemory",
+           "cacheable": true,
+-          "coherent": false,
++          "coherent": true,
+           "executable": false,
+           "readable": true,
+           "writable": false,
+@@ -245,33 +245,33 @@
+             },
+             "amo": "AccessFault"
+           },
+-          "atomic_support": "AMONone",
+-          "reservability": "RsrvNone",
+-          "supports_cbo_zero": false,
+-          "supports_pte_read": false,
+-          "supports_pte_write": false
++          "atomic_support": "AMOCASQ",
++          "reservability": "RsrvEventual",
++          "supports_cbo_zero": true,
++          "supports_pte_read": true,
++          "supports_pte_write": true
+         },
+-        "include_in_device_tree": false
++        "include_in_device_tree": true
+       },
+-      // MMIO
++      // ZESU program ROM
+       {
+         "base": {
+           "len": 64,
+-          "value": "0x2000000"
++          "value": "0x80000000"
+         },
+         "size": {
+           "len": 64,
+-          "value": "0x10000000"
++          "value": "0x8000000"
+         },
+         "attributes": {
+-          "mem_type": "IOMemory",
+-          "cacheable": false,
++          "mem_type": "MainMemory",
++          "cacheable": true,
+           "coherent": true,
+-          "executable": false,
++          "executable": true,
+           "readable": true,
+-          "writable": true,
+-          "read_idempotent": false,
+-          "write_idempotent": false,
++          "writable": false,
++          "read_idempotent": true,
++          "write_idempotent": true,
+           "misaligned_exceptions": {
+             "load_store": {
+               "None" : null
+@@ -281,29 +281,29 @@
+             },
+             "amo": "AccessFault"
+           },
+-          "atomic_support": "AMONone",
+-          "reservability": "RsrvNone",
+-          "supports_cbo_zero": false,
+-          "supports_pte_read": false,
+-          "supports_pte_write": false
++          "atomic_support": "AMOCASQ",
++          "reservability": "RsrvEventual",
++          "supports_cbo_zero": true,
++          "supports_pte_read": true,
++          "supports_pte_write": true
+         },
+-        "include_in_device_tree": false
++        "include_in_device_tree": true
+       },
+-      // RAM
++      // ZESU RAM
+       {
+         "base": {
+           "len": 64,
+-          "value": "0x80000000"
++          "value": "0xa0000000"
+         },
+         "size": {
+           "len": 64,
+-          "value": "0x80000000"
++          "value": "0x20000000"
+         },
+         "attributes": {
+           "mem_type": "MainMemory",
+           "cacheable": true,
+           "coherent": true,
+-          "executable": true,
++          "executable": false,
+           "readable": true,
+           "writable": true,
+           "read_idempotent": true,
+@@ -352,7 +352,7 @@
+     },
+     "clint": {
+       // Whether the platform contains a CLINT.
+-      "supported": true,
++      "supported": false,
+       // If supported, this must be in a suitable IO memory region (see `memory.regions`).
+       // Otherwise, these values can be left as 0.
+       "base": 33554432,
+@@ -362,7 +362,7 @@
+     // purposes. See docs/SimpleInterruptGenerator.md for details.
+     "simple_interrupt_generator": {
+       // Whether the platform contains this device.
+-      "supported": true,
++      "supported": false,
+       // If supported, this must be in a suitable IO memory region (see `memory.regions`)
+       // and 4-byte aligned. The size is always 0x20.  If not supported, this can be left
+       // as 0.
+@@ -459,10 +459,10 @@
+       "supported": true
+     },
+     "S": {
+-      "supported": true
++      "supported": false
+     },
+     "U": {
+-      "supported": true
++      "supported": false
+     },
+     "Zibi": {
+       "supported": true
+@@ -742,16 +742,16 @@
+       "sfence_vma_illegal_if_svbare_only": true
+     },
+     "Sv32": {
+-      "supported": @CONFIG_XLEN_IS_32@
++      "supported": false
+     },
+     "Sv39": {
+-      "supported": @CONFIG_XLEN_IS_64@
++      "supported": false
+     },
+     "Sv48": {
+-      "supported": @CONFIG_XLEN_IS_64@
++      "supported": false
+     },
+     "Sv57": {
+-      "supported": @CONFIG_XLEN_IS_64@
++      "supported": false
+     },
+     "Stateen": {
+       "Smstateen": {

@@ -1,0 +1,259 @@
+diff --git a/model/extensions/I/jalr_seq.sail b/model/extensions/I/jalr_seq.sail
+index 5db63716..a45f788c 100644
+--- a/model/extensions/I/jalr_seq.sail
++++ b/model/extensions/I/jalr_seq.sail
+@@ -15,7 +15,8 @@ function clause execute JALR(imm, rs1, rd) = {
+   // some manner, but for now, we just keep a reordered definition to improve simulator
+   // performance.
+ 
+-  update_elp_state(rs1);
++  // ZESU-SPEC C Zicsr is not compiled, so currentlyEnabled(Ext_Zicfilp) is false and
++  // update_elp_state(rs1) has no effect.
+ 
+   let link_address = get_next_pc();
+   let target = X(rs1) + sign_extend(imm);
+diff --git a/model/pmp/pmp_control.sail b/model/pmp/pmp_control.sail
+index d23f55d7..33a71562 100644
+--- a/model/pmp/pmp_control.sail
++++ b/model/pmp/pmp_control.sail
+@@ -117,34 +117,8 @@ function pmpCheck forall 'n, 0 < 'n <= max_mem_access . (
+   access : MemoryAccessType(mem_payload),
+   priv : Privilege,
+ ) -> option(ExceptionType) = {
+-
+-  if sys_pmp_count == 0 then return None();
+-
+-  let width : xlenbits = to_bits(width);
+-
+-  // TODO for accesses of type CacheAccess:
+-  //
+-  // The CMO extensions impose the following constraints on the
+-  // physical addresses in a given cache block: "The PMP access control
+-  // bits shall be the same for all physical addresses in the cache
+-  // block, and if write permission is granted by the PMP access
+-  // control bits, read permission shall also be granted."
+-
+-  foreach (i from 0 to sys_pmp_count - 1) {
+-    let prev_pmpaddr = if i > 0 then pmpReadAddrReg(i - 1) else zeros();
+-    let cfg = pmpcfg_n[i];
+-
+-    match pmpMatchAddr(addr, width, cfg, pmpReadAddrReg(i), prev_pmpaddr) {
+-      PMP_NoMatch      => (),
+-      PMP_PartialMatch => return Some(accessFaultFromAccessType(access)),
+-      PMP_Match        => return (
+-        if pmpCheckRWX(cfg, access) | (priv == Machine & not(pmpLocked(cfg)))
+-        then None()
+-        else Some(accessFaultFromAccessType(access))
+-      ),
+-    };
+-  };
+-  if priv == Machine then None() else Some(accessFaultFromAccessType(access))
++  // ZESU-SPEC C memory.pmp.count = 0: sys_pmp_count == 0, so the stock body returns None().
++  None()
+ }
+ 
+ function reset_pmp() -> unit = {
+diff --git a/model/postlude/step.sail b/model/postlude/step.sail
+index f32e7ed2..f9c230de 100644
+--- a/model/postlude/step.sail
++++ b/model/postlude/step.sail
+@@ -114,14 +114,10 @@ private function run_hart_active(step_no: nat) -> Step = {
+       then {
+         print_log_instr("[" ^ dec_str(step_no) ^ "] [" ^ to_str(cur_privilege) ^ "]: " ^ bits_str(PC) ^ " (" ^ bits_str(h) ^ ") " ^ to_str(instruction), zero_extend(PC));
+       };
+-      // When ELP is set to LP_EXPECTED, the next instruction needs to be
+-      // the non-RVC `LPAD` instruction.
+-      if is_landing_pad_expected() then {
+-        let r = trap(make_landing_pad_exception());
+-        Step_Execute(r, instbits)
+-      }
++      // ZESU-SPEC R I5 (elp = NO_LP_EXPECTED; Zicfilp is not compiled, so no instruction sets
++      // elp): the landing-pad trap is never taken.
+       // check for RVC once here instead of every RVC execute clause.
+-      else if currentlyEnabled(Ext_Zca) then {
++      if currentlyEnabled(Ext_Zca) then {
+         nextPC = PC + 2;
+         let result : ExecutionResult = match execute(instruction) {
+           ExecuteAs(other_inst) => execute(other_inst),
+@@ -141,20 +137,14 @@ private function run_hart_active(step_no: nat) -> Step = {
+       then {
+         print_log_instr("[" ^ dec_str(step_no) ^ "] [" ^ to_str(cur_privilege) ^ "]: " ^ bits_str(PC) ^ " (" ^ bits_str(w) ^ ") " ^ to_str(instruction), zero_extend(PC));
+       };
+-      // When ELP is set to LP_EXPECTED, if the next instruction in
+-      // the instruction stream is not LPAD, then a software check
+-      // exception with a landing pad fault code is thrown.
+-      if is_landing_pad_expected() & not(is_lpad_instruction(instruction)) then {
+-        let r = trap(make_landing_pad_exception());
+-        Step_Execute(r, instbits)
+-      } else {
+-        nextPC = PC + 4;
+-        let result : ExecutionResult = match execute(instruction) {
+-          ExecuteAs(other_inst) => execute(other_inst),
+-          result => result,
+-        };
+-        Step_Execute(result, instbits)
+-      }
++      // ZESU-SPEC R I5 (elp = NO_LP_EXPECTED; Zicfilp is not compiled, so no instruction sets
++      // elp): the landing-pad trap is never taken.
++      nextPC = PC + 4;
++      let result : ExecutionResult = match execute(instruction) {
++        ExecuteAs(other_inst) => execute(other_inst),
++        result => result,
++      };
++      Step_Execute(result, instbits)
+     }
+   }
+ }
+@@ -202,10 +192,8 @@ function try_step(step_no : nat, exit_wait : bool) -> bool = {
+   // information.
+   minstret_increment = should_inc_minstret(cur_privilege);
+ 
+-  let step_val : Step = match hart_state {
+-      HART_WAITING(wr, instbits) => run_hart_waiting(step_no, wr, instbits, exit_wait),
+-      HART_ACTIVE()              => run_hart_active(step_no),
+-    };
++  // ZESU-SPEC R I4 (hart_state = HART_ACTIVE): the stock match takes the HART_ACTIVE() arm.
++  let step_val : Step = run_hart_active(step_no);
+ 
+   match step_val {
+     Step_Pending_Interrupt(intr, priv) => {
+diff --git a/model/sys/platform.sail b/model/sys/platform.sail
+index 8c1e3879..a98eda81 100644
+--- a/model/sys/platform.sail
++++ b/model/sys/platform.sail
+@@ -21,33 +21,18 @@ let htif_tohost_size = 8
+ function enable_htif(tohost_addr : bits(64)) -> unit = htif_tohost_base = Some(trunc(tohost_addr))
+ 
+ private function within_clint forall 'n, 0 < 'n <= max_mem_access . (Physaddr(addr) : physaddr, width : int('n)) -> bool = {
+-  if not(plat_have_clint) then return false;
+-
+-  // To avoid overflow issues when physical memory extends to the end
+-  // of the addressable range, we need to perform address bound checks
+-  // on unsigned unbounded integers.
+-  let addr_int       = unsigned(addr);
+-  let clint_base_int = unsigned(plat_clint_base);
+-  let clint_size_int = unsigned(plat_clint_size);
+-    clint_base_int <= addr_int
+-  & (addr_int + sizeof('n)) <= (clint_base_int + clint_size_int)
++  // ZESU-SPEC C platform.clint.supported = false: plat_have_clint is false.
++  false
+ }
+ 
+ private function within_sig forall 'n, 0 < 'n <= max_mem_access . (Physaddr(addr) : physaddr, width : int('n)) -> bool = {
+-  if not(plat_have_sig) then return false;
+-
+-  let addr_int = unsigned(addr);
+-  let sig_base_int = unsigned(plat_sig_base);
+-  let sig_size_int = unsigned(plat_sig_size);
+-    sig_base_int <= addr_int
+-  & (addr_int + sizeof('n)) <= (sig_base_int + sig_size_int)
++  // ZESU-SPEC C platform.simple_interrupt_generator.supported = false: plat_have_sig is false.
++  false
+ }
+ 
+ private function within_htif_writable forall 'n, 0 < 'n <= max_mem_access . (Physaddr(addr) : physaddr, width : int('n)) -> bool =
+-  match htif_tohost_base {
+-    None() => false,
+-    Some(base) => (addr <_u base + htif_tohost_size) & (addr + width >_u base)
+-  }
++  // ZESU-SPEC R I3 (htif_tohost_base = None): the stock match takes the None() arm.
++  false
+ 
+ private function within_htif_readable forall 'n, 0 < 'n <= max_mem_access . (addr : physaddr, width : int('n)) -> bool =
+   within_htif_writable(addr, width)
+diff --git a/model/sys/sys_control.sail b/model/sys/sys_control.sail
+index db7c3dcf..425fbb91 100644
+--- a/model/sys/sys_control.sail
++++ b/model/sys/sys_control.sail
+@@ -146,13 +146,9 @@ function shouldWakeForInterrupt() -> bool = {
+ // Examine the current interrupt state and return an interrupt to be *
+ // handled (if any), and the privilege it should be handled at.
+ function dispatchInterrupt(priv : Privilege) -> option((InterruptType, Privilege)) = {
+-  match getPendingSet(priv) {
+-    None()       => None(),
+-    Some(ip, p)  => match findPendingInterrupt(ip) {
+-                      None()  => None(),
+-                      Some(i) => Some((i, p)),
+-                    }
+-  }
++  // ZESU-SPEC R I2 (mip & mie = 0, no interrupt source and no CSR instruction is compiled):
++  // getPendingSet finds no pending interrupt, so the stock body returns None().
++  None()
+ }
+ 
+ // trap value
+diff --git a/model/sys/vmem.sail b/model/sys/vmem.sail
+index a70819ac..e71fc1e3 100644
+--- a/model/sys/vmem.sail
++++ b/model/sys/vmem.sail
+@@ -403,65 +403,11 @@ function translateAddr(
+   vAddr : virtaddr,
+   access : MemoryAccessType(mem_payload),
+ ) -> TR_Result(physaddr, ExceptionType) = {
+-
+-  // Effective privilege takes into account mstatus.PRV, mstatus.MPP
+-  // See sys_control.sail for effectivePrivilege() and sys_regs.sail for cur_privilege.
+-  let effPriv = effectivePrivilege(access, mstatus, cur_privilege);
+-
+-  let mode = translationMode(effPriv);
+-
+-  // "If satp.MODE (or vsatp.MODE when V=1) is set to Bare and the
+-  // effective privilege mode is less than M, shadow stack
+-  // instructions raise a store/AMO access-fault exception."
+-  // "Use of Zicfiss in M-mode is not supported."
+-  if is_shadow_stack_access(access) then {
+-    if (mode == Bare & effPriv != Machine) | effPriv == Machine
+-    then return Err(E_SAMO_Access_Fault(), init_ext_ptw);
+-  };
+-
+-  if mode == Bare then return Ok(Physaddr(zero_extend(bits_of(vAddr))), PBMT_PMA, init_ext_ptw);
+-
+-  // Sv39 -> 39, etc.
+-  let sv_width = satp_mode_width(mode);
+-
+-  // For Sv32 on RV64, satp is 32 bits (SXLEN), not XLEN.
+-  let satp_sxlen = get_satp(sv_width);
+-
+-  // Cannot use Sv39+ on RV32.
+-  assert(sv_width == 32 | xlen == 64);
+-
+-  let svAddr = bits_of(vAddr)[sv_width - 1 .. 0];
+-  if bits_of(vAddr) != sign_extend(svAddr) then {
+-    Err(translationException(access, PTW_Invalid_Addr()), init_ext_ptw)
+-  } else {
+-    let mxr    = mstatus[MXR] == 0b1;
+-    let do_sum = mstatus[SUM] == 0b1;
+-    let asid   = satp_to_asid(satp_sxlen);
+-
+-    // Step 1 of VATP.
+-    let base_ppn = satp_to_ppn(satp_sxlen);
+-
+-    let res = translate(sv_width,
+-                        zero_extend(asid),
+-                        base_ppn,
+-                        svAddr[sv_width - 1 .. pagesize_bits],
+-                        access, effPriv, mxr, do_sum,
+-                        init_ext_ptw);
+-    // Fixup result PA or exception
+-    match res {
+-      Ok(ppn, pbmt, ext_ptw) => {
+-        // Step 10 of VATP.
+-        // Append the page offset. This is now a 34 or 56 bit address.
+-        let paddr = ppn @ bits_of(vAddr)[pagesize_bits - 1 .. 0];
+-
+-        // On RV64 paddr can be 34 or 56 bits, so we zero extend to 64.
+-        // On RV32 paddr can only be 34 bits. Sail knows this due to
+-        // the assertion above.
+-        Ok(Physaddr(zero_extend(paddr)), pbmt, ext_ptw)
+-      },
+-      Err(f, ext_ptw)  => Err(translationException(access, f), ext_ptw)
+-    }
+-  }
++  // ZESU-SPEC R I1 (cur_privilege = Machine) with mstatus.MPRV = 0 (WARL read-only zero
++  // without U): the effective privilege is Machine, translationMode(Machine) = Bare, so the
++  // address is unchanged. The shadow-stack fault for Machine mode is kept.
++  if is_shadow_stack_access(access) then return Err(E_SAMO_Access_Fault(), init_ext_ptw);
++  Ok(Physaddr(zero_extend(bits_of(vAddr))), PBMT_PMA, init_ext_ptw)
+ }
+ 
+ // ****************************************************************
