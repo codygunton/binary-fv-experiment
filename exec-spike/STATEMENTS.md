@@ -128,6 +128,58 @@ Not in zesislar (warm-up; replaces `altFlRemapCallSpec`, `AltFlAllocPremises.v:2
   allocator memory `Priv []` above `0xa0003000` and away from the scratch word, a machine with
   `Pre A [] [] m` exists (built from `m0` by overriding bytes outside `Priv []`).
 
+## F4 `array_list.Aligned([32]u8,null).toOwnedSlice` (`Fn/F4/Spec.lean`)
+
+Shared statement `ToOwned.Pre eb A L items` / `ToOwned.Post eb A L items empty` in
+`Fn/F4/Spec.lean`; F4 instantiates `eb = 32` (`keysElementBytes`, `ArrayListContract.v:21`) and
+`empty = 1` (`keysEmptyPointer`, `:23`); allocator calls pass log2 alignment 0 (`:22`). Call shape
+as `KeysToOwnedSliceCallSpec2.v` (`keysToOwnedSliceCallArgs` `:17`, `BoundaryDomain` `:34`,
+`BoundaryAllows` `:49`, `CallSpecDefinition` `:68`).
+
+- `Pre` transcribes `toOwnedSliceDomain` (`ArrayListContract.v:156`) with the resources of
+  `toOwnedSliceEntry` (`:222`): `a0` = 24-byte result, present, 8-aligned, in RAM
+  (`toOwnedResultBefore` = its entry bytes); `a1` = header read through three 8-byte loads
+  (`arrayListHeaderBytes`, `:47`) with `arrayListWellFormed eb` (`:56`): `n ≤ c`,
+  `|items| = n·eb`, `0 < p`, capacity > 0 → buffer in RAM and live block `(p, c·eb) ∈ L`
+  (`arrayListBuffer`, `:66`), `BytesAt m p items`; `a2` = allocator object `{ctx,
+  alt_fl_alloc.vtable}` (`altFlAllocatorObject`); scratch word present; `A.Heap L m`; 112 stack
+  bytes, `sp` 16-aligned (`arrayListStackLayout` `:114`, `arrayListToOwnedSliceStackBytes` `:34`);
+  return address valid. The `∗` separations become explicit `Apart` facts (result, header,
+  allocator object, stack, scratch, buffer) and "avoids `Priv L`".
+- `Post` transcribes `toOwnedSliceAllows` (`:179`), `toOwnedSliceScratchAfter` (`:212`) and
+  `toOwnedSliceExit` (`:253`): `Returns`; `SameOutside` of result, header, 112 stack bytes,
+  scratch, `Priv L`, old buffer; then
+  - length 0: header `{empty, 0, 0}` (`arrayListEmpty emptyPointer`), result
+    `ResultImage p 0` (`arrayListResultImage before p 0`, `:122`), heap `L` minus the buffer if
+    capacity > 0, scratch unchanged;
+  - length > 0, success: `∃ p'`, `0 < p'`, `[p', p' + n·eb)` in RAM holding `items`, header
+    `{p, 0, 0}`, result `ResultImage p' n`, heap `(L.erase (p, c·eb)) ++ [(p', n·eb)]`, scratch =
+    `word64Bytes (n·eb)`;
+  - length > 0, OutOfMemory: header unchanged, result `ErrorImage 2`
+    (`arrayListErrorImage before 2`, `:126`), heap `L`, scratch unchanged.
+- `f4_spec (A) (L) (items) : Spec zesuImage 0x800d677c 194 (Pre A L items) (Post A L items)`.
+  Bound 194 = own 87 + remap (F0) 9 + alloc 53 + memcpy 3 + free 42 (the expected value).
+- Differences: the list state is read from memory (no ghost `ArrayListState`/`Outcome`); the
+  outcome kind is the disjunct taken, not a field; the two `arrayListWellFormed` of the outcome
+  and `capacity = length` of the slice are implied by the stated header/range facts, not restated;
+  `ResultImage`/`ErrorImage` state the result through loads (8, 8, 2 bytes) plus "bytes
+  `[18,24)` (and `[0,16)` on error) unchanged" instead of a byte list; the allocator context
+  bound `0 ≤ ctx < 2^64` is the 8-byte load being present; `zisk_input_end` is not modelled.
+- Non-vacuity: `example` in `F4/Proof.lean` from `ToOwned.pre_satisfiable` (`F4/Witness.lean`):
+  for any `A`, any `m0` with `A.Heap [] m0` and the image's rodata loaded, and a RAM window
+  `[0xa0400000, 0xa0401000)` (containing the scratch word) outside `A.Priv []`, overriding the
+  window gives a machine with `Pre A [] [] m` (empty list `{1, 0, 0}`).
+
+## F5 `array_list.Aligned(input.AccessListEntry,null).toOwnedSlice` (`Fn/F5/Spec.lean`)
+
+- `Pre`/`Post` = `ToOwned.Pre 40` / `ToOwned.Post 40 … 8` (`entriesElementBytes` `:24`,
+  `entriesEmptyPointer` `:26`; allocator calls pass log2 alignment 3, `:25`), the same
+  transcription and differences as F4. Call shape `EntriesToOwnedSliceCallSpec2.v` (`:17`, `:34`,
+  `:49`, `:68`); contract model `EntriesToOwnedSliceContract.v:23`.
+- `f5_spec (A) (L) (items) : Spec zesuImage 0x800d6554 204 (Pre A L items) (Post A L items)`.
+  Bound 204 = own 97 + 9 + 53 + 3 + 42 (the expected value).
+- Non-vacuity: `example` in `F5/Proof.lean`, same witness as F4.
+
 ## S6 compliance
 
 ### F2 (`ZesuExec/Compliance/F2.lean`)

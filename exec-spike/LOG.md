@@ -127,6 +127,23 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   (candidate walk over `F2.decode`, 80-byte result, scratch word, `headerFits` in `Pre`), then
   Regions/Proof per the plan; `lake build ZesuExec.Fn.F6.Proof`.
 
+- 2026-11-27 F45: F4 `array_list.Aligned([32]u8,null).toOwnedSlice` and F5
+  `array_list.Aligned(input.AccessListEntry,null).toOwnedSlice` proved.
+  `f4_spec (A) L items : Spec zesuImage 0x800d677c 194 …`, `f5_spec … 0x800d6554 204 …`; axioms
+  standard (`#guard_msgs`). Bounds equal the expected 194 / 204 (own 87 / 97 + remap 9 + alloc 53
+  + memcpy 3 + free 42). One shared statement `ToOwned.Pre eb` / `ToOwned.Post eb empty`
+  (`F4/Spec.lean`), shared regions (frame 96, result 24, header 24, allocator object 16) and
+  generic lemmas (`F4/Lemmas.lean`: `Entry`, `Inv`, `alloc_step`, `free_step`, `copy_step`,
+  `remap_step`, `success_post`, `oom_post`, `empty_post`); per function six `sym_run`s (entry 12
+  leaves, after free(len 0) 4, after remap 3, after alloc 2, after memcpy 2, after free 1), `run`
+  never returned `none` (no unaligned access). Infeasible leaves (ptr 0, length > capacity 0,
+  length·eb overflow) closed from `Pre`. F5 = F4's proof text with `slli 5 + slli 3` / `mulhu 40`
+  lemmas and its own addresses/budgets. Non-vacuity: `ToOwned.pre_satisfiable`
+  (`F4/Witness.lean`), an `example` in each Proof. Clean build of the F4/F5 modules (deps
+  built) `lake build ZesuExec.Fn.F4.Proof ZesuExec.Fn.F5.Proof`: 6.9 s wall, peak RSS 1.77 GB
+  (Runs 3.2 s / 3.5 s, Lemmas 3.1 s, Proof 1.6 s / 1.7 s). Lines: F4 Spec 134, Regions 32,
+  Runs 30, Lemmas 968, Witness 115, Proof 330; F5 Spec 26, Runs 31, Proof 338.
+
 ## Verification tools
 - ImageCheck 2026-11-27: `tools/check_image.sh [Gen.lean] [ELF]` (item 9): parses every
   `Seg`/`RoSeg` in `ZesuExec/Image/Gen.lean`, compares each word with the encoding
