@@ -727,3 +727,22 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   next, which close once the function declares its assertion facts (`@[zesu_fact]`), not
   attempted here. `Test/Auto.lean` negative tests build; `lake build` OK; zmap tests OK;
   `tools/verify.sh` all PASS after `make -C tools/zmap map`.
+- S4c (2026-11-27): the two recorded top classes, `oblig` and `budget`. `Vc/Facts.lean`:
+  attribute `@[zesu_oblig]` (a lemma proving `Oblig.holds env o` from assertion facts) and tactic
+  `zesu_apply` (apply a tagged lemma, unifying its conclusion with the goal; its premises must be
+  hypotheses or conjuncts of hypotheses, definitions unfolded). `Vc/Tactics.lean` (additive):
+  `oblig_auto` (each obligation by `zesu_apply`, else normalisation and `field_auto`),
+  `budget_auto` (`omega`, `decide` for budgets behind definitions, or `split` the budget's `if`s
+  then `omega`), and a new `leaf_auto` rule (tried first; earlier rules unchanged on failure):
+  facts, `oblig_auto`, `budget_auto`, then the exit goal as before. `leaf_diag` uses the same
+  stages. Lemmas: F1 `ra_oblig` (entry), `ra_oblig_join` (join cuts); F2 `ra_oblig`,
+  `loop_inb_oblig` (`j < w < len` from `Inv`), `loop_ra_oblig`, `@[zesu_simp]` `envE_size1`,
+  `envE_vars`; F6 `ra_oblig` (saved `ra` under any return cut's `envC`). Classes before → after
+  (first failing stage): F1 oblig 3 / budget 4 → post 3 / callee-pre 3 / cut 1; F2 oblig 17 →
+  post 13 / cut 4 (now equal to the classes read off the hand proofs); F6 oblig 27 → oblig 7
+  (`inBounds` at decodeItem calls and loop entries, not attempted) with 20 moved to post; TX
+  unchanged (no lemmas declared on this branch); all: oblig 69 → 29, budget 20 → 16, post 0 → 36.
+  Auto counts unchanged: F1 10/20, F2 0/20, F6 0/98: with obligations and budgets closed every
+  remaining leaf fails at the exit goal (postcondition semantics, callee preconditions, the next
+  cut's assertion, tail callee), so no hand leaf was deleted. `Test/Auto.lean` builds; `lake
+  build` 258 jobs OK; `tools/verify.sh` all PASS after `make -C tools/zmap map`.

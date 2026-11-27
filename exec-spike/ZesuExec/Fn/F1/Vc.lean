@@ -230,6 +230,18 @@ def vcPlan : PlanW Sig zesuImage where
 @[zesu_fact] theorem AE.grown_bytes_ne {g : Sig} {m : Machine} (h : AE g m) :
     BitVec.ofNat 64 (grown (m.reg 12).toNat * elemBytes) ≠ 0 := F1.grown_bytes_ne _ (AE.req h)
 
+/-- The return alignment at the entry cut's returns. -/
+@[zesu_oblig] theorem ra_oblig {g : Sig} {m : Machine} (h : AE g m) :
+    (Oblig.aligned (.bin .and (.var 1) (.lit 18446744073709551614)) 4).holds (env0 m) := by
+  simpa [Oblig.holds, Sym.eval, BinOp.eval, entryEnv] using (Entry.of_pre h.2.2).ra
+
+/-- The return alignment at a join cut's returns: `var 1` is the entry's `ra`. -/
+@[zesu_oblig] theorem ra_oblig_join {g : Sig} {F : Nat} {Ss : List SState} {mh : Machine}
+    (e : Entry g.A g.L g.items g.m) :
+    (Oblig.aligned (.bin .and (.var 1) (.lit 18446744073709551614)) 4).holds
+      (envJ F Ss g mh) := by
+  simpa [Oblig.holds, Sym.eval, BinOp.eval, envJ, joinEnv, entryEnv] using e.ra
+
 zesu_planw F1 := vcPlan
 
 zesu_autow F1

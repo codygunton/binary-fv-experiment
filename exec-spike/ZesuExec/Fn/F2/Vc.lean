@@ -329,6 +329,38 @@ def vcPlan : Plan Machine zesuImage where
   callee := fun _ => none
   Post := Post
 
+/-! ## Obligation lemmas and normal forms for `leaf_auto` -/
+
+/-- The return alignment at the entry cut's returns. -/
+@[zesu_oblig] theorem ra_oblig {m mh : Machine} (h : mh = m ∧ mh.pc.toNat = entry ∧ Pre m) :
+    (Oblig.aligned retT 4).holds (envE mh) := by
+  obtain ⟨rfl, -, hpre⟩ := h
+  simpa [Oblig.holds, retT, Sym.eval, BinOp.eval, notOne] using hpre.2.2.1
+
+@[zesu_simp] theorem envE_size1 (m : Machine) : (envE m).size 1 = (m.reg 12).toNat := rfl
+
+@[zesu_simp] theorem envE_vars (m : Machine) (i : Nat) :
+    (envE m).vars i = m.reg (Fin.ofNat 32 i) := rfl
+
+/-- The next length byte is in bounds at a loop head: `j < w < len`. -/
+@[zesu_oblig] theorem loop_inb_oblig {pre head : Nat} {m mh : Machine}
+    (h : AL pre head m mh) :
+    (Oblig.inBounds 1 1 (.var 32) 1 1).holds (envL m mh (jOf m mh)) := by
+  obtain ⟨-, hjw, hw8, hwl, -⟩ := h.2
+  obtain ⟨hv32, -, -, -, -, hs1, -⟩ := envL_facts (m := m) (mh := mh) (j := jOf m mh)
+  simp only [Oblig.holds, Sym.eval, hv32, hs1, BitVec.toNat_ofNat]
+  omega
+
+/-- The return alignment at a loop exit: `ra` is kept. -/
+@[zesu_oblig] theorem loop_ra_oblig {pre head : Nat} {m mh : Machine} {j : Nat}
+    (h : AL pre head m mh) : (Oblig.aligned retT 4).holds (envL m mh j) := by
+  have hk := h.2.2.2.2.2.2.1 1 (by decide)
+  have hra := h.1.2.2.1
+  unfold RetAligned at hra
+  simp only [Oblig.holds, retT, Sym.eval, BinOp.eval, notOne]
+  rw [show (envL m mh j).vars 1 = mh.reg 1 from envL_var 1, hk]
+  exact hra
+
 zesu_plan F2 := vcPlan
 
 zesu_auto F2

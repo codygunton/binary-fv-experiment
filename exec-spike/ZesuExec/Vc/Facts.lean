@@ -78,6 +78,62 @@ def addFacts : TacticM Nat := do
 
 @[tactic zesuFactsCmd] def evalZesuFacts : Tactic := fun _ => do discard addFacts
 
+/-! ## Backward lemmas for obligations -/
+
+initialize zesuObligAttr : TagAttribute ←
+  registerTagAttribute `zesu_oblig
+    "a lemma proving an obligation (`Oblig.holds env o`) from assertion facts, for `zesu_apply`"
+
+def zesuObligs (env : Environment) : Array Name := Id.run do
+  let mut out := #[]
+  for i in [0:env.header.moduleNames.size] do
+    out := out ++ zesuObligAttr.ext.getModuleEntries env i
+  out ++ (zesuObligAttr.ext.getState env).toArray
+
+/-- A conjunct of `t : ty` (nested `∧`, definitions unfolded) whose type is `goal`. -/
+partial def conjOf (goal t ty : Expr) : MetaM (Option Expr) := do
+  if ← isDefEq ty goal then return some t
+  let ty ← whnf ty
+  if ty.isAppOfArity ``And 2 then
+    let a := ty.appFn!.appArg!
+    let b := ty.appArg!
+    if let some p ← conjOf goal (mkApp3 (mkConst ``And.left) a b t) a then return some p
+    conjOf goal (mkApp3 (mkConst ``And.right) a b t) b
+  else return none
+
+/-- Close `g` by a hypothesis or a conjunct of one. -/
+def closeByConj (g : MVarId) : MetaM Bool := g.withContext do
+  let goal ← instantiateMVars (← g.getType)
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let s ← saveState
+    if let some p ← conjOf goal d.toExpr (← instantiateMVars d.type) then
+      g.assign p
+      return true
+    s.restore
+  return false
+
+syntax (name := zesuApplyCmd) "zesu_apply" : tactic
+
+/-- Close the goal by a `@[zesu_oblig]` lemma whose premises are hypotheses or conjuncts of
+hypotheses (the lemma's arguments come from unifying its conclusion with the goal). -/
+@[tactic zesuApplyCmd] def evalZesuApply : Tactic := fun _ => withMainContext do
+  let g ← getMainGoal
+  for n in zesuObligs (← getEnv) do
+    let s ← saveState
+    try
+      let gs ← g.apply (← mkConstWithFreshMVarLevels n)
+      let mut ok := true
+      for g' in gs do
+        unless ← g'.isAssigned do
+          unless ← closeByConj g' do ok := false
+      if ok then
+        replaceMainGoal []
+        return
+    catch _ => pure ()
+    s.restore
+  throwError "zesu_apply: no @[zesu_oblig] lemma closes the goal"
+
 theorem SBool.conds_agree {env env' : Env} {F : Nat} {wr : Ranges} {cs : List SBool}
     (hag : Env.Agree env env' F wr) (hok : cs.all (SBool.okB F wr) = true)
     (hc : ∀ b ∈ cs, b.eval env' = true) : ∀ b ∈ cs, b.eval env = true := fun b hb => by

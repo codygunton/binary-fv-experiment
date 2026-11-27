@@ -745,6 +745,13 @@ def vcPlan : Plan Machine zesuImage where
   Post := Post
   tail := fun pc => if pc = Layout.memcpyEntry then some (Callee.memcpy Machine zesuImage) else none
 
+/-- The return alignment at a return of any cut: the saved `ra` (`var 33`) is the entry's. -/
+@[zesu_oblig] theorem ra_oblig {m mh : Machine} {c : Word} (e : Entry m) :
+    (Oblig.aligned (.bin .and (.var 33) (.lit 18446744073709551614)) 4).holds (envC m mh c) := by
+  have := e.ra; unfold RetAligned at this
+  simpa [Oblig.holds, Sym.eval, BinOp.eval, F2.notOne, envC, Env.setVars, savedVal, savedRegs]
+    using this
+
 zesu_plan F6 := vcPlan
 
 /-! ## Leaf and cut goals: generic steps -/

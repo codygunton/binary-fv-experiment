@@ -12,18 +12,19 @@ Rates and counts only; no extrapolated total.
 | cut_lemma | 3 | 15 | 63 | 0 | 0 |
 | infra | 15 | 11 | 515 | 0 | 0 |
 | leaf | 2 | 24.5 | 49 | 0 | 0 |
-| rule | 6 | 15 | 142 | 0 | 0 |
+| rule | 8 | 18.5 | 204 | 0 | 0 |
 | run | 1 | 10 | 10 | 0 | 0 |
 
 Plan leaves: auto 12, manual 100, open 45 (auto share 8%). Ledger `leaf` minutes per manual leaf: 0.5.
 
 | residual class (manual and open leaves) | leaves |
 |---|---:|
-| oblig | 69 |
-| callee-pre | 24 |
+| post | 36 |
+| oblig | 29 |
+| callee-pre | 27 |
 | tail | 24 |
-| budget | 20 |
-| cut | 7 |
+| budget | 16 |
+| cut | 12 |
 | @LeafGoalC | 1 |
 
 ## Functions: static features and actuals

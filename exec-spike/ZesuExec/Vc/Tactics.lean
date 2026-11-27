@@ -331,6 +331,44 @@ macro_rules
            simp only [*] at hc
            first | (simp at hc; done) | (simp_all; done))))
 
+/-! ## S4c: obligations by `@[zesu_oblig]` lemmas, `if` budgets -/
+
+/-- Each obligation of a leaf: a `@[zesu_oblig]` lemma (`zesu_apply`), else normalisation and
+`field_auto`. -/
+syntax "oblig_auto" : tactic
+macro_rules
+  | `(tactic| oblig_auto) => `(tactic| (
+      simp only [List.mem_cons, List.mem_nil_iff, or_false, forall_eq_or_imp, forall_eq,
+        false_implies, implies_true, and_true]
+      try and_intros
+      all_goals first | zesu_apply | (leaf_norm; and_intros <;> field_auto)))
+
+/-- A budget inequality: `omega`, `decide` (constant budgets behind definitions), or split its
+`if`s first. -/
+syntax "budget_auto" : tactic
+macro_rules
+  | `(tactic| budget_auto) => `(tactic| (
+      leaf_norm
+      all_goals first | omega | decide | (split <;> omega) | (split <;> split <;> omega)))
+
+/-- The main path with the facts of the cut's assertion, `oblig_auto` and `budget_auto`. Tried
+before the earlier rules; when it fails they run unchanged. -/
+macro_rules
+  | `(tactic| leaf_auto) => `(tactic| (
+      leaf_intro
+      intro g m hA hc
+      try dsimp only at hA hc ⊢
+      zesu_facts
+      refine ⟨?_, ?_, fun m' hm' he hso => ?_⟩
+      · oblig_auto
+      · budget_auto
+      · try dsimp only at he
+        match_regs hm'
+        exit_intro
+        all_goals (try dsimp only)
+        all_goals leaf_norm
+        all_goals (and_intros <;> field_auto)))
+
 /-- `leaf_diag` (syntax in `Vc/Assemble`): run the stages of `leaf_auto` on a `LeafGoal` and fail
 with the class of the first one that does not close: `oblig`, `budget`, `exit` (no cut or callee
 for the exit), then by exit kind `post` (return), `cut` (assertion at the next cut), `tail` (tail
@@ -368,9 +406,9 @@ proves nothing. -/
   evalTactic (← `(tactic| refine ⟨?_, ?_, fun m' hm' he hso => ?_⟩))
   let [gO, gB, gE] ← getGoals | throwError "class other: leaf goal shape"
   if let some (_, h) ← firstOpen [gO]
-      (← `(tactic| (leaf_norm; all_goals (and_intros <;> try field_auto)))) then
+      (← `(tactic| oblig_auto)) then
     throwError "class oblig {h}"
-  if let some (_, h) ← firstOpen [gB] (← `(tactic| (leaf_norm; all_goals try omega))) then
+  if let some (_, h) ← firstOpen [gB] (← `(tactic| budget_auto)) then
     throwError "class budget {h}"
   let gs ← try evalTacticAt (← `(tactic| ((try dsimp only at he); match_regs hm'; exit_intro))) gE
     catch _ => throwError "class exit"
