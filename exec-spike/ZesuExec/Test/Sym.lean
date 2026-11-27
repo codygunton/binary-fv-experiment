@@ -24,9 +24,7 @@ def mem0Byte (j : Nat) : Nat := (j * 37 + 11) % 256
 def env : Env where
   vars := fun _ => 0
   regions := [(BitVec.ofNat 64 ramBase, 64)]
-  mem0 := fun a =>
-    if ramBase ≤ a.toNat ∧ a.toNat < ramBase + 64 then some (BitVec.ofNat 8 (mem0Byte (a.toNat - ramBase)))
-    else none
+  mem0 := fun _ j => BitVec.ofNat 8 (mem0Byte j)
 
 def S0 : SState where
   regs := (List.range 32).map fun i => if i = 5 then .ptr 0 8 else .lit (regVal i)
@@ -38,7 +36,9 @@ def S0 : SState where
 def m0 : Machine where
   regs := fun i => BitVec.ofNat 64 (regVal i.val)
   pc := BitVec.ofNat 64 pc0
-  mem := env.mem0
+  mem := fun a =>
+    if ramBase ≤ a.toNat ∧ a.toNat < ramBase + 64 then some (BitVec.ofNat 8 (mem0Byte (a.toNat - ramBase)))
+    else none
 
 /-- `stepI` and `exec` agree on registers, `pc` (when the exit is a known address) and the
 region's bytes. -/

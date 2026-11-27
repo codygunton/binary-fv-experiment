@@ -39,98 +39,6 @@ def StoreMMIOAddressExcluded := DataMMIOAddressExcluded
 /-- Compatibility name for the shared data-range exclusion used by loads. -/
 def LoadMMIOAddressExcluded := DataMMIOAddressExcluded
 
-private theorem within_clint_of_address_excluded (state : State) (pc : BitVec 64)
-    (excluded : FetchMMIOAddressExcluded pc) :
-    Runs (within_clint (physaddr.Physaddr pc) 4) state state false := by
-  rcases excluded with ⟨clint, _⟩
-  simp at clint
-  unfold Runs within_clint
-  simp [plat_have_clint, LeanRV64DExecutable.Functions.not, clint, Pure.pure,
-    EStateM.pure, EStateM.run]
-  exact clint
-
-private theorem within_sig_of_address_excluded (state : State) (pc : BitVec 64)
-    (excluded : FetchMMIOAddressExcluded pc) :
-    Runs (within_sig (physaddr.Physaddr pc) 4) state state false := by
-  rcases excluded with ⟨_, sig⟩
-  simp at sig
-  unfold Runs within_sig
-  simp [plat_have_sig, LeanRV64DExecutable.Functions.not, sig, Pure.pure,
-    EStateM.pure, EStateM.run]
-  exact sig
-
-private theorem within_htif_readable_of_disabled (state : State) (pc : BitVec 64)
-    (disabled : state.regs.get? htif_tohost_base = some none) :
-    Runs (within_htif_readable (physaddr.Physaddr pc) 4) state state false := by
-  have hRead : Runs (Sail.readReg htif_tohost_base) state state none :=
-    readReg_run state htif_tohost_base none disabled
-  unfold within_htif_readable within_htif_writable
-  apply Runs.bind hRead
-  rfl
-
-private theorem within_clint_data_of_address_excluded (state : State) (address : BitVec 64)
-    (width : Nat) (excluded : DataMMIOAddressExcluded address width) :
-    Runs (within_clint (physaddr.Physaddr address) width) state state false := by
-  rcases excluded with ⟨clint, _⟩
-  simp at clint
-  unfold Runs within_clint
-  simp [plat_have_clint, LeanRV64DExecutable.Functions.not, clint, Pure.pure,
-    EStateM.pure, EStateM.run]
-  exact clint
-
-private theorem within_sig_data_of_address_excluded (state : State) (address : BitVec 64)
-    (width : Nat) (excluded : DataMMIOAddressExcluded address width) :
-    Runs (within_sig (physaddr.Physaddr address) width) state state false := by
-  rcases excluded with ⟨_, sig⟩
-  simp at sig
-  unfold Runs within_sig
-  simp [plat_have_sig, LeanRV64DExecutable.Functions.not, sig, Pure.pure,
-    EStateM.pure, EStateM.run]
-  exact sig
-
-private theorem within_htif_writable_of_disabled (state : State) (address : BitVec 64)
-    (width : Nat) (disabled : state.regs.get? htif_tohost_base = some none) :
-    Runs (within_htif_writable (physaddr.Physaddr address) width) state state false := by
-  have read : Runs (Sail.readReg htif_tohost_base) state state none :=
-    readReg_run state htif_tohost_base none disabled
-  unfold within_htif_writable
-  exact Runs.bind read rfl
-
-/-- Derive the generated writable-MMIO dispatch result from explicit layout and HTIF facts. -/
-theorem storeMemoryNoMMIO_of_state_layout_excluded (state : State) (address : BitVec 64)
-    (width : Nat) (addressExcluded : StoreMMIOAddressExcluded address width)
-    (htifDisabled : state.regs.get? htif_tohost_base = some none) :
-    Runs (within_mmio_writable (physaddr.Physaddr address) width) state state false := by
-  unfold within_mmio_writable
-  simp only [get_config_rvfi]
-  apply Runs.bind (within_clint_data_of_address_excluded state address width addressExcluded)
-  apply Runs.bind (within_sig_data_of_address_excluded state address width addressExcluded)
-  apply Runs.bind (within_htif_writable_of_disabled state address width htifDisabled)
-  rfl
-
-/-- Derive the generated readable-MMIO dispatch result for an arbitrary data-load width. -/
-theorem loadMemoryNoMMIO_of_state_layout_excluded (state : State) (address : BitVec 64)
-    (width : Nat) (addressExcluded : LoadMMIOAddressExcluded address width)
-    (htifDisabled : state.regs.get? htif_tohost_base = some none) :
-    Runs (within_mmio_readable (physaddr.Physaddr address) width) state state false := by
-  unfold within_mmio_readable
-  simp only [get_config_rvfi]
-  apply Runs.bind (within_clint_data_of_address_excluded state address width addressExcluded)
-  apply Runs.bind (within_sig_data_of_address_excluded state address width addressExcluded)
-  apply Runs.bind (within_htif_writable_of_disabled state address width htifDisabled)
-  rfl
-
-/-- Derive the exact generated sparse-RAM selector from explicit state and layout facts. -/
-theorem fetchMemoryNoMMIO_of_state_layout_excluded (state : State) (pc : BitVec 64)
-    (excluded : FetchMMIOStateLayoutExcluded state pc) : FetchMemoryNoMMIO state pc := by
-  rcases excluded with ⟨addressExcluded, htifDisabled⟩
-  unfold FetchMemoryNoMMIO within_mmio_readable
-  simp only [get_config_rvfi]
-  apply Runs.bind (within_clint_of_address_excluded state pc addressExcluded)
-  apply Runs.bind (within_sig_of_address_excluded state pc addressExcluded)
-  apply Runs.bind (within_htif_readable_of_disabled state pc htifDisabled)
-  rfl
-
 /--
 A four-byte fetch that ends before both fixed MMIO bases avoids them.
 
@@ -206,21 +114,14 @@ theorem store_mmio_address_excluded_of_before_layout (address : BitVec 64) (widt
     StoreMMIOAddressExcluded address width :=
   data_mmio_address_excluded_of_before_layout address width widthPositive beforeClint beforeSig
 
-/-! ## The MMIO dispatch needs no clause of its own
+/-! ## The MMIO dispatch is gone
 
-`FetchMemoryNoMMIO` is a *run* rather than a register equation, so it is not obvious from its shape
-that a register-agreement clause carries it. It does, and this section proves it rather than arguing
-it.
-
-`within_mmio_readable` dispatches to three tests. `within_clint` and `within_sig` read **no**
-register at all — they compare the address against `plat_clint_base`/`plat_sig_base`, which are
-generated constants — so their results are the same at any two states whatsoever. `within_htif_readable`
-is `within_htif_writable`, which reads exactly one register, `htif_tohost_base`, and is a pure
-function of it and the address. So agreement on that single register is the whole of what the
-dispatch depends on, and `Agree platformPreserved` (which names it) transports the run.
-
-The consequence for the contract layer: the `noMMIO` premise of `tryStepRetRetires` is covered by the
-same clause as the other platform premises, and does **not** need a conjunct of its own. -/
+exec-spike repair: the specialised `within_clint`, `within_sig` and `within_htif_*` are the pure
+`false` (`within_mmio_readable_false`/`within_mmio_writable_false` in `Logic/Framing.lean`), so the
+`Runs`-valued MMIO selectors (`storeMemoryNoMMIO_of_state_layout_excluded`,
+`loadMemoryNoMMIO_of_state_layout_excluded`, `fetchMemoryNoMMIO_of_state_layout_excluded`,
+`within_htif_readable_runs`, `fetchMemoryNoMMIO_of_agree` and their private helpers) no longer
+type-check and served only the removed `noMMIO` premises; they were deleted. -/
 
 /-- The generated HTIF window test, as a pure function of the configured base and the address. -/
 def htifWindowFlag (pc : BitVec 64) (width : Nat) : Option physaddrbits → Bool
@@ -228,87 +129,6 @@ def htifWindowFlag (pc : BitVec 64) (width : Nat) : Option physaddrbits → Bool
   | some base =>
       zopz0zI_u pc (Sail.BitVec.addInt base (htif_tohost_size : Int)) &&
         zopz0zK_u (Sail.BitVec.addInt pc (width : Int)) base
-
-private theorem runs_pure_congr {α : Type} {v r : α} {s t : State}
-    (h : Runs (pure v : SailM α) s s r) : Runs (pure v : SailM α) t t r := by
-  have hv : v = r := by
-    unfold Runs at h
-    exact congrArg (fun x => match x with | .ok y _ => y | .error _ _ => v) h
-  subst hv
-  rfl
-
-/-- The HTIF test is exactly `htifWindowFlag` at the configured base. -/
-theorem within_htif_readable_runs (pc : BitVec 64) (width : Nat) (base : Option physaddrbits)
-    (state : State) (baseRead : state.regs.get? htif_tohost_base = some base) :
-    Runs (within_htif_readable (physaddr.Physaddr pc) width) state state
-      (htifWindowFlag pc width base) := by
-  have read : Runs (readReg htif_tohost_base : SailM (RegisterType htif_tohost_base))
-      state state base := readReg_run state htif_tohost_base base baseRead
-  unfold within_htif_readable within_htif_writable
-  exact Runs.bind read (by cases base <;> rfl)
-
-private theorem within_clint_runs_at (state : State) (pc : BitVec 64) (width : Nat) :
-    ∃ flag : Bool, Runs (within_clint (physaddr.Physaddr pc) width) state state flag := by
-  unfold within_clint
-  simp only [plat_have_clint]
-  exact ⟨_, rfl⟩
-
-private theorem within_sig_runs_at (state : State) (pc : BitVec 64) (width : Nat) :
-    ∃ flag : Bool, Runs (within_sig (physaddr.Physaddr pc) width) state state flag := by
-  unfold within_sig
-  simp only [plat_have_sig]
-  exact ⟨_, rfl⟩
-
-/-- The CLINT layout test reads no register, so its result is state-independent. -/
-private theorem within_clint_congr {before after : State} {pc : BitVec 64} {width : Nat}
-    {flag : Bool} (h : Runs (within_clint (physaddr.Physaddr pc) width) before before flag) :
-    Runs (within_clint (physaddr.Physaddr pc) width) after after flag := by
-  unfold within_clint at h ⊢
-  simp only [plat_have_clint] at h ⊢
-  exact runs_pure_congr h
-
-/-- The signature layout test reads no register either. -/
-private theorem within_sig_congr {before after : State} {pc : BitVec 64} {width : Nat}
-    {flag : Bool} (h : Runs (within_sig (physaddr.Physaddr pc) width) before before flag) :
-    Runs (within_sig (physaddr.Physaddr pc) width) after after flag := by
-  unfold within_sig at h ⊢
-  simp only [plat_have_sig] at h ⊢
-  exact runs_pure_congr h
-
-/--
-**`FetchMemoryNoMMIO` transports across a call that preserves `htif_tohost_base`.**
-
-The `none` branch is not decoration: if the register were absent the generated read would throw, so a
-state that satisfies the predicate at all has it, and the transport never needs presence as a
-separate hypothesis.
--/
-theorem fetchMemoryNoMMIO_of_agree {before after : State} {pc : BitVec 64}
-    (agree : Agree platformPreserved before after) (h : FetchMemoryNoMMIO before pc) :
-    FetchMemoryNoMMIO after pc := by
-  have baseAgrees : after.regs.get? htif_tohost_base = before.regs.get? htif_tohost_base :=
-    platformPreserved_htifBase agree
-  unfold FetchMemoryNoMMIO within_mmio_readable at h ⊢
-  simp only [get_config_rvfi, Bool.false_eq_true, ↓reduceIte] at h ⊢
-  obtain ⟨clint, clintRuns⟩ := within_clint_runs_at before pc 4
-  obtain ⟨sig, sigRuns⟩ := within_sig_runs_at before pc 4
-  have afterClint := runs_bind_inv clintRuns h
-  have afterSig := runs_bind_inv sigRuns afterClint
-  obtain ⟨base, baseRead⟩ : ∃ base, before.regs.get? htif_tohost_base = some base := by
-    cases hb : before.regs.get? htif_tohost_base with
-    | some base => exact ⟨base, rfl⟩
-    | none =>
-      exfalso
-      unfold within_htif_readable within_htif_writable Runs at afterSig
-      simp [PreSail.readReg, EStateM.run, Bind.bind, Pure.pure, MonadState.get,
-        MonadStateOf.get, EStateM.bind, EStateM.get,
-        EStateM.instMonad, EStateM.instMonadStateOf, instMonadStateOfMonadStateOf,
-        EStateM.instMonadExceptOfOfBacktrackable, getThe, hb] at afterSig
-      cases afterSig
-  have afterHtif := runs_bind_inv (within_htif_readable_runs pc 4 base before baseRead) afterSig
-  exact Runs.bind (within_clint_congr clintRuns)
-    (Runs.bind (within_sig_congr sigRuns)
-      (Runs.bind (within_htif_readable_runs pc 4 base after (baseAgrees.trans baseRead))
-        (runs_pure_congr afterHtif)))
 
 /-- The layout-and-state form transports too, which is the shape a runner that pins
 `htif_tohost_base = none` at its entry state actually carries. -/

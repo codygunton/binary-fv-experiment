@@ -4,7 +4,7 @@ import ZesuExec.Sym.Types
 # Meaning of symbolic values: `Env`, `Sym.eval`, `Match`
 
 An `Env` fixes the unknowns of a symbolic state: the variables, the region bases and sizes,
-and the initial memory `mem0`. `Match env S m` says that the concrete machine `m` is an
+and the initial bytes `mem0 r j` of each region `r` at offset `j`. `Match env S m` says that the concrete machine `m` is an
 instance of the symbolic state `S` under `env`.
 -/
 
@@ -35,13 +35,14 @@ structure Env where
   vars : Nat → Word
   /-- (base, size) per region -/
   regions : List (Word × Nat)
-  mem0 : Word → Option Byte
+  /-- initial byte of region `r` at offset `j` -/
+  mem0 : Nat → Nat → Byte
 
 namespace Env
 def base (env : Env) (r : Nat) : Word := (env.regions.getD r (0, 0)).1
 def size (env : Env) (r : Nat) : Nat := (env.regions.getD r (0, 0)).2
-/-- Initial byte at offset `j` of region `r`; `0` if absent. -/
-def byte0 (env : Env) (r j : Nat) : Byte := (env.mem0 (env.base r + BitVec.ofNat 64 j)).getD 0
+/-- Initial byte at offset `j` of region `r`. -/
+def byte0 (env : Env) (r j : Nat) : Byte := env.mem0 r j
 end Env
 
 def Sym.eval (env : Env) : Sym → Word
@@ -95,8 +96,7 @@ structure Match (env : Env) (S : SState) (m : Machine) : Prop where
   regs : ∀ i : Fin 32, (S.reg i.val).eval env = m.reg i
   mem : ∀ r j, r < S.regions.length → j < env.size r →
     m.mem (env.base r + BitVec.ofNat 64 j) = some (memByte env S.mem r j)
-  known : ∀ k ∈ S.known, ∀ t < k.n, env.mem0 (env.base k.r + BitVec.ofNat 64 (k.off + t)) =
-    some (byteOf (k.v.eval env) t)
+  known : ∀ k ∈ S.known, ∀ t < k.n, env.byte0 k.r (k.off + t) = byteOf (k.v.eval env) t
 
 /-- An address inside a writable region of `S`. -/
 def InWritable (env : Env) (S : SState) (a : Word) : Prop :=

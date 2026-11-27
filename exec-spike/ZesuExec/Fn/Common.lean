@@ -32,7 +32,8 @@ def entryState (ov : Nat → Option Sym) (shape : List Region) (known : List Wri
   ⟨(List.range 32).map fun i => (ov i).getD (.var i), [], known, shape, 0⟩
 
 def entryEnv (m : Machine) (regions : List (Word × Nat)) : Env :=
-  ⟨fun i => m.reg (Fin.ofNat 32 i), regions, m.mem⟩
+  ⟨fun i => m.reg (Fin.ofNat 32 i), regions,
+    fun r j => (m.mem ((regions.getD r (0, 0)).1 + BitVec.ofNat 64 j)).getD 0⟩
 
 theorem entryState_reg (ov : Nat → Option Sym) (rs : List Region) (ks : List Write) (i : Fin 32) :
     (entryState ov rs ks).reg i.val = if i.val = 0 then .lit 0 else (ov i.val).getD (.var i.val) := by
@@ -58,8 +59,8 @@ theorem entry_match {m : Machine} {regs : List (Word × Nat)} {ov : Nat → Opti
     (hov : ∀ i : Fin 32, i.val ≠ 0 → ∀ s, ov i.val = some s → s.eval (entryEnv m regs) = m.reg i)
     (hpres : ∀ r j, r < rs.length → j < (entryEnv m regs).size r →
       (m.mem ((entryEnv m regs).base r + BitVec.ofNat 64 j)).isSome)
-    (hknown : ∀ k ∈ ks, ∀ t < k.n, m.mem ((entryEnv m regs).base k.r + BitVec.ofNat 64 (k.off + t)) =
-      some (byteOf (k.v.eval (entryEnv m regs)) t)) :
+    (hknown : ∀ k ∈ ks, ∀ t < k.n,
+      (entryEnv m regs).byte0 k.r (k.off + t) = byteOf (k.v.eval (entryEnv m regs)) t) :
     Match (entryEnv m regs) (entryState ov rs ks) m where
   regsLen := by simp [entryState]
   regs i := by
@@ -72,9 +73,9 @@ theorem entry_match {m : Machine} {regs : List (Word × Nat)} {ov : Nat → Opti
       | some s => simpa using hov i h0 s h
   mem r j hr hj := by
     obtain ⟨b, hb⟩ := Option.isSome_iff_exists.mp (hpres r j hr hj)
-    simp [memByte, entryState, Env.byte0, entryEnv] at hb ⊢
+    simp [memByte, entryState, Env.byte0, Env.base, entryEnv] at hb ⊢
     simp [hb]
-  known := by simpa [entryState, entryEnv] using hknown
+  known := by simpa [entryState] using hknown
 
 /-- One region is well placed: size as stated, aligned, inside RAM (writable) or a readable
 interval. -/

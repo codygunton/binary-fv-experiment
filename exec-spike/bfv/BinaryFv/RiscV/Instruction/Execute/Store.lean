@@ -107,7 +107,8 @@ theorem mem_write_ea_store_run (state : State) (addr : BitVec 64) (width : Nat) 
   refine Runs.bind (write_kind_of_flags_plain_run state) ?_
   rfl
 
-/-- The `mem_write_value` entry point for a Machine-mode store: reads privilege, then runs the
+/-- exec-spike repair: the `noMMIO` premise was removed (`within_mmio_writable` is pure `false`).
+The `mem_write_value` entry point for a Machine-mode store: reads privilege, then runs the
 physical write chain to `.Ok true` with only the `writeBytes` effect. -/
 theorem mem_write_value_store_run (s s' : State) (paddr : physaddr) {width : Nat}
     (data : BitVec (8 * width)) (mstatusBits : BitVec 64)
@@ -116,7 +117,6 @@ theorem mem_write_value_store_run (s s' : State) (paddr : physaddr) {width : Nat
     (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine paddr width false) s s none)
-    (noMMIO : Runs (within_mmio_writable paddr width) s s false)
     (hwrite : Runs (PreSail.writeBytes (bits_of_physaddr paddr).toNat data) s s' true) :
     Runs (mem_write_value paddr width data (Store Data) PBMT_PMA false false false) s s'
       (.Ok true) := by
@@ -124,7 +124,7 @@ theorem mem_write_value_store_run (s s' : State) (paddr : physaddr) {width : Nat
   refine Runs.bind (readReg_run s mstatus mstatusBits mstatusRead) ?_
   refine Runs.bind (readReg_run s cur_privilege .Machine privRead) ?_
   refine Runs.bind (effectivePrivilege_store_machine_run s mstatusBits mprvZero) ?_
-  exact mem_write_value_priv_store_run s s' paddr data PBMT_PMA .Machine physAccess noMMIO hwrite
+  exact mem_write_value_priv_store_run s s' paddr data PBMT_PMA .Machine physAccess hwrite
 
 /-- Reducing an aligned width-8 store to a single-chunk write: `split_misaligned` yields `(1, 8)`. -/
 theorem split_misaligned_aligned_run (state : State) (vaddr : virtaddr) (width : Nat)
@@ -137,7 +137,9 @@ theorem split_misaligned_aligned_run (state : State) (vaddr : virtaddr) (width :
 /-- A full-width extraction is the identity. -/
 theorem extractLsb_full (x : BitVec 64) : Sail.BitVec.extractLsb x 63 0 = x := by
   unfold Sail.BitVec.extractLsb
-  bv_decide
+  ext i hi
+  simp only [BitVec.extractLsb, BitVec.getElem_extractLsb', Nat.zero_add]
+  exact BitVec.getLsbD_eq_getElem (by omega)
 
 /-- Adding the integer `0` to a bitvector is the identity. -/
 theorem addInt_zero (x : BitVec 64) : Sail.BitVec.addInt x 0 = x := by
@@ -146,6 +148,7 @@ theorem addInt_zero (x : BitVec 64) : Sail.BitVec.addInt x 0 = x := by
 
 /-! ## Aligned double-word store -/
 
+/-- exec-spike repair: the `noMMIO` premise was removed (`within_mmio_writable` is pure `false`). -/
 theorem vmem_write_addr_dword_run (s s' : State) (dstBits mstatusBits : BitVec 64)
     (data : BitVec (8 * 8))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -155,7 +158,6 @@ theorem vmem_write_addr_dword_run (s s' : State) (dstBits mstatusBits : BitVec 6
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 8 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 8) s s false)
     (hwrite : Runs (PreSail.writeBytes dstBits.toNat data) s s' true) :
     Runs (vmem_write_addr (virtaddr.Virtaddr dstBits) 8 data (Store Data) false false false)
       s s' (.Ok true) := by
@@ -192,7 +194,7 @@ theorem vmem_write_addr_dword_run (s s' : State) (dstBits mstatusBits : BitVec 6
         refine RunsME.bind
           (RunsME.lift _ s s' (Sail.Ok true)
             (mem_write_value_store_run s s' (physaddr.Physaddr dstBits) _ mstatusBits mstatusRead
-              privRead mprvZero physAccess noMMIO ?hw)) ?_
+              privRead mprvZero physAccess ?hw)) ?_
         case hw =>
           change Runs (PreSail.writeBytes dstBits.toNat
             (BitVec.setWidth 64 (Sail.BitVec.extractLsb data 63 0))) s s' true
@@ -200,7 +202,8 @@ theorem vmem_write_addr_dword_run (s s' : State) (dstBits mstatusBits : BitVec 6
           exact hwrite
         exact RunsME.pure true s'
 
-/-- The generated `vmem_write` for an aligned double-word store: once the effective address has
+/-- exec-spike repair: the `noMMIO` premise was removed.
+The generated `vmem_write` for an aligned double-word store: once the effective address has
 been resolved to `dstBits`, the write runs to `.Ok true` with only the `writeBytes` effect. -/
 theorem vmem_write_dword_run (s s' : State) (rs1 : regidx) (offset dstBits mstatusBits : BitVec 64)
     (data : BitVec (8 * 8))
@@ -213,7 +216,6 @@ theorem vmem_write_dword_run (s s' : State) (rs1 : regidx) (offset dstBits mstat
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 8 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 8) s s false)
     (hwrite : Runs (PreSail.writeBytes dstBits.toNat data) s s' true) :
     Runs (vmem_write rs1 offset 8 data (Store Data) false false false) s s' (.Ok true) := by
   unfold vmem_write
@@ -225,11 +227,12 @@ theorem vmem_write_dword_run (s s' : State) (rs1 : regidx) (offset dstBits mstat
   case writeAddr =>
     exact RunsME.lift _ s s' (Sail.Ok true)
       (vmem_write_addr_dword_run s s' dstBits mstatusBits data mstatusRead privRead mprvZero
-        aligned physAccess noMMIO hwrite)
+        aligned physAccess hwrite)
 
 /-! ## Aligned half-word store -/
 
-/-- The aligned width-two address-write path used by `sh`. -/
+/-- exec-spike repair: the `noMMIO` premise was removed.
+The aligned width-two address-write path used by `sh`. -/
 theorem vmem_write_addr_half_run (s s' : State) (dstBits mstatusBits : BitVec 64)
     (data : BitVec (8 * 2))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -239,7 +242,6 @@ theorem vmem_write_addr_half_run (s s' : State) (dstBits mstatusBits : BitVec 64
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 2 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 2) s s false)
     (hwrite : Runs (PreSail.writeBytes (n := 2) dstBits.toNat data) s s' true) :
     Runs (vmem_write_addr (virtaddr.Virtaddr dstBits) 2 data (Store Data) false false false)
       s s' (.Ok true) := by
@@ -276,14 +278,15 @@ theorem vmem_write_addr_half_run (s s' : State) (dstBits mstatusBits : BitVec 64
         refine RunsME.bind
           (RunsME.lift _ s s' (Sail.Ok true)
             (mem_write_value_store_run s s' (physaddr.Physaddr dstBits) _ mstatusBits mstatusRead
-              privRead mprvZero physAccess noMMIO ?hw)) ?_
+              privRead mprvZero physAccess ?hw)) ?_
         case hw =>
           change Runs (PreSail.writeBytes (n := 2) dstBits.toNat
             (BitVec.setWidth 16 (Sail.BitVec.extractLsb data 15 0))) s s' true
           simpa [Sail.BitVec.extractLsb, BitVec.extractLsb, BitVec.setWidth_eq] using hwrite
         exact RunsME.pure true s'
 
-/-- The generated `vmem_write` for an aligned width-two store. -/
+/-- exec-spike repair: the `noMMIO` premise was removed.
+The generated `vmem_write` for an aligned width-two store. -/
 theorem vmem_write_half_run (s s' : State) (rs1 : regidx) (offset dstBits mstatusBits : BitVec 64)
     (data : BitVec (8 * 2))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -295,7 +298,6 @@ theorem vmem_write_half_run (s s' : State) (rs1 : regidx) (offset dstBits mstatu
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 2 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 2) s s false)
     (hwrite : Runs (PreSail.writeBytes (n := 2) dstBits.toNat data) s s' true) :
     Runs (vmem_write rs1 offset 2 data (Store Data) false false false) s s' (.Ok true) := by
   unfold vmem_write
@@ -307,9 +309,10 @@ theorem vmem_write_half_run (s s' : State) (rs1 : regidx) (offset dstBits mstatu
   case writeAddr =>
     exact RunsME.lift _ s s' (Sail.Ok true)
       (vmem_write_addr_half_run s s' dstBits mstatusBits data mstatusRead privRead mprvZero
-        aligned physAccess noMMIO hwrite)
+        aligned physAccess hwrite)
 
-/-- An aligned `sh` lifts the explicit address-translation and `writeBytes` facts through the
+/-- exec-spike repair: the `noMMIO` premise was removed.
+An aligned `sh` lifts the explicit address-translation and `writeBytes` facts through the
 generated store instruction. -/
 theorem execute_STORE_half_aligned_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 12)
     (dstBits mstatusBits dataBits : BitVec 64)
@@ -323,7 +326,6 @@ theorem execute_STORE_half_aligned_run (s s' : State) (rs2 rs1 : regidx) (imm : 
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 2 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 2) s s false)
     (hwrite : Runs (PreSail.writeBytes (n := 2) dstBits.toNat
       (Sail.BitVec.extractLsb dataBits 15 0)) s s' true) :
     Runs (execute_STORE imm rs2 rs1 2) s s' (.Retire_Success ()) := by
@@ -333,7 +335,7 @@ theorem execute_STORE_half_aligned_run (s s' : State) (rs2 rs1 : regidx) (imm : 
   refine Runs.bind (run_pure s _) ?_
   refine Runs.bind
     (vmem_write_half_run s s' rs1 (sign_extend (m := 64) imm) dstBits mstatusBits _
-      mstatusRead privRead mprvZero addrReg aligned physAccess noMMIO ?hw) ?_
+      mstatusRead privRead mprvZero addrReg aligned physAccess ?hw) ?_
   case hw =>
     change Runs (PreSail.writeBytes (n := 2) dstBits.toNat
       (BitVec.setWidth 16 (Sail.BitVec.extractLsb dataBits 15 0))) s s' true
@@ -342,7 +344,8 @@ theorem execute_STORE_half_aligned_run (s s' : State) (rs2 rs1 : regidx) (imm : 
 
 /-! ## Aligned word store -/
 
-/-- The aligned width-four address-write path used by `sw`. -/
+/-- exec-spike repair: the `noMMIO` premise was removed.
+The aligned width-four address-write path used by `sw`. -/
 theorem vmem_write_addr_word_run (s s' : State) (dstBits mstatusBits : BitVec 64)
     (data : BitVec (8 * 4))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -352,7 +355,6 @@ theorem vmem_write_addr_word_run (s s' : State) (dstBits mstatusBits : BitVec 64
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 4 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 4) s s false)
     (hwrite : Runs (PreSail.writeBytes (n := 4) dstBits.toNat data) s s' true) :
     Runs (vmem_write_addr (virtaddr.Virtaddr dstBits) 4 data (Store Data) false false false)
       s s' (.Ok true) := by
@@ -389,14 +391,15 @@ theorem vmem_write_addr_word_run (s s' : State) (dstBits mstatusBits : BitVec 64
         refine RunsME.bind
           (RunsME.lift _ s s' (Sail.Ok true)
             (mem_write_value_store_run s s' (physaddr.Physaddr dstBits) _ mstatusBits mstatusRead
-              privRead mprvZero physAccess noMMIO ?hw)) ?_
+              privRead mprvZero physAccess ?hw)) ?_
         case hw =>
           change Runs (PreSail.writeBytes (n := 4) dstBits.toNat
             (BitVec.setWidth 32 (Sail.BitVec.extractLsb data 31 0))) s s' true
           simpa [Sail.BitVec.extractLsb, BitVec.extractLsb, BitVec.setWidth_eq] using hwrite
         exact RunsME.pure true s'
 
-/-- The generated `vmem_write` for an aligned width-four store. -/
+/-- exec-spike repair: the `noMMIO` premise was removed.
+The generated `vmem_write` for an aligned width-four store. -/
 theorem vmem_write_word_run (s s' : State) (rs1 : regidx) (offset dstBits mstatusBits : BitVec 64)
     (data : BitVec (8 * 4))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -408,7 +411,6 @@ theorem vmem_write_word_run (s s' : State) (rs1 : regidx) (offset dstBits mstatu
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 4 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 4) s s false)
     (hwrite : Runs (PreSail.writeBytes (n := 4) dstBits.toNat data) s s' true) :
     Runs (vmem_write rs1 offset 4 data (Store Data) false false false) s s' (.Ok true) := by
   unfold vmem_write
@@ -420,9 +422,10 @@ theorem vmem_write_word_run (s s' : State) (rs1 : regidx) (offset dstBits mstatu
   case writeAddr =>
     exact RunsME.lift _ s s' (Sail.Ok true)
       (vmem_write_addr_word_run s s' dstBits mstatusBits data mstatusRead privRead mprvZero
-        aligned physAccess noMMIO hwrite)
+        aligned physAccess hwrite)
 
-/-- An aligned `sw` lifts the explicit address-translation and `writeBytes` facts through the
+/-- exec-spike repair: the `noMMIO` premise was removed.
+An aligned `sw` lifts the explicit address-translation and `writeBytes` facts through the
 generated store instruction. -/
 theorem execute_STORE_word_aligned_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 12)
     (dstBits mstatusBits dataBits : BitVec 64)
@@ -436,7 +439,6 @@ theorem execute_STORE_word_aligned_run (s s' : State) (rs2 rs1 : regidx) (imm : 
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 4 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 4) s s false)
     (hwrite : Runs (PreSail.writeBytes (n := 4) dstBits.toNat
       (Sail.BitVec.extractLsb dataBits 31 0)) s s' true) :
     Runs (execute_STORE imm rs2 rs1 4) s s' (.Retire_Success ()) := by
@@ -446,7 +448,7 @@ theorem execute_STORE_word_aligned_run (s s' : State) (rs2 rs1 : regidx) (imm : 
   refine Runs.bind (run_pure s _) ?_
   refine Runs.bind
     (vmem_write_word_run s s' rs1 (sign_extend (m := 64) imm) dstBits mstatusBits _
-      mstatusRead privRead mprvZero addrReg aligned physAccess noMMIO ?hw) ?_
+      mstatusRead privRead mprvZero addrReg aligned physAccess ?hw) ?_
   case hw =>
     change Runs (PreSail.writeBytes (n := 4) dstBits.toNat
       (BitVec.setWidth 32 (Sail.BitVec.extractLsb dataBits 31 0))) s s' true
@@ -455,6 +457,7 @@ theorem execute_STORE_word_aligned_run (s s' : State) (rs2 rs1 : regidx) (imm : 
 
 /-! ## Aligned double-word store instruction -/
 
+/-- exec-spike repair: the `noMMIO` premise was removed (`within_mmio_writable` is pure `false`). -/
 theorem execute_STORE_dword_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 12)
     (dstBits mstatusBits : BitVec 64) (dataBits : BitVec (8 * 8))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -467,7 +470,6 @@ theorem execute_STORE_dword_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 8 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 8) s s false)
     (hwrite : Runs (PreSail.writeBytes dstBits.toNat dataBits) s s' true) :
     Runs (execute_STORE imm rs2 rs1 8) s s' (.Retire_Success ()) := by
   unfold execute_STORE
@@ -476,7 +478,7 @@ theorem execute_STORE_dword_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 
   refine Runs.bind (run_pure s _) ?_
   refine Runs.bind
     (vmem_write_dword_run s s' rs1 (sign_extend (m := 64) imm) dstBits mstatusBits _
-      mstatusRead privRead mprvZero addrReg aligned physAccess noMMIO ?hw) ?_
+      mstatusRead privRead mprvZero addrReg aligned physAccess ?hw) ?_
   case hw =>
     change Runs (PreSail.writeBytes dstBits.toNat
       (BitVec.setWidth 64 (Sail.BitVec.extractLsb dataBits 63 0))) s s' true

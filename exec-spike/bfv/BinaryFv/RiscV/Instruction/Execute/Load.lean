@@ -10,9 +10,10 @@ generated `execute_LOAD` runs to `RETIRE_SUCCESS` for two widths
 of the loaded value.
 
 The physical read is discharged with `SepLogic.readBytes_run_exact`; the platform checks
-(alignment, `phys_access_check`, no-MMIO, Machine-mode Bare translation) are abstracted as clean
+(alignment, `phys_access_check`, Machine-mode Bare translation) are abstracted as clean
 premises exactly like the store contract, and the effective-address resolution is threaded as a
-`get_transformed_data_addr … → Ext_DataAddr_OK` premise.
+`get_transformed_data_addr … → Ext_DataAddr_OK` premise.  (exec-spike repair: the no-MMIO premise
+was removed; the specialised `within_mmio_readable` is the pure `false`.)
 -/
 
 namespace BinaryFv.RiscV
@@ -49,18 +50,18 @@ theorem read_kind_of_flags_plain_run (s : State) :
   unfold read_kind_of_flags
   rfl
 
-/-- `checked_mem_read` for a Machine-mode plain load: with no access fault and no MMIO overlap the
+/-- exec-spike repair: the `noMMIO` premise was removed (`within_mmio_readable` is pure `false`).
+`checked_mem_read` for a Machine-mode plain load: with no access fault the
 read descends to `read_ram` and returns the little-endian recomposition of the owned bytes. -/
 theorem checked_mem_read_load_run (s : State) (srcBits : BitVec 64) (vs : List (BitVec 8))
     (hmem : ∀ (i : Nat) (h : i < vs.length), s.mem.get? (srcBits.toNat + i) = some vs[i])
     (physAccess : Runs (phys_access_check (Load Data) PBMT_PMA .Machine
-      (physaddr.Physaddr srcBits) vs.length false) s s none)
-    (noMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) vs.length) s s false) :
+      (physaddr.Physaddr srcBits) vs.length false) s s none) :
     Runs (checked_mem_read (Load Data) PBMT_PMA .Machine (physaddr.Physaddr srcBits) vs.length
       false false false false) s s (Sail.Ok (leWord vs, default_meta)) := by
   unfold checked_mem_read
   refine Runs.bind physAccess ?_
-  refine Runs.bind noMMIO ?_
+  simp only [within_mmio_readable_false, Bool.false_eq_true, ↓reduceIte]
   refine Runs.bind (read_kind_of_flags_plain_run s) ?_
   refine Runs.bind (read_ram_plain_run s srcBits vs hmem) ?_
   rfl
@@ -74,33 +75,34 @@ theorem effectivePrivilege_load_machine_run (state : State) (mstatusBits : BitVe
   rw [mprvZero]
   rfl
 
-/-- `mem_read_priv_meta` for an aligned Machine-mode plain load: the alignment guard and the
+/-- exec-spike repair: the `noMMIO` premise was removed.
+`mem_read_priv_meta` for an aligned Machine-mode plain load: the alignment guard and the
 release/acquire cases are skipped, so the read is exactly `checked_mem_read`. -/
 theorem mem_read_priv_meta_load_run (s : State) (srcBits : BitVec 64) (vs : List (BitVec 8))
     (hmem : ∀ (i : Nat) (h : i < vs.length), s.mem.get? (srcBits.toNat + i) = some vs[i])
     (physAccess : Runs (phys_access_check (Load Data) PBMT_PMA .Machine
-      (physaddr.Physaddr srcBits) vs.length false) s s none)
-    (noMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) vs.length) s s false) :
+      (physaddr.Physaddr srcBits) vs.length false) s s none) :
     Runs (mem_read_priv_meta (Load Data) PBMT_PMA .Machine (physaddr.Physaddr srcBits) vs.length
       false false false false) s s (Sail.Ok (leWord vs, default_meta)) := by
   unfold mem_read_priv_meta
   simp only [Bool.or_self, Bool.false_and, Bool.false_eq_true, ↓reduceIte]
-  refine Runs.bind (checked_mem_read_load_run s srcBits vs hmem physAccess noMMIO) ?_
+  refine Runs.bind (checked_mem_read_load_run s srcBits vs hmem physAccess) ?_
   rfl
 
-/-- `mem_read_priv` drops the metadata component from the result of `mem_read_priv_meta`. -/
+/-- exec-spike repair: the `noMMIO` premise was removed.
+`mem_read_priv` drops the metadata component from the result of `mem_read_priv_meta`. -/
 theorem mem_read_priv_load_run (s : State) (srcBits : BitVec 64) (vs : List (BitVec 8))
     (hmem : ∀ (i : Nat) (h : i < vs.length), s.mem.get? (srcBits.toNat + i) = some vs[i])
     (physAccess : Runs (phys_access_check (Load Data) PBMT_PMA .Machine
-      (physaddr.Physaddr srcBits) vs.length false) s s none)
-    (noMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) vs.length) s s false) :
+      (physaddr.Physaddr srcBits) vs.length false) s s none) :
     Runs (mem_read_priv (Load Data) PBMT_PMA .Machine (physaddr.Physaddr srcBits) vs.length
       false false false) s s (Sail.Ok (leWord vs)) := by
   unfold mem_read_priv
-  refine Runs.bind (mem_read_priv_meta_load_run s srcBits vs hmem physAccess noMMIO) ?_
+  refine Runs.bind (mem_read_priv_meta_load_run s srcBits vs hmem physAccess) ?_
   rfl
 
-/-- `mem_read` reads `mstatus`/`cur_privilege`, keeps Machine privilege (`MPRV = 0`), then runs the
+/-- exec-spike repair: the `noMMIO` premise was removed.
+`mem_read` reads `mstatus`/`cur_privilege`, keeps Machine privilege (`MPRV = 0`), then runs the
 Machine-mode privileged read to `Ok (leWord vs)`. -/
 theorem mem_read_load_run (s : State) (srcBits mstatusBits : BitVec 64) (vs : List (BitVec 8))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -108,15 +110,14 @@ theorem mem_read_load_run (s : State) (srcBits mstatusBits : BitVec 64) (vs : Li
     (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
     (hmem : ∀ (i : Nat) (h : i < vs.length), s.mem.get? (srcBits.toNat + i) = some vs[i])
     (physAccess : Runs (phys_access_check (Load Data) PBMT_PMA .Machine
-      (physaddr.Physaddr srcBits) vs.length false) s s none)
-    (noMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) vs.length) s s false) :
+      (physaddr.Physaddr srcBits) vs.length false) s s none) :
     Runs (mem_read (Load Data) PBMT_PMA (physaddr.Physaddr srcBits) vs.length false false false)
       s s (Sail.Ok (leWord vs)) := by
   unfold mem_read
   refine Runs.bind (readReg_run s mstatus mstatusBits mstatusRead) ?_
   refine Runs.bind (readReg_run s cur_privilege .Machine privRead) ?_
   refine Runs.bind (effectivePrivilege_load_machine_run s mstatusBits mprvZero) ?_
-  exact mem_read_priv_load_run s srcBits vs hmem physAccess noMMIO
+  exact mem_read_priv_load_run s srcBits vs hmem physAccess
 
 /-! ## Machine-mode Bare translation of a load-data access -/
 
@@ -130,51 +131,15 @@ private theorem load_not_shadow_stack_run (state : State) :
     Runs (is_shadow_stack_access (MemoryAccessType.Load mem_payload.Data)) state state false := by
   rfl
 
-/-- Generated Machine-mode load-data translation is the identity Bare translation. -/
+/-- exec-spike repair: the specialised `translateAddr` reads no register (ZESU-SPEC R I1, I6), so
+the proof is `rfl`; the register premises are kept, unused.
+Generated Machine-mode load-data translation is the identity Bare translation. -/
 theorem translateAddr_machine_load_run (state : State) (vaddr mstatusBits : BitVec 64)
     (mstatusRead : state.regs.get? mstatus = some mstatusBits)
     (privilegeRead : state.regs.get? cur_privilege = some .Machine)
     (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1) :
     Runs (translateAddr (virtaddr.Virtaddr vaddr) (MemoryAccessType.Load mem_payload.Data))
       state state (.Ok (physaddr.Physaddr vaddr, .PBMT_PMA, init_ext_ptw)) := by
-  have hMstatus : Runs (Sail.readReg mstatus) state state mstatusBits :=
-    readReg_run state mstatus mstatusBits mstatusRead
-  have hPrivilege : Runs (Sail.readReg cur_privilege) state state .Machine :=
-    readReg_run state cur_privilege .Machine privilegeRead
-  have hEffective : Runs (effectivePrivilege (MemoryAccessType.Load mem_payload.Data)
-      mstatusBits .Machine) state state .Machine :=
-    effectivePrivilege_load_machine_run state mstatusBits mprvZero
-  have hMode : Runs (translationMode .Machine) state state .Bare :=
-    translationMode_machine_run' state
-  have hShadow : Runs (is_shadow_stack_access (MemoryAccessType.Load mem_payload.Data))
-      state state false :=
-    load_not_shadow_stack_run state
-  unfold translateAddr
-  refine runsFetchSailMELift (action := Sail.readReg mstatus) (next := ?_)
-    (before := state) (middle := state) (after := state) (value := mstatusBits)
-    (result := (.Ok (physaddr.Physaddr vaddr, .PBMT_PMA, init_ext_ptw) :
-      Sail.Result (physaddr × page_based_mem_type × Unit) (ExceptionType × Unit))) hMstatus ?_
-  refine runsFetchSailMELift (action := Sail.readReg cur_privilege) (next := ?_)
-    (before := state) (middle := state) (after := state) (value := .Machine)
-    (result := (.Ok (physaddr.Physaddr vaddr, .PBMT_PMA, init_ext_ptw) :
-      Sail.Result (physaddr × page_based_mem_type × Unit) (ExceptionType × Unit))) hPrivilege ?_
-  refine runsFetchSailMELift
-    (action := effectivePrivilege (MemoryAccessType.Load mem_payload.Data) mstatusBits .Machine)
-    (next := ?_)
-    (before := state) (middle := state) (after := state) (value := .Machine)
-    (result := (.Ok (physaddr.Physaddr vaddr, .PBMT_PMA, init_ext_ptw) :
-      Sail.Result (physaddr × page_based_mem_type × Unit) (ExceptionType × Unit))) hEffective ?_
-  refine runsFetchSailMELift (action := translationMode .Machine) (next := ?_)
-    (before := state) (middle := state) (after := state) (value := .Bare)
-    (result := (.Ok (physaddr.Physaddr vaddr, .PBMT_PMA, init_ext_ptw) :
-      Sail.Result (physaddr × page_based_mem_type × Unit) (ExceptionType × Unit))) hMode ?_
-  refine runsFetchSailMELift
-    (action := is_shadow_stack_access (MemoryAccessType.Load mem_payload.Data)) (next := ?_)
-    (before := state) (middle := state) (after := state) (value := false)
-    (result := (.Ok (physaddr.Physaddr vaddr, .PBMT_PMA, init_ext_ptw) :
-      Sail.Result (physaddr × page_based_mem_type × Unit) (ExceptionType × Unit))) hShadow ?_
-  have bareEq : ((SATPMode.Bare == SATPMode.Bare) : Bool) = true := rfl
-  rw [bareEq]
   rfl
 
 /-- Compatibility wrapper for callers that carry the five machine-address facts separately. -/
@@ -202,25 +167,25 @@ private theorem addInt_zero' (x : BitVec 64) : Sail.BitVec.addInt x 0 = x := by
 private theorem updateSubrange_zeros_setWidth64 (v : BitVec 64) :
     Sail.BitVec.updateSubrange (zeros : BitVec 64) 63 0 (BitVec.setWidth 64 v) = v := by
   unfold Sail.BitVec.updateSubrange Sail.BitVec.updateSubrange' zeros
-  bv_decide
+  simp
 
 /-- Overwriting all 8 bits of the zero byte with `v` yields `v`. -/
 private theorem updateSubrange_zeros_setWidth8 (v : BitVec 8) :
     Sail.BitVec.updateSubrange (zeros : BitVec 8) 7 0 (BitVec.setWidth 8 v) = v := by
   unfold Sail.BitVec.updateSubrange Sail.BitVec.updateSubrange' zeros
-  bv_decide
+  simp
 
 /-- Overwriting all 32 bits of the zero word with `v` yields `v`. -/
 private theorem updateSubrange_zeros_setWidth32 (v : BitVec 32) :
     Sail.BitVec.updateSubrange (zeros : BitVec 32) 31 0 (BitVec.setWidth 32 v) = v := by
   unfold Sail.BitVec.updateSubrange Sail.BitVec.updateSubrange' zeros
-  bv_decide
+  simp
 
 /-- Overwriting all 16 bits of the zero half-word with `v` yields `v`. -/
 private theorem updateSubrange_zeros_setWidth16 (v : BitVec 16) :
     Sail.BitVec.updateSubrange (zeros : BitVec 16) 15 0 (BitVec.setWidth 16 v) = v := by
   unfold Sail.BitVec.updateSubrange Sail.BitVec.updateSubrange' zeros
-  bv_decide
+  simp
 
 /-- `bits_of_virtaddr` of `Virtaddr b` is `b`. -/
 private theorem bits_of_virtaddr_mk (b : BitVec 64) :
@@ -399,7 +364,8 @@ theorem vmem_read_word_run (s : State) (rs : regidx) (offset srcBits mstatusBits
   exact vmem_read_of_addr_run 4 s rs offset srcBits v addrReg
     (vmem_read_addr_word_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
 
-/-- An aligned four-byte load from explicitly represented little-endian memory. -/
+/-- exec-spike repair: the `noMMIO` premise was removed.
+An aligned four-byte load from explicitly represented little-endian memory. -/
 theorem vmem_read_word_from_bytes_run (s : State) (rs : regidx)
     (offset srcBits mstatusBits : BitVec 64) (v : BitVec (8 * 4))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -410,12 +376,11 @@ theorem vmem_read_word_from_bytes_run (s : State) (rs : regidx)
     (aligned : is_aligned_vaddr (virtaddr.Virtaddr srcBits) 4 = true)
     (physAccess : Runs (phys_access_check (Load Data) PBMT_PMA .Machine
       (physaddr.Physaddr srcBits) 4 false) s s none)
-    (noMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) 4) s s false)
     (hmem : ∀ (i : Nat) (h : i < (leBytes 4 v).length),
       s.mem.get? (srcBits.toNat + i) = some (leBytes 4 v)[i]) :
     Runs (vmem_read rs offset 4 (Load Data) false false false) s s (.Ok v) := by
   have hread := mem_read_load_run s srcBits mstatusBits (leBytes 4 v) mstatusRead privRead
-    mprvZero hmem physAccess noMMIO
+    mprvZero hmem physAccess
   rw [leWord_leBytes_id4] at hread
   exact vmem_read_word_run s rs offset srcBits mstatusBits v mstatusRead privRead mprvZero
     addrReg aligned hread
@@ -501,7 +466,8 @@ theorem vmem_read_half_run (s : State) (rs : regidx) (offset srcBits mstatusBits
   exact vmem_read_of_addr_run 2 s rs offset srcBits v addrReg
     (vmem_read_addr_half_run s srcBits mstatusBits v mstatusRead privRead mprvZero aligned hread)
 
-/-- An aligned two-byte load from explicitly represented little-endian memory. -/
+/-- exec-spike repair: the `noMMIO` premise was removed.
+An aligned two-byte load from explicitly represented little-endian memory. -/
 theorem vmem_read_half_from_bytes_run (s : State) (rs : regidx)
     (offset srcBits mstatusBits : BitVec 64) (v : BitVec (8 * 2))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -512,12 +478,11 @@ theorem vmem_read_half_from_bytes_run (s : State) (rs : regidx)
     (aligned : is_aligned_vaddr (virtaddr.Virtaddr srcBits) 2 = true)
     (physAccess : Runs (phys_access_check (Load Data) PBMT_PMA .Machine
       (physaddr.Physaddr srcBits) 2 false) s s none)
-    (noMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) 2) s s false)
     (hmem : ∀ (i : Nat) (h : i < (leBytes 2 v).length),
       s.mem.get? (srcBits.toNat + i) = some (leBytes 2 v)[i]) :
     Runs (vmem_read rs offset 2 (Load Data) false false false) s s (.Ok v) := by
   have hread := mem_read_load_run s srcBits mstatusBits (leBytes 2 v) mstatusRead privRead
-    mprvZero hmem physAccess noMMIO
+    mprvZero hmem physAccess
   rw [leWord_leBytes_id2] at hread
   exact vmem_read_half_run s rs offset srcBits mstatusBits v mstatusRead privRead mprvZero
     addrReg aligned hread
@@ -530,7 +495,7 @@ private theorem extend_value_signed_64 (v : BitVec (8 * 8)) :
   unfold extend_value
   simp only [Bool.false_eq_true, ↓reduceIte]
   unfold sign_extend Sail.BitVec.signExtend
-  bv_decide
+  simp
 
 /-- `leWord` recomposes the little-endian bytes of a 64-bit word back to itself. -/
 private theorem leWord_leBytes_id8 (v : BitVec (8 * 8)) : leWord (leBytes 8 v) = v := by
@@ -542,14 +507,15 @@ private theorem leWord_leBytes_id1 (v : BitVec (8 * 1)) : leWord (leBytes 1 v) =
   have h := leWord_leBytes 1 v
   simpa using h
 
-/-- `ld rd, imm(rs1)` (width 8): reads the 64-bit little-endian word held (as its little-endian
+/-- exec-spike repair: the `noMMIO` premise was removed (`within_mmio_readable` is pure `false`).
+`ld rd, imm(rs1)` (width 8): reads the 64-bit little-endian word held (as its little-endian
 bytes) at the resolved effective address and writes it (unchanged, since a full-width load neither
 zero- nor sign-extends) into `rd`, retiring successfully.
 
 The platform checks are abstracted as clean premises exactly like `execute_STORE_dword_run`:
 effective-address resolution (`addrReg`), alignment, Machine-mode translation
-(`mstatusRead`/`privRead`/`mprvZero`), `phys_access_check` returning no fault (`physAccess`), no
-MMIO overlap (`noMMIO`), and ownership of the source bytes (`hmem`, a `readBytes_run_exact`-style
+(`mstatusRead`/`privRead`/`mprvZero`), `phys_access_check` returning no fault (`physAccess`),
+and ownership of the source bytes (`hmem`, a `readBytes_run_exact`-style
 hypothesis over the little-endian bytes of `v`).  The register write is threaded as a
 `Runs (wX_bits rd v) · · ()` premise. -/
 theorem execute_LOAD_ld_run (s s' : State) (imm : BitVec 12) (rs1 rd : regidx)
@@ -562,7 +528,6 @@ theorem execute_LOAD_ld_run (s s' : State) (imm : BitVec 12) (rs1 rd : regidx)
     (aligned : is_aligned_vaddr (virtaddr.Virtaddr srcBits) 8 = true)
     (physAccess : Runs (phys_access_check (Load Data) PBMT_PMA .Machine
       (physaddr.Physaddr srcBits) 8 false) s s none)
-    (noMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) 8) s s false)
     (hmem : ∀ (i : Nat) (h : i < (leBytes 8 v).length),
       s.mem.get? (srcBits.toNat + i) = some (leBytes 8 v)[i])
     (hwrite : Runs (wX_bits rd v) s s' ()) :
@@ -570,7 +535,7 @@ theorem execute_LOAD_ld_run (s s' : State) (imm : BitVec 12) (rs1 rd : regidx)
   have hread : Runs (mem_read (Load Data) PBMT_PMA (physaddr.Physaddr srcBits) 8 false false false)
       s s (Sail.Ok v) := by
     have h := mem_read_load_run s srcBits mstatusBits (leBytes 8 v) mstatusRead privRead mprvZero
-      hmem physAccess noMMIO
+      hmem physAccess
     rw [leWord_leBytes_id8] at h
     exact h
   unfold execute_LOAD
@@ -663,7 +628,8 @@ theorem vmem_read_byte_run (s : State) (rs : regidx) (offset srcBits mstatusBits
 
 /-! ## Aligned unsigned-byte load instruction (`lbu`) -/
 
-/-- `lbu rd, imm(rs1)` (width 1, unsigned): reads the single byte held at the resolved effective
+/-- exec-spike repair: the `noMMIO` premise was removed.
+`lbu rd, imm(rs1)` (width 1, unsigned): reads the single byte held at the resolved effective
 address and writes its zero-extension to 64 bits into `rd`, retiring successfully.  Premises mirror
 `execute_LOAD_ld_run` at width 1; the register write is threaded as
 `Runs (wX_bits rd (zero_extend 64 v)) · · ()`. -/
@@ -677,7 +643,6 @@ theorem execute_LOAD_lbu_run (s s' : State) (imm : BitVec 12) (rs1 rd : regidx)
     (aligned : is_aligned_vaddr (virtaddr.Virtaddr srcBits) 1 = true)
     (physAccess : Runs (phys_access_check (Load Data) PBMT_PMA .Machine
       (physaddr.Physaddr srcBits) 1 false) s s none)
-    (noMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) 1) s s false)
     (hmem : ∀ (i : Nat) (h : i < (leBytes 1 v).length),
       s.mem.get? (srcBits.toNat + i) = some (leBytes 1 v)[i])
     (hwrite : Runs (wX_bits rd (zero_extend (m := 64) v)) s s' ()) :
@@ -685,7 +650,7 @@ theorem execute_LOAD_lbu_run (s s' : State) (imm : BitVec 12) (rs1 rd : regidx)
   have hread : Runs (mem_read (Load Data) PBMT_PMA (physaddr.Physaddr srcBits) 1 false false false)
       s s (Sail.Ok v) := by
     have h := mem_read_load_run s srcBits mstatusBits (leBytes 1 v) mstatusRead privRead mprvZero
-      hmem physAccess noMMIO
+      hmem physAccess
     rw [leWord_leBytes_id1] at h
     exact h
   unfold execute_LOAD

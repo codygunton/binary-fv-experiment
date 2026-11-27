@@ -36,7 +36,9 @@ theorem is_aligned_vaddr_one (v : virtaddr) : is_aligned_vaddr v 1 = true := by
 /-- A full width-8 extraction is the identity (byte analogue of `extractLsb_full`). -/
 theorem extractLsb_full_byte (x : BitVec 8) : Sail.BitVec.extractLsb x 7 0 = x := by
   unfold Sail.BitVec.extractLsb
-  bv_decide
+  ext i hi
+  simp only [BitVec.extractLsb, BitVec.getElem_extractLsb', Nat.zero_add]
+  exact BitVec.getLsbD_eq_getElem (by omega)
 
 /-- A one-byte generated memory write has exactly one sparse-memory insertion as its effect. -/
 theorem writeBytes_byte_run (state : State) (address : Nat) (value : BitVec 8) :
@@ -67,6 +69,7 @@ theorem get_transformed_data_addr_machine_store_run (state : State) (rs : regidx
   get_transformed_data_addr_machine_data_run .store state rs width base offset mstatusBits mseccfgBits
     baseRead mstatusRead privilegeRead mprvZero mseccfgRead pmmDisabled
 
+/-- exec-spike repair: the `noMMIO` premise was removed (`within_mmio_writable` is pure `false`). -/
 theorem vmem_write_addr_byte_run (s s' : State) (dstBits mstatusBits : BitVec 64)
     (data : BitVec (8 * 1))
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -75,7 +78,6 @@ theorem vmem_write_addr_byte_run (s s' : State) (dstBits mstatusBits : BitVec 64
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 1 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 1) s s false)
     (hwrite : Runs (PreSail.writeBytes dstBits.toNat data) s s' true) :
     Runs (vmem_write_addr (virtaddr.Virtaddr dstBits) 1 data (Store Data) false false false)
       s s' (.Ok true) := by
@@ -113,7 +115,7 @@ theorem vmem_write_addr_byte_run (s s' : State) (dstBits mstatusBits : BitVec 64
         refine RunsME.bind
           (RunsME.lift _ s s' (Sail.Ok true)
             (mem_write_value_store_run s s' (physaddr.Physaddr dstBits) _ mstatusBits mstatusRead
-              privRead mprvZero physAccess noMMIO ?hw)) ?_
+              privRead mprvZero physAccess ?hw)) ?_
         case hw =>
           change Runs (PreSail.writeBytes dstBits.toNat
             (BitVec.setWidth 8 (Sail.BitVec.extractLsb data 7 0))) s s' true
@@ -121,7 +123,8 @@ theorem vmem_write_addr_byte_run (s s' : State) (dstBits mstatusBits : BitVec 64
           exact hwrite
         exact RunsME.pure true s'
 
-/-- The generated `vmem_write` for an aligned byte store: once the effective address has been
+/-- exec-spike repair: the `noMMIO` premise was removed.
+The generated `vmem_write` for an aligned byte store: once the effective address has been
 resolved to `dstBits`, the write runs to `.Ok true` with only the `writeBytes` effect. -/
 theorem vmem_write_byte_run (s s' : State) (rs1 : regidx) (offset dstBits mstatusBits : BitVec 64)
     (data : BitVec (8 * 1))
@@ -133,7 +136,6 @@ theorem vmem_write_byte_run (s s' : State) (rs1 : regidx) (offset dstBits mstatu
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 1 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 1) s s false)
     (hwrite : Runs (PreSail.writeBytes dstBits.toNat data) s s' true) :
     Runs (vmem_write rs1 offset 1 data (Store Data) false false false) s s' (.Ok true) := by
   unfold vmem_write
@@ -145,10 +147,11 @@ theorem vmem_write_byte_run (s s' : State) (rs1 : regidx) (offset dstBits mstatu
   case writeAddr =>
     exact RunsME.lift _ s s' (Sail.Ok true)
       (vmem_write_addr_byte_run s s' dstBits mstatusBits data mstatusRead privRead mprvZero
-        physAccess noMMIO hwrite)
+        physAccess hwrite)
 
 /-! ## Aligned byte store instruction -/
 
+/-- exec-spike repair: the `noMMIO` premise was removed (`within_mmio_writable` is pure `false`). -/
 theorem execute_STORE_byte_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 12)
     (dstBits mstatusBits dataBits : BitVec 64)
     (mstatusRead : s.regs.get? mstatus = some mstatusBits)
@@ -160,7 +163,6 @@ theorem execute_STORE_byte_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 1
     (physAccess :
       Runs (phys_access_check (Store Data) PBMT_PMA .Machine (physaddr.Physaddr dstBits) 1 false)
         s s none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 1) s s false)
     (hwrite : Runs (PreSail.writeBytes (n := 1) dstBits.toNat
       (Sail.BitVec.extractLsb dataBits 7 0)) s s' true) :
     Runs (execute_STORE imm rs2 rs1 1) s s' (.Retire_Success ()) := by
@@ -170,7 +172,7 @@ theorem execute_STORE_byte_run (s s' : State) (rs2 rs1 : regidx) (imm : BitVec 1
   refine Runs.bind (run_pure s _) ?_
   refine Runs.bind
     (vmem_write_byte_run s s' rs1 (sign_extend (m := 64) imm) dstBits mstatusBits _
-      mstatusRead privRead mprvZero addrReg physAccess noMMIO ?hw) ?_
+      mstatusRead privRead mprvZero addrReg physAccess ?hw) ?_
   case hw =>
     change Runs (PreSail.writeBytes dstBits.toNat
       (BitVec.setWidth 8 (Sail.BitVec.extractLsb dataBits 7 0))) s s' true

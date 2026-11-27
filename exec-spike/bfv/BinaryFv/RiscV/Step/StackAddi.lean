@@ -22,16 +22,16 @@ def stackAddiRetiredState (state : State) (pc : BitVec 64) (immediate : BitVec 1
     regs := (stackAddiNextState state pc).regs.insert x2
       (stackValue + sign_extend (m := 64) immediate) }
 
-/-- Compose generated fetch, decode, next-PC, and execute contracts for `addi sp, sp, immediate`. -/
+/-- exec-spike repair: the `interrupts` (`InterruptDisabled`) and `notExpected`
+(`LandingPadNotExpected`) premises were removed (pure `dispatchInterrupt`, no landing-pad check).
+Compose generated fetch, decode, next-PC, and execute contracts for `addi sp, sp, immediate`. -/
 theorem runHartActiveStackAddiRetires (stepNo : Nat) (state : State) (pc : BitVec 64)
     (immediate : BitVec 12) (stackValue : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
     (platform : FetchBasePlatform state pc)
-    (interrupts : InterruptDisabled state)
     (base : BaseInstructionEncoding byte0)
     (fetchBytes : FetchBytesBaseContract state pc byte0 byte1 byte2 byte3)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3)) state state
       (.ITYPE (immediate, stackPointer, stackPointer, .ADDI)))
-    (notExpected : LandingPadNotExpected state)
     (stackRead : (stackAddiNextState state pc).regs.get? x2 = some stackValue) :
     Runs (run_hart_active stepNo) state
       (stackAddiRetiredState state pc immediate stackValue)
@@ -40,12 +40,7 @@ theorem runHartActiveStackAddiRetires (stepNo : Nat) (state : State) (pc : BitVe
   have fetch : Runs (fetch ()) state state (.F_Base (fetchWord byte0 byte1 byte2 byte3)) :=
     fetch_base_of_fetchBytes state pc byte0 byte1 byte2 byte3 platform base fetchBytes
   rcases platform with ⟨misaBits, mstatusBits, pcRead, misaRead, mstatusRead, privilegeRead,
-    pcLow0, pcLow1, alignedVaddr, alignedPaddr, pmpDisabled, pmaAllows⟩
-  have dispatch : Runs (dispatchInterrupt Privilege.Machine) state state none := by
-    unfold Runs
-    exact dispatchInterrupt_disabled state Privilege.Machine interrupts
-  have landingPad : Runs (is_landing_pad_expected ()) state state false :=
-    landingPad_notExpected state notExpected
+    pcLow0, pcLow1, alignedVaddr, alignedPaddr, pmaAllows⟩
   have nextPc : Runs (Sail.writeReg nextPC (Sail.BitVec.addInt pc 4)) state
       (stackAddiNextState state pc) PUnit.unit := by
     simpa [stackAddiNextState] using writeNextPc_run state pc
@@ -57,6 +52,6 @@ theorem runHartActiveStackAddiRetires (stepNo : Nat) (state : State) (pc : BitVe
   exact runHartActiveBaseRetires stepNo state state (stackAddiNextState state pc)
     (stackAddiRetiredState state pc immediate stackValue) Privilege.Machine
     (fetchWord byte0 byte1 byte2 byte3) (.ITYPE (immediate, stackPointer, stackPointer, .ADDI)) pc
-    privilegeRead dispatch fetch decode landingPad pcRead nextPc execute
+    privilegeRead fetch decode pcRead nextPc execute
 
 end BinaryFv.RiscV

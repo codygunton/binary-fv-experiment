@@ -114,7 +114,7 @@ theorem byteSym_eval {env : Env} {S : SState} {m : Machine} (hm : Match env S m)
       simp [Write.covers] at hkc
       have h := hm.known k hkm (j - k.off) (by omega)
       rw [show k.off + (j - k.off) = j by omega, hkc.1.1] at h
-      simp [Sym.eval, byteList, ofBytesLE, Env.byte0, h]
+      simp [Sym.eval, byteList, ofBytesLE, h]
 
 theorem joinBytes_byteSyms_eval {env : Env} {S : SState} {m : Machine} (hm : Match env S m)
     (r : Nat) : ∀ n j, (joinBytes (byteSyms S r j n)).eval env =
@@ -168,8 +168,8 @@ theorem readConst_eval {env : Env} {S : SState} {m : Machine} (hm : Match env S 
         have hkr : k.r = r := by
           have := List.find?_some hk; simp [Write.overlaps] at this; exact this.1.1
         have h := hm.known k (List.mem_of_find?_eq_some hk) t (by omega)
-        simp only [memByte, find_covers_none ht hw, Env.byte0, Nat.zero_add]
-        rw [← hkr, ← ho, h]; rfl
+        simp only [memByte, find_covers_none ht hw, Nat.zero_add]
+        rw [← hkr, ← ho, h]
       · exact joinBytes_byteSyms_eval hm r n off
     | none =>
       simp only [Sym.eval]
