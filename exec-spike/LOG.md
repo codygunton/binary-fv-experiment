@@ -481,3 +481,16 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   all PASS after `make -C tools/zmap map`; `zmap show f_800cb40c`: closed+sail, reach=yes,
   leaves auto 2 / manual 14 / open 0. Gate S5.1 passed; no fallback; `join_cut_candidates` may be
   turned on. ~18 min.
+- S5-fix (2026-11-27): soundness finding by S1StaticMap. `AllocAssumptions.heap_frame` (any `m'`
+  agreeing with `m` on `Priv L` keeps `Heap L`) with `live_ok` (live blocks present) and
+  `priv_not_live` proved every live block empty (`heap_blocks_empty`: drop a live block's bytes,
+  the heap survives, presence fails), so `alloc`'s non-null branch was unsatisfiable and F1/F4/F5
+  were vacuous for any real allocator. Fix: `heap_frame` also requires
+  `∀ b ∈ L, Present m' b.1 b.2`; new `AllocAssumptions.heap_frame'` takes `Preserved m m'`
+  instead (every run keeps present bytes present). All 18 uses re-proved (F1 Lemmas/Vc, F4
+  Lemmas: `heap_frame'` with the step's `Preserved`; F1/TX `pre_nonvacuous`, F4 witness: empty
+  list). New `Test/AllocModel.lean`: an `AllocAssumptions zesuImage` instance whose heap has one
+  live 1-byte block (`heap_nonempty`), so `heap_blocks_empty` no longer goes through. `f*_spec`,
+  `*_sail`, `*_compliance` statements textually unchanged; STATEMENTS.md updated. Built in a clean
+  worktree of HEAD plus the fix: `lake build` 263 jobs OK (P2's uncommitted `Fn/F3/Proof.lean`
+  edit does not build in the shared tree and is not part of this commit).

@@ -70,6 +70,7 @@ import ZesuExec.Sym.SmartLemmas
 import ZesuExec.Sym.Sound
 import ZesuExec.Sym.Tactic
 import ZesuExec.Sym.Types
+import ZesuExec.Test.AllocModel
 import ZesuExec.Test.Budget
 import ZesuExec.Test.Decode
 import ZesuExec.Test.Sym

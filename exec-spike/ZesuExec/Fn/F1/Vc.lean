@@ -305,7 +305,8 @@ theorem F1.leaf_800cb40c_0 :
   refine ⟨hret, hfr', ?_⟩
   simp only [hle, if_true]
   refine ⟨by rw [← hm.regs 10]; rfl, E.header_same (envOk0 m) hm (by decide) (by decide),
-    A.heap_frame L m mf E.heap fun a hp => hfr a fun hw => ?_, fun j hj => hfr _ fun hw => ?_⟩
+    A.heap_frame' L m mf E.heap (fun a hp => hfr a fun hw => ?_)
+      (preserved_of_leaf E.wf hm (by decide) hfr), fun j hj => hfr _ fun hw => ?_⟩
   · exact E.ownNotPriv (E.inWritable hw) hp
   · exact E.scratchNotOwn hj (E.inWritable hw)
 
@@ -410,7 +411,8 @@ theorem F1.leaf_800cb40c_4 :
   · refine hinv1.step hfrR (fun a h => .inr (.inl ?_)) hp2
     have h128 := sp128 E
     simp only [InRange, h128] at h ⊢; omega
-  · refine A.heap_frame L m m2 E.heap fun a ha => hsame a (fun h => ?_) (fun h => E.ownNotPriv h ha)
+  · refine A.heap_frame' L m m2 E.heap (fun a ha => hsame a (fun h => ?_) (fun h => E.ownNotPriv h ha))
+      (hp.trans hp2)
     exact E.priv a (.inr (.inr (.inl ⟨h.1, by have := h.2; omega⟩))) ha
   · intro j hj
     have hs : (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 j).toNat = Layout.extraParams + j := by
@@ -477,8 +479,8 @@ theorem alloc_call {A : AllocAssumptions zesuImage} {L : List (Word × Nat)} {it
     rw [← hmc.regs 1]; show Sym.eval env (Sl.reg 1) = _; rw [r1]; rfl
   have g12 : mc.reg 12 = 0 := by
     rw [← hmc.regs 12]; show Sym.eval env (Sl.reg 12) = _; rw [r12]; rfl
-  have hheapc : A.Heap L mc := A.heap_frame L mk mc hheap fun a ha => hfr a fun hw =>
-    E.ownNotPriv (own a hw) ha
+  have hheapc : A.Heap L mc := A.heap_frame' L mk mc hheap (fun a ha => hfr a fun hw =>
+    E.ownNotPriv (own a hw) ha) hp
   have hreq := E.req
   refine ⟨⟨hheapc, ?_, ?_, by rw [g12]; decide, E.calleeStack (hinv.2.trans hp) g2,
     by unfold RetAligned; rw [g1]; decide, E.calleeFree (fun _ h => h) g2⟩, fun m2 hpost => ?_⟩
@@ -744,8 +746,8 @@ theorem F1.leaf_800cb588_0 :
     refine ⟨hp0, hram, E.blockSame he (by decide) hfr hlt hram hblk hitems,
       E.scratchKeep (by simp [wordBytes]) he (by decide) hfr hscr, ?_, ?_, hblk⟩
     · rw [hL]
-      exact A.heap_frame _ m3 m4 hheap fun a ha => hfr a fun hw =>
-        E.ownNotPriv (E.inWritable2 he (by decide) hw) (hpriv a ha)
+      exact A.heap_frame' _ m3 m4 hheap (fun a ha => hfr a fun hw =>
+        E.ownNotPriv (E.inWritable2 he (by decide) hw) (hpriv a ha)) hp
     · rw [hL]; exact fun a h => .inl (hpriv a h)
   · show 17 ≤ (if capOf m = 0 then 18 else 67) - (1 - 0)
     simp [hc0]
@@ -792,8 +794,8 @@ theorem F1.leaf_800cb588_1 :
   generalize hp' : m3.reg 19 = p' at hp0 hram hitems hheap hpriv hblk r19
   generalize hL3 : L ++ [(p', grown (m.reg 12).toNat * elemBytes)] = L3 at hheap hpriv
   have hfL : freeL ⟨A, L, items, m⟩ mc = L3 := by rw [← hL3]; simp [freeL, r19]
-  have hheapc : A.Heap L3 mc := A.heap_frame L3 m3 mc hheap fun a ha => hfr a fun hw =>
-    E.ownNotPriv (own a hw) (hpriv a ha)
+  have hheapc : A.Heap L3 mc := A.heap_frame' L3 m3 mc hheap (fun a ha => hfr a fun hw =>
+    E.ownNotPriv (own a hw) (hpriv a ha)) hp
   have hpre : freeC.Pre ⟨A, L, items, m⟩ mc := by
     show A.Heap (freeL _ mc) mc ∧ _
     rw [hfL]
@@ -921,7 +923,7 @@ theorem F1.leaf_800cb5a8_0 :
     show mf.load (m.reg 10 + BitVec.ofNat 64 16) 8 = _
     rw [this]; show some (m4.reg 22) = _; rw [h22]
   · show A.Heap (newL ⟨A, L, items, m⟩ (m4.reg 19)) mf
-    refine A.heap_frame _ m4 mf hheap fun a ha => hfr a fun hw => ?_
+    refine A.heap_frame' _ m4 mf hheap (fun a ha => hfr a fun hw => ?_) hp
     rcases hpriv a ha with h | h
     · exact E.ownNotPriv (own a hw) h
     · rcases Nat.eq_zero_or_pos (capOf m) with hc0 | hc0

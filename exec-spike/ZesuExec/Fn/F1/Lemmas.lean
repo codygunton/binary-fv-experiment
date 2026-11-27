@@ -517,7 +517,7 @@ theorem oom_post (E : Entry A L items m) {env : Env} {S Sf : SState} {mk mf : Ma
   simp only [hlt', if_false]
   refine .inr ⟨by rw [← hmf.regs 10]; show Sym.eval env (Sf.reg 10) = 2; rw [ha0]; rfl,
     E.header_same he hmf hr hnw,
-    A.heap_frame L mk mf hheap fun a ha => hfr a fun hw => E.ownNotPriv (own a hw) ha,
+    A.heap_frame' L mk mf hheap (fun a ha => hfr a fun hw => E.ownNotPriv (own a hw) ha) hp,
     fun j hj => ?_⟩
   rw [hfr _ fun hw => E.scratchNotOwn hj (own _ hw)]; exact hscr j hj
 
@@ -701,7 +701,7 @@ theorem copy_call (E : Entry A L items m) {env : Env} {S Sl : SState} {m2 mc : M
     rw [memcpy_scratch hz hi8 fun h => hscrP _ hin (hdst _ h), g12]
     simp [wordBytes, hi8]
   · -- the heap
-    refine A.heap_frame _ m2 m3 hheap fun a ha => ?_
+    refine A.heap_frame' _ m2 m3 hheap (fun a ha => ?_) (hp.trans (memcpy_preserved hz))
     rw [hout a fun h => ?_, hfr a fun hw => E.ownNotPriv (own a hw) (hpriv a ha)]
     rcases h with h | h
     · exact A.priv_not_live _ a ha ⟨_, List.mem_append_right _ (List.mem_singleton_self _), by
