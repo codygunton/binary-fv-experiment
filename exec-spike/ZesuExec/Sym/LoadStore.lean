@@ -180,42 +180,32 @@ theorem readConst_eval {env : Env} {S : SState} {m : Machine} (hm : Match env S 
 
 /-! ## Loads -/
 
-theorem mod_of_aligned {b off n align : Nat} (hb : b % align = 0) (ha : align % n = 0)
-    (ho : off % n = 0) : (b + off) % n = 0 := by
-  apply Nat.mod_eq_zero_of_dvd
-  exact Nat.dvd_add (Nat.dvd_trans (Nat.dvd_of_mod_eq_zero ha) (Nat.dvd_of_mod_eq_zero hb))
-    (Nat.dvd_of_mod_eq_zero ho)
-
 theorem cstCheck_spec {R : Region} {r off n : Nat} {ob : List Oblig} {env : Env} {S : SState}
     (hwf : Env.WF env S) (hR : S.regions[r]? = some R) (hc : cstCheck R r off n = some ob)
     (hob : ∀ o ∈ ob, o.holds env) :
-    off % n = 0 ∧ R.align % n = 0 ∧ off + n ≤ env.size r := by
+    off + n ≤ env.size r := by
   unfold cstCheck at hc
-  split at hc
-  · next ha =>
-    refine ⟨ha.1, ha.2, ?_⟩
-    cases hs : R.size with
-    | some s =>
-      rw [hs] at hc; simp only at hc
-      split at hc
-      · rw [hwf.size r R s hR hs]; assumption
-      · simp at hc
-    | none =>
-      rw [hs] at hc; simp only [Option.some.injEq] at hc; subst hc
-      have := hob (.inBounds r off (.lit 0) 1 n) (by simp)
-      simpa [Oblig.holds, Sym.eval] using this
-  · simp at hc
+  cases hs : R.size with
+  | some s =>
+    rw [hs] at hc; simp only at hc
+    split at hc
+    · rw [hwf.size r R s hR hs]; assumption
+    · simp at hc
+  | none =>
+    rw [hs] at hc; simp only [Option.some.injEq] at hc; subst hc
+    have := hob (.inBounds r off (.lit 0) 1 n) (by simp)
+    simpa [Oblig.holds, Sym.eval] using this
 
 theorem load_cst {env : Env} {S : SState} {m : Machine} (hwf : Env.WF env S)
     (hm : Match env S m) {r off n : Nat} {R : Region} (hR : S.regions[r]? = some R)
-    (hal : off % n = 0) (hra : R.align % n = 0) (hb : off + n ≤ env.size r) :
+    (hb : off + n ≤ env.size r) :
     m.load (env.base r + BitVec.ofNat 64 off) n = some ((readConst S r off n).eval env) := by
   have hfit := hwf.fits hR
   have hlt : (env.base r).toNat + off < 2 ^ 64 := by simp [Layout.ramHi] at hfit; omega
   have ha : (env.base r + BitVec.ofNat 64 off).toNat = (env.base r).toNat + off :=
     toNat_add_ofNat hlt
   unfold Machine.load
-  rw [ha, if_pos ⟨mod_of_aligned (hwf.align r R hR) hra hal, hwf.readable_of hR hb⟩]
+  rw [ha, if_pos (hwf.readable_of hR hb)]
   rw [readBytes_of (f := memByte env S.mem r) (k := off), readConst_eval hm]
   · rfl
   · intro t ht
@@ -224,19 +214,13 @@ theorem load_cst {env : Env} {S : SState} {m : Machine} (hwf : Env.WF env S)
 
 theorem load_idx {env : Env} {S : SState} {m : Machine} (hwf : Env.WF env S)
     (hm : Match env S m) {r off n sc : Nat} {i : Sym} {R : Region} (hR : S.regions[r]? = some R)
-    (hal : off % n = 0) (hra : R.align % n = 0) (hsc : sc % n = 0)
     (hnw : S.mem.all (·.r != r) = true)
     (hb : off + sc * (i.eval env).toNat + n ≤ env.size r) (a : Word)
     (haddr : a.toNat = (env.base r).toNat + (off + sc * (i.eval env).toNat)) :
     m.load a n = some ((Sym.initx r off i sc n).eval env) := by
   have hfit := hwf.fits hR
   unfold Machine.load
-  have hmod : (off + sc * (i.eval env).toNat) % n = 0 := by
-    apply Nat.mod_eq_zero_of_dvd
-    exact Nat.dvd_add (Nat.dvd_of_mod_eq_zero hal)
-      (Nat.dvd_mul_right_of_dvd (Nat.dvd_of_mod_eq_zero hsc) _)
-  rw [haddr, if_pos ⟨mod_of_aligned (hwf.align r R hR) hra hmod,
-    hwf.readable_of hR (off := off + sc * (i.eval env).toNat) (by omega)⟩]
+  rw [haddr, if_pos (hwf.readable_of hR (off := off + sc * (i.eval env).toNat) (by omega))]
   rw [readBytes_of (f := env.byte0 r) (k := off + sc * (i.eval env).toNat)]
   · rfl
   · intro t ht

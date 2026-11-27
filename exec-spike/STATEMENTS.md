@@ -93,6 +93,14 @@ Deliberate differences:
   misaligned `jalr` target). Every `Post` has `Returns m m'` (pc = `x1 & ~1`, `sp`, `s0`–`s11`
   restored) and a `SameOutside` frame. `zisk_input_end`/`zisk_free_input` are not modelled (the
   plan's machine has no such registers).
+- Memory accesses (S5 probe 3): `Machine.load`/`Machine.store` accept any address whose `n` bytes
+  lie in one permitted interval (rodata, input or RAM for loads, RAM for stores) and are present;
+  natural alignment is no longer required. This matches the profile's Sail model
+  (`plat_misaligned_access.load_store = none`: `vmem_read_addr`/`vmem_write_addr` split a
+  misaligned access into aligned pieces) and ZisK. Every `Pre`/`Post` above that mentions
+  `Machine.load` reads it with this meaning; their text is unchanged. The `Pre` alignment
+  conjuncts that only served the old `load` (F2's `out % 8`, TX difference 1) remain and are now
+  stronger than needed.
 
 ## F0 `alt_fl_alloc.remap` (`Fn/F0/Spec.lean`)
 

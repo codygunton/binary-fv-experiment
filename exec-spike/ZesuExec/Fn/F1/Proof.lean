@@ -415,8 +415,7 @@ theorem header_load {env : Env} {S : SState} {mf : Machine} (he : EnvOk m env)
     (off : Nat) (hoff : off % 8 = 0 ∧ off + 8 ≤ 24) :
     mf.load (m.reg 10 + BitVec.ofNat 64 off) 8 = some ((readConst S 1 off 8).eval env) := by
   rw [← he.base1]
-  exact load_cst hwf hm (R := headerR) (by rw [hS]; rfl) hoff.1 (by decide)
-    (by rw [he.size1]; exact hoff.2)
+  exact load_cst hwf hm (R := headerR) (by rw [hS]; rfl) (by rw [he.size1]; exact hoff.2)
 
 /-- The end of the growing path: the header holds the new pointer, the old length and the grown
 capacity; the new block holds the items; the scratch word holds the copied byte count. -/

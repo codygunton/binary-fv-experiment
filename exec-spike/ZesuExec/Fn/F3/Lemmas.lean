@@ -14,13 +14,13 @@ open ZesuExec ZesuExec.Sym ZesuExec.Machine
 
 /-! ## Loads and bytes -/
 
-theorem load_some {m : Machine} {a : Word} {n : Nat} (ha : a.toNat % n = 0)
+theorem load_some {m : Machine} {a : Word} {n : Nat} (_ha : a.toNat % n = 0)
     (hr : readable a.toNat n = true) (hp : ∀ t < n, (m.mem (a + BitVec.ofNat 64 t)).isSome) :
     ∃ v, m.load a n = some v := by
   have hs : (readBytes m.mem a.toNat n).isSome := readBytes_isSome_of fun t ht => by
     rw [ofNat_toNat_add]; exact hp t ht
   obtain ⟨bs, hbs⟩ := Option.isSome_iff_exists.mp hs
-  exact ⟨ofBytesLE bs, by unfold Machine.load; rw [if_pos ⟨ha, hr⟩, hbs]; rfl⟩
+  exact ⟨ofBytesLE bs, by unfold Machine.load; rw [if_pos hr, hbs]; rfl⟩
 
 theorem byteList_map (f : Nat → Byte) : ∀ a n, byteList f a n = (List.range n).map fun t => f (a + t)
   | _, 0 => rfl

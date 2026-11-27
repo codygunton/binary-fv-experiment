@@ -1,10 +1,10 @@
-import ZesuExec.Sail.Forms.Mem
+import ZesuExec.Sail.Forms.Misaligned
 
 /-!
 # Simulation of the loads
 
-`ld lw lhu lbu lb`: `Machine.load` succeeds only for a naturally aligned range inside rodata,
-input or RAM whose bytes are all present; `Rel.mem` puts those bytes in Sail's byte map, the
+`ld lw lhu lbu lb`: `Machine.load` succeeds for a range inside rodata, input or RAM whose bytes
+are all present, at any alignment (a misaligned one runs `vmem_read_any_run`'s split path); `Rel.mem` puts those bytes in Sail's byte map, the
 profile's PMA regions allow the read, and the generated load returns their little-endian value.
 -/
 
@@ -53,7 +53,7 @@ theorem sim_ld {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   unfold Machine.load at hl
   split at hl
   · rename_i hc
-    obtain ⟨hal, hrd⟩ := hc
+    have hrd := hc
     simp only [Option.map_eq_some_iff] at hl
     obtain ⟨bs, hbs, rfl⟩ := hl
     obtain ⟨hlen, hbytes⟩ := readBytes_spec _ _ _ hbs
@@ -81,15 +81,17 @@ theorem sim_ld {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
       exact get_transformed_data_addr_machine_data_run .load st (rg rs1) 8 (m.reg rs1)
         (sign_extend (m := 64) imm) mst sec (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1)
         hmst' hpriv hmprv hsec' hpmm
-    have hal' := aligned_of_mod hal
     have hmem : ∀ (i : Nat) (h : i < [b0, b1, b2, b3, b4, b5, b6, b7].length),
         st.mem.get? ((m.reg rs1 + Machine.sx imm).toNat + i) =
           some [b0, b1, b2, b3, b4, b5, b6, b7][i] :=
       fun i h => hR.memAt (by simp at h; omega) (hbytes i h)
-    have hmr := mem_read_load_run st (m.reg rs1 + Machine.sx imm) mst
-      [b0, b1, b2, b3, b4, b5, b6, b7] hmst' hpriv hmprv hmem
-      (phys_access_check_machine_load_allowed st _ 8 (loadPma hpma (by decide) hrd) hal'.2)
-    have hread := vmem_read_dword_run st (rg rs1) _ _ mst _ hmst' hpriv hmprv addrReg hal'.1 hmr
+    have hread := vmem_read_any_run st (rg rs1) _ _ mst 3 (by decide) hmst' hpriv hmprv hpma
+      addrReg hrd [b0, b1, b2, b3, b4, b5, b6, b7] rfl hmem _ (toNat_leWord _) fun hal => by
+        have hal' := aligned_of_mod hal
+        have hmr := mem_read_load_run st (m.reg rs1 + Machine.sx imm) mst
+          [b0, b1, b2, b3, b4, b5, b6, b7] hmst' hpriv hmprv hmem
+          (phys_access_check_machine_load_allowed st _ 8 (loadPma hpma (by decide) hrd) hal'.2)
+        exact vmem_read_dword_run st (rg rs1) _ _ mst _ hmst' hpriv hmprv addrReg hal'.1 hmr
     have hval : (leWord [b0, b1, b2, b3, b4, b5, b6, b7] : BitVec 64) =
         Machine.ofBytesLE [b0, b1, b2, b3, b4, b5, b6, b7] :=
       BitVec.eq_of_toNat_eq (by rw [toNat_leWord]; exact (toNat_ofBytesLE _ (by simp)).symm)
@@ -113,7 +115,7 @@ theorem sim_lw {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   unfold Machine.load at hl
   split at hl
   · rename_i hc
-    obtain ⟨hal, hrd⟩ := hc
+    have hrd := hc
     simp only [Option.map_eq_some_iff] at hl
     obtain ⟨bs, hbs, rfl⟩ := hl
     obtain ⟨hlen, hbytes⟩ := readBytes_spec _ _ _ hbs
@@ -141,15 +143,17 @@ theorem sim_lw {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
       exact get_transformed_data_addr_machine_data_run .load st (rg rs1) 4 (m.reg rs1)
         (sign_extend (m := 64) imm) mst sec (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1)
         hmst' hpriv hmprv hsec' hpmm
-    have hal' := aligned_of_mod hal
     have hmem : ∀ (i : Nat) (h : i < [b0, b1, b2, b3].length),
         st.mem.get? ((m.reg rs1 + Machine.sx imm).toNat + i) =
           some [b0, b1, b2, b3][i] :=
       fun i h => hR.memAt (by simp at h; omega) (hbytes i h)
-    have hmr := mem_read_load_run st (m.reg rs1 + Machine.sx imm) mst
-      [b0, b1, b2, b3] hmst' hpriv hmprv hmem
-      (phys_access_check_machine_load_allowed st _ 4 (loadPma hpma (by decide) hrd) hal'.2)
-    have hread := vmem_read_word_run st (rg rs1) _ _ mst _ hmst' hpriv hmprv addrReg hal'.1 hmr
+    have hread := vmem_read_any_run st (rg rs1) _ _ mst 2 (by decide) hmst' hpriv hmprv hpma
+      addrReg hrd [b0, b1, b2, b3] rfl hmem _ (toNat_leWord _) fun hal => by
+        have hal' := aligned_of_mod hal
+        have hmr := mem_read_load_run st (m.reg rs1 + Machine.sx imm) mst
+          [b0, b1, b2, b3] hmst' hpriv hmprv hmem
+          (phys_access_check_machine_load_allowed st _ 4 (loadPma hpma (by decide) hrd) hal'.2)
+        exact vmem_read_word_run st (rg rs1) _ _ mst _ hmst' hpriv hmprv addrReg hal'.1 hmr
     change Runs (execute_LOAD imm (rg rs1) (rg rd) false 4) _ _ _
     refine execute_LOAD_run st _ imm (rg rs1) (rg rd) false 4 _ (by decide) hread ?_
     have hx : extend_value false (leWord [b0, b1, b2, b3] : BitVec (8 * 4)) =
@@ -170,7 +174,7 @@ theorem sim_lhu {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   unfold Machine.load at hl
   split at hl
   · rename_i hc
-    obtain ⟨hal, hrd⟩ := hc
+    have hrd := hc
     simp only [Option.map_eq_some_iff] at hl
     obtain ⟨bs, hbs, rfl⟩ := hl
     obtain ⟨hlen, hbytes⟩ := readBytes_spec _ _ _ hbs
@@ -198,15 +202,17 @@ theorem sim_lhu {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
       exact get_transformed_data_addr_machine_data_run .load st (rg rs1) 2 (m.reg rs1)
         (sign_extend (m := 64) imm) mst sec (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1)
         hmst' hpriv hmprv hsec' hpmm
-    have hal' := aligned_of_mod hal
     have hmem : ∀ (i : Nat) (h : i < [b0, b1].length),
         st.mem.get? ((m.reg rs1 + Machine.sx imm).toNat + i) =
           some [b0, b1][i] :=
       fun i h => hR.memAt (by simp at h; omega) (hbytes i h)
-    have hmr := mem_read_load_run st (m.reg rs1 + Machine.sx imm) mst
-      [b0, b1] hmst' hpriv hmprv hmem
-      (phys_access_check_machine_load_allowed st _ 2 (loadPma hpma (by decide) hrd) hal'.2)
-    have hread := vmem_read_half_run st (rg rs1) _ _ mst _ hmst' hpriv hmprv addrReg hal'.1 hmr
+    have hread := vmem_read_any_run st (rg rs1) _ _ mst 1 (by decide) hmst' hpriv hmprv hpma
+      addrReg hrd [b0, b1] rfl hmem _ (toNat_leWord _) fun hal => by
+        have hal' := aligned_of_mod hal
+        have hmr := mem_read_load_run st (m.reg rs1 + Machine.sx imm) mst
+          [b0, b1] hmst' hpriv hmprv hmem
+          (phys_access_check_machine_load_allowed st _ 2 (loadPma hpma (by decide) hrd) hal'.2)
+        exact vmem_read_half_run st (rg rs1) _ _ mst _ hmst' hpriv hmprv addrReg hal'.1 hmr
     change Runs (execute_LOAD imm (rg rs1) (rg rd) true 2) _ _ _
     refine execute_LOAD_run st _ imm (rg rs1) (rg rd) true 2 _ (by decide) hread ?_
     have hx : extend_value true (leWord [b0, b1] : BitVec (8 * 2)) =
@@ -227,7 +233,7 @@ theorem sim_lbu {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   unfold Machine.load at hl
   split at hl
   · rename_i hc
-    obtain ⟨hal, hrd⟩ := hc
+    have hrd := hc
     simp only [Option.map_eq_some_iff] at hl
     obtain ⟨bs, hbs, rfl⟩ := hl
     obtain ⟨hlen, hbytes⟩ := readBytes_spec _ _ _ hbs
@@ -255,7 +261,7 @@ theorem sim_lbu {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
       exact get_transformed_data_addr_machine_data_run .load st (rg rs1) 1 (m.reg rs1)
         (sign_extend (m := 64) imm) mst sec (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1)
         hmst' hpriv hmprv hsec' hpmm
-    have hal' := aligned_of_mod hal
+    have hal' := aligned_of_mod (Nat.mod_one (m.reg rs1 + Machine.sx imm).toNat)
     have hmem : ∀ (i : Nat) (h : i < [b0].length),
         st.mem.get? ((m.reg rs1 + Machine.sx imm).toNat + i) =
           some [b0][i] :=
@@ -284,7 +290,7 @@ theorem sim_lb {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   unfold Machine.load at hl
   split at hl
   · rename_i hc
-    obtain ⟨hal, hrd⟩ := hc
+    have hrd := hc
     simp only [Option.map_eq_some_iff] at hl
     obtain ⟨bs, hbs, rfl⟩ := hl
     obtain ⟨hlen, hbytes⟩ := readBytes_spec _ _ _ hbs
@@ -312,7 +318,7 @@ theorem sim_lb {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
       exact get_transformed_data_addr_machine_data_run .load st (rg rs1) 1 (m.reg rs1)
         (sign_extend (m := 64) imm) mst sec (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1)
         hmst' hpriv hmprv hsec' hpmm
-    have hal' := aligned_of_mod hal
+    have hal' := aligned_of_mod (Nat.mod_one (m.reg rs1 + Machine.sx imm).toNat)
     have hmem : ∀ (i : Nat) (h : i < [b0].length),
         st.mem.get? ((m.reg rs1 + Machine.sx imm).toNat + i) =
           some [b0][i] :=

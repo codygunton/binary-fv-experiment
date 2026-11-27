@@ -18,6 +18,6 @@ def decodeAgrees : Nat × Nat × String → Bool
 
 theorem decode_table : Expected.table.all decodeAgrees = true := by decide +kernel
 
-theorem decode_table_size : Expected.table.length = 1249 := by decide +kernel
+theorem decode_table_size : Expected.table.length = 1572 := by decide +kernel
 
 end ZesuExec.Test
