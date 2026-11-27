@@ -4,15 +4,17 @@ import ZesuExec.Fn.DTF.Lemmas
 # DTF: cut lemmas of the call return sites (programme plan S7 step 4)
 
 `cut_ret`: the cut lemma of a return site whose callee writes only DTF's stack below the save
-area, the outcome slot it is handed, or the allocator's memory (`decodeItem`, `alloc`, `remap`).
-`ret_common` is "`Common` survives the call" per callee kind (TX's `common_ret`/`common_f2` are the
-model); `RetFine` (checked by `decide` per cut) says the cut's pointer-valued registers are
-callee-saved and held the same value at the call, and its pointer-valued frame slots held the same
-value at the call and lie outside what the callee writes (`Kind.Keeps`).
+area, the outcome or result slots it is handed, the scratch word, or the allocator's memory
+(`decodeItem`, `alloc`, `remap`, TX). `ret_common` is "`Common` survives the call" per callee kind
+(TX's `common_ret`/`common_f2` are the model); `RetFine` (checked by `decide` per cut) says the
+cut's pointer-valued registers are callee-saved and held the same value at the call, and its
+pointer-valued frame slots held the same value at the call and lie outside what the callee writes
+(`Kind.Keeps`). After TX the live list gains the returned or leaked blocks; `added_priv` shows
+they were `Priv g.L` (in the arena, apart from the caller's blocks).
 
 Not covered (their callee writes memory the assertions do not locate yet, `OPEN/DTF/CUTS.md`
 groups 1 and 3): `memcpy` (the destination), `free` (the freed block must be one of DTF's), F1 and
-F4 (the list buffer), TX (the returned blocks are not stated to come from `Priv g.L`).
+F4 (the list buffer).
 -/
 
 namespace ZesuExec.Fn.DTF
@@ -134,11 +136,16 @@ theorem regFr_spec {s : Site} {i k : Nat} (h : regFr s i = some k) :
   · next heq => cases h; exact heq
   · cases h
 
-/-- The kinds `ret_common` covers, with what it needs of the call site: `sp = fr`, and for
-`decodeItem` the outcome slot `a0 = fr + k` below the save area. -/
+/-- The kinds `ret_common` covers, with what it needs of the call site: `sp = fr`; for
+`decodeItem` the outcome slot `a0 = fr + k` below the save area; for TX the result `a0 = fr + k`
+and the `rest` slice `a2 = fr + k'` below the save area. -/
 def Kind.SiteFine : Kind → Site → Bool
   | .f2, s => regFr s 2 == some 0 &&
       (match regFr s 10 with | some k => decide (k + 40 + 104 ≤ frameBytes) | none => false)
+  | .tx, s => regFr s 2 == some 0 &&
+      (match regFr s 10, regFr s 12 with
+       | some k, some k' => decide (k + 24 + 104 ≤ frameBytes ∧ k' + 16 + 104 ≤ frameBytes)
+       | _, _ => false)
   | .alloc, s | .remap, s => regFr s 2 == some 0
   | _, _ => false
 
@@ -147,6 +154,9 @@ def Kind.Keeps : Kind → Site → Nat → Bool
   | .f2, s, o => match regFr s 10 with
     | some k => decide (o + 8 ≤ k ∨ k + 40 ≤ o)
     | none => false
+  | .tx, s, o => match regFr s 10, regFr s 12 with
+    | some k, some k' => decide ((o + 8 ≤ k ∨ k + 24 ≤ o) ∧ (o + 8 ≤ k' ∨ k' + 16 ≤ o))
+    | _, _ => false
   | .alloc, _, _ | .remap, _, _ => true
   | _, _, _ => false
 
@@ -272,6 +282,152 @@ theorem ret_remap {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
   unfold frameBytes stackBytes TX.stackBytes Layout.ramLo at *
   rw [r2] at h; simp only [InRange, e2] at h; omega
 
+/-! ### TX -/
+
+/-- The scratch word: DTF's, outside its stack, not the allocator's. -/
+theorem scratch_R {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {a : Word} (h : InRange TX.scratch 8 a) :
+    CallR σ a ∧ ¬ σ.A.Priv σ.g.L a ∧ ¬ InRange (σ.S - w stackBytes) stackBytes a := by
+  have h1 := S_sub_toNat hpre (k := 104) (by decide)
+  have h2 := S_sub_toNat hpre (k := stackBytes) (Nat.le_refl _)
+  have hsp := pre_sp hpre
+  have d : TX.Apart TX.scratch 8 (σ.S - w stackBytes) stackBytes := by
+    obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, d, -⟩ := hpre
+    exact d
+  unfold TX.Apart at d
+  rw [h2] at d
+  refine ⟨⟨.inl (.inr (.inr h)), fun hs => ?_⟩, owned_not_priv hpre (.inr (.inr h)), fun hs => ?_⟩
+  · simp only [InRange, h1] at hs h; unfold stackBytes TX.stackBytes at *; omega
+  · simp only [InRange, h2] at hs h; omega
+
+/-- A block a callee adds to DTF's live list lies in `Priv g.L`: it is in the allocator's arena
+and apart from the caller's blocks (`arena_split` at the entry and after the call, `live_ok`). -/
+theorem added_priv {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {m : Machine}
+    {L X B L' : List (Word × Nat)} (hLX : L.Perm (σ.g.L ++ X)) (hL' : L'.Perm (L ++ B))
+    (hheap : σ.A.Heap L' m) {b : Word × Nat} (hb : b ∈ B) {a : Word} (ha : InRange b.1 b.2 a) :
+    σ.A.Priv σ.g.L a := by
+  have hheap0 : σ.A.Heap σ.g.L σ.m := hpre.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+  have hbL' : b ∈ L' := hL'.symm.subset (List.mem_append_right _ hb)
+  have harena := (σ.A.arena_split L' m a hheap).mpr (.inr ⟨b, hbL', ha⟩)
+  rcases (σ.A.arena_split σ.g.L σ.m a hheap0).mp harena with h | ⟨c, hc, hca⟩
+  · exact h
+  · exfalso
+    have hp : L'.Perm ((σ.g.L ++ X) ++ B) := hL'.trans (hLX.append_right B)
+    have hpw := (hp.pairwise_iff fun {x y} h => Or.symm h).mp (σ.A.live_ok L' m hheap).1
+    have := (List.pairwise_append.mp hpw).2.2 c (List.mem_append_left _ hc) b hb
+    simp only [InRange] at hca ha
+    omega
+
+/-- `Live` after a callee that adds the blocks `B` to the live list. -/
+theorem live_ext {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {mc m : Machine}
+    {L X B L' : List (Word × Nat)} (hlive : Live σ mc L X)
+    (hB : ∀ b ∈ B, 0 < b.2 ∧ RamRange b.1 b.2) (hL' : L'.Perm (L ++ B))
+    (hheap : σ.A.Heap L' m) : Live σ m L' (X ++ B) := by
+  refine ⟨hheap, ?_, fun b hb => ?_⟩
+  · rw [← List.append_assoc]; exact hL'.trans (hlive.2.1.append_right B)
+  · rcases List.mem_append.mp hb with hb | hb
+    · exact hlive.2.2 b hb
+    · exact ⟨(hB b hb).1, (hB b hb).2, fun a ha => added_priv hpre hlive.2.1 hL' hheap hb ha⟩
+
+theorem returned_ok {p : Word} {es : List TX.EntryValue} {is : List TX.EntryImage}
+    (hne : es ≠ [] → RamRange p (TX.entrySize * es.length))
+    (hz : ∀ x ∈ List.zip es is, x.1.keys ≠ [] →
+      RamRange x.2.keysPtr (TX.keySize * x.1.keys.length)) :
+    ∀ b ∈ TX.returnedBlocks p es is, 0 < b.2 ∧ RamRange b.1 b.2 := by
+  intro b hb
+  simp only [TX.returnedBlocks, List.mem_append, List.mem_filterMap] at hb
+  rcases hb with hb | ⟨⟨e, i⟩, hmem, hb⟩
+  · split at hb
+    · simp at hb
+    · next h =>
+      simp only [List.mem_singleton] at hb
+      subst hb
+      exact ⟨Nat.mul_pos (by decide) (List.length_pos_iff.mpr h), hne h⟩
+  · split at hb
+    · simp at hb
+    · next h =>
+      simp only [Option.some.injEq] at hb
+      subst hb
+      exact ⟨Nat.mul_pos (by decide) (List.length_pos_iff.mpr h), hz _ hmem h⟩
+
+theorem ret_tx {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
+    (hkd : s.kind = .tx) (hk : Kind.SiteFine .tx s = true) (hsite : SiteA s r σ x mc)
+    (hq : TX.Post σ.A x.2.2 mc m) (hp : Preserved mc m) : RetOut σ .tx s mc m := by
+  have hc := hsite.2.1
+  have hpre := hc.2.1
+  have hfr := fr_toNat hpre
+  have hsp := pre_sp hpre
+  have hix := hsite.2.2.2.2.2
+  rw [hkd] at hix
+  obtain ⟨-, hgL, X, hlive⟩ := hix
+  simp only [Kind.SiteFine, Bool.and_eq_true, beq_iff_eq] at hk
+  obtain ⟨h2, h1012⟩ := hk
+  cases h10' : regFr s 10 with
+  | none => simp [h10'] at h1012
+  | some ka =>
+  cases h12' : regFr s 12 with
+  | none => simp [h10', h12'] at h1012
+  | some kb =>
+  simp only [h10', h12', decide_eq_true_eq] at h1012
+  have r10 : mc.reg 10 = σ.fr + w ka := hsite.2.2.1.1 _ (lookup_mem (regFr_spec h10')) _ rfl
+  have r12 : mc.reg 12 = σ.fr + w kb := hsite.2.2.1.1 _ (lookup_mem (regFr_spec h12')) _ rfl
+  have r2 := sp_fr hsite h2
+  have e10 := fr_add_toNat hpre (k := ka) (by omega)
+  have e12 := fr_add_toNat hpre (k := kb) (by omega)
+  have e2 : (σ.fr + w 0 - BitVec.ofNat 64 TX.stackBytes).toNat = σ.S.toNat - stackBytes := by
+    rw [show σ.fr + w 0 - BitVec.ofNat 64 TX.stackBytes = σ.S - w stackBytes by
+      simp only [Sig.fr, w, frameBytes, stackBytes]; bv_omega]
+    exact S_sub_toNat hpre (Nat.le_refl _)
+  obtain ⟨hret, hso, -, cls, consumed, -, -, -, himg⟩ := hq
+  rw [hgL] at hso
+  unfold frameBytes at *
+  have hRs : ∀ a, (InRange (mc.reg 10) 24 a ∨ InRange (mc.reg 12) 16 a ∨
+      InRange (mc.reg 2 - BitVec.ofNat 64 TX.stackBytes) TX.stackBytes a) →
+      CallR σ a ∧ ¬ σ.A.Priv σ.g.L a := by
+    rintro a (h | h | h)
+    · rw [r10] at h
+      exact stack_R hpre (by rw [e10]; unfold stackBytes TX.stackBytes at *; omega)
+        (by rw [e10]; unfold stackBytes TX.stackBytes Layout.ramLo at *; omega) h
+    · rw [r12] at h
+      exact stack_R hpre (by rw [e12]; unfold stackBytes TX.stackBytes at *; omega)
+        (by rw [e12]; unfold stackBytes TX.stackBytes Layout.ramLo at *; omega) h
+    · rw [r2] at h
+      exact stack_R hpre (by rw [e2]; exact Nat.le_refl _)
+        (by rw [e2]; unfold stackBytes TX.stackBytes at *; omega) h
+  have hlive' : ∃ L X, Live σ m L X := by
+    cases cls with
+    | ok es =>
+      obtain ⟨p, is, -, -, -, -, hne, -, hz, L', hperm, hheap⟩ := himg
+      rw [hgL] at hperm
+      exact ⟨L', X ++ TX.returnedBlocks p es is, live_ext hpre hlive
+        (returned_ok hne fun y hy => (hz y hy).2.1) hperm hheap⟩
+    | invalidInput =>
+      obtain ⟨-, -, -, lk, hlk, L', hperm, hheap⟩ := himg
+      rw [hgL] at hperm
+      exact ⟨L', X ++ lk, live_ext hpre hlive hlk hperm hheap⟩
+    | allocationFailure =>
+      obtain ⟨-, -, -, lk, hlk, L', hperm, hheap⟩ := himg
+      rw [hgL] at hperm
+      exact ⟨L', X ++ lk, live_ext hpre hlive hlk hperm hheap⟩
+  refine ⟨hret, common_ret hc hret hp hso (fun a h => ?_) hlive', fun o ho hko => ?_⟩
+  · rcases h with h | h | h | h | h
+    · exact (hRs a (.inl h)).1
+    · exact (hRs a (.inr (.inl h))).1
+    · exact (hRs a (.inr (.inr h))).1
+    · exact (scratch_R hpre h).1
+    · exact priv_R hpre (priv_sub hpre hlive h)
+  · simp only [Kind.Keeps, h10', h12', decide_eq_true_eq] at hko
+    refine frame_keep hpre hso ho fun a h => ?_
+    rcases h with h | h | h | h | h
+    · rw [r10] at h; simp only [InRange, e10] at h; omega
+    · rw [r12] at h; simp only [InRange, e12] at h; omega
+    · rw [r2] at h; simp only [InRange, e2] at h; unfold stackBytes TX.stackBytes at *; omega
+    · have hs := (scratch_R hpre h).2.2
+      have h2s := S_sub_toNat hpre (k := stackBytes) (Nat.le_refl _)
+      simp only [InRange, h2s] at hs
+      unfold frameBytes stackBytes TX.stackBytes at *
+      omega
+    · exact frame_not_priv hpre ho (priv_sub hpre hlive h)
+
 /-- "`Common` survives the call" for the kinds of `Kind.SiteFine`, with the frame words of
 `Kind.Keeps`. -/
 theorem ret_common {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
@@ -283,6 +439,7 @@ theorem ret_common {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
   case f2 => exact ret_f2 hk hsite hq hp
   case alloc => exact ret_alloc hkd hk hsite hq hp
   case remap => exact ret_remap hk hsite hq hp
+  case tx => exact ret_tx hkd hk hsite hq hp
   all_goals simp [Kind.SiteFine] at hk
 
 /-! ## The cut lemma of a return site -/

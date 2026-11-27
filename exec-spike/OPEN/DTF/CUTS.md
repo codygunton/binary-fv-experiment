@@ -61,10 +61,9 @@ buffer slot (RAM, present, from `Priv`), `0x800011f8` the written result (`Done`
    term `20·(end - cur)` needs `end - cur ≤ 32`).
 5. Callee indices beyond the heap: F1/F4's list bytes, TX's input. (`IdxOk` now states the
    callee's `Pre` and, for the allocator, F1, F4 and TX, `Live σ m x.1 X`.)
-6. For the TX return sites: `Live` after TX needs the returned/leaked blocks to come from
-   `Priv g.L`; TX's `OutcomeImage` states `L' ~ g.L ++ blocks` and `Heap L' m'` only. Either
-   derive it (`arena_split` at the entry and at `m'`, blocks disjoint from `g.L` by `live_ok`) or
-   weaken `Live`'s carve condition.
+6. (Settled.) `Live` after TX: the returned/leaked blocks are `Priv g.L` by `added_priv`
+   (`Ret.lean`: `arena_split` at the entry and after the call, apart from `g.L`'s blocks by
+   `live_ok`).
 
 ## Budgets
 
@@ -77,14 +76,13 @@ bytes), authorization loop 4200 ≤ 256·27 (a tuple is ≥ 27 bytes). Entry bud
 
 ## Cut lemmas (`Lemmas.lean`, `Ret.lean`, `Leaves.lean`)
 
-146 of 161 closed: `cut_plain` (70 jump/branch-only cuts), `cut_ret` (72 return sites of
-`decodeItem`, `alloc`, `remap`), `cut_entry`, `cut_table` (`0x80000574`), `cut_slot`
-(`0x80002138`, `0x80002434`). Open (15), each needing a fact the assertions do not state yet:
+150 of 161 closed: `cut_plain` (70 jump/branch-only cuts), `cut_ret` (76 return sites of
+`decodeItem`, `alloc`, `remap`, TX), `cut_entry`, `cut_table` (`0x80000574`), `cut_slot`
+(`0x80002138`, `0x80002434`). Open (11), each needing a fact the assertions do not state yet:
 
 | cut | callee | missing |
 |---|---|---|
 | `0x800017c4`, `0x80001a5c`, `0x80001c84`, `0x80001d40`, `0x80001eb0`, `0x80002a38`, `0x80002ee0` | `memcpy` | the destination range (`Owned ∨ Priv g.L`, apart from the save area and the shape's slots): items 1/3 |
 | `0x80002a6c` (also a jump target), `0x80002f14` | `free` | the freed block is one of DTF's (`∈ X`), item 3 |
-| `0x80001a70`, `0x80001c98`, `0x80001d54`, `0x80001ec4` | TX | item 6 |
 | `0x8000211c` | F1 | the list buffer's block is DTF's (item 3) |
 | `0x80002180` | F4 | the list buffer's block is DTF's (item 3) |
