@@ -505,12 +505,14 @@ structure EDSame (σ : Sig) (o : Obs) (k : Kobs) (kp' : Word) (mc m : Machine) :
   blk : ∀ b ∈ EX o ++ KD k kp', ∀ t < b.2,
     m.mem (b.1 + BitVec.ofNat 64 t) = mc.mem (b.1 + BitVec.ofNat 64 t)
 
-/-- `EntryDone` carries over to a machine that keeps its bytes, its registers and the heap. -/
-theorem ed_congr {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs} {L X : List (Word × Nat)}
-    {kp' : Word} (h : EntryDone σ mc o k L kp' X) (hcm : Common σ m) (hheap : σ.A.Heap L m)
+/-- `EntryDone` carries over to a machine that keeps its bytes and registers, with the live list
+the new machine has. -/
+theorem ed_congr' {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs} {L X L' X' : List (Word × Nat)}
+    {kp' : Word} (h : EntryDone σ mc o k L kp' X) (hcm : Common σ m)
+    (hl : Live σ m L' (EX o ++ KD k kp' ++ X'))
     (hr : ∀ i ∈ ([20, 21, 26] : List (Fin 32)), m.reg i = mc.reg i)
-    (hs : EDSame σ o k kp' mc m) : EntryDone σ m o k L kp' X := by
-  obtain ⟨-, hok, ⟨r20, r21, hi, hmag⟩, hEL, hlive, ⟨hd, hle, r26⟩, ⟨had, hal, hA⟩, hkl, hkw,
+    (hs : EDSame σ o k kp' mc m) : EntryDone σ m o k L' kp' X' := by
+  obtain ⟨-, hok, ⟨r20, r21, hi, hmag⟩, hEL, -, ⟨hd, hle, r26⟩, ⟨had, hal, hA⟩, hkl, hkw,
     hram, hkb, hkeys, hB⟩ := h
   have l0 := hs.slot (0x1f0, 8) (by simp)
   have l1 := hs.slot (0x1c0, 24) (by simp)
@@ -527,7 +529,7 @@ theorem ed_congr {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs} {L X : List (W
     ⟨(hr 20 (by decide)).trans r20, (hr 21 (by decide)).trans r21, hi,
       (load_congr fun t ht => l0 t ht).trans hmag⟩,
     ⟨hdr_congr hH l1, hle', hp0, hc0, hc32, hram', hil, ?_, fun x hx => ?_⟩,
-    ⟨hheap, hlive.2.1, hlive.2.2⟩, ⟨hd, hle, (hr 26 (by decide)).trans r26⟩,
+    hl, ⟨hd, hle, (hr 26 (by decide)).trans r26⟩,
     ⟨had, hal, hA'⟩, hkl, hkw, hram, ?_, hkeys, hB'⟩
   · rw [load_congr fun t ht => hs.rest t (by omega)]; exact hok.2.2.1
   · rw [load_congr (m := mc) fun t ht => by
@@ -554,6 +556,13 @@ theorem ed_congr {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs} {L X : List (W
     · rw [hk]; intro i hi; simp at hi
     · exact bytes_congr hkb fun t ht => hs.blk (kp', keySize * k.keys.length)
         (by simp [KD, hk]) t (by rw [flatten_length _ hkeys] at ht; exact ht)
+
+/-- `EntryDone` carries over to a machine that keeps its bytes, its registers and the heap. -/
+theorem ed_congr {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs} {L X : List (Word × Nat)}
+    {kp' : Word} (h : EntryDone σ mc o k L kp' X) (hcm : Common σ m) (hheap : σ.A.Heap L m)
+    (hr : ∀ i ∈ ([20, 21, 26] : List (Fin 32)), m.reg i = mc.reg i)
+    (hs : EDSame σ o k kp' mc m) : EntryDone σ m o k L kp' X :=
+  ed_congr' h hcm ⟨hheap, h.2.2.2.2.1.2.1, h.2.2.2.2.1.2.2⟩ hr hs
 
 /-- Blocks in different parts of TX's live blocks do not meet. -/
 theorem live_apart {σ : Sig} {m : Machine} {L Y1 Y2 : List (Word × Nat)}
