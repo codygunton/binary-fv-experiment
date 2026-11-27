@@ -220,9 +220,40 @@ def accessListInput (t : Nat) (payload : List Byte) : Option (List Byte) :=
   if t = 0 then none
   else ((typedHead (t == 2 || 3 ≤ t) *> get) : P (List Byte)).run' payload
 
-/-- Domain: the access list, when reached, is in `txAccessList`'s domain (`TX.Domain`). -/
+/-- The number of top-level items `body t` reads. -/
+def fieldCount : Nat → Nat
+  | 0 => 9
+  | 1 => 11
+  | 2 => 12
+  | 3 => 14
+  | _ => 13
+
+/-- `TX.HeaderFits` for the first `n` items of `b`, each reached while the items before it
+decode (`decodeItem` successes, `rest` advancing by `TX.itemRest`); `inner` for the payload of every
+list item among them. -/
+def ItemsFit (inner : List Byte → Prop) : Nat → List Byte → Prop
+  | 0, _ => True
+  | n + 1, b => TX.HeaderFits b ∧
+    match F2.decode b with
+    | .success isList h p =>
+      (isList = true → inner (TX.itemPayload b h p)) ∧ ItemsFit inner n (TX.itemRest b h p)
+    | .error => True
+
+/-- Header fit for every `decodeItem` call `body t` can reach: the first `fieldCount t` top-level
+items, the items of a top-level list's payload (the access list's entries, the versioned hashes, the
+authorization tuples) and the items of those items' list payloads (an authorization tuple's
+fields). It over-approximates the calls reached: it does not stop at a field check that fails, and
+descends into a list item at any position. -/
+def Fits (t : Nat) (payload : List Byte) : Prop :=
+  ItemsFit (fun p => ItemsFit (fun q => ItemsFit (fun _ => True) q.length q) p.length p)
+    (fieldCount t) payload
+
+/-- Domain: the access list, when reached, is in `txAccessList`'s domain (`TX.Domain`), and every
+item header the decoder reaches fits in 64 bits (`Fits`, as TX's `HeaderFits` on its calls):
+`decodeItem` accepts a header whose `h + p` wraps `2^64`, and the `data` field would then ask the
+allocator for `p ≥ 2^63` bytes (`STATEMENTS.md` § DTF point 6). -/
 def Domain (t : Nat) (payload : List Byte) : Prop :=
-  ∀ r, accessListInput t payload = some r → TX.Domain r
+  (∀ r, accessListInput t payload = some r → TX.Domain r) ∧ Fits t payload
 
 /-! ## Machine contract -/
 

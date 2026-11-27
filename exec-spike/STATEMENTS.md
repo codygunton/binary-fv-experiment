@@ -548,7 +548,8 @@ debug object's layout of `input.Transaction` (0x120 bytes; error code at `+0x120
   bits.
 - `Pre A g`: result 0x128 bytes in RAM; allocator object `{ctx, alt_fl_alloc.vtable}`;
   **`tx_type ≤ 4`** (the binary's jump table has no range check; both callers ensure it); payload in
-  the input buffer or RAM with `Domain` (TX's domain on the access list's input, when reached);
+  the input buffer or RAM with `Domain` (TX's domain on the access list's input, when reached, and
+  `Fits`: every item header the decoder can reach fits in 64 bits — point 6);
   scratch word, `A.Heap g.L`, separation and "avoids `Priv`" as for TX. Stack: frame 0x370 plus
   TX's 704.
 - `Post A g`: `Returns`; frame (result, stack, scratch, `Priv`); the heap gains `fresh` blocks; and
@@ -575,14 +576,23 @@ Open (to settle before review):
 5. Sail agreement (EVM-Sail `decode_legacy_tx`, `decode_access_list_tx`, `decode_fee_market_tx`,
    `decode_blob_tx`, `decode_set_code_tx` in `vendor/evm-sail-lean/Evm/Lib/Rlp/Codecs/Transactions.lean`)
    and the known-bug classes belong to a later compliance statement.
-6. (Found in S7 step 4, DTFCursor.) `Pre` has no header-fit domain for the items DTF itself
-   decodes. `decodeItem` accepts an item whose `h + p` wraps (`(h + p) mod 2^64 ≤ len`, e.g. a
-   long string header `0xbf` with `p = 2^64 - 1`), and the `data` field then calls the allocator
-   with `n = p` (`0x800016e8`: only `n = 0` is tested) and `memcpy(block, ptr, p)`. The assumed
-   allocator contract needs `n < 2^63` (`allocPre`), so the 5 `data` `alloc` call leaves (from
-   `0x800013c8`, `0x80001748`, `0x800018a4`, `0x80001940`, `0x800019dc`) and the `memcpy` leaves
-   after them cannot be proved under the draft `Pre` on such inputs. Proposed
-   fix (not applied): a `Domain` conjunct like TX's — `HeaderFits` for every `decodeItem` call the
-   reference decoder reaches on the payload (`h + p < 2^64`), which also gives the reference
-   decoder's `item` its unwrapped consumption.
+6. (Settled; found in S7 step 4 by DTFCursor, change approved by the coordinator.) `Pre` had no
+   header-fit domain for the items DTF itself decodes. `decodeItem` accepts an item whose `h + p`
+   wraps (`(h + p) mod 2^64 ≤ len`, e.g. a long string header `0xbf` with `p = 2^64 - 1`), and the
+   `data` field then calls the allocator with `n = p` (`0x800016e8`: only `n = 0` is tested) and
+   `memcpy(block, ptr, p)`; the assumed allocator contract needs `n < 2^63` (`allocPre`), so the 5
+   `data` `alloc` call leaves (from `0x800013c8`, `0x80001748`, `0x800018a4`, `0x80001940`,
+   `0x800019dc`) could not be proved on such inputs. Likewise a wrapped list item (hash list,
+   authorization list, a tuple) would hand `decodeItem` a slice longer than the input.
+   **Change:** `Domain t payload` gains the conjunct `Fits t payload` (`Fn/DTF/Spec.lean`), modelled on
+   TX's `Domain` and reusing `TX.HeaderFits`: `ItemsFit` — `HeaderFits` of the first
+   `fieldCount t` top-level items (9/11/12/14/13 for `t` = 0..4), each reached while the items before
+   it decode (`rest` advancing by `TX.itemRest`, as `skip`), and recursively of the items of every
+   list item's payload, two levels deep (access-list entries, versioned hashes, authorization tuples,
+   a tuple's fields). It over-approximates the calls the reference decoder reaches (it does not stop
+   at a failing field check and descends into a list item at any position); `Domain` stays a single
+   `Pre` conjunct, so no proof reading `Pre` by index changed. Checked on the 19 DTF snapshots'
+   inputs (`test/snapshots/DTF/*.json`, `tx_type` = `a2`, payload = the `a4` bytes at `a3`): a
+   scratch file proves `Fits t payload` for all 19 by `decide +kernel` over a `Bool` mirror
+   (`itemsB`, `itemsB_iff`); not committed.
 - Non-vacuity: not yet stated; `decide` checks the decoder on four inputs.

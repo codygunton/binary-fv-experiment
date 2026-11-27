@@ -147,7 +147,7 @@ def Kind.SiteFine : Kind → Site → Bool
       (match regFr s 10, regFr s 12 with
        | some k, some k' => decide (k + 24 + 104 ≤ frameBytes ∧ k' + 16 + 104 ≤ frameBytes)
        | _, _ => false)
-  | .alloc, s | .remap, s => regFr s 2 == some 0
+  | .alloc, s | .remap, s | .memcpy, s => regFr s 2 == some 0
   | _, _ => false
 
 /-- The frame word at `o` survives the call. -/
@@ -158,7 +158,7 @@ def Kind.Keeps : Kind → Site → Nat → Bool
   | .tx, s, o => match regFr s 10, regFr s 12 with
     | some k, some k' => decide ((o + 8 ≤ k ∨ k + 24 ≤ o) ∧ (o + 8 ≤ k' ∨ k' + 16 ≤ o))
     | _, _ => false
-  | .alloc, _, _ | .remap, _, _ => true
+  | .alloc, _, _ | .remap, _, _ | .memcpy, _, _ => true
   | _, _, _ => false
 
 theorem sp_fr {σ : Sig} {s : Site} {x : Idx} {r : Nat} {mc : Machine} (hsite : SiteA s r σ x mc)
@@ -225,7 +225,7 @@ theorem ret_alloc {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
   have hc := hsite.2.1
   have hpre := hc.2.1
   have hfr := fr_toNat hpre
-  have hix := hsite.2.2.2.2.2
+  have hix := hsite.2.2.2.2.2.1
   rw [hkd] at hix
   obtain ⟨hapre, X, hlive⟩ := hix
   simp only [Kind.SiteFine, beq_iff_eq] at hk
@@ -357,7 +357,7 @@ theorem ret_tx {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
   have hpre := hc.2.1
   have hfr := fr_toNat hpre
   have hsp := pre_sp hpre
-  have hix := hsite.2.2.2.2.2
+  have hix := hsite.2.2.2.2.2.1
   rw [hkd] at hix
   obtain ⟨-, hgL, X, hlive⟩ := hix
   simp only [Kind.SiteFine, Bool.and_eq_true, beq_iff_eq] at hk
@@ -429,6 +429,65 @@ theorem ret_tx {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
       omega
     · exact frame_not_priv hpre ho (priv_sub hpre hlive h)
 
+/-! ### `memcpy` -/
+
+/-- A byte of `[lo, lo + n)` is `lo + j` for some `j < n`. -/
+theorem inRange_off {lo a : Word} {n : Nat} (h : InRange lo n a) :
+    ∃ j < n, a = lo + BitVec.ofNat 64 j := by
+  refine ⟨a.toNat - lo.toNat, by simp only [InRange] at h; omega, ?_⟩
+  apply BitVec.eq_of_toNat_eq
+  have := a.isLt
+  simp only [InRange] at h
+  rw [toNat_add_ofNat (by omega)]
+  omega
+
+/-- `memcpy` writes its destination, bytes of one of DTF's blocks (`MemDst`), and the scratch
+word. -/
+theorem ret_memcpy {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
+    (hkd : s.kind = .memcpy) (hsite : SiteA s r σ x mc) (hq : MemcpyPost mc m)
+    (hp : Preserved mc m) : RetOut σ .memcpy s mc m := by
+  have hc := hsite.2.1
+  have hpre := hc.2.1
+  have hfr := fr_toNat hpre
+  have hsp := pre_sp hpre
+  have h2 := S_sub_toNat hpre (k := stackBytes) (Nat.le_refl _)
+  have hix := hsite.2.2.2.2.2.1
+  rw [hkd] at hix
+  obtain ⟨-, hdst⟩ := hix
+  have hq' : ziskMemcpy mc = some m := hq
+  let R : Word → Prop := fun a =>
+    InRange (mc.reg 10) (mc.reg 12).toNat a ∨ InRange TX.scratch 8 a
+  have hso : SameOutside R mc m := fun a ha =>
+    memcpy_out hq' (fun h => ha (.inl h)) (fun h => ha (.inr h))
+  -- the live list after the call, and what `R` is
+  obtain ⟨L, X, hlive, hdR⟩ : ∃ L X, Live σ mc L X ∧
+      ∀ a, InRange (mc.reg 10) (mc.reg 12).toNat a → ∃ b ∈ X, InRange b.1 b.2 a := by
+    rcases hdst with h0 | ⟨L, X, hl, b, hb, hin⟩
+    · obtain ⟨L, X, hl⟩ := hc.2.2.2.2.2.2.2.2
+      exact ⟨L, X, hl, fun a ha => by simp only [InRange, h0] at ha; omega⟩
+    · refine ⟨L, X, hl, fun a ha => ?_⟩
+      obtain ⟨j, hj, rfl⟩ := inRange_off ha
+      exact ⟨b, hb, hin j hj⟩
+  have hdP : ∀ a, InRange (mc.reg 10) (mc.reg 12).toNat a → σ.A.Priv σ.g.L a ∧ ¬ σ.A.Priv L a :=
+    fun a ha => by
+      obtain ⟨b, hb, hin⟩ := hdR a ha
+      refine ⟨(hlive.2.2 b hb).2.2 a hin, fun hP => σ.A.priv_not_live L a hP ⟨b, ?_, hin⟩⟩
+      exact hlive.2.1.symm.subset (List.mem_append_right _ hb)
+  have hRs : ∀ a, InRange TX.scratch 8 a → ¬ InRange (σ.S - w stackBytes) stackBytes a :=
+    fun a h => (scratch_R hpre h).2.2
+  refine ⟨⟨by rw [memcpy_eq hq'], fun i _ => memcpy_reg hq' i⟩,
+    common_keep hc hp hso (fun a h => h.elim (fun h => priv_R hpre (hdP a h).1)
+      (fun h => (scratch_R hpre h).1))
+      ⟨L, X, live_keep hlive hso hp fun a h hP => h.elim (fun h => (hdP a h).2 hP)
+        (fun h => (scratch_R hpre h).2.1 (priv_sub hpre hlive hP))⟩,
+    fun o ho _ => frame_keep hpre hso ho fun a h => ?_⟩
+  rcases h with h | h
+  · exact frame_not_priv hpre ho (hdP a h).1
+  · refine Classical.byContradiction fun hn => hRs a h ?_
+    simp only [InRange, h2]
+    unfold frameBytes stackBytes TX.stackBytes at *
+    omega
+
 /-- "`Common` survives the call" for the kinds of `Kind.SiteFine`, with the frame words of
 `Kind.Keeps`. -/
 theorem ret_common {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
@@ -441,6 +500,7 @@ theorem ret_common {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
   case alloc => exact ret_alloc hkd hk hsite hq hp
   case remap => exact ret_remap hk hsite hq hp
   case tx => exact ret_tx hkd hk hsite hq hp
+  case memcpy => exact ret_memcpy hkd hsite hq hp
   all_goals simp [Kind.SiteFine] at hk
 
 /-! ## The cut lemma of a return site -/

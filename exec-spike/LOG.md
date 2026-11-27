@@ -1019,3 +1019,29 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   (`complianceName`). Axioms guards for `f1_spec_keep`, `TX.reach`, `tx_spec`, `tx_sail` and the
   five compliance theorems. `lake build` OK; `make -C tools/zmap map`; `tools/verify.sh` all PASS;
   `zmap show f_80000000`: closed+compliance.
+- S7 cont. (DTFFinish, 2026-11-27, branch `dtf`): contract domain, entry/jump leaves, data copies,
+  item checks. **Counts before → after: manual 554 → 580, auto 0, open 93 → 67** (leaves open 82 →
+  63, cut lemmas open 11 → 4).
+  - Contract (coordinator-approved, STATEMENTS § DTF point 6 settled): `Domain` gains `Fits`
+    (`ItemsFit`/`fieldCount`: `TX.HeaderFits` of the first `fieldCount t` top-level items and of the
+    items of list payloads, two levels deep); `Domain` stays one `Pre` conjunct, no index change.
+    The 19 DTF snapshots' payloads satisfy `Fits` (scratch: `decide +kernel` over a `Bool` mirror,
+    not committed).
+  - `leaf_gen`'s call branch is per callee kind (`argsOk`, `call_idx`): `decodeItem`, `alloc`
+    (size a literal or the outcome's length of a fitting item: `fit_of_arms`, `out_ptr` with
+    `armsFit`), `memcpy` (`memcpyArgs`: zero length by the leaf's condition, or the alloc's new
+    block with the kept item length/pointer). 5 data alloc calls, 10 data memcpy calls.
+  - Assertions (`Cuts.lean`): `FieldVal`/`FieldsOk` (item payload pointer/length, conditional on the
+    item decoding) with `siteFields` (the data length/pointer across the 5 alloc calls; `fieldsFrom`
+    in `leaf_gen`); `IdxOk .memcpy = MemDst` (nothing, or bytes of one of DTF's blocks); `ret_memcpy`
+    and `cut_ret` for the 7 memcpy return sites. `Chk`/`armChecks`/`ChecksOk` (open assertion item
+    2: the first `chkCount rest` items pass their helper's check) in `PlainA` and `SiteA`, kept by
+    `chkStep` in `leaf_gen` (all 120 item advances match their check patterns; TX's accepted access
+    list via `tx_rest_al`). No new item closes with it yet; it is what the TX call leaves need
+    (`accessListInput` = the payload after the checked typed head, for `TX.Domain`).
+  - Hand leaves: `Entry.lean` (entry → `0x80000574`, `common_entry`), `Jump.lean` (dispatch,
+    `table_word`/`ArmCheck` by `decide`, `common_leaf_of` + `inWritable_owned_ro` for the read-only
+    region 4).
+  - Open (67): 4 TX call leaves (need `accessListInput` from `ChecksOk` and a `TX.Pre` builder at
+    DTF's call site); hash-list loop (12 leaves, F1/F4 return cuts: list buffer state, CUTS item 3);
+    authorization list (~45 leaves, 2 `free` return cuts); 2 success writes (field values, step 4).

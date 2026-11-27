@@ -13,18 +13,6 @@ restores `sp` and returns, writing nothing. `Post` follows from `Common` at its 
 namespace ZesuExec.Fn.DTF
 open ZesuExec ZesuExec.Sym ZesuExec.Machine ZesuExec.Vc
 
-/-- A loaded frame word is what `init` reads there. -/
-theorem frame_init {sh : Shape} {σ : Sig} {m : Machine} {o : Nat} {v : Word}
-    (h : m.load (σ.fr + w o) 8 = some v) : (Sym.init 0 o 8).eval (envOf sh σ m) = v := by
-  have hb : BytesAt m (σ.fr + w o) ((List.range 8).map (byteOf v)) := fun i hi => by
-    simp only [List.length_map, List.length_range] at hi
-    rw [load_bytes h (Nat.le_refl _) i hi]
-    simp
-  have := init_frame (sh := sh) (off := 0) (n := 8) hb (by simp)
-  rw [Nat.add_zero] at this
-  rw [this, List.drop_zero, List.take_of_length_le (by simp)]
-  exact ofBytesLE_bytes8 v
-
 /-- A leaf without writes leaves the memory as it was. -/
 theorem mem_same {sh : Shape} {σ : Sig} {m m' : Machine} {S S' : SState} (hc : Common σ m)
     (hS : BaseRegs S) (hS' : BaseRegs S') (hnw : S'.mem = []) (hm' : Match (envOf sh σ m) S' m')
