@@ -32,6 +32,17 @@ theorem ofNat_eq_ofNat (n x c : Nat) :
 theorem ofNat_mod (n x m : Nat) (h : 2 ^ n = m) : BitVec.ofNat n (x % m) = BitVec.ofNat n x := by
   subst h; apply BitVec.eq_of_toNat_eq; simp
 
+theorem extract_reg (r : BitVec 5) :
+    Sail.BitVec.extractLsb r
+      ((LeanRV64DExecutable.Functions.regidx_bit_width : Int) - 1).toNat 0 = r := by
+  apply BitVec.eq_of_toNat_eq
+  simp [Sail.BitVec.extractLsb, BitVec.extractLsb, LeanRV64DExecutable.Functions.regidx_bit_width]
+
+theorem encdec_reg_backwards_eq (r : BitVec 5) :
+    encdec_reg_backwards r = pure (regidx.Regidx r) := by
+  simp [encdec_reg_backwards, LeanRV64DExecutable.Functions.base_E_enabled,
+    LeanRV64DExecutable.Functions.not, extract_reg]
+
 /-- The opcode field in the form the `sail_decode` simp set produces. -/
 theorem opc_of_field {w : BitVec 32} {c : Nat} (h : field w.toNat 0 7 = c) :
     BitVec.setWidth 7 w = BitVec.ofNat 7 c := by
@@ -98,7 +109,7 @@ macro "dec_tac" : tactic =>
       LeanRV64DExecutable.Functions.xlen, LeanRV64DExecutable.Functions.xlen_bytes,
       valid_load_encdec,
       encdec_uop_backwards_matches, encdec_iop_backwards_matches, encdec_iop_backwards,
-      encdec_reg_backwards, encdec_bop_backwards_matches, encdec_bop_backwards,
+      encdec_reg_backwards_eq, encdec_bop_backwards_matches, encdec_bop_backwards,
       width_enc_backwards_matches, width_enc_backwards, bool_bit_backwards_matches,
       encdec_mul_op_backwards_matches, encdec_mul_op_backwards, encdec_uop_backwards,
       Nat.div_div_eq_div_mul, setWidth_ne hop', word_ne hop', *]
@@ -192,8 +203,6 @@ theorem dec_sd (hop : field w.toNat 0 7 = 0x23) (hf3 : field w.toNat 12 3 = 3) :
 theorem dec_addi (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 0) :
     Runs (ext_decode w) s s (toSail (.addi (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
   have := opc_of_field hop; have := fld_of_field hf3; dec_tac
-  trace_state
-  sorry
 
 theorem dec_xori (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 4) :
     Runs (ext_decode w) s s (toSail (.xori (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
