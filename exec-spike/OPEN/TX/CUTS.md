@@ -200,7 +200,7 @@ items: known bug `AccessListEntryTrailingBytes`) and decodes the address and key
   instance holds, `Post` = the `Post` of an instance whose `Pre` held.
 - Budgets (32 per outer payload byte ahead of the read position; the keys loop also counts 32
   per keys byte, an accepted key costs 319 ≤ 32 · 33): entry `32 len + 424`; `0x68`
-  `32 p + 323`; `0xc4` `32 r + 300`; `0xd8` `+220`; `0x10c` `+132`; `0x15c` `+37` (`r` = `s5`);
+  `32 len + 323`; `0xc4` `32 r + 300`; `0xd8` `+220`; `0x10c` `+132`; `0x15c` `+37` (`r` = `s5`);
   `0x18c` `32 (R + kr) + 738`, `0x1a0` `+658`, `0x1f8` `+439`, `0x230` `+744` (`R` = `s5 - s10`,
   `kr` = `s6`); `0x25c` `32 R + 539`, `0x340` `+478`, `0x3d4` `+389`, `0x400` `+377`, `0x42c`
   `+324`, `0x460` `+311`; `0x4a0` `23`.

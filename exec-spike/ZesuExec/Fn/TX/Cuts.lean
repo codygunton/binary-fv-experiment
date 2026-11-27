@@ -503,8 +503,7 @@ def mkCut (pc : Nat) (S : SState) (A : Sig → Machine → Prop) (env : Sig → 
     (budget : Sig → Machine → Nat) : Cut Sig := ⟨pc, S, A, env, budget⟩
 
 def cutEntry : Cut Sig := mkCut cEntry SEntry AEntry envB fun σ _ => bEntry σ
-def cut068 : Cut Sig := mkCut c068 S068 (ARet Site064 f2C) envB
-  fun σ m => 32 * (wordAt m (σ.sl 0x1e0)).toNat + 323
+def cut068 : Cut Sig := mkCut c068 S068 (ARet Site064 f2C) envB fun σ _ => 32 * σ.len + 323
 def cut0c4 : Cut Sig := mkCut c0c4 SBody AOuter envB fun _ m => bOuter m
 def cut0d8 : Cut Sig := mkCut c0d8 SBody (ARet Site0d4 f2C) envB
   fun _ m => 32 * outerLeft m + 220
