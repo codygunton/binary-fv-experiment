@@ -88,6 +88,9 @@ syntax (name := leafAuto) "leaf_auto" : tactic
 syntax (name := cutAuto) "cut_auto" : tactic
 macro_rules | `(tactic| leaf_auto) => `(tactic| fail "leaf_auto: no automation before plan S4")
 macro_rules | `(tactic| cut_auto) => `(tactic| fail "cut_auto: no automation before plan S4")
+/-- Residual class of a leaf `leaf_auto` did not close (implemented in `Vc/Tactics`); it always
+fails, with the class as its message. -/
+syntax (name := leafDiagCmd) "leaf_diag" : tactic
 
 def parseTxt (cat : Name) (s : String) : CoreM Syntax := do
   match Parser.runParserCategory (← getEnv) cat s with
@@ -195,6 +198,7 @@ def elabZesuAuto : CommandElab := fun stx => do
         nTried := nTried + 1
         tryItem fn ln (leafGoalTxt fn i c.pc j) (← `(tactic| leaf_auto))
         if (← getEnv).contains ln then nAuto := nAuto + 1
+        else tryItem fn ln (leafGoalTxt fn i c.pc j) (← `(tactic| leaf_diag))
   logInfo s!"{fn}: zesu_auto closed {nAuto} of {nTried} items"
 
 /-- A proof of `∀ x ∈ l, Q x` (by `forall_mem_of_idx`) from the proofs `pf i : Q l[i]!` for

@@ -740,11 +740,5 @@ theorem sll5_eval {env : Env} {v : Word} {i : Nat} (h : env.vars i = BitVec.ofNa
   have := grown_shl5 v hv
   rw [this]; simp only [BitVec.toNat_ofNat, grown, elemBytes]; omega
 
-set_option hygiene false in
-/-- A path that needs the grown capacity to overflow `2^59` is infeasible. -/
-macro "f1_overflow" : tactic => `(tactic| (
-  sym_simp at hc; simp only [E.cap] at hc; simp only [entryEnv, Fin.ofNat] at hc
-  simp at hc; simp only [g_or' _ hreq, grown_srl59 _ hreq] at hc; simp at hc))
-
 end
 end ZesuExec.Fn.F1

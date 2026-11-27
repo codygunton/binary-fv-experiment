@@ -44,6 +44,8 @@ class CostModel(unittest.TestCase):
         states, classes = costmodel.leaves_by_state(MAP)
         self.assertEqual(states, {'auto': 1, 'manual': 2, 'open': 0})
         self.assertEqual(classes, {'Reaches': 1, 'ExitGoal': 1})
+        self.assertEqual(costmodel.residual_class('1 goal; head LeafGoal; class oblig Eq'),
+                         'oblig')
 
     def test_share_history(self):
         self.assertEqual(costmodel.share_history(ROWS),

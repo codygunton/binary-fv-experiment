@@ -9,27 +9,31 @@ Rates and counts only; no extrapolated total.
 |---|---:|---:|---:|---:|---:|
 | assertion | 1 | 30 | 30 | 0 | 0 |
 | contract | 2 | 5.5 | 11 | 0 | 0 |
-| cut_lemma | 3 | 15 | 63 | 0 | 0 |
-| infra | 14 | 10.5 | 482 | 0 | 0 |
+| cut_lemma | 12 | 4 | 99 | 0 | 0 |
+| infra | 15 | 11 | 515 | 0 | 0 |
 | leaf | 3 | 35 | 84 | 0 | 0 |
-| rule | 5 | 10 | 72 | 0 | 0 |
+| rule | 6 | 15 | 142 | 0 | 0 |
 | run | 1 | 10 | 10 | 0 | 0 |
 
-Plan leaves: auto 7, manual 105, open 45 (auto share 4%). Ledger `leaf` minutes per manual leaf: 0.8.
+Plan leaves: auto 12, manual 100, open 45 (auto share 8%). Ledger `leaf` minutes per manual leaf: 0.8.
 
 | residual class (manual and open leaves) | leaves |
 |---|---:|
-| none | 105 |
-| @LeafGoal | 45 |
+| oblig | 69 |
+| callee-pre | 24 |
+| tail | 24 |
+| budget | 20 |
+| cut | 7 |
+| @LeafGoalC | 1 |
 
 ## Functions: static features and actuals
 
 | function | state | cuts | loops | calls | joins | leaves_estimate | n_instr | leaves auto/manual/open | ledger items | minutes | $ |
 |---|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|
-| f_80000000 rlp_decode.txAccessList | conditional | 21 | 2 | 12 | 11 | 50 | 323 | 5/1/45 | 8 | 184 | 0 |
+| f_80000000 rlp_decode.txAccessList | conditional | 21 | 2 | 12 | 11 | 50 | 323 | 5/1/45 | 17 | 220 | 0 |
 | f_8000050c rlp_decode.decodeTxFields | contract-draft | 153 | 50 | 87 | 75 | 478 | 2825 | 0/0/0 | 3 | 23 | 0 |
 | f_8004218c alt_fl_alloc.remap | closed+sail | 1 | 0 | 0 | 0 | 1 | 9 | 0/0/0 | 0 | 0 | 0 |
-| f_800cb40c array_list.Aligned([32]u8,null).ensureTotalCapacity | closed+sail | 9 | 0 | 4 | 7 | 18 | 107 | 2/13/0 | 8 | 72 | 0 |
+| f_800cb40c array_list.Aligned([32]u8,null).ensureTotalCapacity | closed+sail | 9 | 0 | 4 | 7 | 18 | 107 | 7/8/0 | 9 | 142 | 0 |
 | f_800d5cb8 rlp_decode.decodeParentHeader | closed+compliance | 32 | 3 | 21 | 13 | 82 | 367 | 0/74/0 | 0 | 0 | 0 |
 | f_800d6274 rlp_decode.nextUint64 | closed+compliance | 4 | 1 | 1 | 3 | 9 | 53 | 0/0/0 | 1 | 30 | 0 |
 | f_800d6554 array_list.Aligned(input.AccessListEntry,null).toOwnedSlice | closed+sail | 10 | 0 | 6 | 9 | 22 | 138 | 0/0/0 | 0 | 0 | 0 |
@@ -46,6 +50,7 @@ Plan leaves: auto 7, manual 105, open 45 (auto share 4%). Ledger `leaf` minutes 
 | 2026-11-27T18:53:02Z | S5-p1b cut_auto join cuts | F1 | 2/21 (10%) | 5/21 (24%) |
 | 2026-11-27T18:53:02Z | S5-p2b runWith in Vc (remap summary) | F1 | 5/21 (24%) | 5/20 (25%) |
 | 2026-11-27T18:53:02Z | S2-idx indexed callees | F1 | 5/20 (25%) | 5/20 (25%) |
+| 2026-11-27T19:10:31Z | S4b: zesu_fact facts, infeasible-from-facts leaf_auto/leafc_auto, leaf_diag residual classes | F1 | 5/20 (25%) | 10/20 (50%) |
 
 ## Target set: functions and features by state
 

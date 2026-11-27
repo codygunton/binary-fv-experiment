@@ -69,6 +69,11 @@ unsafe def evalCutsW (fn : Name) : TermElabM (Array CutW × Array CutInfo) := do
         conds := l.conds.length, obligs := l.obligs.length : LeafInfo } }
   pure (ws, infos)
 
+/-- `leaf_auto` for a leaf through summarised calls (`LeafGoalC`); rules below and in
+function files. Placeholder: fails. -/
+syntax (name := leafcAuto) "leafc_auto" : tactic
+macro_rules | `(tactic| leafc_auto) => `(tactic| fail "leafc_auto: no rule closed the goal")
+
 syntax (name := zesuPlanWCmd) "zesu_planw " ident " := " term : command
 syntax (name := zesuAutoWCmd) "zesu_autow " ident : command
 syntax (name := zesuAssembleWCmd) "zesu_assemblew " ident : command
@@ -103,10 +108,15 @@ unsafe def elabZesuAutoW : CommandElab := fun stx => do
       if (← getEnv).contains cn then nAuto := nAuto + 1
     for h : j in [0:c.plain.size] do
       let ln := leafItem fn c.pc j
-      if c.plain[j] && !(← getEnv).contains ln then
+      if !(← getEnv).contains ln then
         nTried := nTried + 1
-        tryItem fn ln (leafGoalTxtW fn i c.pc j true) (← `(tactic| leaf_auto))
-        if (← getEnv).contains ln then nAuto := nAuto + 1
+        if c.plain[j] then
+          tryItem fn ln (leafGoalTxtW fn i c.pc j true) (← `(tactic| leaf_auto))
+          if (← getEnv).contains ln then nAuto := nAuto + 1
+          else tryItem fn ln (leafGoalTxtW fn i c.pc j true) (← `(tactic| leaf_diag))
+        else
+          tryItem fn ln (leafGoalTxtW fn i c.pc j false) (← `(tactic| leafc_auto))
+          if (← getEnv).contains ln then nAuto := nAuto + 1
   logInfo s!"{fn}: zesu_autow closed {nAuto} of {nTried} items"
 
 /-- A kernel `decide` proof of the proposition `txt`. -/
@@ -245,5 +255,24 @@ open Lean.Elab.Tactic in
   let c ← unfoldCut a[3]!
   let k ← evalClosed CallRec (mkConst ``CallRec) a[4]!
   replaceMainGoal [← g.replaceTargetDefEq (mkAppN (mkConst ``CallGoal) #[a[0]!, a[1]!, a[2]!, c, k])]
+
+/-- An infeasible leaf through summarised calls: move its conditions back to the cut's `Env`
+(`SBool.conds_agree`, checked by `decide`), then as `leaf_auto`'s facts rule. -/
+macro_rules
+  | `(tactic| leafc_auto) => `(tactic| (
+      leafc_intro
+      intro g m hA env' hag hc0
+      try dsimp only at hA hag hc0 ⊢
+      have hc := SBool.conds_agree hag (by decide) hc0
+      clear hc0
+      exfalso
+      zesu_facts
+      first
+        | (leaf_norm; first | omega | bv_omega | (simp_all [zesu_simp]; done))
+        | (sym_simp at hc
+           try simp only [zesu_simp] at hc
+           simp at hc
+           simp only [*] at hc
+           first | (simp at hc; done) | (simp_all; done))))
 
 end ZesuExec.Vc

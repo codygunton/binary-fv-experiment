@@ -205,6 +205,31 @@ def vcPlan : PlanW Sig zesuImage where
     if pc = entry then runE_leaves else if pc = 0x800cb55c then runJ2_leaves
     else if pc = 0x800cb588 then runJ3_leaves else if pc = 0x800cb5a8 then runJ4_leaves else []
 
+/-! ## Assertion facts for `leaf_auto` (`zesu_facts`) -/
+
+@[zesu_fact] theorem AE.req {g : Sig} {m : Machine} (h : AE g m) : (m.reg 12).toNat < 2 ^ 32 :=
+  (Entry.of_pre h.2.2).req
+
+@[zesu_fact] theorem AE.cap {g : Sig} {m : Machine} (h : AE g m) :
+    (Sym.init 1 16 8).eval (env0 m) = wordAt m (m.reg 10 + 16) :=
+  (Entry.of_pre h.2.2).cap
+
+@[zesu_fact] theorem AE.grown_or {g : Sig} {m : Machine} (h : AE g m) :
+    ((-if BitVec.ult (m.reg 12 >>> 1 + m.reg 12 + BitVec.ofNat 64 2) (m.reg 12) = true
+        then BitVec.ofNat 64 1 else BitVec.ofNat 64 0) |||
+      (m.reg 12 >>> 1 + m.reg 12 + BitVec.ofNat 64 2)) = BitVec.ofNat 64 (grown (m.reg 12).toNat) :=
+  g_or' _ (AE.req h)
+
+@[zesu_fact] theorem AE.grown_shl5 {g : Sig} {m : Machine} (h : AE g m) :
+    BitVec.ofNat 64 (grown (m.reg 12).toNat) <<< 5 =
+      BitVec.ofNat 64 (grown (m.reg 12).toNat * elemBytes) := F1.grown_shl5 _ (AE.req h)
+
+@[zesu_fact] theorem AE.grown_srl59 {g : Sig} {m : Machine} (h : AE g m) :
+    BitVec.ofNat 64 (grown (m.reg 12).toNat) >>> 59 = 0 := F1.grown_srl59 _ (AE.req h)
+
+@[zesu_fact] theorem AE.grown_bytes_ne {g : Sig} {m : Machine} (h : AE g m) :
+    BitVec.ofNat 64 (grown (m.reg 12).toNat * elemBytes) ≠ 0 := F1.grown_bytes_ne _ (AE.req h)
+
 zesu_planw F1 := vcPlan
 
 zesu_autow F1
@@ -266,46 +291,6 @@ theorem F1.leaf_800cb40c_0 :
   · exact E.ownNotPriv (E.inWritable hw) hp
   · exact E.scratchNotOwn hj (E.inWritable hw)
 
-/-- Entry leaf 1: the grown byte count is not a multiple of 32 only above `2^32`. -/
-theorem F1.leaf_800cb40c_1 :
-    LeafGoal F1.plan.toPlan F1.plan.cuts[0]! (((F1.plan.wleaves 0x800cb40c)[1]!).leaf) := by
-  leaf_intro
-  intro g m hA hc
-  obtain ⟨A, L, items, m0⟩ := g
-  obtain ⟨h, hpc, hpre⟩ := hA; subst h
-  dsimp only at hc ⊢
-  have E := Entry.of_pre hpre
-  have hreq := E.req
-  exfalso
-  sym_simp at hc
-  simp only [E.cap] at hc
-  simp only [entryEnv, Fin.ofNat] at hc
-  simp at hc
-  simp only [g_or' _ hreq, grown_shl5 _ hreq] at hc
-  exact grown_bytes_ne _ hreq hc.2.2.2
-
-theorem F1.leaf_800cb40c_3 :
-    LeafGoal F1.plan.toPlan F1.plan.cuts[0]! (((F1.plan.wleaves 0x800cb40c)[3]!).leaf) := by
-  leaf_intro
-  intro g m hA hc
-  obtain ⟨A, L, items, m0⟩ := g
-  obtain ⟨h, hpc, hpre⟩ := hA; subst h
-  dsimp only at hc ⊢
-  have E := Entry.of_pre hpre
-  have hreq := E.req
-  exfalso; f1_overflow
-
-theorem F1.leaf_800cb40c_9 :
-    LeafGoal F1.plan.toPlan F1.plan.cuts[0]! (((F1.plan.wleaves 0x800cb40c)[9]!).leaf) := by
-  leaf_intro
-  intro g m hA hc
-  obtain ⟨A, L, items, m0⟩ := g
-  obtain ⟨h, hpc, hpre⟩ := hA; subst h
-  dsimp only at hc ⊢
-  have E := Entry.of_pre hpre
-  have hreq := E.req
-  exfalso; f1_overflow
-
 /-! ## Through `remap` (F0): entry leaves 4–6 and their call -/
 
 theorem EnvOk.of_agree {m : Machine} {env env' : Env} {F : Nat} (h : EnvOk m env)
@@ -356,42 +341,6 @@ theorem F1.call_800cb40c_0 :
   · rw [hcf] at h
     exact E.calleeApart ((envOk0 m).of_agree hag (by decide)) r j (by simpa using hr) hj h
   · rw [hcf] at h; exact h
-
-/-- Entry leaf 4: after `remap`, a grown byte count of 0: infeasible. -/
-theorem F1.leaf_800cb40c_4 :
-    LeafGoalC F1.plan F1.plan.cuts[0]! ((F1.plan.wleaves 0x800cb40c)[4]!) := by
-  leafc_intro
-  intro g m hA env' hag hc
-  obtain ⟨A, L, items, m0⟩ := g
-  obtain ⟨h, hpc, hpre⟩ := hA; subst h
-  dsimp only at hag hc ⊢
-  have E := Entry.of_pre hpre
-  have hreq := E.req
-  have hc' := conds_env0 hag (by decide) hc
-  exfalso
-  sym_simp at hc'
-  simp only [E.cap] at hc'
-  simp only [entryEnv, Fin.ofNat] at hc'
-  simp at hc'
-  simp only [g_or' _ hreq, grown_shl5 _ hreq] at hc'
-  exact grown_bytes_ne _ hreq hc'.2.2.2
-
-/-- Entry leaf 6: after `remap`, the grown count's top bits nonzero: infeasible. -/
-theorem F1.leaf_800cb40c_6 :
-    LeafGoalC F1.plan F1.plan.cuts[0]! ((F1.plan.wleaves 0x800cb40c)[6]!) := by
-  leafc_intro
-  intro g m hA env' hag hc
-  obtain ⟨A, L, items, m0⟩ := g
-  obtain ⟨h, hpc, hpre⟩ := hA; subst h
-  dsimp only at hag hc ⊢
-  have E := Entry.of_pre hpre
-  have hreq := E.req
-  have hc' := conds_env0 hag (by decide) hc
-  exfalso
-  sym_simp at hc'
-  simp only [E.cap] at hc'
-  simp only [entryEnv, Fin.ofNat] at hc'
-  simp at hc'
 
 /-- `alloc_step` split for `ExitGoal`: the callee's precondition, and what every result of
 `alloc` gives at the return site. -/

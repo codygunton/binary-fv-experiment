@@ -3,6 +3,7 @@ import ZesuExec.Vc.Assemble
 import ZesuExec.Vc.Regions
 import ZesuExec.Sym.Tactic
 import ZesuExec.Sym.Join
+import ZesuExec.Vc.Facts
 
 /-!
 # Sound automation for leaf and cut goals (programme plan S4 steps 1, 2, 4)
@@ -307,5 +308,77 @@ macro_rules
       refine ⟨(JoinIn.ok (by decide) (by decide) ?hJ).1, (JoinIn.ok (by decide) (by decide) ?hJ).2,
         ?_, ?_⟩
       all_goals conj_assumption))
+
+/-! ## S4b: infeasible leaves from assertion facts; residual classes -/
+
+/-- Infeasible from the conditions and the `@[zesu_fact]` facts of the cut's assertion: forward
+the facts, then either normalise everything and close `False` by `omega`, `bv_omega` or
+`simp_all`, or put the conditions in `simp` normal form, rewrite them with the facts and the
+other hypotheses, and close `False` by `simp`. Tried before the earlier `leaf_auto` rules; when it
+fails they run unchanged. -/
+macro_rules
+  | `(tactic| leaf_auto) => `(tactic| (
+      leaf_intro
+      intro g m hA hc
+      try dsimp only at hA hc ⊢
+      exfalso
+      zesu_facts
+      first
+        | (leaf_norm; first | omega | bv_omega | (simp_all [zesu_simp]; done))
+        | (sym_simp at hc
+           try simp only [zesu_simp] at hc
+           simp at hc
+           simp only [*] at hc
+           first | (simp at hc; done) | (simp_all; done))))
+
+/-- `leaf_diag` (syntax in `Vc/Assemble`): run the stages of `leaf_auto` on a `LeafGoal` and fail
+with the class of the first one that does not close: `oblig`, `budget`, `exit` (no cut or callee
+for the exit), then by exit kind `post` (return), `cut` (assertion at the next cut), `tail` (tail
+callee), `callee-pre` (callee entry and precondition), `return-cut` (assertion after the call),
+followed by the head symbol of the first open conjunct. Only for `zesu_auto`'s residual; it
+proves nothing. -/
+@[tactic leafDiagCmd] unsafe def evalLeafDiag : Tactic := fun _ => withMainContext do
+  let t ← whnfR (← instantiateMVars (← getMainTarget))
+  unless t.isAppOfArity ``LeafGoal 5 do throwError "class other: not a LeafGoal"
+  let a := t.getAppArgs
+  let l ← evalExpr Leaf (mkConst ``Leaf) a[4]!
+  let tailOf := mkAppN (mkConst ``Plan.tail) #[a[0]!, a[1]!, a[2]!]
+  let kind ← match l.exit with
+    | .ret _ => pure "post"
+    | .at pc => do
+      let isTail ← evalExpr Bool (mkConst ``Bool)
+        (← mkAppM ``Option.isSome #[mkApp tailOf (mkNatLit pc)])
+      pure (if isTail then "tail" else "cut")
+    | .jumpInd _ => pure "cut"
+    | .call _ _ | .callInd _ _ => pure "callee"
+  let headOf (g : MVarId) : TacticM String := do
+    let ty ← whnfR (← instantiateMVars (← g.getType))
+    return match ty.getAppFn.constName? with
+      | some n => n.toString
+      | none => "?"
+  -- the first goal of `gs` that `tac` leaves open, with the head of its first open subgoal
+  let firstOpen (gs : List MVarId) (tac : TSyntax `tactic) : TacticM (Option (Nat × String)) := do
+    let mut i := 0
+    for g in gs do
+      let rest ← try evalTacticAt tac g catch _ => pure [g]
+      if let some g' := rest.head? then return some (i, ← headOf g')
+      i := i + 1
+    return none
+  evalTactic (← `(tactic| (leaf_intro; intro g m hA hc; try dsimp only at hA hc ⊢; zesu_facts)))
+  evalTactic (← `(tactic| refine ⟨?_, ?_, fun m' hm' he hso => ?_⟩))
+  let [gO, gB, gE] ← getGoals | throwError "class other: leaf goal shape"
+  if let some (_, h) ← firstOpen [gO]
+      (← `(tactic| (leaf_norm; all_goals (and_intros <;> try field_auto)))) then
+    throwError "class oblig {h}"
+  if let some (_, h) ← firstOpen [gB] (← `(tactic| (leaf_norm; all_goals try omega))) then
+    throwError "class budget {h}"
+  let gs ← try evalTacticAt (← `(tactic| ((try dsimp only at he); match_regs hm'; exit_intro))) gE
+    catch _ => throwError "class exit"
+  match ← firstOpen gs (← `(tactic|
+      ((try dsimp only); leaf_norm; all_goals (and_intros <;> try field_auto)))) with
+  | some (i, h) =>
+    let c := if kind == "callee" then (if i < 2 then "callee-pre" else "return-cut") else kind
+    throwError "class {c} {h}"
+  | none => throwError "class none"
 
 end ZesuExec.Vc

@@ -8,7 +8,7 @@
   "i": 0,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 1
  },
  {
@@ -20,7 +20,7 @@
   "i": 1,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 2
  },
  {
@@ -32,7 +32,7 @@
   "i": 2,
   "exit": "call",
   "target": 2148361556,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class callee-pre ?",
   "rank": 3
  },
  {
@@ -44,7 +44,7 @@
   "i": 3,
   "exit": "at",
   "target": 2147483844,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class cut Eq",
   "rank": 4
  },
  {
@@ -56,7 +56,7 @@
   "i": 0,
   "exit": "call",
   "target": 2148362592,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 5
  },
  {
@@ -68,7 +68,7 @@
   "i": 0,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 6
  },
  {
@@ -80,7 +80,7 @@
   "i": 1,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 7
  },
  {
@@ -92,7 +92,7 @@
   "i": 2,
   "exit": "call",
   "target": 2148362592,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class callee-pre Eq",
   "rank": 8
  },
  {
@@ -104,7 +104,7 @@
   "i": 0,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 9
  },
  {
@@ -116,7 +116,7 @@
   "i": 1,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 10
  },
  {
@@ -128,7 +128,7 @@
   "i": 2,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 11
  },
  {
@@ -140,7 +140,7 @@
   "i": 3,
   "exit": "call",
   "target": 2148362592,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig LE.le",
   "rank": 12
  },
  {
@@ -152,7 +152,7 @@
   "i": 0,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 13
  },
  {
@@ -164,7 +164,7 @@
   "i": 1,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 14
  },
  {
@@ -176,7 +176,7 @@
   "i": 2,
   "exit": "call",
   "target": 2148362108,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class callee-pre ?",
   "rank": 15
  },
  {
@@ -188,7 +188,7 @@
   "i": 3,
   "exit": "at",
   "target": 2147484044,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class cut Eq",
   "rank": 16
  },
  {
@@ -200,7 +200,7 @@
   "i": 0,
   "exit": "call",
   "target": 2148362592,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 17
  },
  {
@@ -212,7 +212,7 @@
   "i": 0,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 18
  },
  {
@@ -224,7 +224,7 @@
   "i": 1,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 19
  },
  {
@@ -236,7 +236,7 @@
   "i": 2,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 20
  },
  {
@@ -248,7 +248,7 @@
   "i": 3,
   "exit": "call",
   "target": 2148316172,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig LE.le",
   "rank": 21
  },
  {
@@ -260,7 +260,7 @@
   "i": 0,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 22
  },
  {
@@ -272,7 +272,7 @@
   "i": 1,
   "exit": "at",
   "target": 2147484208,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class cut Eq",
   "rank": 23
  },
  {
@@ -284,7 +284,7 @@
   "i": 0,
   "exit": "at",
   "target": 2147484044,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class cut Eq",
   "rank": 24
  },
  {
@@ -296,7 +296,7 @@
   "i": 1,
   "exit": "call",
   "target": 2148362108,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class callee-pre ?",
   "rank": 25
  },
  {
@@ -308,7 +308,7 @@
   "i": 0,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 26
  },
  {
@@ -320,7 +320,7 @@
   "i": 1,
   "exit": "at",
   "target": 2147484768,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 27
  },
  {
@@ -332,7 +332,7 @@
   "i": 2,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 28
  },
  {
@@ -344,7 +344,7 @@
   "i": 3,
   "exit": "call",
   "target": 2148402880,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 29
  },
  {
@@ -356,7 +356,7 @@
   "i": 4,
   "exit": "call",
   "target": 2147755156,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 30
  },
  {
@@ -368,7 +368,7 @@
   "i": 5,
   "exit": "call",
   "target": 2147754380,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 31
  },
  {
@@ -380,7 +380,7 @@
   "i": 6,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 32
  },
  {
@@ -392,7 +392,7 @@
   "i": 0,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 33
  },
  {
@@ -404,7 +404,7 @@
   "i": 1,
   "exit": "call",
   "target": 2148402880,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 34
  },
  {
@@ -416,7 +416,7 @@
   "i": 2,
   "exit": "call",
   "target": 2147755156,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 35
  },
  {
@@ -428,7 +428,7 @@
   "i": 3,
   "exit": "at",
   "target": 2147484768,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 36
  },
  {
@@ -440,7 +440,7 @@
   "i": 0,
   "exit": "call",
   "target": 2148402880,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 37
  },
  {
@@ -452,7 +452,7 @@
   "i": 1,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 38
  },
  {
@@ -464,7 +464,7 @@
   "i": 0,
   "exit": "at",
   "target": 2147484716,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 39
  },
  {
@@ -476,7 +476,7 @@
   "i": 1,
   "exit": "call",
   "target": 2147753784,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 40
  },
  {
@@ -488,7 +488,7 @@
   "i": 0,
   "exit": "at",
   "target": 2147484768,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 41
  },
  {
@@ -500,7 +500,7 @@
   "i": 0,
   "exit": "at",
   "target": 2147483844,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 42
  },
  {
@@ -512,7 +512,7 @@
   "i": 1,
   "exit": "call",
   "target": 2148361556,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class budget LE.le",
   "rank": 43
  },
  {
@@ -524,7 +524,7 @@
   "i": 0,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 44
  },
  {
@@ -536,7 +536,7 @@
   "i": 1,
   "exit": "ret",
   "target": null,
-  "residual": "1 goal; head @LeafGoal; leaf_auto: no automation before plan S4",
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
   "rank": 45
  },
  {
