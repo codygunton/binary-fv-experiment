@@ -123,4 +123,74 @@ theorem Entry.writable {m mh : Machine} (e : Entry m) {ov : Nat → Option Sym} 
   · exact .inl hin
   · simp [inputR] at hw
 
+/-- Two region addresses are equal when their sums are, without wrap. -/
+theorem addr_eq {a b : Word} {i j : Nat} (ha : a.toNat + i < 2 ^ 64) (hb : b.toNat + j < 2 ^ 64)
+    (h : a.toNat + i = b.toNat + j) : a + BitVec.ofNat 64 i = b + BitVec.ofNat 64 j := by
+  apply BitVec.eq_of_toNat_eq
+  rw [toNat_add_ofNat ha, toNat_add_ofNat hb, h]
+
+def envE (m : Machine) : Env := entryEnv m ((shape m).map (·.1))
+
+theorem envE_facts (m : Machine) :
+    (envE m).base 0 = m.reg 2 - 96 ∧ (envE m).base 1 = m.reg 11 ∧ (envE m).base 2 = m.reg 10 ∧
+    (envE m).base 3 = wordAt m (m.reg 11) ∧ (envE m).size 0 = 96 ∧ (envE m).size 1 = 16 ∧
+    (envE m).size 2 = 16 ∧ (envE m).size 3 = (wordAt m (m.reg 11 + 8)).toNat := by
+  simp [envE, Env.base, Env.size, entryEnv, shape, shapeOf]
+
+/-- Frame byte `k` is stack byte `16 + k` of `StackOk m 112`. -/
+theorem Entry.frameP {m : Machine} (e : Entry m) {k : Nat} (hk : k < 96) :
+    (m.mem (m.reg 2 - 96 + BitVec.ofNat 64 k)).isSome := by
+  have h := e.stack.2.2.2 (16 + k) (by omega)
+  obtain ⟨hlo, hhi, -⟩ := e.ram
+  unfold Layout.ramLo at hlo; unfold Layout.ramHi at hhi
+  rwa [addr_eq (a := m.reg 2 - BitVec.ofNat 64 112) (b := m.reg 2 - 96) (i := 16 + k) (j := k)
+    (by rw [e.sp (by decide)]; omega) (by rw [e.sp96]; omega)
+    (by rw [e.sp (by decide), e.sp96]; omega)] at h
+
+theorem Entry.match0 {m : Machine} (e : Entry m) : Match (envE m) S0 m := by
+  obtain ⟨hb0, hb1, hb2, hb3, hs0, hs1, hs2, hs3⟩ := envE_facts m
+  refine entry_match (fun i hi s hs => ?_) (fun r j hr hj => ?_) ?_
+  · simp only [ov] at hs
+    by_cases h2 : i.val = 2
+    · simp only [h2, if_true, Option.some.injEq] at hs
+      subst hs
+      have : i = 2 := Fin.ext h2
+      subst this
+      show (Sym.ptr 0 96).eval (envE m) = _
+      simp [Sym.eval, hb0, BitVec.sub_add_cancel]
+    by_cases h11 : i.val = 11
+    · simp [h11] at hs
+      subst hs
+      have : i = 11 := Fin.ext h11
+      subst this
+      show (Sym.ptr 1 0).eval (envE m) = _
+      simp [Sym.eval, hb1]
+    by_cases h10 : i.val = 10
+    · simp [h10] at hs
+      subst hs
+      have : i = 10 := Fin.ext h10
+      subst this
+      show (Sym.ptr 2 0).eval (envE m) = _
+      simp [Sym.eval, hb2]
+    simp [h2, h11, h10] at hs
+  · show (m.mem ((envE m).base r + BitVec.ofNat 64 j)).isSome
+    simp only [regionsR, List.length_cons, List.length_nil] at hr
+    have hr4 : r = 0 ∨ r = 1 ∨ r = 2 ∨ r = 3 := by omega
+    change j < (envE m).size r at hj
+    rcases hr4 with rfl | rfl | rfl | rfl
+    · rw [hb0]; rw [hs0] at hj; exact e.frameP hj
+    · rw [hb1]; rw [hs1] at hj; exact e.slP j hj
+    · rw [hb2]; rw [hs2] at hj; exact e.resP j hj
+    · rw [hb3]; rw [hs3] at hj; exact e.inP j hj
+  · intro w hw t ht
+    simp only [List.mem_singleton] at hw
+    subst hw
+    have hl := load_bytes (e.slLoad 0 (.inl rfl)) (by decide) t ht
+    simp only [BitVec.ofNat_eq_ofNat, BitVec.add_zero] at hl
+    change ((m.mem ((envE m).base 1 + BitVec.ofNat 64 (0 + t))).getD 0) = _
+    rw [hb1, Nat.zero_add, hl]
+    simp only [Option.getD_some, Sym.eval]
+    rw [show (entryEnv m ((shape m).map (·.1))).base 3 = wordAt m (m.reg 11) from hb3]
+    simp
+
 end ZesuExec.Fn.F3

@@ -55,7 +55,7 @@ theorem fld_of_field {w : BitVec 32} {lo n c : Nat} (h : field w.toNat lo n = c)
 
 /-- A whole-word or low-bits comparison against a constant whose opcode differs is false. -/
 theorem setWidth_ne {w : BitVec 32} {k : Nat} (h : BitVec.setWidth 7 w = BitVec.ofNat 7 k)
-    (n c : Nat) (hn : 7 ≤ n) (hn' : n ≤ 32) (hc : c % 128 ≠ k % 128) :
+    (n c : Nat) (hn : 7 ≤ n) (hc : c % 128 ≠ k % 128) :
     (BitVec.setWidth n w = BitVec.ofNat n c) = False := by
   apply propext; constructor
   · intro heq
@@ -73,7 +73,7 @@ theorem setWidth_ne {w : BitVec 32} {k : Nat} (h : BitVec.setWidth 7 w = BitVec.
 
 theorem word_ne {w : BitVec 32} {k : Nat} (h : BitVec.setWidth 7 w = BitVec.ofNat 7 k)
     (c : Nat) (hc : c % 128 ≠ k % 128) : (w = BitVec.ofNat 32 c) = False := by
-  have := setWidth_ne h 32 c (by omega) (by omega) hc
+  have := setWidth_ne h 32 c (by omega) hc
   simpa using this
 
 theorem field_14_1 (x : Nat) : field x 14 1 = field x 12 3 / 4 := by

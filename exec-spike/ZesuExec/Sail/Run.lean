@@ -105,7 +105,7 @@ theorem memcpyAddrs_ram {m : Machine} (hd : ziskMemcpyDomain m = true) {x : Nat}
   simp only [memcpyAddrs, List.mem_append, List.mem_map, List.mem_range] at hx
   simp only [Layout.ramLo, Layout.ramHi, Layout.extraParams] at hep hn ⊢
   rcases hx with ⟨j, hj, rfl⟩ | ⟨j, hj, rfl⟩
-  · simp only [Layout.ramLo, Layout.extraParams]; omega
+  · simp only [Layout.extraParams]; omega
   · rcases hn with hn | ⟨⟨⟨_, _⟩, hw⟩, _⟩
     · omega
     · omega

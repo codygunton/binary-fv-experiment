@@ -56,7 +56,7 @@ theorem rType_sltu (a b : Word) : rTypeResult .SLTU a b = if a.ult b then 1 else
   simp only [rTypeResult]; rw [ult_bit]
 theorem rType_sll (a b : Word) : rTypeResult .SLL a b = a <<< (b.toNat % 64) := by
   simp only [rTypeResult, Sail.shift_bits_left, BitVec.shiftLeft_eq']
-  rw [extractLsb_field]; simp [LeanRV64DExecutable.Functions.log2_xlen, Int.sub]
+  rw [extractLsb_field]; simp [LeanRV64DExecutable.Functions.log2_xlen]
 
 theorem shiftI_slli (sh : BitVec 6) (a : Word) : shiftIopResult .SLLI sh a = a <<< sh.toNat := by
   simp only [shiftIopResult, Sail.shift_bits_left, BitVec.shiftLeft_eq']
@@ -73,8 +73,7 @@ theorem mul_low (a b : Word) :
   simp only [mulResult, mult_to_bits_half, to_bits_truncate, Sail.get_slice_int]
   rw [extractLsb_field]
   apply BitVec.eq_of_toNat_eq
-  simp only [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat, BitVec.toNat_ofInt,
-    LeanRV64DExecutable.Functions.xlen]
+  simp only [BitVec.extractLsb'_toNat, BitVec.toNat_ofInt, LeanRV64DExecutable.Functions.xlen]
   generalize a.toInt * b.toInt = z
   simp
   omega

@@ -66,3 +66,64 @@ Deliberate differences:
 8. Ownership: separation logic becomes `SameOutside` of outcome ∪ frame, so the input and all
    other memory are unchanged; `before`/`input` are universally quantified in `Post` instead of
    being existentials of the precondition.
+
+## Shared machine-level definitions
+
+- `memcpy`: `ziskMemcpy` (`ZesuExec/Service.lean`) transcribes `ziskMemcpyMemory`
+  (`ZiskRuntime.v:85`, staged count store, then copy from the staged memory) and
+  `ziskMemcpyCallDomain` (`ZiskMemcpyPremise.v`). Difference: the source range must be present
+  *readable* memory (rodata, input or RAM), as the plan states, where `ziskMemcpyCallDomain`
+  requires writable RAM for the source; the destination must be present RAM. `memcpy_spec`
+  (`Logic.lean`): `Spec img 0x800e06c0 3 MemcpyPre MemcpyPost` with `MemcpyPost m m' :=
+  ziskMemcpy m = some m'`.
+- `AllocAssumptions` (`Fn/Assumed.lean`) transcribes `altFlAllocCallSpec` (`AltFlAllocPremises.v:230`)
+  and `altFlFreeCallSpec` (`:263`) without separation logic. `altFlHeap` (`:115`) becomes the
+  abstract `Heap L m` over live blocks `L`; the memory it owns (state object, heap words, free
+  lists, bump region) becomes the abstract `Priv L`, disjoint from live blocks (`priv_not_live`),
+  and `Heap L` survives any change outside `Priv L` (`heap_frame`). Each caller states that its
+  own regions avoid `Priv L` (the separation the Rocq `∗` gave). `alloc`: null keeps `Heap L`; a
+  block `p` gives `Heap (L ++ [(p, bytes)])`, the block present, in RAM, carved from `Priv L`, and
+  `Priv` shrinks. `free`: `Heap (L.erase (p, bytes))`, `Priv` grows by at most the block.
+  Differences: the block-alignment fact (`altFlBlockAlignment`) and the slack token are not
+  stated (no proof needs them); `alloc` and `free` are bounded by 53 and 42 instructions (the
+  plan's figures); requests are `0 < bytes < 2^63`, `log2Align ≤ 3` as in `altFlAllocDomain`
+  (`:227`) and `altFlFreeDomain` (`:260`). `remap` is not assumed: it is F0.
+- Every `Pre` adds `RodataLoaded zesuImage m`, `StackOk m n` (16-aligned `sp`, `n` present RAM
+  bytes below it) and `RetAligned m` (`x1 & ~1` is a multiple of 4: the machine faults on a
+  misaligned `jalr` target). Every `Post` has `Returns m m'` (pc = `x1 & ~1`, `sp`, `s0`–`s11`
+  restored) and a `SameOutside` frame. `zisk_input_end`/`zisk_free_input` are not modelled (the
+  plan's machine has no such registers).
+
+## F0 `alt_fl_alloc.remap` (`Fn/F0/Spec.lean`)
+
+Not in zesislar (warm-up; replaces `altFlRemapCallSpec`, `AltFlAllocPremises.v:251`).
+- `Pre m := RodataLoaded ∧ StackOk m 16 ∧ RetAligned m`.
+- `Post m m' := Returns m m' ∧ m'.reg 10 = 0 ∧ SameOutside (InRange (sp - 16) 16) m m'`.
+- `f0_spec : Spec zesuImage 0x8004218c 9 Pre Post`. Stronger than `altFlRemapCallSpec`, which
+  only states the null result: F0 also bounds the frame.
+- Non-vacuity: concrete `witness` machine.
+
+## F1 `ensureTotalCapacity` (`Fn/F1/Spec.lean`)
+
+- `Pre A L items m` transcribes `keysEnsureCapacityDomain` (`KeysEnsureCapacityContract.v:53`)
+  with the owned resources of `keysEnsureCapacityEntry` (`:99`): header at `a0` read through
+  three 8-byte loads (`arrayListHeaderBytes`, `ArrayListContract.v:47`); `arrayListWellFormed`
+  (`:56`) with element 32 bytes; the items `BytesAt m p items` and, for capacity > 0, the buffer
+  as a live block `(p, capacity·32) ∈ L` (`arrayListBuffer`, `:66`); the allocator object
+  `{ctx, alt_fl_alloc.vtable}` (`altFlAllocatorObject`); request `< 2^32`
+  (`keysEnsureCapacityMaxRequest`, `:28`); the 8 scratch bytes present; `A.Heap L m`; 128 stack
+  bytes (`keysEnsureCapacityStackBytes`, `:25`). The `∗` separations become explicit `Apart`
+  facts and "avoids `Priv L`".
+- `Post A L items m m'` transcribes `keysEnsureCapacityAllows` (`:69`) and
+  `keysEnsureCapacityScratchAfter` (`:88`): request ≤ capacity → code 0, header unchanged, heap
+  unchanged, scratch unchanged; else code 0 with header `{p', length, grown(req)}`
+  (`arrayListGrownCapacity`, `:32`), the items at `p'`, heap
+  `(L minus the old buffer) ++ [(p', grown·32)]`, scratch = the copied byte count; or code 2 with
+  everything unchanged. Frame: header, 128 stack bytes, scratch, `Priv L`, old buffer.
+- `f1_spec (A) (L) (items) : Spec zesuImage 0x800cb40c 197 (Pre A L items) (Post A L items)`.
+- Differences: the list state is read from memory (no ghost `ArrayListState`); the Rocq
+  `arrayListWellFormed` after the call is implied by the stated header and range facts but not
+  restated as one predicate; `zisk_input_end` not modelled.
+- Non-vacuity: `pre_nonvacuous` — for any `A`, any machine `m0` with `A.Heap [] m0` and an
+  allocator memory `Priv []` above `0xa0003000` and away from the scratch word, a machine with
+  `Pre A [] [] m` exists (built from `m0` by overriding bytes outside `Priv []`).
