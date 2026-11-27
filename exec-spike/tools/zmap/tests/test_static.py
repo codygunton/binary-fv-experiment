@@ -81,11 +81,15 @@ class Heuristics(unittest.TestCase):
 
 
 class JoinCuts(unittest.TestCase):
-    """`build(join_cuts=True)` adds every join cut candidate as a `join` cut; off by default."""
+    """The map (built with join cuts, the default) has every join cut candidate as a `join`
+    cut; `build(join_cuts=False)` has none."""
 
     def test_join_cuts(self):
-        joined = {f['id']: f for f in analyze.build(ELF, join_cuts=True)['functions']}
-        for f in MAP['functions']:
+        with open(STATIC) as fh:
+            self.assertTrue(json.load(fh)['join_cuts'])
+        joined = {f['id']: f for f in MAP['functions']}
+        plain = analyze.build(ELF, join_cuts=False)['functions']
+        for f in plain:
             self.assertFalse(any(c['why'] == 'join' for c in f['cuts']))
             g = joined[f['id']]
             cuts = {c['pc']: c['why'] for c in g['cuts']}
@@ -95,7 +99,8 @@ class JoinCuts(unittest.TestCase):
             base = {c['pc'] for c in f['cuts']}
             self.assertEqual({pc for pc, why in cuts.items() if why == 'join'},
                              set(f['join_cut_candidates']) - base)
-        tx_base, tx = fn('rlp_decode.txAccessList'), joined['f_80000000']
+        tx_base = next(f for f in plain if f['name'] == 'rlp_decode.txAccessList')
+        tx = joined['f_80000000']
         self.assertEqual(len(tx['cuts']), len(tx_base['cuts']) + 6)
         self.assertEqual((tx_base['leaves_estimate'], tx['leaves_estimate']), (53, 50))
 

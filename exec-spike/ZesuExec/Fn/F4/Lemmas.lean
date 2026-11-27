@@ -526,8 +526,8 @@ theorem alloc_step (E : Entry eb A L items m) {env : Env} {S Sl : SState} {mk mc
       AllocOut A L sz m2 → Reaches zesuImage b Q m2) :
     Reaches zesuImage (53 + b) Q mc := by
   have own : ∀ a, InWritable env S a → Own m a := fun a h => E.inWritable2 he hS h
-  have hheapc : A.Heap L mc := A.heap_frame L mk mc hheap fun a ha => hfr a fun hw =>
-    E.ownNotPriv (own a hw) ha
+  have hheapc : A.Heap L mc := A.heap_frame' L mk mc hheap (fun a ha => hfr a fun hw =>
+    E.ownNotPriv (own a hw) ha) hp
   have hpre : A.Heap L mc ∧ 0 < (mc.reg 11).toNat ∧ (mc.reg 11).toNat < 2 ^ 63 ∧
       (mc.reg 12).toNat ≤ 3 ∧ StackOk mc 16 ∧ RetAligned mc ∧ CalleeFrameFree (A.Priv L) mc :=
     ⟨hheapc, by omega, by omega, g12, E.calleeStack (hinv.2.trans hp) g2, hra,
@@ -586,8 +586,8 @@ theorem free_step (E : Entry eb A L items m) {env : Env} {S Sl : SState} {mk mc 
     Reaches zesuImage (42 + b) Q mc := by
   have own : ∀ a, InWritable env S a → Own m a := fun a h => E.inWritable2 he hS h
   have hcR := (E.buf hc0).1; unfold RamRange Layout.ramHi at hcR
-  have hheapc : A.Heap L' mc := A.heap_frame L' mk mc hheap fun a ha => hfr a fun hw =>
-    E.ownNotPriv (own a hw) (hpriv a ha)
+  have hheapc : A.Heap L' mc := A.heap_frame' L' mk mc hheap (fun a ha => hfr a fun hw =>
+    E.ownNotPriv (own a hw) (hpriv a ha)) hp
   have hpre : A.Heap L' mc ∧ (mc.reg 11, (mc.reg 12).toNat) ∈ L' ∧ 0 < (mc.reg 12).toNat ∧
       (mc.reg 12).toNat < 2 ^ 63 ∧ (mc.reg 13).toNat ≤ 3 ∧ StackOk mc 16 ∧ RetAligned mc ∧
       CalleeFrameFree (A.Priv L') mc := by
@@ -732,7 +732,7 @@ theorem copy_step (E : Entry eb A L items m) {env : Env} {S Sl : SState} {m2 mc 
     rw [memcpy_scratch hz hi8 fun h => hsp (hdst _ h), g12]
     simp [wordBytes]
   · -- the heap
-    refine A.heap_frame _ m2 m3 hheap fun a ha => ?_
+    refine A.heap_frame' _ m2 m3 hheap (fun a ha => ?_) (hp.trans (memcpy_preserved hz))
     rw [hout a fun h => ?_, hfr a fun hw => E.ownNotPriv (own a hw) (hpriv a ha)]
     rcases h with h | h
     · exact A.priv_not_live _ a ha ⟨_, List.mem_append_right _ (List.mem_singleton_self _), by
@@ -767,9 +767,9 @@ theorem remap_step (E : Entry eb A L items m) {Sl : SState} {mc : Machine} {b : 
   have hsame : ∀ x, ¬ InRange (m.reg 2 - 112) 16 x → ¬ Own m x → m2.mem x = m.mem x :=
     fun x h1 h2 => (hfrR x h1).trans (hfr x fun hw => h2 (own x hw))
   refine k m2 hm2 hwf2 hret (hinv1.step hfrR (fun a h => calleeAllowed h) hp2) ?_ ?_ ?_
-  · exact A.heap_frame L m m2 E.heap fun a ha => hsame a
+  · exact A.heap_frame' L m m2 E.heap (fun a ha => hsame a
       (fun h => E.priv a (.inr (.inr (.inr (.inl ⟨h.1, by have := h.2; omega⟩)))) ha)
-      (fun h => E.ownNotPriv h ha)
+      (fun h => E.ownNotPriv h ha)) (hp.trans hp2)
   · intro j hj
     exact hsame _ (E.scratchSafe hj).2 (E.scratchNotOwn hj)
   · intro i hi
@@ -891,7 +891,7 @@ theorem success_post (E : Entry eb A L items m) {env : Env} {S Sf : SState} {mk 
     · rw [res_load he hwf hmf hSf 0 8 (by decide), h10]
     · rw [res_load he hwf hmf hSf 8 8 (by decide), h18, he.init_eq _ _ _ (.inl rfl), E.len]
     · rw [res_load he hwf hmf hSf 16 2 (by decide), h116, eval_bytes2_0]
-  · refine A.heap_frame _ mk mf hheap fun a ha => hfr a fun hw => ?_
+  · refine A.heap_frame' _ mk mf hheap (fun a ha => hfr a fun hw => ?_) hp
     rcases hpriv a ha with h | h
     · exact E.ownNotPriv (own a hw) h
     · exact E.oldNotOwn hc0 h (own a hw)
@@ -920,7 +920,7 @@ theorem oom_post (E : Entry eb A L items m) {env : Env} {S Sf : SState} {mk mf :
   refine .inr ⟨E.header_same he hmf (by rw [hSf]; decide) hnw,
     ⟨E.result_same he hmf (by rw [hSf]; decide) (by decide) hlow, ?_,
       E.result_same he hmf (by rw [hSf]; decide) (by decide) hpad⟩,
-    A.heap_frame L mk mf hheap fun a ha => hfr a fun hw => E.ownNotPriv (own a hw) ha,
+    A.heap_frame' L mk mf hheap (fun a ha => hfr a fun hw => E.ownNotPriv (own a hw) ha) hp,
     fun j hj => ?_⟩
   · show mf.load (m.reg 10 + BitVec.ofNat 64 16) 2 = _
     rw [res_load he hwf hmf hSf 16 2 (by decide), h116, eval_bytes2_2]
@@ -957,7 +957,7 @@ theorem empty_post (E : Entry eb A L items m) {env : Env} {S Sf : SState} {mk mf
     · rw [res_load he hwf hmf hSf 0 8 (by decide), h10, he.init_eq _ _ _ (.inl rfl), E.ptr]
     · rw [res_load he hwf hmf hSf 8 8 (by decide), h18]; rfl
     · rw [res_load he hwf hmf hSf 16 2 (by decide), h116, eval_bytes2_0]
-  · refine A.heap_frame _ mk mf hheap fun a ha => hfr a fun hw => ?_
+  · refine A.heap_frame' _ mk mf hheap (fun a ha => hfr a fun hw => ?_) hp
     rcases hpriv a ha with h | ⟨hc0, h⟩
     · exact E.ownNotPriv (own a hw) h
     · exact E.oldNotOwn hc0 h (own a hw)

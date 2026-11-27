@@ -502,3 +502,52 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `arena_split` (approved by Main; evidence and model sketch in `STATEMENTS.md`); while checking
   it found that `heap_frame` + `live_ok` force live blocks to be empty (reported; Main: option 1,
   P1Joins). Leaves: 63 open. ~45 min.
+- S5-p1 (2026-11-27): join cuts. New `ZesuExec/Sym/Join.lean`: `generalise F Ss K` (F1's
+  `genS`/`entryOnly`, generalised and made sound), `genEnv`, `Sym.eval_clean`,
+  `Match.generalise_to` (target-`Env` form: any `env'` that agrees with `env` below `K`, on the
+  regions and on clean initial bytes, reads `var (F + i)` and dirty initial bytes off the machine)
+  and `Match.generalise` (plan form), axioms guarded. Deviations from the plan statement: extra
+  parameter `K` (kept terms mention variables below `K`, default `F`; F1 uses 32 = entry
+  variables); a register/write/known fact is kept only if every state agrees and it is *clean*
+  (no `init`/`initx` of a region some state writes; a write must also be the newest write of each
+  of its bytes in every state, else a dropped newer write could shadow it; the old `genS`
+  membership test did not check this); dirty regions' initial bytes are re-read from the machine,
+  so the conclusion is `Env.Ext env env' F 0 ∧ env'.regions = env.regions ∧ Match ∧ WF`, with
+  hypothesis `∀ S' ∈ Ss, S'.regions = S.regions`. `cut_auto` is not extended: F1's three join cut
+  lemmas are 3 lines each through `join_cut` (F1-specific: frame dirty, header/allocator object
+  clean, `envJ`). F1 (`Fn/F1/Vc.lean`): cuts after `alloc` (join of 2), `memcpy` (1 incoming),
+  `free` (join of 2: capacity 0 skips `free`) have state `generalise F [incoming] 32`; assertions
+  are machine facts plus `MatchIn` (some incoming state matches under an entry-consistent `Env`).
+  Runs: spike `run0, run1, run2a, run2b, run3a, run3b, run4b` (7) -> `runE, runR, runJ2, runJ3,
+  runJ4` (5); run2a/2b collapse to `runJ2`, run3a/3b to `runJ3`. `freeC` now names its list
+  (`freeL`: entry list + new buffer). `F1.reach` assembles: 5 cuts, 16 leaves, 21 items: auto 2,
+  manual 19 (5 cut lemmas, 14 leaves), open 0 (was 8). `Fn/F1/Proof.lean` derives `f1_spec` from
+  `F1.reach` (statement unchanged); `Fn/F1/Runs.lean` and the stage bodies (`stage0`-`stage4b`,
+  `alloc_step`) deleted; shared lemmas kept in `Fn/F1/Lemmas.lean` (`copy_step` -> `copy_call`
+  split for `ExitGoal`, `EnvOk.mem2`, `EnvOk.regions`). `Test/Budget.lean` restated on the new
+  runs (same path costs 29/112/123/137/197). Hand lines before 1308 (Proof) + 29 (Runs) + 561
+  (conditional Vc) = 1898; after 750 (Lemmas) + 933 (Vc) + 24 (Proof) = 1707, plus 222 generic
+  (`Sym/Join.lean`). `lake build` 263 jobs OK (F3-F6, Sail, compliance build); `tools/verify.sh`
+  all PASS after `make -C tools/zmap map`; `zmap show f_800cb40c`: closed+sail, reach=yes,
+  leaves auto 2 / manual 14 / open 0. Gate S5.1 passed; no fallback; `join_cut_candidates` may be
+  turned on. ~18 min.
+- S5-fix (2026-11-27): soundness finding by S1StaticMap. `AllocAssumptions.heap_frame` (any `m'`
+  agreeing with `m` on `Priv L` keeps `Heap L`) with `live_ok` (live blocks present) and
+  `priv_not_live` proved every live block empty (`heap_blocks_empty`: drop a live block's bytes,
+  the heap survives, presence fails), so `alloc`'s non-null branch was unsatisfiable and F1/F4/F5
+  were vacuous for any real allocator. Fix: `heap_frame` also requires
+  `∀ b ∈ L, Present m' b.1 b.2`; new `AllocAssumptions.heap_frame'` takes `Preserved m m'`
+  instead (every run keeps present bytes present). All 18 uses re-proved (F1 Lemmas/Vc, F4
+  Lemmas: `heap_frame'` with the step's `Preserved`; F1/TX `pre_nonvacuous`, F4 witness: empty
+  list). New `Test/AllocModel.lean`: an `AllocAssumptions zesuImage` instance whose heap has one
+  live 1-byte block (`heap_nonempty`), so `heap_blocks_empty` no longer goes through. `f*_spec`,
+  `*_sail`, `*_compliance` statements textually unchanged; STATEMENTS.md updated. Built in a clean
+  worktree of HEAD plus the fix: `lake build` 263 jobs OK (P2's uncommitted `Fn/F3/Proof.lean`
+  edit does not build in the shared tree and is not part of this commit).
+- S6 TX merge (S1StaticMap): merged exec-spike `b5baa03f` into `probe-unaligned` (LOG/ledger kept
+  both sides; generated map files regenerated). `Test/AllocModel.lean`: `Arena := True`,
+  `arena_split` by excluded middle (the model stays non-vacuous). `zmap`: join cuts are the
+  default (`--no-join-cuts` turns them off; `analyze.build(join_cuts=True)`; `make map` rebuilds a
+  static map built without them); `static.json` rebuilt (`txAccessList` 21 cuts, 50 leaves);
+  tests updated (`JoinCuts`, 19 OK). TX keeps its 17-cut plan, no join cuts (reasons in
+  `OPEN/TX/CUTS.md`). Full `lake build` OK.

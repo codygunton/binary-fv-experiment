@@ -127,8 +127,9 @@ def main(argv=None):
     b.add_argument('--sha256', required=True)
     b.add_argument('--debug-object', required=True)
     b.add_argument('--out', required=True)
-    b.add_argument('--join-cuts', action='store_true',
-                   help='also cut at every join cut candidate (fanin_paths >= 4); off by default')
+    b.add_argument('--no-join-cuts', dest='join_cuts', action='store_false',
+                   help='do not cut at the join cut candidates (fanin_paths >= 4); the default '
+                        'cuts there (S5 probe 1 passed)')
     b.set_defaults(func=cmd_build)
 
     mg = sub.add_parser('merge', help='merge static map, status, reviews, ledger')

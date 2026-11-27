@@ -184,7 +184,7 @@ theorem pre_nonvacuous (A : AllocAssumptions zesuImage) (m0 : Machine) (h0 : A.H
     simp [nvMachine, Nat.mod_eq_of_lt ha, h]
   · rw [r2]; exact nv_present m0 _ 128 (by decide)
   · exact nv_present m0 _ 8 (by decide)
-  · refine A.heap_frame [] m0 _ h0 fun a ha => ?_
+  · refine A.heap_frame [] m0 _ h0 (fun a ha => ?_) (by simp)
     obtain ⟨h1, h2⟩ := hP a ha
     have hro : zesuImage.rodataByte? a.toNat = none := by
       cases hq : zesuImage.rodataByte? a.toNat with

@@ -1,4 +1,5 @@
 import ZesuExec.Fn.Common
+import ZesuExec.Fn.Preserve
 
 /-!
 # Assumed contracts of `alt_fl_alloc.alloc` and `alt_fl_alloc.free`
@@ -43,7 +44,11 @@ structure AllocAssumptions (img : Image) where
   Heap : List (Word × Nat) → Machine → Prop
   Priv : List (Word × Nat) → Word → Prop
   priv_not_live : ∀ L a, Priv L a → ¬ InLive L a
-  heap_frame : ∀ L m m', Heap L m → (∀ a, Priv L a → m'.mem a = m.mem a) → Heap L m'
+  /-- `Heap L` depends only on `Priv L` and on the live blocks staying present. (Without the
+  presence premise, a machine that drops a live block's bytes would keep `Heap L`, and `live_ok`
+  would force every live block to be empty.) -/
+  heap_frame : ∀ L m m', Heap L m → (∀ a, Priv L a → m'.mem a = m.mem a) →
+    (∀ b ∈ L, Present m' b.1 b.2) → Heap L m'
   live_ok : ∀ L m, Heap L m →
     L.Pairwise (fun b c => b.1.toNat + b.2 ≤ c.1.toNat ∨ c.1.toNat + c.2 ≤ b.1.toNat) ∧
     ∀ b ∈ L, RamRange b.1 b.2 ∧ Present m b.1 b.2
@@ -73,5 +78,11 @@ structure AllocAssumptions (img : Image) where
   exactly `Priv L` and the live blocks of `L` (programme plan S6, TX). -/
   Arena : Word → Prop
   arena_split : ∀ L m a, Heap L m → (Arena a ↔ Priv L a ∨ InLive L a)
+
+/-- `heap_frame` for a step that keeps present bytes present (every run does, `Preserved`). -/
+theorem AllocAssumptions.heap_frame' {img : Image} (A : AllocAssumptions img)
+    (L : List (Word × Nat)) (m m' : Machine) (h : A.Heap L m)
+    (hpriv : ∀ a, A.Priv L a → m'.mem a = m.mem a) (hp : Preserved m m') : A.Heap L m' :=
+  A.heap_frame L m m' h hpriv fun b hb j hj => hp.1 _ (((A.live_ok L m h).2 b hb).2 j hj)
 
 end ZesuExec.Fn

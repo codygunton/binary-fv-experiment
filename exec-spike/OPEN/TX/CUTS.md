@@ -205,3 +205,11 @@ items: known bug `AccessListEntryTrailingBytes`) and decodes the address and key
   `kr` = `s6`); `0x25c` `32 R + 539`, `0x340` `+478`, `0x3d4` `+389`, `0x400` `+377`, `0x42c`
   `+324`, `0x460` `+311`; `0x4a0` `23`.
 - Assumption interface: TX needs `AllocAssumptions.Arena`/`arena_split` (`STATEMENTS.md`).
+- Join cuts (S5 probe 1 passed; `zmap` now cuts at join candidates by default: TX 21 cuts, 50
+  leaves estimated): not taken for TX. `0x448` → `0x460` is straight-line and `0x460` is already
+  a cut (store site); `0x48c` is the F5 call, whose call-site predicate `Site49c` covers both
+  paths; `0x390`/`0x3e4` lie inside the growth segment and their extra paths are the dead
+  `0x344`/`0x3e0` branches; `0x4a8`/`0x4b8` (error result, epilogue) end 20 `ret` leaves, whose
+  `Post` goes through one shared error-exit lemma instead of a join cut with its own run and
+  generalised state. The 17-cut plan keeps 51 leaves; the join cuts would add 6 cuts and their
+  `generalise` matching for a saving of 1 leaf.

@@ -621,8 +621,8 @@ def analyze_function(binary, cfg, noreturn, join_cuts=False):
 
     leaves, fanin = segments(cuts)
     candidates = [j for j in joins if fanin[j] >= 4]
-    # `--join-cuts`: the join cut candidates of the fixed rule become cut points too (S5 probe 1
-    # decides whether this is the default); paths and fan-in are recounted with them.
+    # Join cuts (default; `--no-join-cuts` turns them off): the join cut candidates of the fixed
+    # rule become cut points too (S5 probe 1 passed); paths and fan-in are recounted with them.
     if join_cuts and candidates:
         for j in candidates:
             cuts.setdefault(j, 'join')
@@ -783,7 +783,7 @@ def load_functions(symbols):
     return out
 
 
-def build(elf, start_symbol='_start', join_cuts=False):
+def build(elf, start_symbol='_start', join_cuts=True):
     """Analyse the ELF; return the static map dict (without hints)."""
     sections = elfread.sections(elf)
     functions = load_functions(elfread.func_symbols(elf))

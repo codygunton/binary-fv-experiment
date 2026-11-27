@@ -80,7 +80,12 @@ Deliberate differences:
   and `altFlFreeCallSpec` (`:263`) without separation logic. `altFlHeap` (`:115`) becomes the
   abstract `Heap L m` over live blocks `L`; the memory it owns (state object, heap words, free
   lists, bump region) becomes the abstract `Priv L`, disjoint from live blocks (`priv_not_live`),
-  and `Heap L` survives any change outside `Priv L` (`heap_frame`). Each caller states that its
+  and `Heap L` survives any change outside `Priv L` that keeps the live blocks present
+  (`heap_frame`; every run keeps present bytes present, `heap_frame'`). Until S5-fix the presence
+  premise was missing, which made the structure force every live block to be empty
+  (S1StaticMap's `heap_blocks_empty`): `alloc`'s non-null answer was unsatisfiable and F1/F4/F5
+  were vacuous for a real allocator. `Test/AllocModel.lean` now builds an instance with a
+  non-empty live block (`heap_nonempty`). Each caller states that its
   own regions avoid `Priv L` (the separation the Rocq `∗` gave). `alloc`: null keeps `Heap L`; a
   block `p` gives `Heap (L ++ [(p, bytes)])`, the block present, in RAM, carved from `Priv L`, and
   `Priv` shrinks. `free`: `Heap (L.erase (p, bytes))`, `Priv` grows by at most the block.

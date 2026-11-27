@@ -1,35 +1,11 @@
 [
  {
   "type": "cut_lemma",
-  "fn": "f_800cb40c",
-  "name": "array_list.Aligned([32]u8,null).ensureTotalCapacity",
-  "status_id": "ZesuExec.Fn.F1.F1",
-  "cut": 2148316508,
-  "rank": 1
- },
- {
-  "type": "cut_lemma",
-  "fn": "f_800cb40c",
-  "name": "array_list.Aligned([32]u8,null).ensureTotalCapacity",
-  "status_id": "ZesuExec.Fn.F1.F1",
-  "cut": 2148316552,
-  "rank": 2
- },
- {
-  "type": "cut_lemma",
-  "fn": "f_800cb40c",
-  "name": "array_list.Aligned([32]u8,null).ensureTotalCapacity",
-  "status_id": "ZesuExec.Fn.F1.F1",
-  "cut": 2148316584,
-  "rank": 3
- },
- {
-  "type": "cut_lemma",
   "fn": "f_80000000",
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147483648,
-  "rank": 4
+  "rank": 1
  },
  {
   "type": "cut_lemma",
@@ -37,7 +13,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147483752,
-  "rank": 5
+  "rank": 2
  },
  {
   "type": "cut_lemma",
@@ -45,7 +21,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147483844,
-  "rank": 6
+  "rank": 3
  },
  {
   "type": "cut_lemma",
@@ -53,7 +29,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147483864,
-  "rank": 7
+  "rank": 4
  },
  {
   "type": "cut_lemma",
@@ -61,7 +37,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147483916,
-  "rank": 8
+  "rank": 5
  },
  {
   "type": "cut_lemma",
@@ -69,7 +45,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147483996,
-  "rank": 9
+  "rank": 6
  },
  {
   "type": "cut_lemma",
@@ -77,7 +53,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484044,
-  "rank": 10
+  "rank": 7
  },
  {
   "type": "cut_lemma",
@@ -85,7 +61,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484064,
-  "rank": 11
+  "rank": 8
  },
  {
   "type": "cut_lemma",
@@ -93,7 +69,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484152,
-  "rank": 12
+  "rank": 9
  },
  {
   "type": "cut_lemma",
@@ -101,7 +77,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484208,
-  "rank": 13
+  "rank": 10
  },
  {
   "type": "cut_lemma",
@@ -109,7 +85,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484252,
-  "rank": 14
+  "rank": 11
  },
  {
   "type": "cut_lemma",
@@ -117,7 +93,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484480,
-  "rank": 15
+  "rank": 12
  },
  {
   "type": "cut_lemma",
@@ -125,7 +101,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484628,
-  "rank": 16
+  "rank": 13
  },
  {
   "type": "cut_lemma",
@@ -133,7 +109,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484672,
-  "rank": 17
+  "rank": 14
  },
  {
   "type": "cut_lemma",
@@ -141,7 +117,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484716,
-  "rank": 18
+  "rank": 15
  },
  {
   "type": "cut_lemma",
@@ -149,7 +125,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484768,
-  "rank": 19
+  "rank": 16
  },
  {
   "type": "cut_lemma",
@@ -157,7 +133,7 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484832,
-  "rank": 20
+  "rank": 17
  },
  {
   "type": "function",
@@ -169,7 +145,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 21
+  "rank": 18
  },
  {
   "type": "function",
@@ -181,7 +157,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 22
+  "rank": 19
  },
  {
   "type": "function",
@@ -193,7 +169,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 3,
-  "rank": 23
+  "rank": 20
  },
  {
   "type": "function",
@@ -201,11 +177,11 @@
   "name": "node.decodeNode",
   "n_instr": 190,
   "order": 14,
-  "cuts_needing_assertions": 6,
+  "cuts_needing_assertions": 10,
   "loops_needing_measure": 2,
   "contract_missing": true,
-  "leaves_estimate": 28,
-  "rank": 24
+  "leaves_estimate": 29,
+  "rank": 21
  },
  {
   "type": "function",
@@ -213,11 +189,11 @@
   "name": "main.Bytecode.deinit",
   "n_instr": 103,
   "order": 28,
-  "cuts_needing_assertions": 1,
+  "cuts_needing_assertions": 3,
   "loops_needing_measure": 0,
   "contract_missing": true,
-  "leaves_estimate": 17,
-  "rank": 25
+  "leaves_estimate": 19,
+  "rank": 22
  },
  {
   "type": "function",
@@ -229,7 +205,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 6,
-  "rank": 26
+  "rank": 23
  },
  {
   "type": "function",
@@ -237,11 +213,11 @@
   "name": "validation.Validation.validateInitialTxGas__anon_3560",
   "n_instr": 382,
   "order": 54,
-  "cuts_needing_assertions": 7,
+  "cuts_needing_assertions": 35,
   "loops_needing_measure": 6,
   "contract_missing": true,
-  "leaves_estimate": 2517979,
-  "rank": 27
+  "leaves_estimate": 105,
+  "rank": 24
  },
  {
   "type": "function",
@@ -249,11 +225,11 @@
   "name": "opcodes.call.resumeCall",
   "n_instr": 115,
   "order": 55,
-  "cuts_needing_assertions": 3,
+  "cuts_needing_assertions": 6,
   "loops_needing_measure": 2,
   "contract_missing": true,
-  "leaves_estimate": 46,
-  "rank": 28
+  "leaves_estimate": 16,
+  "rank": 25
  },
  {
   "type": "function",
@@ -261,11 +237,11 @@
   "name": "journal.JournalInner.addLog",
   "n_instr": 161,
   "order": 85,
-  "cuts_needing_assertions": 3,
+  "cuts_needing_assertions": 7,
   "loops_needing_measure": 0,
   "contract_missing": true,
-  "leaves_estimate": 20,
-  "rank": 29
+  "leaves_estimate": 24,
+  "rank": 26
  },
  {
   "type": "function",
@@ -273,11 +249,11 @@
   "name": "mem.rotate__anon_12629",
   "n_instr": 77,
   "order": 86,
-  "cuts_needing_assertions": 7,
+  "cuts_needing_assertions": 8,
   "loops_needing_measure": 6,
   "contract_missing": true,
-  "leaves_estimate": 19,
-  "rank": 30
+  "leaves_estimate": 20,
+  "rank": 27
  },
  {
   "type": "function",
@@ -285,11 +261,11 @@
   "name": "host.Host.releaseOutput",
   "n_instr": 101,
   "order": 90,
-  "cuts_needing_assertions": 1,
+  "cuts_needing_assertions": 4,
   "loops_needing_measure": 0,
   "contract_missing": true,
-  "leaves_estimate": 15,
-  "rank": 31
+  "leaves_estimate": 18,
+  "rank": 28
  },
  {
   "type": "function",
@@ -297,11 +273,11 @@
   "name": "mem.rotate__anon_10572",
   "n_instr": 85,
   "order": 116,
-  "cuts_needing_assertions": 7,
+  "cuts_needing_assertions": 8,
   "loops_needing_measure": 6,
   "contract_missing": true,
-  "leaves_estimate": 19,
-  "rank": 32
+  "leaves_estimate": 20,
+  "rank": 29
  },
  {
   "type": "function",
@@ -309,11 +285,11 @@
   "name": "transition.BaTracker.computeHash__anon_5051__struct_5392.lessThan",
   "n_instr": 247,
   "order": 117,
-  "cuts_needing_assertions": 1,
+  "cuts_needing_assertions": 21,
   "loops_needing_measure": 0,
   "contract_missing": true,
-  "leaves_estimate": 3145724,
-  "rank": 33
+  "leaves_estimate": 86,
+  "rank": 30
  },
  {
   "type": "function",
@@ -321,11 +297,11 @@
   "name": "main.ExecutionResult.deinit",
   "n_instr": 352,
   "order": 126,
-  "cuts_needing_assertions": 2,
+  "cuts_needing_assertions": 11,
   "loops_needing_measure": 1,
   "contract_missing": true,
-  "leaves_estimate": 44521,
-  "rank": 34
+  "leaves_estimate": 67,
+  "rank": 31
  },
  {
   "type": "function",
@@ -337,7 +313,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 8,
-  "rank": 35
+  "rank": 32
  },
  {
   "type": "function",
@@ -345,11 +321,11 @@
   "name": "tx.AccessList.deinit",
   "n_instr": 189,
   "order": 135,
-  "cuts_needing_assertions": 2,
+  "cuts_needing_assertions": 8,
   "loops_needing_measure": 1,
   "contract_missing": true,
-  "leaves_estimate": 226,
-  "rank": 36
+  "leaves_estimate": 37,
+  "rank": 33
  },
  {
   "type": "function",
@@ -357,11 +333,11 @@
   "name": "mem.rotate__anon_8330",
   "n_instr": 88,
   "order": 165,
-  "cuts_needing_assertions": 7,
+  "cuts_needing_assertions": 8,
   "loops_needing_measure": 6,
   "contract_missing": true,
-  "leaves_estimate": 19,
-  "rank": 37
+  "leaves_estimate": 20,
+  "rank": 34
  },
  {
   "type": "function",
@@ -369,11 +345,11 @@
   "name": "main.buildAccessedEntries__struct_5732.lt",
   "n_instr": 247,
   "order": 179,
-  "cuts_needing_assertions": 1,
+  "cuts_needing_assertions": 21,
   "loops_needing_measure": 0,
   "contract_missing": true,
-  "leaves_estimate": 3145724,
-  "rank": 38
+  "leaves_estimate": 86,
+  "rank": 35
  },
  {
   "type": "blocker",
@@ -447,7 +423,7 @@
    "f_800e8c44",
    "f_800f7824"
   ],
-  "rank": 39
+  "rank": 36
  },
  {
   "type": "blocker",
@@ -491,7 +467,7 @@
    "f_800d5898",
    "f_8010f90c"
   ],
-  "rank": 40
+  "rank": 37
  },
  {
   "type": "blocker",
@@ -514,7 +490,7 @@
    "f_80103a7c",
    "f_8010f90c"
   ],
-  "rank": 41
+  "rank": 38
  },
  {
   "type": "blocker",
@@ -533,7 +509,7 @@
    "f_8009f348",
    "f_8010f90c"
   ],
-  "rank": 42
+  "rank": 39
  },
  {
   "type": "blocker",
@@ -550,7 +526,7 @@
    "f_8008baec",
    "f_8009f348"
   ],
-  "rank": 43
+  "rank": 40
  },
  {
   "type": "blocker",
@@ -609,7 +585,7 @@
    "f_800dfa30",
    "f_800dfe5c"
   ],
-  "rank": 44
+  "rank": 41
  },
  {
   "type": "blocker",
@@ -672,7 +648,7 @@
    "f_800dfa30",
    "f_800dfe5c"
   ],
-  "rank": 45
+  "rank": 42
  },
  {
   "type": "blocker",
@@ -687,7 +663,7 @@
    "f_8008baec",
    "f_800cbb74"
   ],
-  "rank": 46
+  "rank": 43
  },
  {
   "type": "blocker",
@@ -753,7 +729,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 47
+  "rank": 44
  },
  {
   "type": "blocker",
@@ -782,7 +758,7 @@
    "f_800dded0",
    "f_800de310"
   ],
-  "rank": 48
+  "rank": 45
  },
  {
   "type": "blocker",
@@ -848,7 +824,7 @@
    "f_800dfe5c",
    "f_8010f90c"
   ],
-  "rank": 49
+  "rank": 46
  },
  {
   "type": "blocker",
@@ -876,7 +852,7 @@
    "f_800d7a60",
    "f_800f7824"
   ],
-  "rank": 50
+  "rank": 47
  },
  {
   "type": "blocker",
@@ -891,7 +867,7 @@
    "f_800ab11c",
    "f_8010f90c"
   ],
-  "rank": 51
+  "rank": 48
  },
  {
   "type": "blocker",
@@ -901,7 +877,7 @@
    "f_8001e8fc",
    "f_800308b0"
   ],
-  "rank": 52
+  "rank": 49
  },
  {
   "type": "blocker",
@@ -911,7 +887,7 @@
    "f_8001e8fc",
    "f_800cfa50"
   ],
-  "rank": 53
+  "rank": 50
  },
  {
   "type": "blocker",
@@ -925,7 +901,7 @@
    "f_800f5ad8",
    "f_800f5b98"
   ],
-  "rank": 54
+  "rank": 51
  },
  {
   "type": "blocker",
@@ -935,7 +911,7 @@
    "f_800ab11c",
    "f_800e06f0"
   ],
-  "rank": 55
+  "rank": 52
  },
  {
   "type": "blocker",
@@ -944,7 +920,7 @@
   "functions": [
    "f_8000a48c"
   ],
-  "rank": 56
+  "rank": 53
  },
  {
   "type": "blocker",
@@ -965,7 +941,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 57
+  "rank": 54
  },
  {
   "type": "blocker",
@@ -982,7 +958,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 58
+  "rank": 55
  },
  {
   "type": "blocker",
@@ -997,7 +973,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 59
+  "rank": 56
  },
  {
   "type": "blocker",
@@ -1009,7 +985,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 60
+  "rank": 57
  },
  {
   "type": "blocker",
@@ -1023,7 +999,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 61
+  "rank": 58
  },
  {
   "type": "blocker",
@@ -1036,7 +1012,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 62
+  "rank": 59
  },
  {
   "type": "blocker",
@@ -1047,7 +1023,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 63
+  "rank": 60
  },
  {
   "type": "blocker",
@@ -1059,7 +1035,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 64
+  "rank": 61
  },
  {
   "type": "blocker",
@@ -1069,7 +1045,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 65
+  "rank": 62
  },
  {
   "type": "blocker",
@@ -1079,7 +1055,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 66
+  "rank": 63
  },
  {
   "type": "blocker",
@@ -1089,7 +1065,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 67
+  "rank": 64
  },
  {
   "type": "blocker",
@@ -1099,7 +1075,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 68
+  "rank": 65
  },
  {
   "type": "blocker",
@@ -1109,7 +1085,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 69
+  "rank": 66
  },
  {
   "type": "blocker",
@@ -1120,7 +1096,7 @@
    "f_800f7824",
    "f_8010f90c"
   ],
-  "rank": 70
+  "rank": 67
  },
  {
   "type": "blocker",
@@ -1131,7 +1107,7 @@
    "f_800e8c44",
    "f_800f7824"
   ],
-  "rank": 71
+  "rank": 68
  },
  {
   "type": "blocker",
@@ -1140,7 +1116,7 @@
   "functions": [
    "f_800e06f0"
   ],
-  "rank": 72
+  "rank": 69
  },
  {
   "type": "blocker",
@@ -1150,7 +1126,7 @@
    "f_800e8c44",
    "f_800ea180"
   ],
-  "rank": 73
+  "rank": 70
  },
  {
   "type": "blocker",
@@ -1159,7 +1135,7 @@
   "functions": [
    "f_800f7824"
   ],
-  "rank": 74
+  "rank": 71
  },
  {
   "type": "blocker",
@@ -1170,7 +1146,7 @@
    "f_800fcda8",
    "f_8010f78c"
   ],
-  "rank": 75
+  "rank": 72
  },
  {
   "type": "blocker",
@@ -1179,7 +1155,7 @@
   "functions": [
    "f_8010f90c"
   ],
-  "rank": 76
+  "rank": 73
  },
  {
   "type": "blocker",
@@ -1188,7 +1164,7 @@
   "functions": [
    "f_800ea180"
   ],
-  "rank": 77
+  "rank": 74
  },
  {
   "type": "blocker",
@@ -1198,7 +1174,7 @@
    "f_800e17b8",
    "f_800f5b30"
   ],
-  "rank": 78
+  "rank": 75
  },
  {
   "type": "blocker",
@@ -1207,7 +1183,7 @@
   "functions": [
    "f_8010f78c"
   ],
-  "rank": 79
+  "rank": 76
  },
  {
   "type": "blocker",
@@ -1217,7 +1193,7 @@
    "f_800e0680",
    "f_800f5b30"
   ],
-  "rank": 80
+  "rank": 77
  },
  {
   "type": "blocker",
@@ -1227,7 +1203,7 @@
    "f_800ea5d4",
    "f_800f5b30"
   ],
-  "rank": 81
+  "rank": 78
  },
  {
   "type": "blocker",
@@ -1237,6 +1213,6 @@
    "f_800e0680",
    "f_800e0692"
   ],
-  "rank": 82
+  "rank": 79
  }
 ]

@@ -95,9 +95,9 @@ theorem pre_satisfiable (eb : Nat) (A : AllocAssumptions zesuImage) (m0 : Machin
   · rw [r12, lctx]; rfl
   · rw [r12]; exact lvt
   · exact present _ 0xa0400f00 8 rfl (by decide) (by decide)
-  · exact A.heap_frame [] m0 _ h0 fun a ha => by
+  · exact A.heap_frame [] m0 _ h0 (fun a ha => by
       have : ¬ Win a := fun hw => hwin a hw ha
-      simp [wit, this]
+      simp [wit, this]) (by simp)
   all_goals first
     | (simp only [Apart, r2, r10, r11, r12, scratch, Layout.extraParams]; decide)
     | skip

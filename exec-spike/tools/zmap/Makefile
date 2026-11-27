@@ -1,4 +1,5 @@
-# make -C tools/zmap map: static map (only when the ELF hash differs from static.json's), proof
+# make -C tools/zmap map: static map (only when the ELF hash differs from static.json's or it was
+# built without join cuts), proof
 # status, merge, queue, page. Outputs in P/map/.
 P      := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 MAP    := $(P)/map
@@ -16,7 +17,7 @@ map: static status
 	$(ZMAP) site --map $(MAP)/map.json --queue $(MAP)/queue.json --out $(MAP)/site
 
 static:
-	@have=$$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["elf_sha256"])' \
+	@have=$$(python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); print(s["elf_sha256"] + ("" if s.get("join_cuts") else ":nojoin"))' \
 	  $(MAP)/static.json 2>/dev/null); \
 	now=$$(sha256sum $(ELF) | cut -d' ' -f1); \
 	if [ "$$have" = "$$now" ]; then echo "zmap: static.json is for ELF $$now; not rebuilt"; \
