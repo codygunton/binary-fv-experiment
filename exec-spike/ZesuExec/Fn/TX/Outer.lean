@@ -70,8 +70,8 @@ theorem win_ne {σ : Sig} {m : Machine} {o : Obs} (hok : OuterOk σ m o) (hi : o
   omega
 
 /-- A rejection after the outer item: `rest` is past it, the class is `invalidInput`. -/
-theorem outer_err {σ : Sig} {m : Machine} {o : Obs} {L : List (Word × Nat)} (hcm : Common σ m)
-    (hok : OuterOk σ m o) (hlive : Live σ m L (EX o))
+theorem outer_err {σ : Sig} {m : Machine} {o : Obs} {L X : List (Word × Nat)} (hcm : Common σ m)
+    (hok : OuterOk σ m o) (hlive : Live σ m L X)
     (hnone : (entriesWalk (win σ o).length (win σ o)).2 = none) : ErrOk σ m := by
   obtain ⟨hdec, hle, hr0, hr8, hw⟩ := hok
   have hpl : (entriesWalk (pl σ o).length (pl σ o)).2 = none := by
