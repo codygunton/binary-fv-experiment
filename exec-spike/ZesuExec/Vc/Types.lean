@@ -47,6 +47,9 @@ structure Plan (σ : Type) (img : Image) where
   /-- by return address of the call site -/
   callee : Nat → Option (Callee σ img)
   Post   : σ → Machine → Prop
+  /-- by entry address of a tail-called function (a jump to its entry ends the plan's run;
+  the callee's result must satisfy `Post`) -/
+  tail   : Nat → Option (Callee σ img) := fun _ => none
 
 /-- The `memcpy` service as a callee (`memcpy_spec`). -/
 def Callee.memcpy (σ : Type) (img : Image) : Callee σ img where

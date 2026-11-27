@@ -506,3 +506,13 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   auto), manual 19 -> 16, open 0. `Fn/F1/Vc.lean` 933 -> 903 lines (`Sym/Join.lean` 222 -> 265).
   Built in a clean worktree of HEAD plus these files: `lake build` 263 jobs OK, `tools/verify.sh`
   all PASS after `make -C tools/zmap map`.
+- S2-tail (2026-11-27): tail calls in the obligation framework (found converting F6: its error
+  paths end with a jump to `memcpy`, `go` stops at the memcpy entry, and a cut there is impossible
+  because its run is a 0-step leaf, so `hpos` fails). `Plan` gains `tail : Nat → Option (Callee σ
+  img) := fun _ => none` (default: existing plans unchanged). `ExitGoal` at `.at pc`: when
+  `P.tail pc = some k`, `m'.pc.toNat = k.entry ∧ k.Pre g m' ∧ k.bound ≤ rem ∧ ∀ m'', k.Post g m'
+  m'' → P.Post g m''`; otherwise the cut case as before (`.jumpInd` unchanged). Helper lemmas
+  `ExitGoal.at_cut` / `ExitGoal.at_tail`. `vc_sound` handles the tail case with the callee's
+  `spec` (axioms unchanged). `exit_intro` picks the tail case when `P.tail pc` is `some`.
+  `Test/Vc.lean`: plan `Tail` (`jal x0, memcpy` from one cut, `tail` = `Callee.memcpy`) assembles
+  to `Tail.reach` with clean axioms. F1/F2 proofs unchanged; `lake build` 263 jobs OK.

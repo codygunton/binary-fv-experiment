@@ -219,4 +219,74 @@ run_cmd do
     for n in [l.spec, l.sail] ++ l.compliance.toList do
       unless (← Lean.getEnv).contains n do throwError "legacy: {n} missing"
 
+/-! A tail call: `j memcpy` at `0x80000000` (`jal x0, 0xe06c0`). The run stops at the `memcpy`
+entry; the plan's `tail` names `Callee.memcpy` there, so the leaf goal asks for `MemcpyPre` at
+the jump and `Post` of every `memcpy` result. -/
+
+def tailImage : Image := ⟨[⟨0x80000000, [0x6c0e006f]⟩], []⟩
+
+def ct : Cut Unit where
+  pc := 0x80000000
+  S := S0
+  A := fun _ m => m.pc.toNat = 0x80000000 ∧ MemcpyPre m
+  env := fun _ m => envOf m
+  budget := fun _ _ => 4
+
+sym_run runT := run tailImage [0x80000000] 20 0x80000000 S0
+
+def tailPlan : Plan Unit tailImage where
+  cuts := [ct]
+  fuel := 20
+  leaves := fun pc => if pc = 0x80000000 then runT_leaves else []
+  callee := fun _ => none
+  Post := fun _ m => m.pc = (m.reg 1 &&& ~~~(1 : Word))
+  tail := fun pc => if pc = Layout.memcpyEntry then some (Callee.memcpy Unit tailImage) else none
+
+/--
+info: ZesuExec.Test.VcTest.Tail: 1 cut points
+  0x80000000: 1 leaves
+-/
+#guard_msgs in
+zesu_plan Tail := tailPlan
+
+theorem Tail.cut_80000000 : CutOK Tail.plan Tail.plan.cuts[0]! := by
+  show CutOK Tail.plan ct
+  intro _ m hA
+  exact ⟨S0_wf m, S0_match m, fun a b h => by simp [Image.rodataByte?, tailImage] at h, hA.1⟩
+
+theorem Tail.leaf_80000000_0 :
+    LeafGoal Tail.plan Tail.plan.cuts[0]! ((Tail.plan.leaves 0x80000000)[0]!) := by
+  show LeafGoal Tail.plan ct (runT_leaves[0]!)
+  intro g m hA _
+  obtain ⟨_, hpre⟩ := hA
+  have he0 : runT_leaves[0]!.exit = .at Layout.memcpyEntry := rfl
+  have hs : runT_leaves[0]!.S.steps - ct.S.steps = 1 := rfl
+  rw [he0, hs]
+  refine ⟨by simp [runT_leaves], by simp [ct], fun m' hm' he hso => ?_⟩
+  have hr : ∀ i : Fin 32, m'.reg i = m.reg i := fun i => by
+    rw [← hm'.regs i, show runT_leaves[0]!.S.reg i.val = S0.reg i.val from rfl]
+    exact (S0_match m).regs i
+  have hmem : m'.mem = m.mem := funext fun a => hso a fun ⟨r, R, j, h, _⟩ => by
+    simp [ct, S0] at h
+  have hd : ziskMemcpyDomain m' = true := by
+    have : ziskMemcpyDomain m' = ziskMemcpyDomain m := by simp only [ziskMemcpyDomain, hr, hmem]
+    rw [this]; exact hpre
+  refine ExitGoal.at_tail (k := Callee.memcpy Unit tailImage) (by rfl)
+    ⟨he, hd, by simp [Callee.memcpy, ct], fun m'' hz => ?_⟩
+  have hz : ziskMemcpy m' = some m'' := hz
+  rw [ziskMemcpy, if_pos hd] at hz
+  cases hz
+  rfl
+
+/--
+info: ZesuExec.Test.VcTest.Tail: 2 items, 0 auto, 2 manual, 0 open
+-/
+#guard_msgs in
+zesu_assemble Tail
+
+/-- info: 'ZesuExec.Test.VcTest.Tail.reach' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Tail.reach
+
 end ZesuExec.Test.VcTest
