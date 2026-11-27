@@ -105,6 +105,20 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   file): 1.69 s wall, 1.58 GiB peak (bare import 0.68 s, 1.37 GiB). Lines: Spec 158, Regions 47,
   Proof 738, Lemmas 399. Non-vacuity `example : ∃ m, Pre m` (witness with input `[0x00]`).
   `STATEMENTS.md` `## F2` lists Pre/Post beside the Rocq definitions and 8 deliberate differences.
+- 2026-11-27 ProveF2: F3 `rlp_decode.nextUint64` proved. `f3_spec : Spec zesuImage 0x800d6274 160
+  Pre Post`, axioms standard (`#guard_msgs` in `Fn/F3/Proof.lean`). Uses `F2.f2_spec` for the
+  decodeItem call (black box, `Reaches.preserve` + `Reaches.trans`). Three `sym_run`s, cuts =
+  return point `0x800d62b8` and loop head `0x800d6318`: entry → call (1 leaf, 17 steps); return
+  point (5 leaves: 3 error returns, empty payload, loop entry; ≤ 26 steps); loop (back edge 5,
+  exit 20). The state after the call is not `S.override`: decodeItem writes its outcome inside
+  F3's frame, which `after_call` forbids, so the return point and the loop head are fresh
+  `entryState`s matched against machine-level invariants (`CallState`, `Inv`) through
+  `F2.entry_match_vars`; the saved `ra, s0..s4` are `known` frame words (`var 33..38`). Bound
+  17 + 75 + 13 + 7*5 + 20 = 160 (tight, payload of 8 bytes). Clean `lake build
+  ZesuExec.Fn.F3.Proof` (F3 modules only): 7.35 s wall, 12.7 s user, peak RSS 1.76 GiB;
+  `Proof.lean` 4.0 s. Lines: Spec 157, Regions 58, Proof 1057, Lemmas 148. Non-vacuity example
+  (slice `{0xa0003000, 1}`, input `[0x00]`). `STATEMENTS.md` `## F3`: 9 deliberate differences.
+  Next: F6 `decodeParentHeader`.
 
 ## Verification tools
 - ImageCheck 2026-11-27: `tools/check_image.sh [Gen.lean] [ELF]` (item 9): parses every

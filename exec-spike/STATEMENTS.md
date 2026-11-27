@@ -172,3 +172,58 @@ the wrap clause states the candidate success instead of `candidateResult40 … a
 conjunct of `DecodeMeaningModuloKnownBugs` already fixes `after = result40`). Witnesses:
 `wrapWitness` (`decodeItemWrapWitnessInput`) inhabits the wrap class; Sail and the candidate agree
 on `[0]`.
+
+## F3
+
+`rlp_decode.nextUint64`, entry `0x800d6274`. Lean: `ZesuExec/Fn/F3/Spec.lean`.
+
+End theorem (`ZesuExec/Fn/F3/Proof.lean`, axioms `propext`, `Classical.choice`, `Quot.sound`,
+`#guard_msgs` at the end of the file):
+
+```lean
+theorem f3_spec : Spec zesuImage entry bound Pre Post   -- entry = 0x800d6274, bound = 160
+```
+
+It uses `F2.f2_spec` for the call to `rlp.decodeItem` (proved, not assumed) and transcribes
+`nextUint64CallSpecDefinition` (`NextUint64CallSpec2.v:23-48`), i.e. `nextUint64ContractEntry` /
+`nextUint64ContractExit` / `nextUint64ContractAllows` (`NextUint64Contract.v:13-48`).
+
+| Lean | Rocq | Note |
+|---|---|---|
+| `nextUint64` | `nextUint64RootResult`'s case split (`ParentHeaderRootFacts.v:112-133`) | `none` = the error branches (decode error, list, more than 8 payload bytes); `some (value, consumed)` otherwise |
+| `resultByte` | `nextUint64Success16`, `nextUint64Error16` (`ParentHeader.v:73-81`), `nextUint64ByteFold` (`ParentHeader.v:68-71`) | value word = big-endian payload; error = words 0 and 3; see difference 7 |
+| `sliceByte` | `nextUint64SliceImage` (`NextUint64BlockEntries.v:67-68`) with `nextRestPointer`/`nextRestLength` | `inputPointer + consumed`, `length - consumed` on success, unchanged on error |
+| `Pre` | `nextUint64BoundaryDomain` (`NextUint64BlockEntries.v:28-48`) with `nextUint64EntryLayout` (`ParentHeaderRootFacts.v:59-74`), the owned resources of `nextUint64CallSpecDefinition` (slice words, input bytes, 16 result bytes, 96 + 16 stack bytes) | see differences 1-5 |
+| `Post` | `nextUint64ContractExit` (`NextUint64Contract.v:20-40`), `nextUint64RootResult` | see differences 6-9 |
+| `bound = 160` | none | 17 + 75 (decodeItem) + 13 + 8 * 5 + 15 |
+
+`Pre m`: `RodataLoaded zesuImage m`; `StackOk m 112` (the 96-byte frame and decodeItem's 16 bytes,
+`nextUint64CallStackBytes`, `NextUint64CallData.v:13`); `RetAligned m`; result `a0` and slice
+`a1`: 16 bytes each, `writable` (RAM), 8-aligned, present; the input `[inp, inp + len)` with
+`inp`, `len` the slice's two words (`wordAt`) is `readable` and present; input, result, slice and
+`[sp - 112, sp)` pairwise `Disjoint`.
+
+`Post m m'`: `Returns m m'`; `SameOutside` of result ∪ slice ∪ `[sp - 112, sp)`; for every
+`input` with `BytesAt m inp input` and `input.length = len`: each result byte `j < 16` is
+`resultByte input old j` and each slice byte is `sliceByte inp len input old j`, `old` the byte
+on entry.
+
+Deliberate differences:
+
+1. `zisk_input_end`, `zisk_free_input` and `nextUint64InputEnd` are dropped (plan S5 step 1):
+   the input is present, readable memory. `readable` (rodata, input or RAM) is weaker than the
+   input-buffer-or-RAM condition the domain inherits from `decodeItemEntryLayout`.
+2. The input must be disjoint from the slice; `nextUint64EntryLayout` does not require it. Each
+   symbolic region is disjoint from the others.
+3. Result and slice are 8-aligned (word accesses fault unaligned in this machine); Rocq asks only
+   that they lie in RAM.
+4. `RetAligned` (`(ra & ~1) % 4 = 0`) is weaker than `returnAddress mod 4 = 0`.
+5. The stack: `StackOk m 112` asks `ramBase + 112 ≤ sp ≤ ramEnd`, `16 ∣ sp` and the 112 bytes
+   present; Rocq asks `112 ≤ sp < ramEnd` and `16 ∣ sp`, and owns the bytes (`↦ₘ?`).
+6. Registers: `Returns` gives `pc`, `sp`, `s0`-`s11`; Rocq also returns `x1` unchanged.
+7. Result padding (bytes 10..15 on success) is unchanged; Rocq leaves it unconstrained (stronger
+   `Post`). Bytes 0..15 on error are exactly words 0 and 3, as `nextUint64Error16`.
+8. The slice words are stated modulo `2^64`; on success `consumed ≤ length` (header ≤ 9 bytes,
+   payload ≤ 8 bytes, `checkedPayload`), so there is no wrap and they equal Rocq's integers.
+9. `inputAddressFits` follows from `Pre`; the decodeItem meaning modulo known bugs is used only
+   through `F2.decode` (= `candidateDecodeItem`); the Sail half belongs to S6.

@@ -93,11 +93,16 @@ theorem checked_success {len h p h' p' : Nat} {b b' : Bool}
   · cases hc; exact ⟨rfl, rfl, by assumption⟩
   · cases hc
 
+theorem bigEndian_lt8 {l : List Byte} (hl : l.length ≤ 8) : F2.bigEndian l < 2 ^ 64 :=
+  Nat.lt_of_lt_of_le (F2.bigEndian_lt l)
+    (Nat.le_trans (Nat.pow_le_pow_right (by decide) hl) (by decide))
+
 /-- A success has a header of at most 9 bytes that fits the input with its payload (mod `2^64`),
-and the empty string `0x80` is the only success whose input starts with `0x80`. -/
+the empty string `0x80` is the only success whose input starts with `0x80`, and the payload
+length is below `2^64`. -/
 theorem decode_success {input : List Byte} {b : Bool} {h p : Nat}
     (hd : F2.decode input = .success b h p) :
-    h ≤ 9 ∧ (h + p) % 2 ^ 64 ≤ input.length ∧ (input.head? = some 128 → p = 0) := by
+    h ≤ 9 ∧ (h + p) % 2 ^ 64 ≤ input.length ∧ (input.head? = some 128 → p = 0) ∧ p < 2 ^ 64 := by
   cases input with
   | nil => simp [F2.decode] at hd
   | cons c rest =>
@@ -106,38 +111,38 @@ theorem decode_success {input : List Byte} {b : Bool} {h p : Nat}
     simp only [List.length_cons, List.head?_cons, Option.some.injEq]
     by_cases h1 : c.toNat ≤ 127
     · rw [if_pos h1] at hd; cases hd
-      refine ⟨by omega, by simp only [Nat.reducePow]; omega, fun e => ?_⟩
+      refine ⟨by omega, by simp only [Nat.reducePow]; omega, fun e => ?_, by decide⟩
       rw [e] at h1; simp at h1
     rw [if_neg h1] at hd
     by_cases h2 : c.toNat = 128
     · rw [if_pos h2] at hd; cases hd
-      exact ⟨by omega, by simp only [Nat.reducePow]; omega, fun _ => rfl⟩
+      exact ⟨by omega, by simp only [Nat.reducePow]; omega, fun _ => rfl, by decide⟩
     rw [if_neg h2] at hd
     have hne : c ≠ 128 := fun e => h2 (by rw [e]; rfl)
     by_cases h3 : c.toNat ≤ 183
     · rw [if_pos h3] at hd
       obtain ⟨e1, e2, hl⟩ := checked_success hd
       clear hd; rw [e1, e2]
-      exact ⟨by omega, hl, fun e => absurd e hne⟩
+      exact ⟨by omega, hl, fun e => absurd e hne, by omega⟩
     rw [if_neg h3] at hd
     by_cases h4 : c.toNat ≤ 191
     · rw [if_pos h4] at hd
       split at hd
       · obtain ⟨e1, e2, hl⟩ := checked_success hd
         clear hd; rw [e1, e2]
-        exact ⟨by omega, hl, fun e => absurd e hne⟩
+        exact ⟨by omega, hl, fun e => absurd e hne, bigEndian_lt8 (by simp; omega)⟩
       · cases hd
     rw [if_neg h4] at hd
     by_cases h5 : c.toNat ≤ 247
     · rw [if_pos h5] at hd
       obtain ⟨e1, e2, hl⟩ := checked_success hd
       clear hd; rw [e1, e2]
-      exact ⟨by omega, hl, fun e => absurd e hne⟩
+      exact ⟨by omega, hl, fun e => absurd e hne, by omega⟩
     rw [if_neg h5] at hd
     split at hd
     · obtain ⟨e1, e2, hl⟩ := checked_success hd
       clear hd; rw [e1, e2]
-      exact ⟨by omega, hl, fun e => absurd e hne⟩
+      exact ⟨by omega, hl, fun e => absurd e hne, bigEndian_lt8 (by simp; omega)⟩
     · cases hd
 
 end ZesuExec.Fn.F3
