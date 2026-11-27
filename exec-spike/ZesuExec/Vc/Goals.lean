@@ -7,8 +7,9 @@ import ZesuExec.Vc.Types
 `LeafGoal P c l`: under the assertion of `c` and the conditions of `l`, the obligations of `l`
 hold, `l` fits the budget, and the machine at the end of `l` satisfies `ExitGoal`: the
 postcondition (return), the assertion of the next cut with a smaller budget (cut or indirect
-jump), or the callee's precondition and, after any callee result, the assertion at the return
-cut (call).
+jump), the tail callee's precondition with every callee result satisfying the postcondition
+(jump to a tail callee's entry), or the callee's precondition and, after any callee result, the
+assertion at the return cut (call).
 -/
 
 namespace ZesuExec.Vc
@@ -24,11 +25,16 @@ def CutOK (_P : Plan σ img) (c : Cut σ) : Prop :=
 instructions of the budget left. -/
 def ExitGoal (P : Plan σ img) (g : σ) (m' : Machine) (rem : Nat) : Exit → Prop
   | .ret _ => P.Post g m'
-  | .at _ | .jumpInd _ =>
+  | .at pc =>
+    match P.tail pc with
+    | some k => ∃ x, m'.pc.toNat = k.entry ∧ k.Pre g x m' ∧ k.bound ≤ rem ∧
+        ∀ m'', k.Post g x m' m'' → P.Post g m''
+    | none => ∃ c' ∈ P.cuts, m'.pc.toNat = c'.pc ∧ c'.A g m' ∧ c'.budget g m' ≤ rem
+  | .jumpInd _ =>
     ∃ c' ∈ P.cuts, m'.pc.toNat = c'.pc ∧ c'.A g m' ∧ c'.budget g m' ≤ rem
   | .call _ r | .callInd _ r =>
-    ∃ k, P.callee r = some k ∧ m'.pc.toNat = k.entry ∧ k.Pre g m' ∧
-      ∀ m'', k.Post g m' m'' →
+    ∃ k x, P.callee r = some k ∧ m'.pc.toNat = k.entry ∧ k.Pre g x m' ∧
+      ∀ m'', k.Post g x m' m'' →
         ∃ c' ∈ P.cuts, c'.pc = r ∧ m''.pc.toNat = r ∧ c'.A g m'' ∧ k.bound + c'.budget g m'' ≤ rem
 
 def LeafGoal (P : Plan σ img) (c : Cut σ) (l : Leaf) : Prop :=
@@ -38,5 +44,20 @@ def LeafGoal (P : Plan σ img) (c : Cut σ) (l : Leaf) : Prop :=
     ∀ m', Match (c.env g m) l.S m' → ExitOk (c.env g m) l.exit m' →
       SameOutside (InWritable (c.env g m) c.S) m m' →
       ExitGoal P g m' (c.budget g m - (l.S.steps - c.S.steps)) l.exit
+
+/-- A jump to a cut point (no tail callee at `pc`). -/
+theorem ExitGoal.at_cut {P : Plan σ img} {g : σ} {m' : Machine} {rem pc : Nat}
+    (h : P.tail pc = none)
+    (hc : ∃ c' ∈ P.cuts, m'.pc.toNat = c'.pc ∧ c'.A g m' ∧ c'.budget g m' ≤ rem) :
+    ExitGoal P g m' rem (.at pc) := by
+  simp only [ExitGoal, h]; exact hc
+
+/-- A tail call: a jump to the entry of the tail callee `k` at `pc`. -/
+theorem ExitGoal.at_tail {P : Plan σ img} {g : σ} {m' : Machine} {rem pc : Nat}
+    {k : Callee σ img} (h : P.tail pc = some k)
+    (hc : ∃ x, m'.pc.toNat = k.entry ∧ k.Pre g x m' ∧ k.bound ≤ rem ∧
+      ∀ m'', k.Post g x m' m'' → P.Post g m'') :
+    ExitGoal P g m' rem (.at pc) := by
+  simp only [ExitGoal, h]; exact hc
 
 end ZesuExec.Vc

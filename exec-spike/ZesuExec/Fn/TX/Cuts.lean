@@ -319,13 +319,13 @@ def KeyOk (σ : Sig) (m : Machine) (o : Obs) (k : Kobs) (kh' : Nat) : Prop :=
   BytesAt m (σ.sl 0xd8) (itemPayload (kwin σ o k) kh' keySize) ∧ m.reg 25 = w (kh' + keySize)
 
 /-- `+0x1f4`: `ensureTotalCapacity(K, ao, n + 1)`. -/
-def Site1f4 (σ : Sig) (m : Machine) : Prop :=
-  ∃ o k L kh', InEntry σ m o k L ∧ KeysOk σ m o k ∧ KList σ m k k.keys.length ∧ k.j < k.kl ∧
+def Site1f4 (σ : Sig) (x : List (Word × Nat) × List Byte) (m : Machine) : Prop :=
+  ∃ o k kh', InEntry σ m o k x.1 ∧ x.2 = k.keys.flatten ∧ KeysOk σ m o k ∧ KList σ m k k.keys.length ∧ k.j < k.kl ∧
     KeyOk σ m o k kh' ∧ Args m c1f8 [σ.sl 0x118, σ.ao, w (k.keys.length + 1)]
 
 /-- `+0x258`: `toOwnedSlice(S-0xb8, K, ao)` once every key is in `K`. -/
-def Site258 (σ : Sig) (m : Machine) : Prop :=
-  ∃ o k L, InEntry σ m o k L ∧ KeysWalked (kpl σ o k) k.kl k.keys ∧
+def Site258 (σ : Sig) (x : List (Word × Nat) × List Byte) (m : Machine) : Prop :=
+  ∃ o k, InEntry σ m o k x.1 ∧ x.2 = k.keys.flatten ∧ KeysWalked (kpl σ o k) k.kl k.keys ∧
     KList σ m k k.keys.length ∧ Args m c25c [σ.sl 0xb8, σ.sl 0x118, σ.ao]
 
 /-- The keys slice of the finished entry. -/
@@ -370,8 +370,8 @@ def Site33c (σ : Sig) (m : Machine) : Prop :=
       w (entrySize * grownCap o.done.length), σ.m.reg 1]
 
 /-- `+0x3d0`: `alloc(ctx, 40 c', 3, ra)` (vtable slot 0); `s6` = the old buffer. -/
-def Site3d0 (σ : Sig) (m : Machine) : Prop :=
-  ∃ o k L kp', EntryDone σ m o k L kp' [] ∧ Growing σ m o k kp' ∧ m.reg 22 = o.ep ∧
+def Site3d0 (σ : Sig) (L : List (Word × Nat)) (m : Machine) : Prop :=
+  ∃ o k kp', EntryDone σ m o k L kp' [] ∧ Growing σ m o k kp' ∧ m.reg 22 = o.ep ∧
     Args m c3d4 [wordAt σ.m σ.ao, w (entrySize * grownCap o.done.length), 3, σ.m.reg 1]
 
 /-- After a successful `alloc`: the new block `(p'', 40 c')` is TX's, `s8 = p''`. -/
@@ -392,27 +392,28 @@ def Copied (σ : Sig) (m : Machine) (o : Obs) (k : Kobs) (L : List (Word × Nat)
   Allocated σ m o k L kp' p'' ∧ BytesAt m p'' (entriesBytes o.done o.is)
 
 /-- `+0x428`: `free(ctx, ep, 40 ec, 3, ra)` (vtable slot 3). -/
-def Site428 (σ : Sig) (m : Machine) : Prop :=
-  ∃ o k L kp' p'', Copied σ m o k L kp' p'' ∧ 0 < o.ec.toNat ∧
+def Site428 (σ : Sig) (L : List (Word × Nat)) (m : Machine) : Prop :=
+  ∃ o k kp' p'', Copied σ m o k L kp' p'' ∧ 0 < o.ec.toNat ∧
     Args m c42c [wordAt σ.m σ.ao, o.ep, w (entrySize * o.ec.toNat), 3, σ.m.reg 1]
 
 /-- `+0x49c`: `toOwnedSlice(S-0x88, E, ao)` once the outer payload is walked. -/
-def Site49c (σ : Sig) (m : Machine) : Prop :=
-  ∃ o L, Common σ m ∧ OuterOk σ m o ∧ o.i = o.p ∧ EList σ m o o.done.length ∧
-    Live σ m L (EX o) ∧ Args m c4a0 [σ.sl 0x88, σ.sl 0x1c0, σ.ao]
+def Site49c (σ : Sig) (x : List (Word × Nat) × List Byte) (m : Machine) : Prop :=
+  ∃ o, Common σ m ∧ OuterOk σ m o ∧ o.i = o.p ∧ EList σ m o o.done.length ∧
+    Live σ m x.1 (EX o) ∧ x.2 = entriesBytes o.done o.is ∧ Args m c4a0 [σ.sl 0x88, σ.sl 0x1c0, σ.ao]
 
 /-! ## Callees -/
 
-/-- A callee whose contract is a family of `Spec`s indexed by `x` (lists, items). -/
+/-- A callee whose contract is a family of `Spec`s indexed by `x` (lists, items); `Post` adds
+`Preserved`. -/
 def famCallee {X : Type} (entry bound : Nat) (P : Sig → X → Machine → Prop)
     (Q : Sig → X → Machine → Machine → Prop)
     (h : ∀ σ x, Spec zesuImage entry bound (P σ x) (Q σ x)) : Callee Sig zesuImage where
+  X := X
   entry := entry
   bound := bound
-  Pre := fun σ m => ∃ x, P σ x m
-  Post := fun σ m m' => (∃ x, P σ x m ∧ Q σ x m m') ∧ Preserved m m'
-  spec := fun σ m hpc ⟨x, hx⟩ =>
-    (Reaches.preserve (h σ x m hpc hx)).mono (Nat.le_refl _) fun _ ⟨hq, hp⟩ => ⟨⟨x, hx, hq⟩, hp⟩
+  Pre := P
+  Post := fun σ x m m' => Q σ x m m' ∧ Preserved m m'
+  spec := fun σ x m hpc hx => Reaches.preserve (h σ x m hpc hx)
 
 def f2C : Callee Sig zesuImage :=
   famCallee (X := Unit) F2.entry F2.bound (fun _ _ => F2.Pre) (fun _ _ => F2.Post)
@@ -474,16 +475,19 @@ def freeC : Callee Sig zesuImage :=
   famCallee (X := List (Word × Nat)) freeEntry 42 (fun σ L => freePre σ.A L)
     (fun σ L => freePost σ.A L) fun σ L => σ.A.free_spec L
 
-/-- A call return site: the call-site predicate at the machine of the call and the callee's
-`Post` from it. -/
-def ARet (site : Sig → Machine → Prop) (k : Callee Sig zesuImage) (σ : Sig) (m : Machine) :
+/-- A call return site: the call-site predicate at the machine of the call, for the callee's
+index `x`, and the callee's `Post` from it. -/
+def ARet (k : Callee Sig zesuImage) (site : Sig → k.X → Machine → Prop) (σ : Sig) (m : Machine) :
     Prop :=
-  ∃ mc, site σ mc ∧ k.Post σ mc m
+  ∃ mc x, site σ x mc ∧ k.Post σ x mc m
+
+/-- A site that does not depend on the callee's index. -/
+abbrev unit (site : Sig → Machine → Prop) : Sig → Unit → Machine → Prop := fun σ _ m => site σ m
 
 /-- `0x8000042c`: after `free`, or straight from `0x80000400` when the old capacity was 0. -/
 def A42c (σ : Sig) (m : Machine) : Prop :=
   (m.pc.toNat = c42c ∧ ∃ o k L kp' p'', Copied σ m o k L kp' p'' ∧ o.ec.toNat = 0) ∨
-  ARet Site428 freeC σ m
+  ARet freeC Site428 σ m
 
 /-! ## Budgets -/
 
@@ -503,28 +507,28 @@ def mkCut (pc : Nat) (S : SState) (A : Sig → Machine → Prop) (env : Sig → 
     (budget : Sig → Machine → Nat) : Cut Sig := ⟨pc, S, A, env, budget⟩
 
 def cutEntry : Cut Sig := mkCut cEntry SEntry AEntry envB fun σ _ => bEntry σ
-def cut068 : Cut Sig := mkCut c068 S068 (ARet Site064 f2C) envB fun σ _ => 32 * σ.len + 323
+def cut068 : Cut Sig := mkCut c068 S068 (ARet f2C (unit Site064)) envB fun σ _ => 32 * σ.len + 323
 def cut0c4 : Cut Sig := mkCut c0c4 SBody AOuter envB fun _ m => bOuter m
-def cut0d8 : Cut Sig := mkCut c0d8 SBody (ARet Site0d4 f2C) envB
+def cut0d8 : Cut Sig := mkCut c0d8 SBody (ARet f2C (unit Site0d4)) envB
   fun _ m => 32 * outerLeft m + 220
-def cut10c : Cut Sig := mkCut c10c S10c (ARet Site108 f2C) (envP 0x180)
+def cut10c : Cut Sig := mkCut c10c S10c (ARet f2C (unit Site108)) (envP 0x180)
   fun _ m => 32 * outerLeft m + 132
-def cut15c : Cut Sig := mkCut c15c SBody (ARet Site158 f2C) envB
+def cut15c : Cut Sig := mkCut c15c SBody (ARet f2C (unit Site158)) envB
   fun _ m => 32 * outerLeft m + 37
 def cut18c : Cut Sig := mkCut c18c SBody AKeys envB fun _ m => bKeys m
-def cut1a0 : Cut Sig := mkCut c1a0 S1a0 (ARet Site19c f2C) (envP 0x100)
+def cut1a0 : Cut Sig := mkCut c1a0 S1a0 (ARet f2C (unit Site19c)) (envP 0x100)
   fun _ m => 32 * (afterEntry m + keysLeft m) + 658
-def cut1f8 : Cut Sig := mkCut c1f8 SBody (ARet Site1f4 f1C) envB
+def cut1f8 : Cut Sig := mkCut c1f8 SBody (ARet f1C Site1f4) envB
   fun _ m => 32 * (afterEntry m + keysLeft m) + 439
 def cut230 : Cut Sig := mkCut c230 S230 AKeyStore (envS keySize)
   fun _ m => 32 * (afterEntry m + keysLeft m) + 744
-def cut25c : Cut Sig := mkCut c25c SBody (ARet Site258 f4C) envB fun _ m => bTail m 539
-def cut340 : Cut Sig := mkCut c340 SSpill (ARet Site33c remapC) envB fun _ m => bTail m 478
-def cut3d4 : Cut Sig := mkCut c3d4 SBody (ARet Site3d0 allocC) envB fun _ m => bTail m 389
-def cut400 : Cut Sig := mkCut c400 SSpill (ARet Site3fc memcpyC) envB fun _ m => bTail m 377
+def cut25c : Cut Sig := mkCut c25c SBody (ARet f4C Site258) envB fun _ m => bTail m 539
+def cut340 : Cut Sig := mkCut c340 SSpill (ARet remapC (unit Site33c)) envB fun _ m => bTail m 478
+def cut3d4 : Cut Sig := mkCut c3d4 SBody (ARet allocC Site3d0) envB fun _ m => bTail m 389
+def cut400 : Cut Sig := mkCut c400 SSpill (ARet memcpyC (unit Site3fc)) envB fun _ m => bTail m 377
 def cut42c : Cut Sig := mkCut c42c SBody A42c envB fun _ m => bTail m 324
 def cut460 : Cut Sig := mkCut c460 S460 AEntryStore (envS entrySize) fun _ m => bTail m 311
-def cut4a0 : Cut Sig := mkCut c4a0 SBody (ARet Site49c f5C) envB fun _ _ => 23
+def cut4a0 : Cut Sig := mkCut c4a0 SBody (ARet f5C Site49c) envB fun _ _ => 23
 
 /-! ## The plan -/
 

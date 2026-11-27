@@ -219,4 +219,47 @@ theorem Match.generalise {F : Nat} {Ss : List SState} {S : SState} {env : Env} {
   · simp [genEnv, hd]
   · simp [genEnv, hd]
 
+/-! ## Join cuts
+
+A join cut's `Env` is `joinEnv K F Ss E m`: variables below `K`, the regions and the clean
+initial bytes from a fixed `E` (for a function, its entry `Env`), `var (F + i)` = register `i`
+of the machine `m` at the cut, dirty initial bytes from `m`. Its assertion states `JoinIn K Ss E
+m`: some incoming state matches `m` under an `Env` that agrees with `E` where the join keeps
+terms. `JoinIn.ok` is the cut lemma; `cut_auto` applies it. -/
+
+def joinEnv (K F : Nat) (Ss : List SState) (E : Env) (m : Machine) : Env where
+  vars i := if i < K then E.vars i else m.reg (Fin.ofNat 32 (i - F))
+  regions := E.regions
+  mem0 r j := if dirtyB Ss r then (m.mem (E.base r + BitVec.ofNat 64 j)).getD 0 else E.mem0 r j
+
+/-- `env` agrees with `E` where `generalise _ Ss K` keeps terms. -/
+structure Agrees (K : Nat) (Ss : List SState) (E env : Env) : Prop where
+  vars : ∀ i < K, env.vars i = E.vars i
+  regions : env.regions = E.regions
+  mem0 : ∀ r < E.regions.length, dirtyB Ss r = false → ∀ j, env.mem0 r j = E.mem0 r j
+
+/-- Some state of `Ss` matches `m` under an `Env` that agrees with `E`. -/
+def JoinIn (K : Nat) (Ss : List SState) (E : Env) (m : Machine) : Prop :=
+  ∃ S ∈ Ss, ∃ env, Agrees K Ss E env ∧ Match env S m ∧ Env.WF env S
+
+theorem joinEnv_fresh {K F : Nat} (hKF : K ≤ F) (Ss : List SState) (E : Env) (m : Machine)
+    (i : Fin 32) : (joinEnv K F Ss E m).vars (F + i.val) = m.reg i := by
+  simp [joinEnv, show ¬ F + i.val < K by omega]
+
+/-- The cut lemma of a join cut. -/
+theorem JoinIn.ok {K F : Nat} {Ss : List SState} {E : Env} {m : Machine} (hKF : K ≤ F)
+    (hR : ∀ S' ∈ Ss, S'.regions = (Ss.headD default).regions) (h : JoinIn K Ss E m) :
+    Env.WF (joinEnv K F Ss E m) (generalise F Ss K) ∧
+      Match (joinEnv K F Ss E m) (generalise F Ss K) m := by
+  obtain ⟨S, hS, env, ha, hm, hwf⟩ := h
+  have hR' : ∀ S' ∈ Ss, S'.regions = S.regions := fun S' h => (hR S' h).trans (hR S hS).symm
+  have hr : (joinEnv K F Ss E m).regions = env.regions := ha.regions.symm
+  have hb : ∀ r, env.base r = E.base r := fun r => by simp only [Env.base, ha.regions]
+  refine ⟨Env.WF.generalise hS hR' hwf hr, Match.generalise_to hS hR' hm (fun i hi => ?_)
+    (joinEnv_fresh hKF Ss E m) hr (fun r hr hd j => ?_) (fun r j hd _ => ?_)⟩
+  · simp [joinEnv, hi, ha.vars i hi]
+  · have : r < E.regions.length := by rw [← ha.regions, hwf.len]; exact hr
+    simp [joinEnv, hd, ha.mem0 r this hd j]
+  · simp [joinEnv, hd, hb]
+
 end ZesuExec.Sym

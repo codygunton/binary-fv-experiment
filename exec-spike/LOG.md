@@ -551,3 +551,110 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   static map built without them); `static.json` rebuilt (`txAccessList` 21 cuts, 50 leaves);
   tests updated (`JoinCuts`, 19 OK). TX keeps its 17-cut plan, no join cuts (reasons in
   `OPEN/TX/CUTS.md`). Full `lake build` OK.
+- S5-p1b (2026-11-27): `cut_auto` closes join cuts. `Sym/Join.lean`: `joinEnv K F Ss E` (the
+  join cut's `Env` over a fixed `E`), `Agrees`, `JoinIn K Ss E m` (some incoming state matches
+  `m` under an `Env` agreeing with `E`), `JoinIn.ok` (cut lemma, via `Match.generalise_to`).
+  `Vc/Tactics.lean`: tactic `conj_assumption` (closes a goal with a conjunct of a hypothesis,
+  definitions unfolded, reducible comparison) and a second `cut_auto` rule: `cut_intro`, then
+  `JoinIn.ok` for `Env.WF`/`Match`, `conj_assumption` for `JoinIn`, `RodataLoaded` and the pc.
+  F1: join `Env`s are `envJ F Ss = joinEnv 32 F Ss (env0 ·.m)`; `AJ2`-`AJ4` end with
+  `RodataLoaded ∧ JoinIn` (producing leaves add `hinv.ro E` and `EnvOk.agrees`); the three hand
+  cut lemmas and `join_cut` deleted. `zesu_auto F1`: 21 items, auto 2 -> 5 (cut lemmas 3 of 5
+  auto), manual 19 -> 16, open 0. `Fn/F1/Vc.lean` 933 -> 903 lines (`Sym/Join.lean` 222 -> 265).
+  Built in a clean worktree of HEAD plus these files: `lake build` 263 jobs OK, `tools/verify.sh`
+  all PASS after `make -C tools/zmap map`.
+- S5-p2 (2026-11-27): callee summaries in the executor. `Sym/Summary.lean`: `Summary`
+  (`bound`, `clobbers`, `result : Option Sym`, `writes : List (arg reg × bytes)`); `runWith img
+  sums cuts F0 fuel pc S : Option (List LeafW)` continues through a direct call whose target has a
+  summary: the state at the callee entry is recorded in a `CallRec`; after the return the
+  clobbered registers are `var (F + i)` (`F = F0 + 32 * calls so far`), `a0` is the result if
+  given, the written byte ranges (resolved from the argument registers to constant region places)
+  become fresh initial memory, `steps += bound`. `LeafW` = `Leaf` + `calls` + written ranges, a
+  separate structure, so `Leaf`, `run` and `run_sound` are untouched. `runWith_sound` (guarded):
+  given per recorded call a `CallHyp` (from any machine matching the call state, reached from the
+  start, the callee returns within `bound` to a `CallPost`: return pc, kept registers, result,
+  bytes outside the written ranges, written bytes present, footprint in the caller's writable
+  regions or a caller-chosen `X`, rodata kept; plus a caller-chosen fact `Qc`), some leaf's
+  conditions hold under an `env'` that `Env.Agree`s with the start `Env` below `F0` and outside
+  the written ranges; if its obligations hold, every call on its path has a `CallFact` (the
+  machines at its entry and return with `Qc`, and `env'` reading the return through
+  `Env.havoc`) and the machine runs to the leaf within its step count (an upper bound now),
+  memory changed only in the writable regions and `X`. Obligations before a call need no
+  pre-call discharge: a failing one is met by following the same `Env` to a leaf (`goW_follow`).
+  Checked restrictions (`CallRec.okB`, else `runWith` = `none`): the call state, path conditions
+  and result mention only variables below `F` and no initial byte of a written range; no symbolic
+  write or known fact overlaps a written range. `runWith_reaches` is the `run_reaches` form.
+  `Vc/RunWith.lean`: `sym_runw` (as `sym_run`, logs the calls per leaf).
+  F3 (`decodeItem` inside `nextUint64`): `f3_spec` (statement unchanged) now runs
+  `runW := runWith … [loopHead] 64 100 entry S0` with `decodeItemSum = ⟨75, abiClobbers, none,
+  [(a0, 40)]⟩`: 5 leaves (3 error returns, empty payload, loop entry; 105–118 steps incl. 75).
+  The return-site cut `0x800d62b8` is gone with its run `runR`, state `SR`, re-entry lemma
+  `after_call` and `leafE`; `CallHyp` is discharged by `f2_spec` + the existing `call_state`
+  (now from `FootW`), `Qc = CallState m m₂`; the leaves read decodeItem's outcome through
+  `CallFact` (`envW` → `RetEnv`, shared with the loop's `envR` via `CallState.retEnv`). Runs
+  3 → 2 (`runW`, `runL`), leaves 1 + 5 + 2 → 5 + 2, cut points 2 → 1 (loop head). Hand lines
+  `Fn/F3/Proof.lean` 1056 → 1333 (+277: `CallHyp` footprint/frame arithmetic, `envW`,
+  `CallState.of_leafW`, `leavesW` re-proved over the new `Env`); generic 763 (`Sym/Summary.lean`)
+  + 54 (`Vc/RunWith.lean`). F1/`remap` half: `Fn/F0/Summary.lean` (`F0.summary = ⟨9, abiClobbers,
+  some (lit 0), []⟩`, `F0.callPost`: `F0.Post` → `CallPost`); F1 not converted (owned by P1Joins,
+  and F1 is a `Vc.Plan`: `vc_sound` runs `run`). The F1 change: (1) Vc: `Plan` gains
+  `sums`/`F0`, `leaves` become `List LeafW`, `vc_sound` uses `runWith_sound`; `LeafGoal` takes
+  `∀ env', Env.Agree (c.env g m) env' F0 l.wr` and `∀ call ∈ l.calls, CallFact …` as hypotheses;
+  a new goal `CallGoal P c call` (= `CallHyp` under `c.A`) named `F.call_<pc>_<i>`; (2)
+  `Fn/F1/Vc.lean`: `sums t := if t = F0.entry then some F0.summary else none`; cut `cR`
+  (`0x800cb4f8`, `S1`, `AR`, `envR`, budget 148) and `remapC`/`callee 0x800cb4f8` deleted, runs
+  `runE` + `runR` → one `runWith` from the entry (checked: 10 leaves = legacy 8 + 3 − the remap
+  call leaf; 3 of them carry the remap call); `leaf_800cb40c_4`'s body becomes the call goal
+  (`F0.Pre` from `hinv1.ro E`, `E.calleeStack`, `RetAligned` as now; `f0_spec`; `F0.callPost`
+  with `E.calleeApart` for the frame and `X` = remap's 16 bytes); `runR`'s three leaf theorems
+  become entry leaves with `var (64 + i)` for `var (100 + i)` (callee-saved terms are kept, so
+  `envR`'s `vars 120/122` facts become entry facts). `alloc` stays a cut: its new block is a
+  region that does not exist before the call, and a summary adds no region (recorded
+  restriction: summaries for non-allocating callees only; `alloc`'s return site keeps its cut;
+  `free` and `memcpy` not attempted, and `memcpy`'s write length is a register, not a constant
+  range). `lake build` OK (all targets), `tools/verify.sh` all PASS after
+  `make -C tools/zmap map`. Gate S5.2 passed for F3/decodeItem; fallback for alloc as above.
+  ~75 min.
+- S2-tail (2026-11-27): tail calls in the obligation framework (found converting F6: its error
+  paths end with a jump to `memcpy`, `go` stops at the memcpy entry, and a cut there is impossible
+  because its run is a 0-step leaf, so `hpos` fails). `Plan` gains `tail : Nat → Option (Callee σ
+  img) := fun _ => none` (default: existing plans unchanged). `ExitGoal` at `.at pc`: when
+  `P.tail pc = some k`, `m'.pc.toNat = k.entry ∧ k.Pre g m' ∧ k.bound ≤ rem ∧ ∀ m'', k.Post g m'
+  m'' → P.Post g m''`; otherwise the cut case as before (`.jumpInd` unchanged). Helper lemmas
+  `ExitGoal.at_cut` / `ExitGoal.at_tail`. `vc_sound` handles the tail case with the callee's
+  `spec` (axioms unchanged). `exit_intro` picks the tail case when `P.tail pc` is `some`.
+  `Test/Vc.lean`: plan `Tail` (`jal x0, memcpy` from one cut, `tail` = `Callee.memcpy`) assembles
+  to `Tail.reach` with clean axioms. F1/F2 proofs unchanged; `lake build` 263 jobs OK.
+- S5-p2b (2026-11-27): `runWith` in the Vc framework; F1 through `remap` without its return-site
+  cut. `Sym/Summary.lean`: `runWith_sound` also gives, for leaves without summarised calls,
+  `env' = env` and `SameOutside` of the writable regions only (new `goW_calls`). `Vc/SoundW.lean`:
+  `PlanW extends Plan` (`sums`, `F0`, `X` callee footprint outside the caller's regions, `Qc`,
+  `wleaves : Nat → List LeafW`; existing plans unchanged), `PlanW.callsAt` (distinct calls per
+  cut), goals `CallGoal` (= `CallHyp` under the cut's assertion), `LeafGoalC` (leaves with calls:
+  `∀ env'` agreeing with the cut `Env`, the run `RunsIn k m m'`, `CallFact`s, `FootW` footprint),
+  `LeafGoalW` (plain `LeafGoal` of `P.toPlan` for call-free leaves, so their statements and proofs
+  are as before); `vc_soundW` (guarded; tail case of S2-tail included). `Vc/AssembleW.lean`:
+  `zesu_planw` / `zesu_autow` / `zesu_assemblew` (items `cut_`, `leaf_`, `call_<pc>_<k>`),
+  tactics `leafc_intro`, `call_intro`. F1 (`Fn/F1/Vc.lean`, a `PlanW`, `sums` = `F0.summary`,
+  `X` = remap's 16 bytes below F1's frame): cut `0x800cb4f8` (`cR`, `S1`, `AR`, `envR`, `remapC`,
+  `runR`) gone; entry run is `runWith` (10 leaves; 4–6 carry the remap call). Old `leaf_..._4`'s
+  body became `F1.call_800cb40c_0` (`f0_spec` + `F0.callPost`); old `runR` leaves 0/1/2 became
+  entry leaves 4/5/6 over the entry terms (conditions moved to `env0` by `conds_env0`, `EnvOk`
+  by `EnvOk.of_agree`); `alloc_call` takes the footprint with `X`. Cut points 5 → 4, runs 5 → 4,
+  items 21 → 20 (4 cut lemmas, 15 leaves, 1 call goal): auto 5, manual 15, open 0 (was auto 5,
+  manual 16). `Fn/F1/Vc.lean` 903 → 902 lines; generic `Vc/SoundW.lean` 136, `Vc/AssembleW.lean`
+  249. `f1_spec` derived as before (`Proof.lean` unchanged); `Test/Budget.lean` restated on the
+  `runWith` leaves (same costs 29/112/123/137/197). `lake build` OK, `tools/verify.sh` all PASS
+  after `make -C tools/zmap map`. Gate S5.2 now passed for both halves (F3/decodeItem, F1/remap);
+  alloc fallback unchanged. `zmap show f_800cb40c` still lists the static map's 5 cut points
+  (S1 cut rule); the plan uses 4. ~60 min.
+- S2-idx (2026-11-27): indexed callees. `Vc.Callee` gains `X : Type := Unit`; `Pre : σ → X →
+  Machine → Prop`, `Post : σ → X → Machine → Machine → Prop`, `spec : ∀ g x, …`. `ExitGoal`'s
+  call case is `∃ k x, P.callee r = some k ∧ … k.Pre g x m' ∧ ∀ m'', k.Post g x m' m'' → …`,
+  its tail case `∃ x, …` (`ExitGoal.at_tail` likewise); `vc_sound` and `vc_soundW` pick the
+  caller's `x` (`CallGoal` is about summaries and unchanged); `exit_intro` leaves `x` as a goal
+  and closes it with `()` for `Unit` indices. `Callee.memcpy`, F1's `allocC` use `X := Unit`.
+  F1's `freeC` is now the family over the allocator list (`X := List (Word × Nat)`), the call
+  passes the list `L3`: the `freeL` workaround (list read back from `s3` inside the contract) is
+  gone. Test/Vc `Tail` passes `()`. F1 20 items (auto 5, manual 15, open 0), F2 unchanged;
+  `lake build` OK, `tools/verify.sh` all PASS after `make -C tools/zmap map`.

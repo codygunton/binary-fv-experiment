@@ -514,10 +514,9 @@ theorem TX.leaf_80000000_0 :
       · exact r12
   have hpre2 : F2.Pre m' := f2_pre hcommon r10 (by decide) (by decide) (by decide) (off := 0)
     (by rw [r11]; simp [w]) (by rw [r12]; simp [w, Sig.len]) (by unfold RetAligned; rw [r1]; decide)
-  refine ⟨f2C, rfl, hex, ⟨(), hpre2⟩, fun m'' hpost => ⟨cut068, by simp [TX.plan, vcPlan], rfl, ?_,
-    ⟨m', hsite, hpost⟩, ?_⟩⟩
-  · obtain ⟨⟨_, _, hP⟩, _⟩ := hpost
-    rw [hP.1.1, r1]; decide
+  refine ⟨f2C, (), rfl, hex, hpre2, fun m'' hpost => ⟨cut068, by simp [TX.plan, vcPlan], rfl, ?_,
+    ⟨m', (), hsite, hpost⟩, ?_⟩⟩
+  · rw [hpost.1.1.1, r1]; decide
   · simp [f2C, famCallee, cut068, cutEntry, mkCut, bEntry, SEntry, entryState, runEntry_leaves,
       F2.bound]
     omega
@@ -543,7 +542,7 @@ theorem Args.arg {m : Machine} {ret : Nat} {as : List Word} (h : Args m ret as) 
 
 theorem TX.cut_80000068 : CutOK TX.plan TX.plan.cuts[1]! := by
   show CutOK TX.plan cut068
-  rintro σ m ⟨mc, hs, ⟨_, -, hpost⟩, hp⟩
+  rintro σ m ⟨mc, _, hs, hpost, hp⟩
   have hout : mc.reg 10 = σ.sl 0x1e8 := hs.2.2.2.2.2.2.2.arg 0 (by simp)
   have hc := common_f2 hs.1 hout (by decide) (by decide) hpost hp
   have h22 : m.reg 22 = σ.rest := (hpost.1.2 22 (by decide)).trans hs.2.2.2.2.1
@@ -626,9 +625,9 @@ theorem payload_ok {σ : Sig} {m : Machine} (hc : Common σ m) {k : Nat} (hk : 8
 /-- After a `decodeItem` call from a `Common` machine with its outcome at `S - k`. -/
 theorem f2_ret {σ : Sig} {mc m : Machine} (hc : Common σ mc) {ret k : Nat} {as : List Word}
     (ha : Args mc ret (σ.sl k :: as)) (hk : 144 ≤ k) (hk' : k ≤ frameBytes)
-    (hr : (w ret &&& ~~~(1 : Word)).toNat = ret) (hpost : f2C.Post σ mc m) :
+    (hr : (w ret &&& ~~~(1 : Word)).toNat = ret) (hpost : f2C.Post σ () mc m) :
     Common σ m ∧ m.pc.toNat = ret := by
-  obtain ⟨⟨_, -, hP⟩, hp⟩ := hpost
+  obtain ⟨hP, hp⟩ := hpost
   exact ⟨common_f2 hc (ha.arg 0 (by simp)) hk hk' hP hp, ret_pc hP.1 ha.1 hr⟩
 
 theorem body_cut {σ : Sig} {m : Machine} (hc : Common σ m) :
@@ -639,26 +638,26 @@ theorem body_cut {σ : Sig} {m : Machine} (hc : Common σ m) :
 
 theorem TX.cut_800000d8 : CutOK TX.plan TX.plan.cuts[3]! := by
   show CutOK TX.plan cut0d8
-  rintro σ m ⟨mc, ⟨o, L, hs, ha⟩, hpost⟩
+  rintro σ m ⟨mc, _, ⟨o, L, hs, ha⟩, hpost⟩
   obtain ⟨hc, hpc⟩ := f2_ret hs.1 ha (by decide) (by decide) (by decide) hpost
   exact ⟨(body_cut hc).1, (body_cut hc).2.1, (body_cut hc).2.2, hpc⟩
 
 theorem TX.cut_8000010c : CutOK TX.plan TX.plan.cuts[4]! := by
   show CutOK TX.plan cut10c
-  rintro σ m ⟨mc, ⟨o, k, L, hs, -, -, ha⟩, hpost⟩
+  rintro σ m ⟨mc, _, ⟨o, k, L, hs, -, -, ha⟩, hpost⟩
   obtain ⟨hc, hpc⟩ := f2_ret hs.1.1 ha (by decide) (by decide) (by decide) hpost
   obtain ⟨h1, h2, h3⟩ := payload_ok hc (k := 0x180) (by decide) (by decide)
   exact ⟨h1, h2, h3, hpc⟩
 
 theorem TX.cut_8000015c : CutOK TX.plan TX.plan.cuts[5]! := by
   show CutOK TX.plan cut15c
-  rintro σ m ⟨mc, ⟨o, k, L, hs, -, ha⟩, hpost⟩
+  rintro σ m ⟨mc, _, ⟨o, k, L, hs, -, ha⟩, hpost⟩
   obtain ⟨hc, hpc⟩ := f2_ret hs.1.1 ha (by decide) (by decide) (by decide) hpost
   exact ⟨(body_cut hc).1, (body_cut hc).2.1, (body_cut hc).2.2, hpc⟩
 
 theorem TX.cut_800001a0 : CutOK TX.plan TX.plan.cuts[7]! := by
   show CutOK TX.plan cut1a0
-  rintro σ m ⟨mc, ⟨o, k, L, hs, -, -, -, ha⟩, hpost⟩
+  rintro σ m ⟨mc, _, ⟨o, k, L, hs, -, -, -, ha⟩, hpost⟩
   obtain ⟨hc, hpc⟩ := f2_ret hs.1 ha (by decide) (by decide) (by decide) hpost
   obtain ⟨h1, h2, h3⟩ := payload_ok hc (k := 0x100) (by decide) (by decide)
   exact ⟨h1, h2, h3, hpc⟩
