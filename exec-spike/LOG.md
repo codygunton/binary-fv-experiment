@@ -452,3 +452,32 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `tools/gen_image.{sh,py}` add `rlp_decode.txAccessList` as `Gen.TX` (323 words; Expected table
   1249 -> 1572), `zesu-difftest` knows `--fn TX`, snapshots in `test/snapshots/TX/` (16).
   `STATEMENTS.md` notes the new meaning of `Machine.load`/`store`. 25 min.
+- S5-p1 (2026-11-27): join cuts. New `ZesuExec/Sym/Join.lean`: `generalise F Ss K` (F1's
+  `genS`/`entryOnly`, generalised and made sound), `genEnv`, `Sym.eval_clean`,
+  `Match.generalise_to` (target-`Env` form: any `env'` that agrees with `env` below `K`, on the
+  regions and on clean initial bytes, reads `var (F + i)` and dirty initial bytes off the machine)
+  and `Match.generalise` (plan form), axioms guarded. Deviations from the plan statement: extra
+  parameter `K` (kept terms mention variables below `K`, default `F`; F1 uses 32 = entry
+  variables); a register/write/known fact is kept only if every state agrees and it is *clean*
+  (no `init`/`initx` of a region some state writes; a write must also be the newest write of each
+  of its bytes in every state, else a dropped newer write could shadow it; the old `genS`
+  membership test did not check this); dirty regions' initial bytes are re-read from the machine,
+  so the conclusion is `Env.Ext env env' F 0 ∧ env'.regions = env.regions ∧ Match ∧ WF`, with
+  hypothesis `∀ S' ∈ Ss, S'.regions = S.regions`. `cut_auto` is not extended: F1's three join cut
+  lemmas are 3 lines each through `join_cut` (F1-specific: frame dirty, header/allocator object
+  clean, `envJ`). F1 (`Fn/F1/Vc.lean`): cuts after `alloc` (join of 2), `memcpy` (1 incoming),
+  `free` (join of 2: capacity 0 skips `free`) have state `generalise F [incoming] 32`; assertions
+  are machine facts plus `MatchIn` (some incoming state matches under an entry-consistent `Env`).
+  Runs: spike `run0, run1, run2a, run2b, run3a, run3b, run4b` (7) -> `runE, runR, runJ2, runJ3,
+  runJ4` (5); run2a/2b collapse to `runJ2`, run3a/3b to `runJ3`. `freeC` now names its list
+  (`freeL`: entry list + new buffer). `F1.reach` assembles: 5 cuts, 16 leaves, 21 items: auto 2,
+  manual 19 (5 cut lemmas, 14 leaves), open 0 (was 8). `Fn/F1/Proof.lean` derives `f1_spec` from
+  `F1.reach` (statement unchanged); `Fn/F1/Runs.lean` and the stage bodies (`stage0`-`stage4b`,
+  `alloc_step`) deleted; shared lemmas kept in `Fn/F1/Lemmas.lean` (`copy_step` -> `copy_call`
+  split for `ExitGoal`, `EnvOk.mem2`, `EnvOk.regions`). `Test/Budget.lean` restated on the new
+  runs (same path costs 29/112/123/137/197). Hand lines before 1308 (Proof) + 29 (Runs) + 561
+  (conditional Vc) = 1898; after 750 (Lemmas) + 933 (Vc) + 24 (Proof) = 1707, plus 222 generic
+  (`Sym/Join.lean`). `lake build` 263 jobs OK (F3-F6, Sail, compliance build); `tools/verify.sh`
+  all PASS after `make -C tools/zmap map`; `zmap show f_800cb40c`: closed+sail, reach=yes,
+  leaves auto 2 / manual 14 / open 0. Gate S5.1 passed; no fallback; `join_cut_candidates` may be
+  turned on. ~18 min.

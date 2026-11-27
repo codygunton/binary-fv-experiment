@@ -10,9 +10,9 @@ import ZesuExec.Fn.F0.Proof
 import ZesuExec.Fn.F0.Regions
 import ZesuExec.Fn.F0.Sail
 import ZesuExec.Fn.F0.Spec
+import ZesuExec.Fn.F1.Lemmas
 import ZesuExec.Fn.F1.Proof
 import ZesuExec.Fn.F1.Regions
-import ZesuExec.Fn.F1.Runs
 import ZesuExec.Fn.F1.Sail
 import ZesuExec.Fn.F1.Spec
 import ZesuExec.Fn.F2.Lemmas
@@ -60,6 +60,7 @@ import ZesuExec.Sail.Run
 import ZesuExec.Sail.Step
 import ZesuExec.Service
 import ZesuExec.Sym.Compose
+import ZesuExec.Sym.Join
 import ZesuExec.Sym.Env
 import ZesuExec.Sym.Exec
 import ZesuExec.Sym.LoadStore

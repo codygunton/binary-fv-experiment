@@ -1,60 +1,57 @@
-import ZesuExec.Fn.F1.Proof
+import ZesuExec.Fn.F1.Lemmas
+import ZesuExec.Sym.Join
 import ZesuExec.Vc.Tactics
 
 /-!
-# F1 in the obligation framework (programme plan S4 benchmark; conditional)
+# F1 in the obligation framework
 
 Plan `F1`: the map's cut points, the entry and the four call return sites: after `remap` (F0,
 `0x800cb4f8`), after `alloc` (`0x800cb55c`), after `memcpy` (`0x800cb588`), after `free`
 (`0x800cb5a8`). `σ` = `Sig`: the allocator assumptions, the allocator list, the items and the
 entry machine.
 
-Cut states: the entry state `S0`; after `remap` the spike's `S1` (one path reaches it, so its
-`Env` is the entry `Env` plus the returned registers, a function of the machine). The other
-three return sites are reached on two paths (capacity 0, or after `remap`); their states are
-`genS` of the spike's two path states: a register or a write is kept where both agree and
-mention only entry variables, everything else is a fresh variable `F + i` that the cut's `Env`
-reads off the machine. Their assertions are the hypotheses of the spike's stage lemmas for either
-path (`stage2a`/`stage2b`, `stage3a`/`stage3b`, `stage4b`), stated with an existential `Env`.
-Budgets: 197 at the entry, 148 after `remap`, `103`/`78` after `alloc`, `18`/`67` after
-`memcpy` (capacity 0 / positive), 17 after `free`.
-
-The hand proofs below reuse the spike's stage-0 and stage-1 arguments. The `CutOK` of the three
-join cuts needs the matching of a path state against its `genS` (programme plan S5 probe 1) and
-stays open with the leaves of their runs; `f1_spec` keeps its spike proof (`Fn/F1/Proof.lean`).
+Cut states: the entry state `S0`; after `remap` the return state `S1` of the entry run (one path
+reaches it, so its `Env` is the entry `Env` plus the returned registers). The other three are
+join cuts (programme plan S5 probe 1): their state is `generalise F Ss 32` of the leaf states
+`Ss` that reach them (`Sym/Join.lean`), their `Env` is `envJ F`: entry variables from the entry
+machine, `var (F + i)` = register `i` at the cut, frame bytes from the machine at the cut,
+header and allocator-object bytes from the entry. After `alloc` two paths meet (capacity 0, or
+after `remap`); after `memcpy` one; after `free` two (capacity 0 skips `free`). Each assertion
+is machine facts plus `MatchIn`: some incoming state matches the machine under an `Env` that
+agrees with the entry; `join_cut` turns that into the cut's `Match` by `Match.generalise_to`.
+So each segment is run once, not once per path. Budgets: 197 at the entry, 148 after `remap`,
+`103`/`78` after `alloc`, `18`/`67` after `memcpy` (capacity 0 / positive), 17 after `free`.
 -/
 
 namespace ZesuExec.Fn.F1
 open ZesuExec ZesuExec.Sym ZesuExec.Machine ZesuExec.Vc
 
-/-! ## Joined states -/
+/-! ## Runs and join states -/
 
-/-- A term over entry variables (`var i`, `i < 32`), literals, region pointers and initial bytes. -/
-def entryOnly : Sym → Bool
-  | .lit _ => true
-  | .var i => i < 32
-  | .ptr _ _ => true
-  | .init _ _ _ => true
-  | .initx _ _ i _ _ => entryOnly i
-  | .bin _ a b => entryOnly a && entryOnly b
-  | .sext _ a => entryOnly a
-  | .bytes a _ _ => entryOnly a
-  | .cat a b _ => entryOnly a && entryOnly b
+def cutPcs : List Nat := [entry, 0x800cb4f8, 0x800cb55c, 0x800cb588, 0x800cb5a8]
 
-/-- Keep what `a` and `b` share over entry variables; other registers become `var (F + i)`;
-other writes are dropped (their bytes are the machine's at the cut). -/
-def genS (F : Nat) (a b : SState) : SState where
-  regs := (List.range 32).map fun i =>
-    if i = 0 then .lit 0
-    else if a.reg i == b.reg i && entryOnly (a.reg i) then a.reg i else .var (F + i)
-  mem := a.mem.filter fun w => b.mem.contains w && entryOnly w.v
-  known := a.known.filter fun w => b.known.contains w && entryOnly w.v
-  regions := a.regions
-  steps := 0
+sym_run runE := run zesuImage cutPcs 400 entry S0
 
-def SJ2 : SState := genS 500 S2a S2b
-def SJ3 : SState := genS 600 S3a S3b
-def SJ4 : SState := genS 700 S4b S4b
+/-- After `remap` (entry leaf 4), which returns null. -/
+def S1 : SState := (runE_leaves[4]!).S.override (callOv (runE_leaves[4]!).S 100 (some (.lit 0)))
+sym_run runR := run zesuImage cutPcs 400 0x800cb4f8 S1
+
+/-- After `alloc`, from capacity 0 (entry leaf 2) or after `remap` (leaf 1 of `runR`). -/
+def S2a : SState := (runE_leaves[2]!).S.override (callOv (runE_leaves[2]!).S 200 none)
+def S2b : SState := (runR_leaves[1]!).S.override (callOv (runR_leaves[1]!).S 300 none)
+def SJ2 : SState := generalise 500 [S2a, S2b] 32
+sym_run runJ2 := run zesuImage cutPcs 400 0x800cb55c SJ2
+
+/-- After `memcpy` (leaf 0 of `runJ2`). -/
+def S3 : SState := (runJ2_leaves[0]!).S
+def SJ3 : SState := generalise 600 [S3] 32
+sym_run runJ3 := run zesuImage cutPcs 400 0x800cb588 SJ3
+
+/-- At `0x800cb5a8`, with capacity 0 (leaf 0 of `runJ3`) or after `free` (leaf 1). -/
+def S4a : SState := (runJ3_leaves[0]!).S
+def S4b : SState := (runJ3_leaves[1]!).S.override (callOv (runJ3_leaves[1]!).S 650 none)
+def SJ4 : SState := generalise 700 [S4a, S4b] 32
+sym_run runJ4 := run zesuImage cutPcs 400 0x800cb5a8 SJ4
 
 /-! ## Parameters, environments, assertions -/
 
@@ -81,26 +78,73 @@ def envJ (F : Nat) (g : Sig) (mh : Machine) : Env where
     let b := (((shape g.m).map (·.1)).getD r (0, 0)).1 + BitVec.ofNat 64 j
     ((if r = 0 then mh.mem b else g.m.mem b)).getD 0
 
+theorem envJ_ok {F : Nat} (hF : 32 ≤ F) (g : Sig) (mh : Machine) : EnvOk g.m (envJ F g mh) where
+  vars i := by simp [envJ, i.isLt]
+  base0 := by simp [envJ, Env.base, shape]
+  base1 := by simp [envJ, Env.base, shape]
+  size1 := by simp [envJ, Env.size, shape]
+  mem1 j := by simp [envJ, shape]
+  size0 := by simp [envJ, Env.size, shape]
+  base2 := by simp [envJ, Env.base, shape]
+  size2 := by simp [envJ, Env.size, shape]
+  len := by simp [envJ, shape]
+  mem2 j := by simp [envJ, shape]
+
+theorem envJ_fresh {F : Nat} (hF : 32 ≤ F) (g : Sig) (mh : Machine) (i : Fin 32) :
+    (envJ F g mh).vars (F + i.val) = mh.reg i := by
+  simp [envJ, show ¬ F + i.val < 32 by omega]
+
+/-- Some incoming state of a join matches `m` under an `Env` that agrees with the entry. -/
+def MatchIn (g : Sig) (Ss : List SState) (m : Machine) : Prop :=
+  ∃ S ∈ Ss, ∃ env, EnvOk g.m env ∧ Match env S m ∧ Env.WF env S
+
+/-- The cut lemma of F1's join cuts: the frame is written on some path, the header and the
+allocator object on none. -/
+theorem join_cut {F : Nat} {Ss : List SState} {g : Sig} {m : Machine} (hF : 32 ≤ F)
+    (hR : ∀ S ∈ Ss, S.regions = [frameR, headerR, allocObjR])
+    (hd : dirtyB Ss 0 = true ∧ dirtyB Ss 1 = false ∧ dirtyB Ss 2 = false)
+    (h : MatchIn g Ss m) :
+    Env.WF (envJ F g m) (generalise F Ss 32) ∧ Match (envJ F g m) (generalise F Ss 32) m := by
+  obtain ⟨S, hS, env, he, hm, hwf⟩ := h
+  have hR' : ∀ S' ∈ Ss, S'.regions = S.regions := fun S' h => (hR S' h).trans (hR S hS).symm
+  have hr : (envJ F g m).regions = env.regions := by rw [he.regions]; rfl
+  refine ⟨Env.WF.generalise hS hR' hwf hr, Match.generalise_to hS hR' hm (fun i hi => ?_)
+    (envJ_fresh hF g m) hr (fun r hr hdr j => ?_) (fun r j hdr hj => ?_)⟩
+  · show (if i < 32 then _ else _) = _
+    rw [if_pos hi, he.vars ⟨i, hi⟩]; congr 1; exact Fin.ext (Nat.mod_eq_of_lt hi)
+  · have hr3 : r < 3 := by rw [hR S hS] at hr; simpa using hr
+    match r, hr3, hdr with
+    | 0, _, hdr => rw [hd.1] at hdr; cases hdr
+    | 1, _, _ => rw [he.mem1]; simp [envJ, shape]
+    | 2, _, _ => rw [he.mem2]; simp [envJ, shape]
+  · have hr3 : r < 3 := by
+      rcases Nat.lt_or_ge r 3 with h | h
+      · exact h
+      · rw [Env.size, List.getD_eq_getElem?_getD, List.getElem?_eq_none (by rw [he.len]; omega)]
+          at hj
+        simp at hj
+    match r, hr3, hdr with
+    | 0, _, _ => simp [envJ, Env.base, he.regions]
+    | 1, _, hdr => rw [hd.2.1] at hdr; cases hdr
+    | 2, _, hdr => rw [hd.2.2] at hdr; cases hdr
+
 def AE (g : Sig) (m : Machine) : Prop := m = g.m ∧ m.pc.toNat = entry ∧ Pre g.A g.L g.items m
 
-/-- The hypotheses of `stage1`. -/
+/-- After `remap`: the facts `alloc`'s call needs. -/
 def AR (g : Sig) (m2 : Machine) : Prop :=
   Entry g.A g.L g.items g.m ∧ Match (envR g m2) S1 m2 ∧ Env.WF (envR g m2) S1 ∧
   m2.pc.toNat = 0x800cb4f8 ∧ Inv g.A g.L g.m m2 ∧ 0 < capOf g.m ∧ capOf g.m < reqOf g.m ∧
   (envR g m2).vars 120 = 0 ∧ (envR g m2).vars 122 = BitVec.ofNat 64 (grown (reqOf g.m)) ∧
   g.A.Heap g.L m2 ∧ ScratchSame g.m m2 ∧ BytesAt m2 (wordAt g.m (g.m.reg 10)) g.items
 
-/-- The hypotheses of `stage2a` (capacity 0) or `stage2b` (after `remap`). -/
+/-- After `alloc`: its answer in `a0`, the grown capacity in `s6`. -/
 def AJ2 (g : Sig) (m2 : Machine) : Prop :=
   Entry g.A g.L g.items g.m ∧ m2.pc.toNat = 0x800cb55c ∧ Inv g.A g.L g.m m2 ∧
   capOf g.m < reqOf g.m ∧ BytesAt m2 (wordAt g.m (g.m.reg 10)) g.items ∧ ScratchSame g.m m2 ∧
   AllocOut g.A g.L (grown (reqOf g.m) * elemBytes) m2 ∧
-  ((capOf g.m = 0 ∧ ∃ env, EnvOk g.m env ∧ Match env S2a m2 ∧ Env.WF env S2a ∧
-      env.vars 210 = m2.reg 10 ∧ env.vars 222 = BitVec.ofNat 64 (grown (reqOf g.m))) ∨
-   (0 < capOf g.m ∧ ∃ env, EnvOk g.m env ∧ Match env S2b m2 ∧ Env.WF env S2b ∧
-      env.vars 310 = m2.reg 10 ∧ env.vars 122 = BitVec.ofNat 64 (grown (reqOf g.m))))
+  m2.reg 22 = BitVec.ofNat 64 (grown (reqOf g.m)) ∧ MatchIn g [S2a, S2b] m2
 
-/-- What `stage3a` and `stage3b` share, for the new buffer `p'`. -/
+/-- After `memcpy`, for the new buffer `p'`. -/
 def Copied (g : Sig) (m4 : Machine) (p' : Word) : Prop :=
   0 < p'.toNat ∧ RamRange p' (grown (reqOf g.m) * elemBytes) ∧ BytesAt m4 p' g.items ∧
   BytesAt m4 (BitVec.ofNat 64 Layout.extraParams)
@@ -109,30 +153,32 @@ def Copied (g : Sig) (m4 : Machine) (p' : Word) : Prop :=
   (∀ a, g.A.Priv (g.L ++ [(p', grown (reqOf g.m) * elemBytes)]) a → g.A.Priv g.L a) ∧
   (∀ a, InRange p' (grown (reqOf g.m) * elemBytes) a → g.A.Priv g.L a)
 
-/-- The hypotheses of `stage3a` (capacity 0) or `stage3b` (after `remap`). -/
-def AJ3 (g : Sig) (m4 : Machine) : Prop :=
-  Entry g.A g.L g.items g.m ∧ m4.pc.toNat = 0x800cb588 ∧ Inv g.A g.L g.m m4 ∧
-  capOf g.m < reqOf g.m ∧
-  ((capOf g.m = 0 ∧ ∃ env p', EnvOk g.m env ∧ Match env S3a m4 ∧ Env.WF env S3a ∧
-      env.vars 210 = p' ∧ env.vars 222 = BitVec.ofNat 64 (grown (reqOf g.m)) ∧ Copied g m4 p') ∨
-   (0 < capOf g.m ∧ ∃ env p', EnvOk g.m env ∧ Match env S3b m4 ∧ Env.WF env S3b ∧
-      env.vars 310 = p' ∧ env.vars 122 = BitVec.ofNat 64 (grown (reqOf g.m)) ∧ Copied g m4 p'))
+/-- After `memcpy`: the new buffer in `s3`, the grown capacity in `s6`. -/
+def AJ3 (g : Sig) (m3 : Machine) : Prop :=
+  Entry g.A g.L g.items g.m ∧ m3.pc.toNat = 0x800cb588 ∧ Inv g.A g.L g.m m3 ∧
+  capOf g.m < reqOf g.m ∧ m3.reg 22 = BitVec.ofNat 64 (grown (reqOf g.m)) ∧
+  Copied g m3 (m3.reg 19) ∧ MatchIn g [S3] m3
 
-/-- The hypotheses of `stage4b`. -/
+/-- The allocator list at the end of the growing paths. -/
+def newL (g : Sig) (p' : Word) : List (Word × Nat) :=
+  (if 0 < capOf g.m then g.L.erase (wordAt g.m (g.m.reg 10), capOf g.m * elemBytes) else g.L) ++
+    [(p', grown (reqOf g.m) * elemBytes)]
+
+/-- After `free` (or its skip), for the new buffer `p'`. -/
+def Freed (g : Sig) (m4 : Machine) (p' : Word) : Prop :=
+  0 < p'.toNat ∧ RamRange p' (grown (reqOf g.m) * elemBytes) ∧ BytesAt m4 p' g.items ∧
+  BytesAt m4 (BitVec.ofNat 64 Layout.extraParams)
+    (wordBytes (BitVec.ofNat 64 ((wordAt g.m (g.m.reg 10 + 8)).toNat * elemBytes))) ∧
+  g.A.Heap (newL g p') m4 ∧
+  (∀ a, g.A.Priv (newL g p') a →
+    g.A.Priv g.L a ∨ InRange (wordAt g.m (g.m.reg 10)) (capOf g.m * elemBytes) a) ∧
+  (∀ a, InRange p' (grown (reqOf g.m) * elemBytes) a → g.A.Priv g.L a)
+
+/-- At `0x800cb5a8`: the new buffer in `s3`, the grown capacity in `s6`. -/
 def AJ4 (g : Sig) (m4 : Machine) : Prop :=
   Entry g.A g.L g.items g.m ∧ m4.pc.toNat = 0x800cb5a8 ∧ Inv g.A g.L g.m m4 ∧
-  0 < capOf g.m ∧ capOf g.m < reqOf g.m ∧
-  ∃ env p', EnvOk g.m env ∧ Match env S4b m4 ∧ Env.WF env S4b ∧ env.vars 310 = p' ∧
-    env.vars 122 = BitVec.ofNat 64 (grown (reqOf g.m)) ∧ 0 < p'.toNat ∧
-    RamRange p' (grown (reqOf g.m) * elemBytes) ∧ BytesAt m4 p' g.items ∧
-    BytesAt m4 (BitVec.ofNat 64 Layout.extraParams)
-      (wordBytes (BitVec.ofNat 64 ((wordAt g.m (g.m.reg 10 + 8)).toNat * elemBytes))) ∧
-    g.A.Heap ((g.L.erase (wordAt g.m (g.m.reg 10), capOf g.m * elemBytes)) ++
-      [(p', grown (reqOf g.m) * elemBytes)]) m4 ∧
-    (∀ a, g.A.Priv ((g.L.erase (wordAt g.m (g.m.reg 10), capOf g.m * elemBytes)) ++
-      [(p', grown (reqOf g.m) * elemBytes)]) a →
-        g.A.Priv g.L a ∨ InRange (wordAt g.m (g.m.reg 10)) (capOf g.m * elemBytes) a) ∧
-    (∀ a, InRange p' (grown (reqOf g.m) * elemBytes) a → g.A.Priv g.L a)
+  capOf g.m < reqOf g.m ∧ m4.reg 22 = BitVec.ofNat 64 (grown (reqOf g.m)) ∧
+  Freed g m4 (m4.reg 19) ∧ MatchIn g [S4a, S4b] m4
 
 def cE : Cut Sig := ⟨entry, S0, AE, fun _ m => env0 m, fun _ _ => bound⟩
 def cR : Cut Sig := ⟨0x800cb4f8, S1, AR, envR, fun _ _ => 148⟩
@@ -141,16 +187,6 @@ def cJ2 : Cut Sig :=
 def cJ3 : Cut Sig :=
   ⟨0x800cb588, SJ3, AJ3, envJ 600, fun g _ => if capOf g.m = 0 then 18 else 67⟩
 def cJ4 : Cut Sig := ⟨0x800cb5a8, SJ4, AJ4, envJ 700, fun _ _ => 17⟩
-
-/-! ## Runs, with the plan's cut points -/
-
-def cutPcs : List Nat := [entry, 0x800cb4f8, 0x800cb55c, 0x800cb588, 0x800cb5a8]
-
-sym_run runE := run zesuImage cutPcs 400 entry S0
-sym_run runR := run zesuImage cutPcs 400 0x800cb4f8 S1
-sym_run runJ2 := run zesuImage cutPcs 400 0x800cb55c SJ2
-sym_run runJ3 := run zesuImage cutPcs 400 0x800cb588 SJ3
-sym_run runJ4 := run zesuImage cutPcs 400 0x800cb5a8 SJ4
 
 /-! ## Callees -/
 
@@ -176,22 +212,24 @@ def allocC : Callee Sig zesuImage where
     Preserved m m'
   spec := fun g m hpc hpre => Reaches.preserve (g.A.alloc_spec g.L m hpc hpre)
 
-/-- `free` of a block of some allocator list `L'` (the list after `alloc`). -/
+/-- The allocator list at the `free` call: the entry list and the new buffer in `s3`. -/
+def freeL (g : Sig) (m : Machine) : List (Word × Nat) :=
+  g.L ++ [(m.reg 19, grown (reqOf g.m) * elemBytes)]
+
+/-- `free` of the old buffer, a block of `freeL`. -/
 def freeC : Callee Sig zesuImage where
   entry := freeEntry
   bound := 42
-  Pre := fun g m => ∃ L', g.A.Heap L' m ∧ (m.reg 11, (m.reg 12).toNat) ∈ L' ∧
+  Pre := fun g m => g.A.Heap (freeL g m) m ∧ (m.reg 11, (m.reg 12).toNat) ∈ freeL g m ∧
     0 < (m.reg 12).toNat ∧ (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 3 ∧ StackOk m 16 ∧
-    RetAligned m ∧ CalleeFrameFree (g.A.Priv L') m
-  Post := fun g m m' => ∃ L', g.A.Heap L' m ∧ (Returns m m' ∧
-      SameOutside (fun a => g.A.Priv L' a ∨ InRange (m.reg 11) (m.reg 12).toNat a ∨
+    RetAligned m ∧ CalleeFrameFree (g.A.Priv (freeL g m)) m
+  Post := fun g m m' => (Returns m m' ∧
+      SameOutside (fun a => g.A.Priv (freeL g m) a ∨ InRange (m.reg 11) (m.reg 12).toNat a ∨
         InRange (m.reg 2 - 16) 16 a) m m' ∧
-      g.A.Heap (L'.erase (m.reg 11, (m.reg 12).toNat)) m' ∧
-      (∀ a, g.A.Priv (L'.erase (m.reg 11, (m.reg 12).toNat)) a →
-        g.A.Priv L' a ∨ InRange (m.reg 11) (m.reg 12).toNat a)) ∧ Preserved m m'
-  spec := fun g m hpc ⟨L', hpre⟩ =>
-    (Reaches.preserve (g.A.free_spec L' m hpc hpre)).mono (Nat.le_refl _)
-      fun _ h => ⟨L', hpre.1, h⟩
+      g.A.Heap ((freeL g m).erase (m.reg 11, (m.reg 12).toNat)) m' ∧
+      (∀ a, g.A.Priv ((freeL g m).erase (m.reg 11, (m.reg 12).toNat)) a →
+        g.A.Priv (freeL g m) a ∨ InRange (m.reg 11) (m.reg 12).toNat a)) ∧ Preserved m m'
+  spec := fun g m hpc hpre => Reaches.preserve (g.A.free_spec (freeL g m) m hpc hpre)
 
 def vcPlan : Plan Sig zesuImage where
   cuts := [cE, cR, cJ2, cJ3, cJ4]
@@ -528,8 +566,8 @@ theorem F1.leaf_800cb40c_2 :
   refine ⟨allocC, rfl, by simpa using hex, hpreA, fun m2 hpost => ?_⟩
   obtain ⟨hm2, hwf2, hpc2, hinv2, hscr2, hitems2, hout, hret⟩ := hpostA m2 hpost
   refine ⟨cJ2, by simp [F1.plan, vcPlan], rfl, hpc2, ⟨E, hpc2, hinv2, hlt, hitems2, hscr2, hout,
-    .inl ⟨hc0, _, (envOk0 m).setVars (by decide) _, hm2, hwf2, by simp [Env.setVars],
-      by simp [Env.setVars]; rw [hret.2 22 (by decide), h22]⟩⟩, ?_⟩
+    by rw [hret.2 22 (by decide), h22],
+    S2a, by simp, _, (envOk0 m).setVars (by decide) _, hm2, hwf2⟩, ?_⟩
   show 53 + (if capOf m = 0 then 103 else 78) ≤ 197 - (41 - 0)
   simp only [capOf, hc0, if_true]; decide
 
@@ -549,12 +587,346 @@ theorem F1.leaf_800cb4f8_1 :
   obtain ⟨hpreA, hpostA⟩ := alloc_call (F := 300) E he (by decide) (by decide) hmc hwf hfr hp hinv
     hheap hscr hitems (by decide) (by rw [← hmc.regs 11]; exact sll5_eval hv122 hreq) rfl rfl rfl
   refine ⟨allocC, rfl, by simpa using hex, hpreA, fun m3 hpost => ?_⟩
-  obtain ⟨hm3, hwf3, hpc3, hinv3, hscr3, hitems3, hout, -⟩ := hpostA m3 hpost
+  obtain ⟨hm3, hwf3, hpc3, hinv3, hscr3, hitems3, hout, hret⟩ := hpostA m3 hpost
   refine ⟨cJ2, by simp [F1.plan, vcPlan], rfl, hpc3, ⟨E, hpc3, hinv3, hlt, hitems3, hscr3, hout,
-    .inr ⟨hc0, _, he.setVars (by decide) _, hm3, hwf3, by simp [Env.setVars],
-      by simp [Env.setVars]; exact hv122⟩⟩, ?_⟩
+    by rw [hret.2 22 (by decide), ← hmc.regs 22]; exact hv122,
+    S2b, by simp, _, he.setVars (by decide) _, hm3, hwf3⟩, ?_⟩
   show 53 + (if capOf m = 0 then 103 else 78) ≤ 148 - (17 - 0)
   simp only [capOf, Nat.pos_iff_ne_zero.mp hc0, if_false]; decide
+
+/-! ## The join cuts and the leaves of their runs -/
+
+theorem AJ2.ok {g : Sig} {m : Machine} (h : AJ2 g m) :
+    Env.WF (envJ 500 g m) SJ2 ∧ Match (envJ 500 g m) SJ2 m :=
+  join_cut (by decide) (by decide) (by decide) h.2.2.2.2.2.2.2.2
+
+theorem AJ3.ok {g : Sig} {m : Machine} (h : AJ3 g m) :
+    Env.WF (envJ 600 g m) SJ3 ∧ Match (envJ 600 g m) SJ3 m :=
+  join_cut (by decide) (by decide) (by decide) h.2.2.2.2.2.2
+
+theorem AJ4.ok {g : Sig} {m : Machine} (h : AJ4 g m) :
+    Env.WF (envJ 700 g m) SJ4 ∧ Match (envJ 700 g m) SJ4 m :=
+  join_cut (by decide) (by decide) (by decide) h.2.2.2.2.2.2
+
+theorem F1.cut_800cb55c : CutOK F1.plan F1.plan.cuts[2]! := by
+  show CutOK F1.plan cJ2
+  intro g m2 hA
+  exact ⟨(AJ2.ok hA).1, (AJ2.ok hA).2, hA.2.2.1.ro hA.1, hA.2.1⟩
+
+theorem F1.cut_800cb588 : CutOK F1.plan F1.plan.cuts[3]! := by
+  show CutOK F1.plan cJ3
+  intro g m3 hA
+  exact ⟨(AJ3.ok hA).1, (AJ3.ok hA).2, hA.2.2.1.ro hA.1, hA.2.1⟩
+
+theorem F1.cut_800cb5a8 : CutOK F1.plan F1.plan.cuts[4]! := by
+  show CutOK F1.plan cJ4
+  intro g m4 hA
+  exact ⟨(AJ4.ok hA).1, (AJ4.ok hA).2, hA.2.2.1.ro hA.1, hA.2.1⟩
+
+/-- The new block's bytes survive a run of F1's own code. -/
+theorem Entry.blockSame {A : AllocAssumptions zesuImage} {L : List (Word × Nat)}
+    {items : List Byte} {m : Machine} (E : Entry A L items m) {env : Env} {S : SState}
+    {m1 m2 : Machine} {p' : Word} (he : EnvOk m env) (hS : S.regions = [frameR, headerR, allocObjR])
+    (hfr : SameOutside (InWritable env S) m1 m2)
+    (hlt : (wordAt m (m.reg 10 + 16)).toNat < (m.reg 12).toNat)
+    (hram : RamRange p' (grown (m.reg 12).toNat * elemBytes))
+    (hblk : ∀ a, InRange p' (grown (m.reg 12).toNat * elemBytes) a → A.Priv L a)
+    (hitems : BytesAt m1 p' items) : BytesAt m2 p' items := by
+  intro i hi
+  rw [hfr _ fun hw => ?_]
+  · exact hitems i hi
+  · have hlen := E.itemsLen; have hnc := E.nc
+    have hram' := hram; unfold RamRange Layout.ramHi at hram'
+    simp only [elemBytes, grown] at hlen hram' hi ⊢
+    have hin : InRange p' (((m.reg 12).toNat + (m.reg 12).toNat / 2 + 2) * 32)
+        (p' + BitVec.ofNat 64 i) := by
+      simp only [InRange]; rw [toNat_add_ofNat (by omega)]; omega
+    exact E.ownNotPriv (E.inWritable2 he hS hw) (hblk _ (by simpa only [grown, elemBytes] using hin))
+
+/-- The scratch word survives a run of F1's own code. -/
+theorem Entry.scratchKeep {A : AllocAssumptions zesuImage} {L : List (Word × Nat)}
+    {items : List Byte} {m : Machine} (E : Entry A L items m) {env : Env} {S : SState}
+    {m1 m2 : Machine} {bs : List Byte} (hbs : bs.length = 8) (he : EnvOk m env)
+    (hS : S.regions = [frameR, headerR, allocObjR]) (hfr : SameOutside (InWritable env S) m1 m2)
+    (hscr : BytesAt m1 (BitVec.ofNat 64 Layout.extraParams) bs) :
+    BytesAt m2 (BitVec.ofNat 64 Layout.extraParams) bs := by
+  intro i hi
+  rw [hfr _ fun hw => E.scratchNotOwn (by omega) (E.inWritable2 he hS hw)]
+  exact hscr i hi
+
+/-- After `alloc`, leaf 0: a block; call `memcpy`. -/
+theorem F1.leaf_800cb55c_0 :
+    LeafGoal F1.plan F1.plan.cuts[2]! ((F1.plan.leaves 0x800cb55c)[0]!) := by
+  leaf_intro
+  intro g m2 hA hc
+  obtain ⟨hwf, -⟩ := AJ2.ok hA
+  obtain ⟨A, L, items, m⟩ := g
+  simp only [AJ2, capOf, reqOf] at hA
+  obtain ⟨E, -, hinv, hlt, hitems, -, hout, h22, -⟩ := hA
+  dsimp only at hc ⊢
+  have he := envJ_ok (F := 500) (by decide) ⟨A, L, items, m⟩ m2
+  have h10 : (envJ 500 ⟨A, L, items, m⟩ m2).vars 510 = m2.reg 10 :=
+    envJ_fresh (i := 10) (by decide) _ _
+  sym_simp at hc; rw [h10] at hc; simp only [bne_iff_ne, ne_eq] at hc
+  obtain ⟨hne, hheap, hram', hpres', hblk, hpriv⟩ := hout.resolve_left fun h => hc h.1
+  refine ⟨fun o ho => by simp at ho, by split <;> decide, fun mc hmc hex hfr => ?_⟩
+  have hp : Preserved m2 mc := preserved_of_leaf hwf hmc (by decide) hfr
+  have hc0 : 0 < (wordAt m (m.reg 10 + 16)).toNat ∨ (wordAt m (m.reg 10 + 8)).toNat = 0 := by
+    rcases Nat.eq_zero_or_pos (wordAt m (m.reg 10 + 16)).toNat with h | h
+    · exact .inr (by have := E.nc; omega)
+    · exact .inl h
+  obtain ⟨hpre, hpost⟩ := copy_call (iP := 510) E he hwf hmc hfr hp hinv hc0 hlt h10 hitems hne
+    hheap hram' hpres' hblk hpriv (by decide) (by decide) rfl rfl rfl rfl
+  refine ⟨Callee.memcpy Sig zesuImage, rfl, by simpa using hex, hpre, fun m3 hz => ?_⟩
+  obtain ⟨hm3, hwf3, hpc3, hinv3, hitems3, hscr3, hheap3⟩ := hpost m3 hz
+  have r19 : m3.reg 19 = m2.reg 10 := by rw [← hm3.regs 19]; exact h10
+  have r22 : m3.reg 22 = m2.reg 22 := by
+    rw [← hm3.regs 22]; exact envJ_fresh (i := 22) (by decide) _ _
+  have hp0 : 0 < (m2.reg 10).toNat :=
+    Nat.pos_of_ne_zero fun e => hne (BitVec.eq_of_toNat_eq (by simpa using e))
+  refine ⟨cJ3, by simp [F1.plan, vcPlan], rfl, hpc3, ⟨E, hpc3, hinv3, hlt, by rw [r22, h22],
+    by rw [r19]; exact ⟨hp0, hram', hitems3, hscr3, hheap3, hpriv, hblk⟩,
+    S3, by simp, _, he, hm3, hwf3⟩, ?_⟩
+  show 3 + (if capOf m = 0 then 18 else 67) ≤ (if capOf m = 0 then 103 else 78) - (8 - 0)
+  by_cases h : capOf m = 0 <;> simp [h]
+
+/-- After `alloc`, leaf 1: null; OutOfMemory. -/
+theorem F1.leaf_800cb55c_1 :
+    LeafGoal F1.plan F1.plan.cuts[2]! ((F1.plan.leaves 0x800cb55c)[1]!) := by
+  leaf_intro
+  intro g m2 hA hc
+  obtain ⟨hwf, -⟩ := AJ2.ok hA
+  obtain ⟨A, L, items, m⟩ := g
+  simp only [AJ2, capOf, reqOf] at hA
+  obtain ⟨E, -, hinv, hlt, -, hscr, hout, -, -⟩ := hA
+  dsimp only at hc ⊢
+  have he := envJ_ok (F := 500) (by decide) ⟨A, L, items, m⟩ m2
+  have h10 : (envJ 500 ⟨A, L, items, m⟩ m2).vars 510 = m2.reg 10 :=
+    envJ_fresh (i := 10) (by decide) _ _
+  sym_simp at hc; rw [h10] at hc; simp only [beq_iff_eq] at hc
+  have hheap : A.Heap L m2 := by
+    rcases hout with ⟨-, h⟩ | ⟨hne, -⟩
+    · exact h
+    · exact absurd hc hne
+  refine ⟨fun o ho => ?_, by split <;> decide, fun mf hmf hex hfr => ?_⟩
+  · simp at ho; subst ho
+    simpa [Oblig.holds, Sym.eval, BinOp.eval,
+      show (envJ 500 ⟨A, L, items, m⟩ m2).vars 1 = m.reg 1 from he.vars 1] using E.ra
+  show Post A L items m mf
+  exact oom_post E he (by decide) hmf (by decide) (by decide) (by decide) rfl rfl hex hinv hfr
+    (preserved_of_leaf hwf hmf (by decide) hfr) hlt hheap hscr
+
+/-- After `memcpy`, leaf 0: capacity 0, nothing to free. -/
+theorem F1.leaf_800cb588_0 :
+    LeafGoal F1.plan F1.plan.cuts[3]! ((F1.plan.leaves 0x800cb588)[0]!) := by
+  leaf_intro
+  intro g m3 hA hc
+  obtain ⟨hwf, -⟩ := AJ3.ok hA
+  obtain ⟨A, L, items, m⟩ := g
+  simp only [AJ3, Copied, capOf, reqOf] at hA
+  obtain ⟨E, -, hinv, hlt, h22, ⟨hp0, hram, hitems, hscr, hheap, hpriv, hblk⟩, -⟩ := hA
+  dsimp only at hc ⊢
+  have he := envJ_ok (F := 600) (by decide) ⟨A, L, items, m⟩ m3
+  sym_simp at hc; rw [he.init_eq, E.cap] at hc; simp only [beq_iff_eq] at hc
+  have hc0 : capOf m = 0 := by show (wordAt m (m.reg 10 + 16)).toNat = 0; rw [hc]; rfl
+  refine ⟨fun o ho => by simp at ho, by split <;> decide, fun m4 hm4 hex hfr => ?_⟩
+  have hp : Preserved m3 m4 := preserved_of_leaf hwf hm4 (by decide) hfr
+  have r19 : m4.reg 19 = m3.reg 19 := by
+    rw [← hm4.regs 19]; exact envJ_fresh (i := 19) (by decide) _ _
+  have r22 : m4.reg 22 = m3.reg 22 := by
+    rw [← hm4.regs 22]; exact envJ_fresh (i := 22) (by decide) _ _
+  have hL : newL ⟨A, L, items, m⟩ (m3.reg 19) = L ++ [(m3.reg 19, grown (reqOf m) * elemBytes)] := by
+    simp [newL, hc0]
+  refine ⟨cJ4, by simp [F1.plan, vcPlan], hex, ⟨E, hex,
+    hinv.step hfr (fun a h => E.inWritable' he (by decide) h) hp, hlt, by rw [r22, h22], ?_,
+    S4a, by simp, _, he, hm4, hwf.congr (by decide)⟩, ?_⟩
+  · rw [r19]
+    refine ⟨hp0, hram, E.blockSame he (by decide) hfr hlt hram hblk hitems,
+      E.scratchKeep (by simp [wordBytes]) he (by decide) hfr hscr, ?_, ?_, hblk⟩
+    · rw [hL]
+      exact A.heap_frame _ m3 m4 hheap fun a ha => hfr a fun hw =>
+        E.ownNotPriv (E.inWritable2 he (by decide) hw) (hpriv a ha)
+    · rw [hL]; exact fun a h => .inl (hpriv a h)
+  · show 17 ≤ (if capOf m = 0 then 18 else 67) - (1 - 0)
+    simp [hc0]
+
+/-- After `memcpy`, leaf 1: capacity > 0; `free` the old buffer. -/
+theorem F1.leaf_800cb588_1 :
+    LeafGoal F1.plan F1.plan.cuts[3]! ((F1.plan.leaves 0x800cb588)[1]!) := by
+  leaf_intro
+  intro g m3 hA hc
+  obtain ⟨hwf, -⟩ := AJ3.ok hA
+  obtain ⟨A, L, items, m⟩ := g
+  simp only [AJ3, Copied, capOf, reqOf] at hA
+  obtain ⟨E, -, hinv, hlt, h22, ⟨hp0, hram, hitems, hscr, hheap, hpriv, hblk⟩, -⟩ := hA
+  dsimp only at hc ⊢
+  have he := envJ_ok (F := 600) (by decide) ⟨A, L, items, m⟩ m3
+  sym_simp at hc; rw [he.init_eq, E.cap] at hc; simp only [bne_iff_ne, ne_eq] at hc
+  have hc0 : 0 < (wordAt m (m.reg 10 + 16)).toNat :=
+    Nat.pos_of_ne_zero fun h => hc (BitVec.eq_of_toNat_eq (by simpa using h))
+  refine ⟨fun o ho => by simp at ho, by split <;> decide, fun mc hmc hex hfr => ?_⟩
+  have hp : Preserved m3 mc := preserved_of_leaf hwf hmc (by decide) hfr
+  have own : ∀ a, InWritable (envJ 600 ⟨A, L, items, m⟩ m3) SJ3 a →
+      InRange (m.reg 2 - 112) 112 a ∨ InRange (m.reg 10) 24 a :=
+    fun a h => E.inWritable2 he (by decide) h
+  -- the call's arguments
+  obtain ⟨hbufR, hbufL⟩ := E.buf hc0
+  have hcR := hbufR; unfold RamRange Layout.ramHi at hcR
+  have r11 : mc.reg 11 = wordAt m (m.reg 10) := by
+    rw [← hmc.regs 11]; show (Sym.init 1 0 8).eval _ = _; rw [he.init_eq, E.ptr]
+  have r12 : (mc.reg 12).toNat = (wordAt m (m.reg 10 + 16)).toNat * elemBytes := by
+    rw [← hmc.regs 12]
+    show ((Sym.bin .sll (Sym.init 1 16 8) (Sym.lit 5)).eval _).toNat = _
+    simp only [Sym.eval_bin, BinOp.eval, Sym.eval_lit]
+    rw [he.init_eq, E.cap, BitVec.toNat_shiftLeft, Nat.shiftLeft_eq]
+    simp only [elemBytes, BitVec.toNat_ofNat, Nat.reduceMod, Nat.reducePow] at hcR ⊢; omega
+  have r13 : mc.reg 13 = 0 := by rw [← hmc.regs 13]; rfl
+  have r1 : mc.reg 1 = BitVec.ofNat 64 0x800cb5a8 := by rw [← hmc.regs 1]; rfl
+  have r2 : mc.reg 2 = m.reg 2 - 112 := by
+    rw [← hmc.regs 2]; show (envJ 600 ⟨A, L, items, m⟩ m3).base 0 + BitVec.ofInt 64 0 = _
+    rw [he.base0]; simp
+  have r19 : mc.reg 19 = m3.reg 19 := by
+    rw [← hmc.regs 19]; exact envJ_fresh (i := 19) (by decide) _ _
+  have r22 : mc.reg 22 = m3.reg 22 := by
+    rw [← hmc.regs 22]; exact envJ_fresh (i := 22) (by decide) _ _
+  generalize hp' : m3.reg 19 = p' at hp0 hram hitems hheap hpriv hblk r19
+  generalize hL3 : L ++ [(p', grown (m.reg 12).toNat * elemBytes)] = L3 at hheap hpriv
+  have hfL : freeL ⟨A, L, items, m⟩ mc = L3 := by rw [← hL3]; simp [freeL, r19]
+  have hheapc : A.Heap L3 mc := A.heap_frame L3 m3 mc hheap fun a ha => hfr a fun hw =>
+    E.ownNotPriv (own a hw) (hpriv a ha)
+  have hpre : freeC.Pre ⟨A, L, items, m⟩ mc := by
+    show A.Heap (freeL _ mc) mc ∧ _
+    rw [hfL]
+    refine ⟨hheapc, ?_, ?_, ?_, by rw [r13]; decide, E.calleeStack (hinv.2.trans hp) r2,
+      by unfold RetAligned; rw [r1]; decide, E.calleeFree hpriv r2⟩
+    · rw [r11, r12, ← hL3]; exact List.mem_append_left _ hbufL
+    · rw [r12]; simp only [elemBytes]; omega
+    · rw [r12]; simp only [elemBytes] at hcR ⊢; omega
+  refine ⟨freeC, rfl, by simpa using hex, hpre, fun m4 hpost => ?_⟩
+  obtain ⟨⟨hret, hfrF, hheap4, hpriv4⟩, hp4⟩ := hpost
+  simp only [hfL] at hfrF hheap4 hpriv4
+  rw [r11, r12] at hfrF hheap4 hpriv4
+  have hcf : mc.reg 2 - 16 = m.reg 2 - 128 := by rw [r2]; bv_omega
+  rw [hcf] at hfrF
+  -- the old and new blocks are apart
+  have hlive := (A.live_ok L3 m3 hheap).1
+  have hapart : ∀ a, InRange p' (grown (m.reg 12).toNat * elemBytes) a →
+      ¬ InRange (wordAt m (m.reg 10)) ((wordAt m (m.reg 10 + 16)).toNat * elemBytes) a := by
+    intro a h1 h2
+    rw [← hL3] at hlive
+    have := (List.pairwise_append.mp hlive).2.2 _ hbufL _ (List.mem_singleton_self _)
+    simp only [InRange] at h1 h2 this; omega
+  obtain ⟨hm4, hwf4⟩ := after_call_ov (F := 650) (a0 := none) hmc (hwf.congr (by decide))
+    (by decide) hret (fun s h => by simp at h) fun r j hr hj => by
+      have hr3 : r < 3 := by simpa using hr
+      refine hfrF _ fun h => ?_
+      rcases h with h | h | h
+      · exact E.regionNotPriv he hr3 hj (hpriv _ h)
+      · exact E.regionNotOld he hc0 hr3 hj h
+      · exact E.calleeApart he r j hr3 hj h
+  have hinv4 : Inv A L m m4 := by
+    refine (hinv.step hfr (fun a h => E.inWritable' he (by decide) h) hp).step hfrF ?_ hp4
+    intro a h
+    rcases h with h | h | h
+    · exact .inr (.inr (.inr (.inl (hpriv a h))))
+    · exact .inr (.inr (.inr (.inr ⟨hc0, h⟩)))
+    · refine .inr (.inl ?_)
+      have h128 := sp128 E
+      simp only [InRange, h128] at h ⊢; omega
+  have hpc4 : m4.pc.toNat = 0x800cb5a8 := by rw [hret.1, r1]; decide
+  have hL : L3.erase (wordAt m (m.reg 10), (wordAt m (m.reg 10 + 16)).toNat * elemBytes) =
+      newL ⟨A, L, items, m⟩ p' := by
+    rw [← hL3, List.erase_append_left _ hbufL]
+    show _ = (if 0 < capOf m then _ else L) ++ _
+    rw [if_pos hc0]
+  rw [hL] at hheap4 hpriv4
+  have s19 : m4.reg 19 = p' := by rw [hret.2 19 (by decide), r19]
+  refine ⟨cJ4, by simp [F1.plan, vcPlan], rfl, hpc4, ⟨E, hpc4, hinv4, hlt,
+    by rw [hret.2 22 (by decide), r22, h22], ?_,
+    S4b, by simp, _, he.setVars (by decide) _, hm4, hwf4⟩, ?_⟩
+  · rw [s19]
+    refine ⟨hp0, hram, ?_, ?_, hheap4, fun a h => ?_, hblk⟩
+    · intro i hi
+      have hin : InRange p' (grown (m.reg 12).toNat * elemBytes) (p' + BitVec.ofNat 64 i) := by
+        have hlen := E.itemsLen; have hnc := E.nc; have hram' := hram
+        unfold RamRange Layout.ramHi at hram'
+        simp only [elemBytes, grown] at hlen hram' hi ⊢
+        simp only [InRange]; rw [toNat_add_ofNat (by omega)]; omega
+      have hpl : ¬ A.Priv L3 (p' + BitVec.ofNat 64 i) := fun hp =>
+        A.priv_not_live L3 _ hp
+          ⟨_, by rw [← hL3]; exact List.mem_append_right _ (List.mem_singleton_self _), hin⟩
+      rw [hfrF _ fun h => ?_, hfr _ fun hw => E.ownNotPriv (own _ hw) (hblk _ hin)]
+      · exact hitems i hi
+      · rcases h with h | h | h
+        · exact hpl h
+        · exact hapart _ hin h
+        · exact E.priv _ (.inr (.inr (.inl ⟨h.1, by have := h.2; omega⟩))) (hblk _ hin)
+    · intro i hi
+      have hi8 : i < 8 := by simpa [wordBytes] using hi
+      have hs : (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 i).toNat =
+          Layout.extraParams + i := by
+        simp [Layout.extraParams]; omega
+      rw [hfrF _ fun h => ?_, hfr _ fun hw => E.scratchNotOwn hi8 (own _ hw)]
+      · exact hscr i hi
+      · rcases h with h | h | h
+        · exact E.priv _ (.inr (.inr (.inr ⟨by rw [hs]; simp [Layout.extraParams],
+            by rw [hs]; simp [Layout.extraParams]; omega⟩))) (hpriv _ h)
+        · obtain ⟨-, -, -, d⟩ := E.dbuf hc0
+          simp only [Apart, InRange, hs] at d h; simp [Layout.extraParams] at d h; omega
+        · have d := E.d6; have h128 := sp128 E
+          simp only [Apart, InRange, hs, h128] at d h; simp [Layout.extraParams] at d h; omega
+    · rcases hpriv4 a h with h | h
+      · exact .inl (hpriv a h)
+      · exact .inr h
+  · show 42 + 17 ≤ (if capOf m = 0 then 18 else 67) - (8 - 0)
+    simp [Nat.pos_iff_ne_zero.mp hc0]
+
+/-- At `0x800cb5a8`: write the header and return 0. -/
+theorem F1.leaf_800cb5a8_0 :
+    LeafGoal F1.plan F1.plan.cuts[4]! ((F1.plan.leaves 0x800cb5a8)[0]!) := by
+  leaf_intro
+  intro g m4 hA hc
+  obtain ⟨hwf, -⟩ := AJ4.ok hA
+  obtain ⟨A, L, items, m⟩ := g
+  simp only [AJ4, Freed, capOf, reqOf] at hA
+  obtain ⟨E, -, hinv, hlt, h22, ⟨hp0, hram, hitems, hscr, hheap, hpriv, hblk⟩, -⟩ := hA
+  dsimp only at hc ⊢
+  have he := envJ_ok (F := 700) (by decide) ⟨A, L, items, m⟩ m4
+  refine ⟨fun o ho => ?_, by decide, fun mf hmf hex hfr => ?_⟩
+  · simp at ho; subst ho
+    simpa [Oblig.holds, Sym.eval, BinOp.eval,
+      show (envJ 700 ⟨A, L, items, m⟩ m4).vars 1 = m.reg 1 from he.vars 1] using E.ra
+  show Post A L items m mf
+  have hp := preserved_of_leaf hwf hmf (by decide) hfr
+  have own : ∀ a, InWritable (envJ 700 ⟨A, L, items, m⟩ m4) SJ4 a →
+      InRange (m.reg 2 - 112) 112 a ∨ InRange (m.reg 10) 24 a :=
+    fun a h => E.inWritable2 he (by decide) h
+  have hret : Returns m mf := returns_leaf hmf he.vars (by decide)
+    (by show (envJ 700 ⟨A, L, items, m⟩ m4).base 0 + BitVec.ofInt 64 112 = m.reg 2
+        rw [he.base0]; simp [BitVec.sub_add_cancel]) hex
+  have hlt' : ¬ (m.reg 12).toNat ≤ (wordAt m (m.reg 10 + 16)).toNat := by omega
+  refine ⟨hret, (hinv.step hfr (fun a h => E.inWritable' he (by decide) h) hp).1, ?_⟩
+  simp only [hlt', if_false]
+  refine .inl ⟨by rw [← hmf.regs 10]; rfl, m4.reg 19, ⟨?_, ?_, ?_⟩, hp0, hram,
+    E.blockSame he (by decide) hfr hlt hram hblk hitems, ?_,
+    E.scratchKeep (by simp [wordBytes]) he (by decide) hfr hscr⟩
+  · have := header_load he (hwf.congr (by decide)) hmf (by decide) 0 (by decide)
+    rw [show m.reg 10 + BitVec.ofNat 64 0 = m.reg 10 by simp] at this
+    rw [this]; rfl
+  · have := header_load he (hwf.congr (by decide)) hmf (by decide) 8 (by decide)
+    show mf.load (m.reg 10 + BitVec.ofNat 64 8) 8 = _
+    rw [this]; show some ((Sym.init 1 8 8).eval _) = _
+    rw [he.init_eq, E.len]
+  · have := header_load he (hwf.congr (by decide)) hmf (by decide) 16 (by decide)
+    show mf.load (m.reg 10 + BitVec.ofNat 64 16) 8 = _
+    rw [this]; show some (m4.reg 22) = _; rw [h22]
+  · show A.Heap (newL ⟨A, L, items, m⟩ (m4.reg 19)) mf
+    refine A.heap_frame _ m4 mf hheap fun a ha => hfr a fun hw => ?_
+    rcases hpriv a ha with h | h
+    · exact E.ownNotPriv (own a hw) h
+    · rcases Nat.eq_zero_or_pos (capOf m) with hc0 | hc0
+      · simp only [InRange, capOf] at h hc0; rw [hc0] at h; omega
+      · exact E.oldNotOwn hc0 h (own a hw)
 
 zesu_assemble F1
 
