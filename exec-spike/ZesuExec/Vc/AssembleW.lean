@@ -14,8 +14,9 @@ for a `PlanW` (runs by `runWith`). The items and their statements:
   `LeafGoalC F.plan F.plan.cuts[i]! (F.plan.wleaves <pc>)[j]!`;
 * `F.call_<pc>_<k> : CallGoal F.plan F.plan.cuts[i]! (F.plan.callsAt <pc>)[k]!`.
 
-`F.reach_from` / `F.reach` come from `vc_soundW`; the run equations are checked by `Eq.refl`
-and `hpos` and the call-free test of each leaf by kernel `decide`. `zesu_autow` tries `cut_auto`
+`F.reach_from` / `F.reach` come from `vc_soundW`; the run equations are checked by `Eq.refl`, or
+by the theorem `F.run_<pc>` when it exists (`runProof?`), and `hpos` and the call-free test of
+each leaf by kernel `decide`. `zesu_autow` tries `cut_auto`
 and, on leaves without calls, `leaf_auto`. `unsafe` only evaluates the plan to list its items.
 -/
 
@@ -185,9 +186,12 @@ unsafe def elabZesuAssembleW : CommandElab := fun stx => do
     let hleafTy := b4.bindingDomain!
     let leafListTy := mkApp (mkConst ``List [0]) (mkConst ``LeafW)
     let hruns ← allOfIdx cutTy (← predOf hrunsTy) cutsE n fun i => do
-      let ls ← elabClosed s!"{planTxt fn}.wleaves {ws[i]!.pc}"
-      pure (mkApp2 (mkConst ``Eq.refl [1]) (mkApp (mkConst ``Option [0]) leafListTy)
-        (mkApp2 (mkConst ``Option.some [0]) leafListTy ls))
+      match ← runProof? fn ws[i]!.pc ((← predOf hrunsTy).beta #[← cutE i]) with
+      | some p => pure p
+      | none =>
+        let ls ← elabClosed s!"{planTxt fn}.wleaves {ws[i]!.pc}"
+        pure (mkApp2 (mkConst ``Eq.refl [1]) (mkApp (mkConst ``Option [0]) leafListTy)
+          (mkApp2 (mkConst ``Option.some [0]) leafListTy ls))
     let hposInst ← synthInstance (mkApp (mkConst ``Decidable) hposTy)
     let hpos := mkApp3 (mkConst ``of_decide_eq_true) hposTy hposInst
       (mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Bool) (mkConst ``Bool.true))
