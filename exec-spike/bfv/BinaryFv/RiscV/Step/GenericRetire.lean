@@ -120,7 +120,7 @@ theorem tryStepGenericRetires (stepNo : Nat) (state afterExec : State)
   exact tryStepRetires stepNo state (tryStepControlFlowAfterIncrement state) afterExec
     (tryStepControlFlowAfterTick afterExec targetPC)
     (tryStepControlFlowAfterRetired afterExec targetPC retired) Privilege.Machine retired instbits
-    privilege shouldIncrement increment hartAfterIncrement active hartAfterActive tick
+    privilege shouldIncrement increment active hartAfterActive tick
     incrementAfterTick retiredAfterTick writeRetired
 
 /-- The generated fall-through postlude changes only `PC` and `minstret`.  Any other register

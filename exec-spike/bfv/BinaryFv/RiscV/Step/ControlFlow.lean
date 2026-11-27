@@ -76,9 +76,10 @@ theorem executeBranchNotTakenDispatchRuns (s : State) (imm : BitVec 13) (rs2 rs1
   change Runs (execute_BTYPE imm rs2 rs1 op) s _ _
   exact execute_BTYPE_notTaken_run s imm rs2 rs1 op hcond
 
-/-- `ret` (`jalr x0, 0(rs1)`), lifted through the `execute` dispatcher. -/
+/-- exec-spike repair: the `helpElp` premise was removed (the specialised `execute_JALR` has no
+`update_elp_state`).
+`ret` (`jalr x0, 0(rs1)`), lifted through the `execute` dispatcher. -/
 theorem executeRetDispatchRuns (s : State) (rs1 : regidx) (linkVal rs1Val : BitVec 64)
-    (helpElp : Runs (update_elp_state rs1) s s ())
     (hlink : Runs (get_next_pc ()) s s linkVal)
     (hrs1 : Runs (rX_bits rs1) s s rs1Val)
     (hbit1 : Sail.BitVec.access rs1Val 1 = 0#1)
@@ -88,22 +89,24 @@ theorem executeRetDispatchRuns (s : State) (rs1 : regidx) (linkVal rs1Val : BitV
       { s with regs := s.regs.insert nextPC (Sail.BitVec.update rs1Val 0 0#1) }
       (.Retire_Success ()) := by
   change Runs (execute_JALR 0#12 rs1 zreg) s _ _
-  exact ret_run s rs1 linkVal rs1Val helpElp hlink hrs1 hbit1 zcaEnabled hzca
+  exact ret_run s rs1 linkVal rs1Val hlink hrs1 hbit1 zcaEnabled hzca
 
 /-! ## Shared active-hart retirement -/
 
 /-- Compose explicit base-fetch/decoder premises with an arbitrary control-flow execute contract.
 
-This is the control-flow analogue of the base retire packaging: the fetch,
-interrupt-dispatch, landing-pad and `nextPC`-write bookkeeping is identical; only the `execute`
+exec-spike repair: the `noMMIO`, `interrupts` and `notExpected` premises were removed (pure
+`within_mmio_readable`/`dispatchInterrupt`, no landing-pad check).
+
+This is the control-flow analogue of the base retire packaging: the fetch
+and `nextPC`-write bookkeeping is identical; only the `execute`
 premise (and the decoded `instruction`/post-execute state it produces) is instruction-specific. -/
 theorem runHartActiveControlFlow (stepNo : Nat) (state afterExec : State) (pc : BitVec 64)
     (byte0 byte1 byte2 byte3 : BitVec 8) (inst : instruction)
-    (platform : FetchBasePlatform state pc) (noMMIO : FetchMemoryNoMMIO state pc)
+    (platform : FetchBasePlatform state pc)
     (bytes : FetchBytesAt state pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled state) (base : BaseInstructionEncoding byte0)
+    (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3)) state state inst)
-    (notExpected : LandingPadNotExpected state)
     (execute : Runs (execute inst) (coreControlFlowNextState state pc) afterExec
       (.Retire_Success ())) :
     Runs (run_hart_active stepNo) state afterExec
@@ -111,22 +114,17 @@ theorem runHartActiveControlFlow (stepNo : Nat) (state afterExec : State) (pc : 
         zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3))) := by
   have fetchBytes : FetchBytesBaseContract state pc byte0 byte1 byte2 byte3 :=
     fetch_bytes_machine_instructionFetch_fetch_word_run state pc byte0 byte1 byte2 byte3 platform
-      noMMIO bytes
+      bytes
   have fetch : Runs (fetch ()) state state (.F_Base (fetchWord byte0 byte1 byte2 byte3)) :=
     fetch_base_of_fetchBytes state pc byte0 byte1 byte2 byte3 platform base fetchBytes
   rcases platform with ⟨misaBits, mstatusBits, pcRead, misaRead, mstatusRead, privilegeRead,
-    pcLow0, pcLow1, alignedVaddr, alignedPaddr, pmpDisabled, pmaAllows⟩
-  have dispatch : Runs (dispatchInterrupt Privilege.Machine) state state none := by
-    unfold Runs
-    exact dispatchInterrupt_disabled state Privilege.Machine interrupts
-  have landingPad : Runs (is_landing_pad_expected ()) state state false :=
-    landingPad_notExpected state notExpected
+    pcLow0, pcLow1, alignedVaddr, alignedPaddr, pmaAllows⟩
   have nextPc : Runs (Sail.writeReg nextPC (Sail.BitVec.addInt pc 4)) state
       (coreControlFlowNextState state pc) PUnit.unit := by
     simpa [coreControlFlowNextState] using writeNextPc_run state pc
   exact runHartActiveBaseRetires stepNo state state (coreControlFlowNextState state pc) afterExec
-    Privilege.Machine (fetchWord byte0 byte1 byte2 byte3) inst pc privilegeRead dispatch fetch decode
-    landingPad pcRead nextPc execute
+    Privilege.Machine (fetchWord byte0 byte1 byte2 byte3) inst pc privilegeRead fetch decode
+    pcRead nextPc execute
 
 /-! ## `try_step` packaging -/
 
@@ -401,12 +399,14 @@ theorem tryStepControlFlowRetires (stepNo : Nat) (state afterExec : State)
   exact tryStepRetires stepNo state (tryStepControlFlowAfterIncrement state) afterExec
     (tryStepControlFlowAfterTick afterExec targetPC)
     (tryStepControlFlowAfterRetired afterExec targetPC retired) Privilege.Machine retired instbits
-    privilege shouldIncrement increment hartAfterIncrement active hartAfterActive tick
+    privilege shouldIncrement increment active hartAfterActive tick
     incrementAfterTick retiredAfterTick writeRetired
 
 /-! ### Taken conditional branch -/
 
 /--
+exec-spike repair: the `noMMIO`, `interrupts` and `notExpected` premises were removed.
+
 Lift a taken conditional `BTYPE` branch through the authoritative generated `try_step`.
 
 The decoded `.BTYPE (imm, rs2, rs1, op)`, the branch condition (`bTypeTaken … true`), the read of
@@ -420,14 +420,11 @@ theorem tryStepBranchTakenRetires (stepNo : Nat) (state : State)
     (inhibit : BitVec 32) (config : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
     (zcaEnabled : Bool)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
-    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
     (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.BTYPE (imm, rs2, rs1, op)))
-    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
     (hcond : Runs (bTypeTaken rs2 rs1 op)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) true)
@@ -461,7 +458,7 @@ theorem tryStepBranchTakenRetires (stepNo : Nat) (state : State)
   have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state)
     (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
       (pcVal + sign_extend (m := 64) imm)) pc byte0 byte1 byte2 byte3 (.BTYPE (imm, rs2, rs1, op))
-    platform noMMIO bytes interrupts base decode notExpected exec
+    platform bytes base decode exec
   have nextPcAfterExec :
       (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
         (pcVal + sign_extend (m := 64) imm)).regs.get? nextPC =
@@ -497,6 +494,8 @@ theorem tryStepBranchTakenRetires (stepNo : Nat) (state : State)
 /-! ### Not-taken conditional branch -/
 
 /--
+exec-spike repair: the `noMMIO`, `interrupts` and `notExpected` premises were removed.
+
 Lift a not-taken conditional `BTYPE` branch through the authoritative generated `try_step`.
 
 Identical bookkeeping to the store/XOR fall-through: the branch retires without touching `nextPC`
@@ -507,14 +506,11 @@ theorem tryStepBranchNotTakenRetires (stepNo : Nat) (state : State)
     (pc retired : BitVec 64) (imm : BitVec 13) (rs2 rs1 : regidx) (op : bop)
     (inhibit : BitVec 32) (config : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
-    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
     (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.BTYPE (imm, rs2, rs1, op)))
-    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
     (hcond : Runs (bTypeTaken rs2 rs1 op)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) false)
@@ -535,7 +531,7 @@ theorem tryStepBranchNotTakenRetires (stepNo : Nat) (state : State)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) imm rs2 rs1 op hcond
   have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) pc byte0 byte1 byte2 byte3
-    (.BTYPE (imm, rs2, rs1, op)) platform noMMIO bytes interrupts base decode notExpected exec
+    (.BTYPE (imm, rs2, rs1, op)) platform bytes base decode exec
   have nextPcAfterExec :
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get? nextPC =
         some (Sail.BitVec.addInt pc 4) := by
@@ -560,9 +556,11 @@ theorem tryStepBranchNotTakenRetires (stepNo : Nat) (state : State)
 /-! ### `ret` -/
 
 /--
+exec-spike repair: the `noMMIO`, `interrupts`, `notExpected` and `helpElp` premises were removed.
+
 Lift `ret` (`jalr x0, 0(rs1)`) through the authoritative generated `try_step`.
 
-The decoded `.JALR (0, rs1, x0)`, the ELP update, the link read, the `rs1` read, the target
+The decoded `.JALR (0, rs1, x0)`, the link read, the `rs1` read, the target
 alignment and the `Ext_Zca` read are explicit premises about the post-increment / post-`nextPC`
 state.  The final state has `nextPC = PC = rs1 with bit 0 cleared`, `minstret = retired+1`,
 `minstret_increment = true`, all other registers preserved (the `x0` link write is discarded).
@@ -572,17 +570,11 @@ theorem tryStepRetRetires (stepNo : Nat) (state : State)
     (inhibit : BitVec 32) (config : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
     (zcaEnabled : Bool)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
-    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
     (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JALR (0#12, rs1, zreg)))
-    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
-    (helpElp : Runs (update_elp_state rs1)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) ())
     (hlink : Runs (get_next_pc ())
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) linkVal)
@@ -611,11 +603,11 @@ theorem tryStepRetRetires (stepNo : Nat) (state : State)
     unfold controlFlowJumpState
     exact executeRetDispatchRuns
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) rs1 linkVal rs1Val
-      helpElp hlink hrs1 hbit1 zcaEnabled hzca
+      hlink hrs1 hbit1 zcaEnabled hzca
   have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state)
     (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
       (Sail.BitVec.update rs1Val 0 0#1)) pc byte0 byte1 byte2 byte3 (.JALR (0#12, rs1, zreg))
-    platform noMMIO bytes interrupts base decode notExpected exec
+    platform bytes base decode exec
   have nextPcAfterExec :
       (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
         (Sail.BitVec.update rs1Val 0 0#1)).regs.get? nextPC =

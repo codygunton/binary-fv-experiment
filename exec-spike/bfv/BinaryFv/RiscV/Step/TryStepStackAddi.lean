@@ -56,19 +56,19 @@ with a bare `grind`, rather than unfolding the step definitions to rediscover an
     (immediate : BitVec 12) (stackValue retired : BitVec 64) :
     (tryStepStackAddiAfterRetired state pc immediate stackValue retired).mem = state.mem := rfl
 
-/-- Lift an arbitrary generated `addi sp, sp, immediate` retirement through generated `try_step`. -/
+/-- exec-spike repair: the `interrupts` and `notExpected` premises were removed; `hartRead` is kept
+because the `try_step` postlude still reads `hart_state`.
+Lift an arbitrary generated `addi sp, sp, immediate` retirement through generated `try_step`. -/
 theorem tryStepStackAddiRetires (stepNo : Nat) (state : State) (pc : BitVec 64)
     (immediate : BitVec 12) (stackValue retired : BitVec 64) (inhibit : BitVec 32)
     (config : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
     (platform : FetchBasePlatform (tryStepStackAddiAfterIncrement state) pc)
-    (interrupts : InterruptDisabled (tryStepStackAddiAfterIncrement state))
     (base : BaseInstructionEncoding byte0)
     (fetchBytes : FetchBytesBaseContract (tryStepStackAddiAfterIncrement state) pc
       byte0 byte1 byte2 byte3)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepStackAddiAfterIncrement state) (tryStepStackAddiAfterIncrement state)
       (.ITYPE (immediate, stackPointer, stackPointer, .ADDI)))
-    (notExpected : LandingPadNotExpected (tryStepStackAddiAfterIncrement state))
     (stackRead : (stackAddiNextState (tryStepStackAddiAfterIncrement state) pc).regs.get? x2 =
       some stackValue)
     (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
@@ -80,10 +80,9 @@ theorem tryStepStackAddiRetires (stepNo : Nat) (state : State) (pc : BitVec 64)
     Runs (try_step stepNo false) state
       (tryStepStackAddiAfterRetired state pc immediate stackValue retired) false := by
   have active := runHartActiveStackAddiRetires stepNo (tryStepStackAddiAfterIncrement state) pc
-    immediate stackValue byte0 byte1 byte2 byte3 platform interrupts base fetchBytes decode
-    notExpected stackRead
+    immediate stackValue byte0 byte1 byte2 byte3 platform base fetchBytes decode stackRead
   rcases platform with ⟨misaBits, mstatusBits, pcRead, misaRead, mstatusRead, privilegeAfterInc,
-    pcLow0, pcLow1, alignedVaddr, alignedPaddr, pmpDisabled, pmaAllows⟩
+    pcLow0, pcLow1, alignedVaddr, alignedPaddr, pmaAllows⟩
   have privilege : state.regs.get? cur_privilege = some Privilege.Machine := by
     calc
       state.regs.get? cur_privilege =
@@ -202,7 +201,7 @@ theorem tryStepStackAddiRetires (stepNo : Nat) (state : State) (pc : BitVec 64)
     (tryStepStackAddiAfterTick state pc immediate stackValue)
     (tryStepStackAddiAfterRetired state pc immediate stackValue retired) Privilege.Machine retired
     (zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3)) privilege shouldIncrement increment
-    hartAfterIncrement active hartAfterActive tick incrementAfterTick retiredAfterTick writeRetired
+    active hartAfterActive tick incrementAfterTick retiredAfterTick writeRetired
 
 /-! ## Stack-pointer arithmetic for the generated `addi sp, sp, -delta` prologue -/
 

@@ -28,6 +28,8 @@ open Register
 /-! ## Fall-through: any retiring instruction that leaves `nextPC = pc + 4` -/
 
 /--
+exec-spike repair: the `noMMIO`, `interrupts` and `notExpected` premises were removed.
+
 Lift any fall-through instruction (one whose `execute` retires with `nextPC` still `pc + 4`) through
 the authoritative generated `try_step`.
 
@@ -44,13 +46,10 @@ theorem tryStepFallThroughRetires (stepNo : Nat) (state afterExec : State)
     (pc retired : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64)
     (byte0 byte1 byte2 byte3 : BitVec 8) (inst : instruction)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
-    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
     (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state) inst)
-    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
     (exec : Runs (execute inst)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) afterExec
       (.Retire_Success ()))
@@ -70,14 +69,15 @@ theorem tryStepFallThroughRetires (stepNo : Nat) (state afterExec : State)
     Runs (try_step stepNo false) state
       (tryStepControlFlowAfterRetired afterExec (Sail.BitVec.addInt pc 4) retired) false := by
   have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state) afterExec
-    pc byte0 byte1 byte2 byte3 inst platform noMMIO bytes interrupts base decode notExpected exec
+    pc byte0 byte1 byte2 byte3 inst platform bytes base decode exec
   rcases platform with ⟨_, _, _, _, _, privilegeAfterInc, _⟩
   exact tryStepGenericRetires stepNo state afterExec (Sail.BitVec.addInt pc 4) retired inhibit config
     (zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3)) privilegeAfterInc active
     nextPcAfterExec hartAgree incAgree retAgree hartRead inhibitRead configRead notInhibited
     machineEnabled retiredRead
 
-/-- A register-writing fall-through instruction has a fully determined post-execute state.  This
+/-- exec-spike repair: the `noMMIO`, `interrupts` and `notExpected` premises were removed.
+A register-writing fall-through instruction has a fully determined post-execute state.  This
 specialization derives the four bookkeeping premises of `tryStepFallThroughRetires` from the two
 register-map writes, leaving only the instruction's generated execute contract to establish. -/
 theorem tryStepFallThroughWriteRegRetires (stepNo : Nat) (state : State)
@@ -85,13 +85,10 @@ theorem tryStepFallThroughWriteRegRetires (stepNo : Nat) (state : State)
     (byte0 byte1 byte2 byte3 : BitVec 8) (inst : instruction) (rd : Register)
     (value : RegisterType rd)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
-    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
     (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state) inst)
-    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
     (exec : Runs (execute inst) (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
       { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
         regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert rd value }
@@ -114,8 +111,7 @@ theorem tryStepFallThroughWriteRegRetires (stepNo : Nat) (state : State)
   apply tryStepFallThroughRetires stepNo state
     { coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
       regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert rd value }
-    pc retired inhibit config byte0 byte1 byte2 byte3 inst platform noMMIO bytes interrupts base decode
-    notExpected exec
+    pc retired inhibit config byte0 byte1 byte2 byte3 inst platform bytes base decode exec
   · calc
       ({ coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc with
         regs := (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert rd value
@@ -193,6 +189,8 @@ theorem executeJDispatchRuns (s : State) (imm : BitVec 21) (pcVal linkVal : BitV
     (wX_bits_zero_run _ linkVal)
 
 /--
+exec-spike repair: the `noMMIO`, `interrupts` and `notExpected` premises were removed.
+
 Lift the unconditional back-edge `j (pc + sext imm)` (`JAL imm x0`) through the authoritative
 generated `try_step`.
 
@@ -205,14 +203,11 @@ theorem tryStepJRetires (stepNo : Nat) (state : State)
     (pc pcVal retired : BitVec 64) (imm : BitVec 21) (inhibit : BitVec 32) (config : BitVec 64)
     (byte0 byte1 byte2 byte3 : BitVec 8) (linkVal : BitVec 64) (zcaEnabled : Bool)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
-    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
     (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JAL (imm, zreg)))
-    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
     (hlink : Runs (get_next_pc ())
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) linkVal)
@@ -246,7 +241,7 @@ theorem tryStepJRetires (stepNo : Nat) (state : State)
   have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state)
     (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
       (pcVal + sign_extend (m := 64) imm)) pc byte0 byte1 byte2 byte3 (.JAL (imm, zreg))
-    platform noMMIO bytes interrupts base decode notExpected exec
+    platform bytes base decode exec
   have nextPcAfterExec :
       (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
         (pcVal + sign_extend (m := 64) imm)).regs.get? nextPC =

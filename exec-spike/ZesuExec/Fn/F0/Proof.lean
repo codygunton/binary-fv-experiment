@@ -30,7 +30,7 @@ theorem f0_spec : Spec zesuImage entry bound Pre Post := by
       simp [entryEnv, Env.size, shape] at hj
       simpa [Env.base, entryEnv, shape] using hpres j hj
   obtain ⟨l, hl, -, hr⟩ := run_sound run0 hwf hm hpc hro
-  simp at hl; subst hl
+  simp [run0_leaves] at hl; subst hl
   obtain ⟨m', hrun, hm', hex, hfr⟩ := hr (by simpa [Oblig.holds, Sym.eval, entryEnv] using hra)
   refine ⟨9, m', Nat.le_refl _, by simpa [S0, entryState] using hrun, ⟨?_, ?_⟩, ?_, ?_⟩
   · simpa [ExitOk, Sym.eval, BinOp.eval, entryEnv] using hex

@@ -17,15 +17,14 @@ open PreSail
 open LeanRV64DExecutable.Functions
 open Register
 
-/-- The generated fetch/decode platform bundle for the body instruction at `pc`, stated about the
+/-- exec-spike repair: the `FetchMemoryNoMMIO`, `InterruptDisabled` and `LandingPadNotExpected`
+conjuncts were removed.
+The generated fetch/decode platform bundle for the body instruction at `pc`, stated about the
 post-increment state `tryStepControlFlowAfterIncrement state` the generated `try_step` fetches from. -/
 def StepPlatform (state : State) (pc : BitVec 64) (b0 b1 b2 b3 : BitVec 8)
     (mseccfgBits : BitVec 64) : Prop :=
   FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc ∧
-  FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc ∧
   FetchBytesAt (tryStepControlFlowAfterIncrement state) pc b0 b1 b2 b3 ∧
-  InterruptDisabled (tryStepControlFlowAfterIncrement state) ∧
-  LandingPadNotExpected (tryStepControlFlowAfterIncrement state) ∧
   (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege = some Privilege.Machine ∧
   (tryStepControlFlowAfterIncrement state).regs.get? mseccfg = some mseccfgBits
 /-- The retirement-counter reads about the pre-step state (`minstret` present, `mcountinhibit` /
