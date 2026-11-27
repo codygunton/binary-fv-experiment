@@ -297,6 +297,135 @@ theorem f2_pre {σ : Sig} {m : Machine} (hc : Common σ m) {k : Nat} (hout : m.r
   · unfold Fn.Disjoint; simp only; rw [hin, hio, hsp16, hS592]; omega
   · unfold Fn.Disjoint; simp only; rw [hout, hS, hsp16, hS592]; omega
 
+/-! ## Cut points with a `Common` machine -/
+
+/-- The allocator object is as at the entry. -/
+theorem ao_same {σ : Sig} {m : Machine} (hc : Common σ m) {j : Nat} (hj : j < 16) :
+    m.mem (σ.ao + BitVec.ofNat 64 j) = σ.m.mem (σ.ao + BitVec.ofNat 64 j) := by
+  have hpre := hc.2.1
+  have hfr := hc.2.2.2.2.2.2.2.2.2.2.2.2.2
+  obtain ⟨hlo, hhi, h16, -, -, -⟩ := entry_nums hpre
+  have hS704 := sl_toNat hpre (k := stackBytes) (Nat.le_refl _)
+  obtain ⟨-, -, -, -, -, -, hao, -, -, -, -, -, -, -, -, -, -, -, -, -, d1, -, d3, -, -, -, -, d8, -,
+    -, -, d12, -, -, -, hP⟩ := hpre
+  have hr : InRange σ.ao 16 (σ.ao + BitVec.ofNat 64 j) := by
+    unfold RamRange Layout.ramHi at hao
+    simp only [InRange]; rw [toNat_add_ofNat (by simp [Sig.ao]; omega)]; omega
+  refine hfr _ fun h => ?_
+  rcases h with h | h
+  · have d8' : (σ.sl stackBytes).toNat + stackBytes ≤ σ.ao.toNat ∨
+        σ.ao.toNat + 16 ≤ (σ.sl stackBytes).toNat := d8
+    rw [hS704] at d8'
+    unfold Apart at d1 d3 d12
+    unfold Owned InRange at h; unfold InRange at hr
+    rw [hS704] at h
+    unfold stackBytes at d8' h
+    simp only [Sig.res, Sig.ao, Sig.rest, scratch, BitVec.toNat_ofNat, Layout.extraParams] at h hr d1 d3 d12 d8' ⊢
+    unfold Layout.ramLo Layout.ramHi at *
+    omega
+  · exact hP _ (.inr (.inl hr)) h
+
+theorem common_vtable {σ : Sig} {m : Machine} (hc : Common σ m) :
+    m.load (σ.ao + 8) 8 = some (w vtable) := by
+  rw [load_congr (m := σ.m) fun t ht => by
+    rw [show σ.ao + 8 + BitVec.ofNat 64 t = σ.ao + BitVec.ofNat 64 (8 + t) by bv_omega]
+    exact ao_same hc (by omega)]
+  exact hc.2.1.2.2.2.2.2.2.2.2.2.1
+
+/-- Every base region's bytes are present at a `Common` machine. -/
+theorem common_present {σ : Sig} {m : Machine} (hc : Common σ m) (r j : Nat) (hr : r < 5)
+    (hj : j < (envB σ m).size r) :
+    (m.mem ((envB σ m).base r + BitVec.ofNat 64 j)).isSome := by
+  have hpre := hc.2.1
+  simp only [envB, entryEnv, Env.size, Env.base, shapeOf] at hj ⊢
+  obtain rfl | rfl | rfl | rfl | rfl : r = 0 ∨ r = 1 ∨ r = 2 ∨ r = 3 ∨ r = 4 := by omega
+  all_goals simp at hj ⊢
+  · have := stack_present' hc (k := frameBytes) (j := j) hj (by decide)
+    exact this
+  · exact hc.2.2.2.2.2.2.2.2.2.2.1 j hj
+  · exact hc.2.2.2.2.2.2.2.2.2.2.2.1 j hj
+  · rw [ao_same hc hj]
+    exact pre_present hpre 3 j (by decide) (by simpa [envB, entryEnv, Env.size, shapeOf] using hj)
+  · exact input_present hc hj
+
+theorem common_known_vtable {σ : Sig} {m : Machine} (hc : Common σ m) :
+    ∀ t < 8, (envB σ m).byte0 3 (8 + t) = byteOf ((Sym.lit vtable).eval (envB σ m)) t := by
+  intro t ht
+  have := load_bytes (common_vtable hc) (Nat.le_refl _) t ht
+  simp only [Env.byte0, envB, entryEnv, shapeOf, Sym.eval, List.getD_cons_succ,
+    List.getD_cons_zero]
+  rw [← F1.add_add_ofNat, show BitVec.ofNat 64 8 = (8 : Word) from rfl, this]; rfl
+
+theorem ovBody_ok {σ : Sig} {m : Machine} (hc : Common σ m) :
+    ∀ i : Fin 32, i.val ≠ 0 → ∀ s, ovBody i.val = some s → s.eval (envB σ m) = m.reg i := by
+  obtain ⟨-, -, -, r2, r8, r9, r18, -⟩ := hc
+  intro i hi s hs
+  simp only [ovBody] at hs
+  repeat' split at hs
+  all_goals (try cases hs)
+  all_goals
+    rename_i h
+    obtain ⟨iv, hiv⟩ := i
+    simp only at h; subst h
+    simp [Sym.eval, Env.base, envB, entryEnv, shapeOf, Sig.sl, w, frameBytes, r2, r8, r9, r18,
+      BitVec.sub_add_cancel]
+
+/-- A cut whose state is `entryState ov baseRegions ks` with `envB`: the assertion's `Common`
+and the register and `known` facts give `CutOK`'s conclusion. -/
+theorem body_ok {σ : Sig} {m : Machine} (hc : Common σ m) {ov : Nat → Option Sym}
+    {ks : List Write}
+    (hov : ∀ i : Fin 32, i.val ≠ 0 → ∀ s, ov i.val = some s → s.eval (envB σ m) = m.reg i)
+    (hks : ∀ k ∈ ks, ∀ t < k.n, (envB σ m).byte0 k.r (k.off + t) = byteOf (k.v.eval (envB σ m)) t) :
+    Env.WF (envB σ m) (entryState ov baseRegions ks) ∧
+      Match (envB σ m) (entryState ov baseRegions ks) m ∧ RodataLoaded zesuImage m :=
+  ⟨pre_wf hc.2.1 m ov ks,
+   Fn.entry_match hov (fun r j hr hj => common_present hc r j (by simpa [baseRegions] using hr) hj)
+     hks, hc.2.2.1⟩
+
+/-- `Common` survives a call whose frame (`R`) is TX's own or the allocator's memory and avoids
+the save area. -/
+theorem common_ret {σ : Sig} {mc m : Machine} (hc : Common σ mc) (hret : Returns mc m)
+    (hp : Preserved mc m) {R : Word → Prop} (hso : SameOutside R mc m)
+    (hR : ∀ a, R a → (Owned σ a ∨ σ.A.Priv σ.g.L a) ∧ ¬ InRange (σ.sl 104) 104 a) :
+    Common σ m := by
+  obtain ⟨hpc, hpre, hro, r2, r8, r9, r18, r19, hsv, hst, hres, hrest, hscr, hfr⟩ := hc
+  have hS := entry_nums hpre
+  have hs : ∀ i ∈ calleeSaved, m.reg i = mc.reg i := hret.2
+  refine ⟨hpc, hpre, RodataLoaded.preserved hro hp fun _ _ hb => F1.zesu_rodata_low hb,
+    (hs 2 (by decide)).trans r2, (hs 8 (by decide)).trans r8, (hs 9 (by decide)).trans r9,
+    (hs 18 (by decide)).trans r18, (hs 19 (by decide)).trans r19, fun k hk => ?_,
+    Present.of_preserved hst hp, Present.of_preserved hres hp, Present.of_preserved hrest hp,
+    Present.of_preserved hscr hp,
+    frame_trans hfr hso fun a h => (hR a h).1⟩
+  rw [load_congr fun t ht => hso _ fun h => (hR _ h).2 ?_]
+  · exact hsv k hk
+  · have h1 := sl_toNat hpre (k := 104) (by decide)
+    have h2 := sl_toNat hpre (k := 8 * (k + 1)) (by unfold stackBytes; omega)
+    simp only [InRange, h1]
+    rw [toNat_add_ofNat (by rw [h2]; omega), h2]
+    omega
+
+/-- After a `decodeItem` call with its outcome in the frame slot `S - k`. -/
+theorem common_f2 {σ : Sig} {mc m : Machine} (hc : Common σ mc) {k : Nat}
+    (hout : mc.reg 10 = σ.sl k) (hk : 144 ≤ k) (hk' : k ≤ frameBytes) (hpost : F2.Post mc m)
+    (hp : Preserved mc m) : Common σ m := by
+  have hpre := hc.2.1
+  have r2 : mc.reg 2 = σ.sl 576 := hc.2.2.2.1
+  refine common_ret hc hpost.1 hp hpost.2.1 fun a h => ?_
+  have h1 : Layout.ramLo + 704 ≤ σ.S.toNat := (entry_nums hpre).1
+  have h104 := sl_toNat hpre (k := 104) (by decide)
+  have hk2 := sl_toNat hpre (k := k) (by unfold frameBytes stackBytes at *; omega)
+  have h592 := sl_toNat hpre (k := 592) (by decide)
+  have h704 := sl_toNat hpre (k := stackBytes) (Nat.le_refl _)
+  have hsp16 : mc.reg 2 - 16 = σ.sl 592 := by rw [r2]; simp only [Sig.sl, w]; bv_omega
+  rw [hout, hsp16] at h
+  clear hpost hc hp hout r2 hsp16
+  unfold Layout.ramLo at h1
+  unfold frameBytes at hk'
+  simp only [Owned, InRange, h104, h704, hk2, h592] at h ⊢
+  unfold stackBytes at h704 ⊢
+  omega
+
 theorem TX.leaf_80000000_0 :
     LeafGoal TX.plan TX.plan.cuts[0]! ((TX.plan.leaves 0x80000000)[0]!) := by
   show LeafGoal TX.plan cutEntry (runEntry_leaves[0]!)
@@ -392,5 +521,156 @@ theorem TX.leaf_80000000_0 :
   · simp [f2C, famCallee, cut068, cutEntry, mkCut, bEntry, SEntry, entryState, runEntry_leaves,
       F2.bound]
     omega
+
+theorem ovRest_ok {σ : Sig} {m : Machine} (hc : Common σ m) (h22 : m.reg 22 = σ.rest) :
+    ∀ i : Fin 32, i.val ≠ 0 → ∀ s, ovRest i.val = some s → s.eval (envB σ m) = m.reg i := by
+  intro i hi s hs
+  by_cases h : i.val = 22
+  · simp only [ovRest, h, if_true, Option.some.injEq] at hs; subst hs
+    obtain ⟨iv, hiv⟩ := i; simp only at h; subst h
+    simp [Sym.eval, Env.base, envB, entryEnv, shapeOf, h22]
+  · simp only [ovRest, h, if_false] at hs
+    exact ovBody_ok hc i hi s hs
+
+/-- The return address of a call whose `ra` was `ret`. -/
+theorem ret_pc {mc m : Machine} {ret : Nat} (hret : Returns mc m) (hra : mc.reg 1 = w ret)
+    (h : (w ret &&& ~~~(1 : Word)).toNat = ret) : m.pc.toNat = ret := by
+  rw [hret.1, hra, h]
+
+/-- Argument `t` of a call. -/
+theorem Args.arg {m : Machine} {ret : Nat} {as : List Word} (h : Args m ret as) (t : Nat)
+    (ht : t < as.length) : m.reg (Fin.ofNat 32 (10 + t)) = as.getD t 0 := h.2 t ht
+
+theorem TX.cut_80000068 : CutOK TX.plan TX.plan.cuts[1]! := by
+  show CutOK TX.plan cut068
+  rintro σ m ⟨mc, hs, ⟨_, -, hpost⟩, hp⟩
+  have hout : mc.reg 10 = σ.sl 0x1e8 := hs.2.2.2.2.2.2.2.arg 0 (by simp)
+  have hc := common_f2 hs.1 hout (by decide) (by decide) hpost hp
+  have h22 : m.reg 22 = σ.rest := (hpost.1.2 22 (by decide)).trans hs.2.2.2.2.1
+  obtain ⟨hwf, hm, hro⟩ := body_ok hc (ovRest_ok hc h22) (ks := [vtableKnown]) (by
+    intro k hk t ht; simp only [List.mem_singleton] at hk; subst hk
+    exact common_known_vtable hc t ht)
+  exact ⟨hwf, hm, hro, ret_pc hpost.1 hs.2.2.2.2.2.2.2.1 (by decide)⟩
+
+/-- A frame word is loadable. -/
+theorem frame_load {σ : Sig} {m : Machine} (hc : Common σ m) {k : Nat} (hk : 8 ≤ k)
+    (hk' : k ≤ frameBytes) : m.load (σ.sl k) 8 = some (wordAt m (σ.sl k)) := by
+  apply wordAt_of_load
+  have hpre := hc.2.1
+  have h1 : Layout.ramLo + 704 ≤ σ.S.toNat ∧ σ.S.toNat ≤ Layout.ramHi :=
+    ⟨(entry_nums hpre).1, (entry_nums hpre).2.1⟩
+  have hk2 := sl_toNat hpre (k := k) (by unfold frameBytes stackBytes at *; omega)
+  unfold Machine.load
+  have hr : Machine.readable (σ.sl k).toNat 8 = true := by
+    rw [hk2]; unfold frameBytes at hk'
+    simp [Machine.readable, Machine.inRange, Layout.ramLo, Layout.ramHi] at h1 ⊢; omega
+  rw [if_pos hr]
+  cases hb : readBytes m.mem (σ.sl k).toNat 8 with
+  | some _ => rfl
+  | none =>
+    exfalso
+    have : ∀ t < 8, (m.mem (BitVec.ofNat 64 ((σ.sl k).toNat + t))).isSome := fun t ht => by
+      rw [ofNat_toNat_add]
+      exact stack_present' hc (k := k) (j := t) (by omega) (by unfold frameBytes stackBytes at *; omega)
+    exact absurd hb (by
+      clear hb
+      have h8 : ∀ (a n : Nat), (∀ t < n, (m.mem (BitVec.ofNat 64 (a + t))).isSome) →
+          readBytes m.mem a n ≠ none := by
+        intro a n; induction n generalizing a with
+        | zero => intro _; simp [readBytes]
+        | succ n ih =>
+          intro h
+          obtain ⟨b, hb⟩ := Option.isSome_iff_exists.mp (h 0 (by omega))
+          have := ih (a + 1) fun t ht => by rw [Nat.add_assoc, Nat.add_comm 1 t]; exact h (t + 1) (by omega)
+          simp only [readBytes, Nat.add_zero] at hb ⊢
+          rw [hb]
+          cases h' : readBytes m.mem (a + 1) n with
+          | none => exact absurd h' this
+          | some _ => simp
+      exact h8 _ _ this)
+
+theorem payload_known {σ : Sig} {m : Machine} (hc : Common σ m) {k : Nat} (hk : 8 ≤ k)
+    (hk' : k ≤ frameBytes) :
+    ∀ t < 8, (envP k σ m).byte0 0 (fo k + t) =
+      byteOf ((Sym.bin .add (.ptr 4 0) (.var 40)).eval (envP k σ m)) t := by
+  intro t ht
+  have := load_bytes (frame_load hc hk hk') (Nat.le_refl _) t ht
+  have ha : ((shapeOf σ).getD 0 (0, 0)).fst + BitVec.ofNat 64 (fo k + t) =
+      σ.sl k + BitVec.ofNat 64 t := by
+    simp only [shapeOf, List.getD_cons_zero, fo, Sig.sl, w]
+    unfold frameBytes at hk' ⊢; bv_omega
+  simp only [Env.byte0, envP, Env.setVars, envB, entryEnv]
+  rw [ha, this]
+  simp only [Sym.eval, BinOp.eval, Env.base, shapeOf, List.getD_cons_succ, List.getD_cons_zero]
+  rw [BitVec.ofInt_ofNat, BitVec.add_zero, BitVec.add_comm, if_pos (Nat.le_refl _),
+    BitVec.sub_add_cancel]; rfl
+
+/-- `CutOK`'s conclusion at a cut with the payload fact at `S - k` (`0x8000010c`, `0x800001a0`). -/
+theorem payload_ok {σ : Sig} {m : Machine} (hc : Common σ m) {k : Nat} (hk : 8 ≤ k)
+    (hk' : k ≤ frameBytes) :
+    Env.WF (envP k σ m) (entryState ovBody baseRegions [vtableKnown, payloadKnown k]) ∧
+      Match (envP k σ m) (entryState ovBody baseRegions [vtableKnown, payloadKnown k]) m ∧
+      RodataLoaded zesuImage m := by
+  obtain ⟨hwf, hm, hro⟩ := body_ok hc (ovBody_ok hc) (ks := []) (by simp)
+  have hext : Env.Ext (envB σ m) (envP k σ m) 40 5 :=
+    ⟨fun i hi => by simp [envP, Env.setVars, Nat.not_le.mpr hi], fun _ _ => rfl, fun _ _ => rfl,
+      fun _ _ _ => rfl⟩
+  have hm' := hm.ext (K := 40) (by decide) hext
+  have hwf' := pre_wf hc.2.1 m ovBody [vtableKnown, payloadKnown k]
+  refine ⟨⟨hwf'.len, hwf'.disjoint, hwf'.size, hwf'.align, hwf'.range⟩, ⟨hm'.regsLen, hm'.regs, hm'.mem, fun w hw t ht => ?_⟩, hro⟩
+  simp only [entryState, List.mem_cons, List.not_mem_nil, or_false] at hw
+  rcases hw with rfl | rfl
+  · exact common_known_vtable hc t ht
+  · exact payload_known hc hk hk' t ht
+
+/-- After a `decodeItem` call from a `Common` machine with its outcome at `S - k`. -/
+theorem f2_ret {σ : Sig} {mc m : Machine} (hc : Common σ mc) {ret k : Nat} {as : List Word}
+    (ha : Args mc ret (σ.sl k :: as)) (hk : 144 ≤ k) (hk' : k ≤ frameBytes)
+    (hr : (w ret &&& ~~~(1 : Word)).toNat = ret) (hpost : f2C.Post σ mc m) :
+    Common σ m ∧ m.pc.toNat = ret := by
+  obtain ⟨⟨_, -, hP⟩, hp⟩ := hpost
+  exact ⟨common_f2 hc (ha.arg 0 (by simp)) hk hk' hP hp, ret_pc hP.1 ha.1 hr⟩
+
+theorem body_cut {σ : Sig} {m : Machine} (hc : Common σ m) :
+    Env.WF (envB σ m) SBody ∧ Match (envB σ m) SBody m ∧ RodataLoaded zesuImage m :=
+  body_ok hc (ovBody_ok hc) (ks := [vtableKnown]) (by
+    intro k hk t ht; simp only [List.mem_singleton] at hk; subst hk
+    exact common_known_vtable hc t ht)
+
+theorem TX.cut_800000d8 : CutOK TX.plan TX.plan.cuts[3]! := by
+  show CutOK TX.plan cut0d8
+  rintro σ m ⟨mc, ⟨o, L, hs, ha⟩, hpost⟩
+  obtain ⟨hc, hpc⟩ := f2_ret hs.1 ha (by decide) (by decide) (by decide) hpost
+  exact ⟨(body_cut hc).1, (body_cut hc).2.1, (body_cut hc).2.2, hpc⟩
+
+theorem TX.cut_8000010c : CutOK TX.plan TX.plan.cuts[4]! := by
+  show CutOK TX.plan cut10c
+  rintro σ m ⟨mc, ⟨o, k, L, hs, -, -, ha⟩, hpost⟩
+  obtain ⟨hc, hpc⟩ := f2_ret hs.1.1 ha (by decide) (by decide) (by decide) hpost
+  obtain ⟨h1, h2, h3⟩ := payload_ok hc (k := 0x180) (by decide) (by decide)
+  exact ⟨h1, h2, h3, hpc⟩
+
+theorem TX.cut_8000015c : CutOK TX.plan TX.plan.cuts[5]! := by
+  show CutOK TX.plan cut15c
+  rintro σ m ⟨mc, ⟨o, k, L, hs, -, ha⟩, hpost⟩
+  obtain ⟨hc, hpc⟩ := f2_ret hs.1.1 ha (by decide) (by decide) (by decide) hpost
+  exact ⟨(body_cut hc).1, (body_cut hc).2.1, (body_cut hc).2.2, hpc⟩
+
+theorem TX.cut_800001a0 : CutOK TX.plan TX.plan.cuts[7]! := by
+  show CutOK TX.plan cut1a0
+  rintro σ m ⟨mc, ⟨o, k, L, hs, -, -, -, ha⟩, hpost⟩
+  obtain ⟨hc, hpc⟩ := f2_ret hs.1 ha (by decide) (by decide) (by decide) hpost
+  obtain ⟨h1, h2, h3⟩ := payload_ok hc (k := 0x100) (by decide) (by decide)
+  exact ⟨h1, h2, h3, hpc⟩
+
+theorem TX.cut_800000c4 : CutOK TX.plan TX.plan.cuts[2]! := by
+  show CutOK TX.plan cut0c4
+  rintro σ m ⟨hpc, o, L, hs⟩
+  exact ⟨(body_cut hs.1).1, (body_cut hs.1).2.1, (body_cut hs.1).2.2, hpc⟩
+
+theorem TX.cut_8000018c : CutOK TX.plan TX.plan.cuts[6]! := by
+  show CutOK TX.plan cut18c
+  rintro σ m ⟨hpc, o, k, L, hs, -⟩
+  exact ⟨(body_cut hs.1).1, (body_cut hs.1).2.1, (body_cut hs.1).2.2, hpc⟩
 
 end ZesuExec.Fn.TX
