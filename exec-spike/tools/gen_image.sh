@@ -6,4 +6,4 @@ cd "$(dirname "$0")/.." && exec python3 tools/gen_image.py --elf /home/cody/zesi
     rlp_decode.nextUint64 'array_list.Aligned([32]u8,null).toOwnedSlice' \
     'array_list.Aligned(input.AccessListEntry,null).toOwnedSlice' rlp_decode.decodeParentHeader \
     alt_fl_alloc.alloc alt_fl_alloc.free memcpy \
-  --rodata 0x801136d8:32 --out ZesuExec/Image/Gen.lean
+  --rodata 0x801136d8:32 0x80114fb8:80 0x801152b0:16 --out ZesuExec/Image/Gen.lean

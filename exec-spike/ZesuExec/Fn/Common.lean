@@ -158,3 +158,19 @@ theorem inWritable_entry {m : Machine} {ov : Nat → Option Sym} {ks : List Writ
   omega
 
 end ZesuExec.Fn
+
+namespace ZesuExec.Fn
+
+/-- Every rodata byte of the image lies in `[Layout.rodataLo, Layout.rodataHi)`. -/
+theorem zesu_rodata_range {a b : Nat} (h : zesuImage.rodataByte? a = some b) :
+    Layout.rodataLo ≤ a ∧ a < Layout.rodataHi := by
+  obtain ⟨s, hs, hb⟩ := List.exists_of_findSome?_eq_some h
+  have hseg : ∀ s ∈ zesuImage.rodata, Layout.rodataLo ≤ s.base ∧ s.base + s.bytes.length ≤ Layout.rodataHi := by
+    decide +kernel
+  obtain ⟨h1, h2⟩ := hseg s hs
+  unfold RoSeg.byte? at hb
+  split at hb
+  · have := (List.getElem?_eq_some_iff.mp hb).1; omega
+  · simp at hb
+
+end ZesuExec.Fn

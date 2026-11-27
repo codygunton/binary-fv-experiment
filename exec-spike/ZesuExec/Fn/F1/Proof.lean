@@ -313,8 +313,7 @@ def Allowed (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m : Machi
       InRange (wordAt m (m.reg 10)) ((wordAt m (m.reg 10 + 16)).toNat * elemBytes) a)
 
 theorem zesu_rodata_low {a b : Nat} (h : zesuImage.rodataByte? a = some b) : a < Layout.ramLo := by
-  simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?] at h
-  have := (List.getElem?_eq_some_iff.mp h.2).1; simp at this; unfold Layout.ramLo; omega
+  have := zesu_rodata_range h; unfold Layout.rodataHi at this; unfold Layout.ramLo; omega
 
 /-- What holds of every machine along F1's run: changes stay in `Allowed`, bytes survive. -/
 def Inv (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m mk : Machine) : Prop :=

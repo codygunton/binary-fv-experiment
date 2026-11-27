@@ -69,9 +69,19 @@ def rodata_801136d8 : RoSeg where
   bytes :=
     [148, 36, 4, 128, 0, 0, 0, 0, 176, 33, 4, 128, 0, 0, 0, 0, 140, 33, 4, 128, 0, 0, 0, 0, 56, 31, 4, 128, 0, 0, 0, 0]
 
+def rodata_80114fb8 : RoSeg where
+  base := 0x80114fb8
+  bytes :=
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0]
+
+def rodata_801152b0 : RoSeg where
+  base := 0x801152b0
+  bytes :=
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
 end ZesuExec.Gen
 
 open ZesuExec.Gen in
 def ZesuExec.zesuImage : ZesuExec.Image where
   text := [F0, F1, F2, F3, F4, F5, F6, alloc, free, memcpy]
-  rodata := [rodata_801136d8]
+  rodata := [rodata_801136d8, rodata_80114fb8, rodata_801152b0]

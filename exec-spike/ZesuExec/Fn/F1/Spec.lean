@@ -180,16 +180,16 @@ theorem pre_nonvacuous (A : AllocAssumptions zesuImage) (m0 : Machine) (h0 : A.H
     fun h => absurd h (by decide), ?_⟩
   · intro a b h
     have ha : a < 2 ^ 64 := by
-      simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?] at h
-      have := (List.getElem?_eq_some_iff.mp h.2).1
-      simp at this; omega
+      have := zesu_rodata_range h; unfold Layout.rodataHi at this; omega
     simp [nvMachine, Nat.mod_eq_of_lt ha, h]
   · rw [r2]; exact nv_present m0 _ 128 (by decide)
   · exact nv_present m0 _ 8 (by decide)
   · refine A.heap_frame [] m0 _ h0 fun a ha => ?_
     obtain ⟨h1, h2⟩ := hP a ha
     have hro : zesuImage.rodataByte? a.toNat = none := by
-      simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?]; intro; omega
+      cases hq : zesuImage.rodataByte? a.toNat with
+      | none => rfl
+      | some b => have := zesu_rodata_range hq; unfold Layout.rodataHi at this; omega
     have hnv : nvByte a.toNat = none := by
       simp only [Layout.extraParams] at h2
       simp only [nvByte, Layout.extraParams]

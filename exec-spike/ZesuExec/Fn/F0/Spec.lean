@@ -8,7 +8,7 @@ The allocator's `remap` always refuses: it returns null in `a0`. It saves and re
 -/
 
 namespace ZesuExec.Fn.F0
-open ZesuExec
+open ZesuExec ZesuExec.Fn
 
 def entry : Nat := 0x8004218c
 def bound : Nat := 9
@@ -31,9 +31,7 @@ def witness : Machine where
 theorem witness_rodata : RodataLoaded zesuImage witness := by
   intro a b h
   have ha : a < 2 ^ 64 := by
-    simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?] at h
-    have := (List.getElem?_eq_some_iff.mp h.2).1
-    simp at this; omega
+    have := zesu_rodata_range h; unfold Layout.rodataHi at this; omega
   simp [witness, Nat.mod_eq_of_lt ha, h]
 
 example : ∃ m, Pre m := by
@@ -45,8 +43,9 @@ example : ∃ m, Pre m := by
       0xa0000ff0 + j := by
     simp [BitVec.toNat_add]; omega
   have hro : zesuImage.rodataByte? (0xa0000ff0 + j) = none := by
-    simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?]
-    intro _; omega
+    cases hq : zesuImage.rodataByte? (0xa0000ff0 + j) with
+    | none => rfl
+    | some b => have := zesu_rodata_range hq; unfold Layout.rodataHi at this; omega
   rw [hr]
   simp only [witness]
   rw [ha, hro]
