@@ -1,11 +1,12 @@
-import ZesuExec.Sail.Forms.Mem
+import ZesuExec.Sail.Forms.Misaligned
 
 /-!
 # Simulation of the stores
 
-`sd sw sh sb`: `Machine.store` succeeds only for a naturally aligned range inside RAM whose bytes
-are all present; the profile's RAM region admits the write, the generated store writes the low
-bytes of `rs2` little-endian, and `sim_store_of_exec` relates the two memories.
+`sd sw sh sb`: `Machine.store` succeeds for a range inside RAM whose bytes are all present, at any
+alignment; the profile's RAM region admits the write, the generated store writes the low bytes of
+`rs2` little-endian (a misaligned store piece by piece, `execute_STORE_misaligned_run`), and
+`sim_store_of_exec` / `sim_store_of_exec'` relate the two memories.
 -/
 
 namespace ZesuExec.SailLink
@@ -29,7 +30,7 @@ theorem sim_sd {rs1 rs2 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   unfold Machine.store at hst
   split at hst
   · rename_i hc
-    obtain ⟨hal, hwr, _⟩ := hc
+    obtain ⟨hwr, _⟩ := hc
     cases hst
     obtain ⟨mst, hmst, hmprv⟩ := hR.conf.mstatus
     obtain ⟨sec, hsec, hpmm⟩ := hR.conf.mseccfg
@@ -45,13 +46,17 @@ theorem sim_sd {rs1 rs2 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
         (Store Data) 8) st st (.Ext_DataAddr_OK (virtaddr.Virtaddr (m.reg rs1 + Machine.sx imm))) :=
       get_transformed_data_addr_machine_data_run .store st (rg rs1) 8 (m.reg rs1)
         (sign_extend (m := 64) imm) mst sec (rX_rg_run hag rs1) hmst' hpriv hmprv hsec' hpmm
-    have hal' := aligned_of_mod hal
-    have physAccess := phys_access_check_machine_store_allowed st _ 8 (storePma hpma hwr) hal'.2
-    refine sim_store_of_exec hR hw hd hpc (data := (m.reg rs2 : BitVec (8 * 8))) hwr
-      (fun j _ => rfl) ?_ n
-    change Runs (execute_STORE imm (rg rs2) (rg rs1) 8) _ _ _
-    exact execute_STORE_dword_run st _ (rg rs2) (rg rs1) imm _ mst (m.reg rs2) hmst' hpriv hmprv
-      (rX_rg_run hag rs2) addrReg hal'.1 physAccess (writeBytes_run_exact st _ _)
+    by_cases hal : (m.reg rs1 + Machine.sx imm).toNat % 8 = 0
+    · have hal' := aligned_of_mod hal
+      have physAccess := phys_access_check_machine_store_allowed st _ 8 (storePma hpma hwr) hal'.2
+      refine sim_store_of_exec hR hw hd hpc (data := (m.reg rs2 : BitVec (8 * 8))) hwr
+        (fun j _ => rfl) ?_ n
+      change Runs (execute_STORE imm (rg rs2) (rg rs1) 8) _ _ _
+      exact execute_STORE_dword_run st _ (rg rs2) (rg rs1) imm _ mst (m.reg rs2) hmst' hpriv hmprv
+        (rX_rg_run hag rs2) addrReg hal'.1 physAccess (writeBytes_run_exact st _ _)
+    · obtain ⟨st', hrun, hregs, hmem⟩ := execute_STORE_misaligned_run st (rg rs2) (rg rs1) imm 3
+        (by decide) _ mst (m.reg rs2) hmst' hpriv hmprv hpma (rX_rg_run hag rs2) addrReg hal hwr
+      exact sim_store_of_exec' hR hw hd hpc hwr hregs hmem hrun n
   · cases hst
 
 theorem sim_sw {rs1 rs2 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
@@ -65,7 +70,7 @@ theorem sim_sw {rs1 rs2 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   unfold Machine.store at hst
   split at hst
   · rename_i hc
-    obtain ⟨hal, hwr, _⟩ := hc
+    obtain ⟨hwr, _⟩ := hc
     cases hst
     obtain ⟨mst, hmst, hmprv⟩ := hR.conf.mstatus
     obtain ⟨sec, hsec, hpmm⟩ := hR.conf.mseccfg
@@ -81,17 +86,21 @@ theorem sim_sw {rs1 rs2 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
         (Store Data) 4) st st (.Ext_DataAddr_OK (virtaddr.Virtaddr (m.reg rs1 + Machine.sx imm))) :=
       get_transformed_data_addr_machine_data_run .store st (rg rs1) 4 (m.reg rs1)
         (sign_extend (m := 64) imm) mst sec (rX_rg_run hag rs1) hmst' hpriv hmprv hsec' hpmm
-    have hal' := aligned_of_mod hal
-    have physAccess := phys_access_check_machine_store_allowed st _ 4 (storePma hpma hwr) hal'.2
-    refine sim_store_of_exec hR hw hd hpc (data := (Sail.BitVec.extractLsb (m.reg rs2) 31 0 : BitVec (8 * 4))) hwr
-      (fun j hj => by
-        apply BitVec.eq_of_toNat_eq
-        simp only [Sail.BitVec.extractLsb, BitVec.extractLsb'_toNat, Nat.shiftRight_eq_div_pow]
-        have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by omega
-        rcases this with rfl|rfl|rfl|rfl <;> simp <;> omega) ?_ n
-    change Runs (execute_STORE imm (rg rs2) (rg rs1) 4) _ _ _
-    exact execute_STORE_word_aligned_run st _ (rg rs2) (rg rs1) imm _ mst (m.reg rs2) hmst' hpriv hmprv
-      (rX_rg_run hag rs2) addrReg hal'.1 physAccess (writeBytes_run_exact st _ _)
+    by_cases hal : (m.reg rs1 + Machine.sx imm).toNat % 4 = 0
+    · have hal' := aligned_of_mod hal
+      have physAccess := phys_access_check_machine_store_allowed st _ 4 (storePma hpma hwr) hal'.2
+      refine sim_store_of_exec hR hw hd hpc (data := (Sail.BitVec.extractLsb (m.reg rs2) 31 0 : BitVec (8 * 4))) hwr
+        (fun j hj => by
+          apply BitVec.eq_of_toNat_eq
+          simp only [Sail.BitVec.extractLsb, BitVec.extractLsb'_toNat, Nat.shiftRight_eq_div_pow]
+          have : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by omega
+          rcases this with rfl|rfl|rfl|rfl <;> simp <;> omega) ?_ n
+      change Runs (execute_STORE imm (rg rs2) (rg rs1) 4) _ _ _
+      exact execute_STORE_word_aligned_run st _ (rg rs2) (rg rs1) imm _ mst (m.reg rs2) hmst' hpriv hmprv
+        (rX_rg_run hag rs2) addrReg hal'.1 physAccess (writeBytes_run_exact st _ _)
+    · obtain ⟨st', hrun, hregs, hmem⟩ := execute_STORE_misaligned_run st (rg rs2) (rg rs1) imm 2
+        (by decide) _ mst (m.reg rs2) hmst' hpriv hmprv hpma (rX_rg_run hag rs2) addrReg hal hwr
+      exact sim_store_of_exec' hR hw hd hpc hwr hregs hmem hrun n
   · cases hst
 
 theorem sim_sh {rs1 rs2 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
@@ -105,7 +114,7 @@ theorem sim_sh {rs1 rs2 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   unfold Machine.store at hst
   split at hst
   · rename_i hc
-    obtain ⟨hal, hwr, _⟩ := hc
+    obtain ⟨hwr, _⟩ := hc
     cases hst
     obtain ⟨mst, hmst, hmprv⟩ := hR.conf.mstatus
     obtain ⟨sec, hsec, hpmm⟩ := hR.conf.mseccfg
@@ -121,17 +130,21 @@ theorem sim_sh {rs1 rs2 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
         (Store Data) 2) st st (.Ext_DataAddr_OK (virtaddr.Virtaddr (m.reg rs1 + Machine.sx imm))) :=
       get_transformed_data_addr_machine_data_run .store st (rg rs1) 2 (m.reg rs1)
         (sign_extend (m := 64) imm) mst sec (rX_rg_run hag rs1) hmst' hpriv hmprv hsec' hpmm
-    have hal' := aligned_of_mod hal
-    have physAccess := phys_access_check_machine_store_allowed st _ 2 (storePma hpma hwr) hal'.2
-    refine sim_store_of_exec hR hw hd hpc (data := (Sail.BitVec.extractLsb (m.reg rs2) 15 0 : BitVec (8 * 2))) hwr
-      (fun j hj => by
-        apply BitVec.eq_of_toNat_eq
-        simp only [Sail.BitVec.extractLsb, BitVec.extractLsb'_toNat, Nat.shiftRight_eq_div_pow]
-        have : j = 0 ∨ j = 1 := by omega
-        rcases this with rfl|rfl <;> simp <;> omega) ?_ n
-    change Runs (execute_STORE imm (rg rs2) (rg rs1) 2) _ _ _
-    exact execute_STORE_half_aligned_run st _ (rg rs2) (rg rs1) imm _ mst (m.reg rs2) hmst' hpriv hmprv
-      (rX_rg_run hag rs2) addrReg hal'.1 physAccess (writeBytes_run_exact st _ _)
+    by_cases hal : (m.reg rs1 + Machine.sx imm).toNat % 2 = 0
+    · have hal' := aligned_of_mod hal
+      have physAccess := phys_access_check_machine_store_allowed st _ 2 (storePma hpma hwr) hal'.2
+      refine sim_store_of_exec hR hw hd hpc (data := (Sail.BitVec.extractLsb (m.reg rs2) 15 0 : BitVec (8 * 2))) hwr
+        (fun j hj => by
+          apply BitVec.eq_of_toNat_eq
+          simp only [Sail.BitVec.extractLsb, BitVec.extractLsb'_toNat, Nat.shiftRight_eq_div_pow]
+          have : j = 0 ∨ j = 1 := by omega
+          rcases this with rfl|rfl <;> simp <;> omega) ?_ n
+      change Runs (execute_STORE imm (rg rs2) (rg rs1) 2) _ _ _
+      exact execute_STORE_half_aligned_run st _ (rg rs2) (rg rs1) imm _ mst (m.reg rs2) hmst' hpriv hmprv
+        (rX_rg_run hag rs2) addrReg hal'.1 physAccess (writeBytes_run_exact st _ _)
+    · obtain ⟨st', hrun, hregs, hmem⟩ := execute_STORE_misaligned_run st (rg rs2) (rg rs1) imm 1
+        (by decide) _ mst (m.reg rs2) hmst' hpriv hmprv hpma (rX_rg_run hag rs2) addrReg hal hwr
+      exact sim_store_of_exec' hR hw hd hpc hwr hregs hmem hrun n
   · cases hst
 
 theorem sim_sb {rs1 rs2 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
@@ -145,7 +158,7 @@ theorem sim_sb {rs1 rs2 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   unfold Machine.store at hst
   split at hst
   · rename_i hc
-    obtain ⟨hal, hwr, _⟩ := hc
+    obtain ⟨hwr, _⟩ := hc
     cases hst
     obtain ⟨mst, hmst, hmprv⟩ := hR.conf.mstatus
     obtain ⟨sec, hsec, hpmm⟩ := hR.conf.mseccfg
@@ -161,7 +174,7 @@ theorem sim_sb {rs1 rs2 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
         (Store Data) 1) st st (.Ext_DataAddr_OK (virtaddr.Virtaddr (m.reg rs1 + Machine.sx imm))) :=
       get_transformed_data_addr_machine_data_run .store st (rg rs1) 1 (m.reg rs1)
         (sign_extend (m := 64) imm) mst sec (rX_rg_run hag rs1) hmst' hpriv hmprv hsec' hpmm
-    have hal' := aligned_of_mod hal
+    have hal' := aligned_of_mod (Nat.mod_one (m.reg rs1 + Machine.sx imm).toNat)
     have physAccess := phys_access_check_machine_store_allowed st _ 1 (storePma hpma hwr) hal'.2
     refine sim_store_of_exec hR hw hd hpc (data := (Sail.BitVec.extractLsb (m.reg rs2) 7 0 : BitVec (8 * 1))) hwr
       (fun j hj => by

@@ -393,3 +393,27 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `decode_access_list` (l.180) and its entries/keys walkers, so no `compliance-spec-missing`.
   `tools/snap.py --fn TX` added: 16/16 zesislar inputs `returned` under Unicorn (real allocator);
   `zesu-difftest --fn TX` needs `Gen.TX` (image change), not wired.
+- S5 probe 3 (2026-11-27, branch `probe-unaligned`, worktree `~/.cache/zesu-tmp/zmap/wt-unaligned`):
+  unaligned accesses. `Machine.load`/`Machine.store` drop natural alignment (the range must lie in
+  one permitted interval, bytes present); `Sym`'s `cstCheck`, rodata and indexed loads drop their
+  alignment checks (`cstCheck_spec`, `load_cst`, `load_idx` lose the alignment hypotheses);
+  `run_sound` re-proved with its statement unchanged. Sail link: new
+  `ZesuExec/Sail/Forms/Misaligned.lean` (no sorry): the profile has
+  `plat_misaligned_access.load_store = none`, so `vmem_read_addr`/`vmem_write_addr` split a
+  misaligned `2^k`-byte access into `2^k / 2^c` aligned pieces (`c` = trailing zeros of the
+  address); `split_misaligned_run`, the loop lemmas `go_runs`/`go_runs_st` over
+  `untilFuelM.go`, `vmem_read_addr_split_run` (the pieces assemble to the little-endian value),
+  `vmem_read_any_run`, `vmem_write_addr_split_run` (memory after the pieces = the bytes of the
+  value), `execute_STORE_misaligned_run`, `sim_store_of_exec'`. `sim_ld`, `sim_lw`, `sim_lhu`
+  and `sim_sd`, `sim_sw`, `sim_sh` now cover both cases (aligned path unchanged); byte forms are
+  always aligned. Stores to alignment-1 heap blocks (TX's keys buffer) are ordinary misaligned
+  stores here. Gate: `lake build` 254 jobs OK, F0-F6 statements unchanged (proof edits only in
+  `Fn/F1/Proof`, `F3/Lemmas`, `F4/Lemmas`, `F6/Lemmas`, `Preserve`: alignment arguments to
+  `load_cst` dropped, unused alignment hypotheses kept as `_ha`), `Sym/Tactic.lean` untouched;
+  `tools/verify.sh` all PASS; `zesu-difftest` 45/45 F1/F2 snapshots agree and, with TX in the
+  image, 16/16 TX snapshots agree three ways (e.g. `one_entry_1_key`: the address payload `ld` at
+  input offset 4). Test `odd_halfword_refused` replaced by `odd_halfword_accepted` and
+  `halfword_past_end_refused`. Gate passed; no fallback (no `stepU`, no trust item). Image:
+  `tools/gen_image.{sh,py}` add `rlp_decode.txAccessList` as `Gen.TX` (323 words; Expected table
+  1249 -> 1572), `zesu-difftest` knows `--fn TX`, snapshots in `test/snapshots/TX/` (16).
+  `STATEMENTS.md` notes the new meaning of `Machine.load`/`store`. 25 min.

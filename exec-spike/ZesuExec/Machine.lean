@@ -70,15 +70,16 @@ def writeBytes (mem : Word → Option Byte) (a : Nat) (v : Word) : Nat → (Word
     if x = BitVec.ofNat 64 a then some (v.extractLsb' 0 8)
     else writeBytes mem (a + 1) (v >>> 8) n x
 
-/-- Naturally aligned load of `n` bytes from rodata, input or RAM, all bytes present. -/
+/-- Load of `n` bytes at any address whose range lies in one of rodata, input or RAM, all bytes
+present (ZisK and the Sail model's `vmem_read_addr` split a misaligned access). -/
 def load (m : Machine) (a : Word) (n : Nat) : Option Word :=
-  if a.toNat % n = 0 ∧ readable a.toNat n = true then
+  if readable a.toNat n = true then
     (readBytes m.mem a.toNat n).map ofBytesLE
   else none
 
-/-- Naturally aligned store of the low `n` bytes of `v` into RAM, all bytes present. -/
+/-- Store of the low `n` bytes of `v` at any address whose range lies in RAM, all bytes present. -/
 def store (m : Machine) (a : Word) (n : Nat) (v : Word) : Option Machine :=
-  if a.toNat % n = 0 ∧ writable a.toNat n = true ∧ (readBytes m.mem a.toNat n).isSome then
+  if writable a.toNat n = true ∧ (readBytes m.mem a.toNat n).isSome then
     some { m with mem := writeBytes m.mem a.toNat v n }
   else none
 

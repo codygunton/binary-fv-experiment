@@ -461,13 +461,13 @@ theorem Fr.inMem {m mh : Machine} (n : Nums m) (hc : Fr m mh) {j : Nat} (hj : j 
   hc.so _ (n.in_not_stack hj)
 
 /-- A word read back from its bytes. -/
-theorem wordAt_of_bytes {m : Machine} {a w : Word} (ha : a.toNat % 8 = 0)
+theorem wordAt_of_bytes {m : Machine} {a w : Word} (_ha : a.toNat % 8 = 0)
     (hr : Machine.readable a.toNat 8 = true)
     (h : ∀ t < 8, m.mem (a + BitVec.ofNat 64 t) = some (byteOf w t)) : F3.wordAt m a = w := by
   have hb : readBytes m.mem a.toNat 8 = some (byteList (byteOf w) 0 8) :=
     readBytes_of fun t ht => by rw [ofNat_toNat_add, Nat.zero_add]; exact h t ht
   unfold F3.wordAt Machine.load
-  rw [if_pos ⟨ha, hr⟩, hb]
+  rw [if_pos hr, hb]
   simp only [Option.map_some, Option.getD_some]
   exact F3.word_of_bytes fun t _ => by simp
 

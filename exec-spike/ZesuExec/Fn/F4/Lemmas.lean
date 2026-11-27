@@ -291,9 +291,9 @@ theorem Entry.result_same (E : Entry eb A L items m) {env : Env} {S : SState} {m
 /-- Loading from a region at the end of a run. -/
 theorem region_load {env : Env} {S : SState} {mf : Machine} {r : Nat} {R : Region}
     (hwf : Env.WF env S) (hm : Match env S mf) (hR : S.regions[r]? = some R)
-    (off n : Nat) (hal : off % n = 0) (hra : R.align % n = 0) (hb : off + n ≤ env.size r) :
+    (off n : Nat) (_hal : off % n = 0) (_hra : R.align % n = 0) (hb : off + n ≤ env.size r) :
     mf.load (env.base r + BitVec.ofNat 64 off) n = some ((readConst S r off n).eval env) :=
-  load_cst hwf hm hR hal hra hb
+  load_cst hwf hm hR hb
 
 /-- What the function may change (`Post`'s frame). -/
 def Allowed (eb : Nat) (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m : Machine)
@@ -810,13 +810,13 @@ theorem hdr_load {env : Env} {S : SState} {mf : Machine} (he : EnvOk m env) (hwf
     (hm : Match env S mf) (hS : Regs4 S) (off : Nat) (hoff : off % 8 = 0 ∧ off + 8 ≤ 24) :
     mf.load (m.reg 11 + BitVec.ofNat 64 off) 8 = some ((readConst S 2 off 8).eval env) := by
   rw [← he.base2]
-  exact load_cst hwf hm (R := headerR) (by rw [hS]; rfl) hoff.1 (by decide) (by rw [he.size2]; exact hoff.2)
+  exact load_cst hwf hm (R := headerR) (by rw [hS]; rfl) (by rw [he.size2]; exact hoff.2)
 
 theorem res_load {env : Env} {S : SState} {mf : Machine} (he : EnvOk m env) (hwf : Env.WF env S)
     (hm : Match env S mf) (hS : Regs4 S) (off n : Nat) (hoff : off % n = 0 ∧ 8 % n = 0 ∧ off + n ≤ 24) :
     mf.load (m.reg 10 + BitVec.ofNat 64 off) n = some ((readConst S 1 off n).eval env) := by
   rw [← he.base1]
-  exact load_cst hwf hm (R := resultR) (by rw [hS]; rfl) hoff.1 hoff.2.1 (by rw [he.size1]; exact hoff.2.2)
+  exact load_cst hwf hm (R := resultR) (by rw [hS]; rfl) (by rw [he.size1]; exact hoff.2.2)
 
 theorem HeaderIs.of_loads {mf : Machine} {hdr p n c : Word}
     (h0 : mf.load (hdr + BitVec.ofNat 64 0) 8 = some p) (h8 : mf.load (hdr + BitVec.ofNat 64 8) 8 = some n)

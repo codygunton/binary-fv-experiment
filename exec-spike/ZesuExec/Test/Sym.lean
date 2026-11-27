@@ -77,7 +77,10 @@ theorem csrrs_refused :
 /-- A store at `ptr r (size r)` is refused. -/
 theorem store_past_end_refused : storeSym S0 (.ptr 0 64) 1 (.lit 0) = none := by decide +kernel
 
-/-- A two-byte load at an odd offset is refused. -/
-theorem odd_halfword_refused : loadSym ⟨[], []⟩ S0 (.ptr 0 9) 2 = none := by decide +kernel
+/-- A two-byte load at an odd offset is accepted (`Machine.load` takes misaligned ranges). -/
+theorem odd_halfword_accepted : (loadSym ⟨[], []⟩ S0 (.ptr 0 9) 2).isSome = true := by decide +kernel
+
+/-- A two-byte load that runs past the region's end is refused. -/
+theorem halfword_past_end_refused : loadSym ⟨[], []⟩ S0 (.ptr 0 63) 2 = none := by decide +kernel
 
 end ZesuExec.Test.SymTest

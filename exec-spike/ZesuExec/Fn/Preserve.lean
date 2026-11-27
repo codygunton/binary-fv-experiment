@@ -46,7 +46,7 @@ theorem store_preserved {m m' : Machine} {a v : Word} {n : Nat} (h : m.store a n
   unfold Machine.store at h
   split at h
   · next hc =>
-    obtain ⟨_, hw, _⟩ := hc
+    obtain ⟨hw, _⟩ := hc
     cases h
     have hw' : Layout.ramLo ≤ a.toNat ∧ a.toNat + n ≤ Layout.ramHi := by
       simpa [writable, inRange] using hw

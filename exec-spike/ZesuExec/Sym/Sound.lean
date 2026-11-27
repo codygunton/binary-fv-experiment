@@ -175,13 +175,13 @@ theorem loadSym_sound {img : Image} {env : Env} {S : SState} {m : Machine} {a v 
       | none => simp [hv] at h
       | some val =>
         simp [hv] at h; obtain ⟨rfl, rfl⟩ := h
-        have hin := hc.2
+        have hin := hc
         simp [inRange] at hin
         obtain ⟨bs, hbs, hval⟩ := roValue_spec hro n x val hv hin.1 hin.2
         have hx : x < 2 ^ 64 := by unfold Layout.rodataHi at hin; omega
         unfold Machine.load
         simp only [Sym.eval, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hx]
-        rw [if_pos ⟨hc.1, by simp [readable, inRange, hin.1, hin.2]⟩, hbs]
+        rw [if_pos (by simp [readable, inRange, hin.1, hin.2]), hbs]
         simp [hval]
     · simp at h
   · next r off hp =>
@@ -195,8 +195,7 @@ theorem loadSym_sound {img : Image} {env : Env} {S : SState} {m : Machine} {a v 
       | none => simp [hc] at h
       | some ob' =>
         simp [hc] at h; obtain ⟨rfl, rfl⟩ := h
-        have := cstCheck_spec hwf hR hc hob
-        exact load_cst hwf hm hR this.1 this.2.1 this.2.2
+        exact load_cst hwf hm hR (cstCheck_spec hwf hR hc hob)
   · next r off i sc hp =>
     cases hR : S.region r with
     | none => simp [hR] at h
@@ -209,7 +208,7 @@ theorem loadSym_sound {img : Image} {env : Env} {S : SState} {m : Machine} {a v 
         have hb := hob (.inBounds r off i sc n) (by simp)
         simp only [Oblig.holds] at hb
         have hfit := hwf.fits hR
-        exact load_idx hwf hm hR hc.1 hc.2.1 hc.2.2.1 hc.2.2.2 hb _
+        exact load_idx hwf hm hR hc hb _
           (place_idx hp env (by unfold Layout.ramHi at hfit; omega))
       · simp at h
   · simp at h
@@ -234,7 +233,7 @@ theorem storeSym_sound {env : Env} {S S' : SState} {m : Machine} {a sv : Sym} {n
         | none => simp [hc] at h
         | some ob' =>
           simp [hc] at h; obtain ⟨rfl, rfl⟩ := h
-          obtain ⟨hal, hra, hb⟩ := cstCheck_spec hwf hR hc hob
+          have hb := cstCheck_spec hwf hR hc hob
           have hfit := hwf.fits hR
           have hrlt : r < S.regions.length := (List.getElem?_eq_some_iff.mp hR).1
           have hlt : (env.base r).toNat + off < 2 ^ 64 := by unfold Layout.ramHi at hfit; omega
@@ -246,8 +245,7 @@ theorem storeSym_sound {env : Env} {S S' : SState} {m : Machine} {a sv : Sym} {n
               rw [Nat.add_assoc, ofNat_toNat_add, hm.mem r (off + t) hrlt (by omega)]; rfl
           rw [place_cst hp]
           unfold Machine.store
-          rw [ha, if_pos ⟨mod_of_aligned (hwf.align r R hR) hra hal,
-            hwf.writable_of hR hw (by omega), hpres⟩]
+          rw [ha, if_pos ⟨hwf.writable_of hR hw (by omega), hpres⟩]
           refine ⟨_, rfl, ?_, rfl, rfl, rfl, rfl, ?_, rfl, rfl⟩
           · refine ⟨hm.regsLen, hm.regs, ?_, hm.known⟩
             intro r' j' hr' hj'

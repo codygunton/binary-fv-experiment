@@ -62,19 +62,17 @@ def readConst (S : SState) (r off n : Nat) : Sym :=
     | some k => if k.off = off ∧ k.n = n then mkBytes k.v 0 n else joinBytes (byteSyms S r off n)
     | none => .init r off n
 
-/-- Constant-offset access check: alignment, then bounds (or an obligation if the size is
-unknown). -/
-def cstCheck (R : Region) (r off n : Nat) : Option (List Oblig) :=
-  if off % n = 0 ∧ R.align % n = 0 then
-    match R.size with
-    | some s => if off + n ≤ s then some [] else none
-    | none => some [.inBounds r off (.lit 0) 1 n]
-  else none
+/-- Constant-offset access check: bounds (or an obligation if the size is unknown). Any
+alignment: `Machine.load`/`Machine.store` accept misaligned ranges. -/
+def cstCheck (_R : Region) (r off n : Nat) : Option (List Oblig) :=
+  match _R.size with
+  | some s => if off + n ≤ s then some [] else none
+  | none => some [.inBounds r off (.lit 0) 1 n]
 
 def loadSym (img : Image) (S : SState) (a : Sym) (n : Nat) : Option (Sym × List Oblig) :=
   match place a with
   | some (.ro x) =>
-    if x % n = 0 ∧ inRange Layout.rodataLo Layout.rodataHi x n = true then
+    if inRange Layout.rodataLo Layout.rodataHi x n = true then
       (roValue img x n).map fun v => (.lit v, [])
     else none
   | some (.cst r off) =>
@@ -83,8 +81,8 @@ def loadSym (img : Image) (S : SState) (a : Sym) (n : Nat) : Option (Sym × List
     | none => none
   | some (.idx r off i sc) =>
     match S.region r with
-    | some R =>
-      if off % n = 0 ∧ R.align % n = 0 ∧ sc % n = 0 ∧ S.mem.all (·.r != r) then
+    | some _ =>
+      if S.mem.all (·.r != r) then
         some (.initx r off i sc n, [.inBounds r off i sc n])
       else none
     | none => none

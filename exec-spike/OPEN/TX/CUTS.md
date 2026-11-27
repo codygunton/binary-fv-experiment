@@ -10,7 +10,11 @@ from `+0x38` on), so `S-0x1c0` is the slot the code addresses as `-0x1c0(s0)`. S
 worktree. The per-segment memory accesses were listed from the disassembly by walking each
 segment of the map.
 
-## Blocker found while designing: unaligned input loads
+## Blocker found while designing: unaligned input loads (resolved by S5 probe 3)
+
+Resolved on branch `probe-unaligned`: `Machine.load`/`Machine.store` take misaligned ranges,
+`run_sound` is re-proved, and the Sail link covers them (`ZesuExec/Sail/Forms/Misaligned.lean`).
+The `zesu-difftest --fn TX` runs agree on all 16 inputs. The analysis that led to it follows.
 
 Two segments copy input bytes with doubleword loads at input-dependent addresses:
 
