@@ -381,7 +381,7 @@ theorem after230 {σ : Sig} {m m' : Machine} {S' : SState} (hA : AKeyStore σ m)
     (hall : S'.mem.all (fun w => w.r == 5) = true)
     (hwr : ∀ t < 4, readConst S' 5 (8 * t) 8 = .var (11 + t))
     (hr : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 22, 24, 25, 26, 27] : List (Fin 32)),
-      S'.reg i.val = .var i.val)
+      S'.reg i.val = S230.reg i.val)
     (hr23 : S'.reg 23 = .bin .add (.var 23) (.var 25)) :
     ∃ o k L, InEntry σ m' o k L ∧ KeysOk σ m' o k ∧ KList σ m' k k.keys.length ∧
       (∀ i ∈ ([21, 22, 26] : List (Fin 32)), m'.reg i = m.reg i) ∧ k.j ≤ k.kl := by
@@ -389,12 +389,6 @@ theorem after230 {σ : Sig} {m m' : Machine} {S' : SState} (hA : AKeyStore σ m)
     r25, r24⟩ := hA
   obtain ⟨hc, hok, ⟨r20, r21, hi, hmag⟩, hEL, hlive, ⟨hd, hle, r26⟩, hAO, hKLO, r27⟩ := hIE
   have hpre := hc.2.1
-  have hreg : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 22, 24, 25, 26, 27] : List (Fin 32)),
-      m'.reg i = m.reg i := by
-    intro i hi
-    rw [Match.reg_eq hm' i i.val rfl, hr i hi]
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
-    rcases hi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
   have m23 : m'.reg 23 = m.reg 23 + m.reg 25 := by rw [Match.reg_eq hm' 23 23 rfl, hr23]; rfl
   have hk0 : 0 < k.kc.toNat := by omega
   have hKX : (k.kq, keySize * k.kc.toNat) ∈ KX k := by simp [KX, hk0]
@@ -404,6 +398,10 @@ theorem after230 {σ : Sig} {m m' : Machine} {S' : SState} (hA : AKeyStore σ m)
   obtain ⟨hpriv, hram, hpres⟩ := slot_of_block hlive (p := k.kq) (sz := keySize * k.kc.toNat)
     (off := keySize * k.keys.length) (n := keySize) (List.mem_append_right _ hKX) hbram hcapb h10
   have hwf : Env.WF (envS keySize σ m) S230 := (slot_ok hc hpriv hram hpres).1
+  have hm0 : Match (envS keySize σ m) S230 m := (slot_ok hc hpriv hram hpres).2.1
+  have hreg : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 22, 24, 25, 26, 27] : List (Fin 32)),
+      m'.reg i = m.reg i := fun i hi => by
+    rw [Match.reg_eq hm' i i.val rfl, hr i hi, ← Match.reg_eq hm0 i i.val rfl]
   have hwf' : Env.WF (envS keySize σ m) S' := hwf.congr (by rw [hS']; rfl)
   have hso := slot_same hc hm' hS' hfr hall hram
   have hp : Preserved m m' := F1.preserved_of_leaf hwf hm' (by rw [hS']; decide) hfr
@@ -525,5 +523,111 @@ theorem after230 {σ : Sig} {m m' : Machine} {S' : SState} (hA : AKeyStore σ m)
         rw [show k.kq + BitVec.ofNat 64 i = m.reg 10 + BitVec.ofNat 64 (i - k.keys.flatten.length) by
           rw [h10, hfl, BitVec.add_assoc]; simp only [w]; rw [← BitVec.ofNat_add]; congr 2; omega]
         rw [hsb _ hu, hkb _ (by omega)]
+
+theorem TX.leaf_80000230_0 :
+    LeafGoal TX.plan TX.plan.cuts[9]! ((TX.plan.leaves 0x80000230)[0]!) := by
+  show LeafGoal TX.plan cut230 (run230_leaves[0]!)
+  have hcs : (run230_leaves[0]!).conds = [SBool.ne (Sym.var 22) (Sym.lit 0)] := by decide
+  have hsteps : (run230_leaves[0]!).S.steps - S230.steps = 6 := by decide
+  intro σ m hA hc
+  have h1 : SBool.eval (envS keySize σ m) (SBool.ne (Sym.var 22) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have h22 : (m.reg 22 != 0#64) = true := h1
+  refine ⟨nil_obligs (by decide), ?_, ?_⟩
+  · show (run230_leaves[0]!).S.steps - S230.steps ≤ 32 * (afterEntry m + keysLeft m) + 744
+    rw [hsteps]; omega
+  intro m' hm' hex hfr
+  have hx : (run230_leaves[0]!).exit = .at 0x8000018c := by decide
+  rw [hx] at hex ⊢
+  change m'.pc.toNat = 0x8000018c at hex
+  change Match (envS keySize σ m) _ m' at hm'
+  change SameOutside (InWritable (envS keySize σ m) S230) m m' at hfr
+  obtain ⟨o, k, L, hie, hko, hkl, hr, hjk⟩ := after230 hA hm' (by decide) hfr (by decide)
+    (by decide) (by decide) (by decide)
+  have hlt : k.j < k.kl := by
+    rcases Nat.lt_or_ge k.j k.kl with h | h
+    · exact h
+    · exfalso
+      have e := hko.2.2.1
+      rw [hr 22 (by decide), show k.kl - k.j = 0 by omega] at e
+      rw [e] at h22; simp at h22
+  refine ExitGoal.at_cut rfl ⟨cut18c, by simp [TX.plan, vcPlan], hex, ⟨hex, o, k, L, hie, hko,
+    hkl, hlt⟩, ?_⟩
+  show bKeys m' ≤ 32 * (afterEntry m + keysLeft m) + 744 -
+    ((run230_leaves[0]!).S.steps - S230.steps)
+  rw [hsteps]; unfold bKeys afterEntry keysLeft
+  rw [hr 21 (by decide), hr 22 (by decide), hr 26 (by decide)]; omega
+
+theorem TX.leaf_80000230_1 :
+    LeafGoal TX.plan TX.plan.cuts[9]! ((TX.plan.leaves 0x80000230)[1]!) := by
+  show LeafGoal TX.plan cut230 (run230_leaves[1]!)
+  have hcs : (run230_leaves[1]!).conds = [SBool.eq (Sym.var 22) (Sym.lit 0)] := by decide
+  have hsteps : (run230_leaves[1]!).S.steps - S230.steps = 11 := by decide
+  intro σ m hA hc
+  have h1 : SBool.eval (envS keySize σ m) (SBool.eq (Sym.var 22) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have h22 : (m.reg 22 == 0#64) = true := h1
+  refine ⟨nil_obligs (by decide), ?_, ?_⟩
+  · show (run230_leaves[1]!).S.steps - S230.steps ≤ 32 * (afterEntry m + keysLeft m) + 744
+    rw [hsteps]; omega
+  intro m' hm' hex hfr
+  have hx : (run230_leaves[1]!).exit = .call 0x800d677c 0x8000025c := by decide
+  rw [hx] at hex ⊢
+  change m'.pc.toNat = 0x800d677c at hex
+  change Match (envS keySize σ m) _ m' at hm'
+  change SameOutside (InWritable (envS keySize σ m) S230) m m' at hfr
+  obtain ⟨o, k, L, hie, hko, hkl, hr, hjk⟩ := after230 hA hm' (by decide) hfr (by decide)
+    (by decide) (by decide) (by decide)
+  have hc' := hie.1
+  have hl64 : σ.len < 2 ^ 64 := (wordAt σ.m (σ.rest + 8)).isLt
+  have hkl64 : k.kl ≤ σ.len := by
+    have := hie.2.1.2.1; have := hie.2.2.2.2.2.1.2.1; have := hie.2.2.2.2.2.2.2.1.2; omega
+  have hjeq : k.j = k.kl := by
+    have e := hko.2.2.1
+    rw [hr 22 (by decide), beq_iff_eq.mp h22] at e
+    have := congrArg BitVec.toNat e
+    simp only [w, BitVec.toNat_ofNat] at this
+    omega
+  have reg : ∀ (i : Fin 32) (s : Sym), (run230_leaves[1]!).S.reg i.val = s →
+      m'.reg i = s.eval (envS keySize σ m) := fun i s h => by
+    rw [Match.reg_eq hm' i i.val rfl, h]
+  have r1 := reg 1 _ (by decide : (run230_leaves[1]!).S.reg 1 = .lit 0x8000025c)
+  have r10 := reg 10 _ (by decide : (run230_leaves[1]!).S.reg 10 = .ptr 0 392)
+  have r11 := reg 11 _ (by decide : (run230_leaves[1]!).S.reg 11 = .ptr 0 296)
+  have r12 := reg 12 _ (by decide : (run230_leaves[1]!).S.reg 12 = .ptr 3 0)
+  simp only [Sym.eval, Env.base, envS, entryEnv, shapeOf, List.cons_append,
+    List.getD_cons_zero, List.getD_cons_succ, Sig.sl, w, frameBytes] at r1 r10 r11 r12
+  rw [show σ.S - 576#64 + BitVec.ofInt 64 392 = σ.sl 0xb8 by simp only [Sig.sl, w]; bv_omega]
+    at r10
+  rw [show σ.S - 576#64 + BitVec.ofInt 64 296 = σ.sl 0x118 by simp only [Sig.sl, w]; bv_omega]
+    at r11
+  rw [BitVec.ofInt_ofNat, BitVec.add_zero] at r12
+  have hKW : KeysWalked (kpl σ o k) k.kl k.keys := hjeq ▸ hko.1
+  obtain ⟨hH, hlen, hq0, hc1, hc32, hR, hyl, hkb⟩ := hkl
+  have hsite : Site258 σ (L, k.keys.flatten) m' := ⟨o, k, hie, rfl, hKW,
+    ⟨hH, hlen, hq0, hc1, hc32, hR, hyl, hkb⟩, r1, fun t ht => by
+      simp only [List.length_cons, List.length_nil] at ht
+      obtain rfl | rfl | rfl : t = 0 ∨ t = 1 ∨ t = 2 := by omega
+      · exact r10
+      · exact r11
+      · exact r12⟩
+  have hn : (w k.keys.length).toNat = k.keys.length := by
+    simp only [w, BitVec.toNat_ofNat]; omega
+  have hpre4 : F4.Pre σ.A L k.keys.flatten m' := towned_pre (eb := 32) hc' hie.2.2.2.2.1 r10 r11
+    r12 (by unfold RetAligned; rw [r1]; decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) (by decide) (by decide) (by decide) hH (by rw [hn]; exact hlen)
+    (by rw [hn, flatten_length _ hyl, Nat.mul_comm]; rfl) hq0
+    (fun h0 => ⟨by rw [Nat.mul_comm]; exact hR h0, by
+      rw [Nat.mul_comm]; exact List.mem_append_right _ (by simp [KX, h0, keySize])⟩) hkb
+  refine ⟨f4C, (L, k.keys.flatten), rfl, hex, hpre4, fun m'' hpost => ⟨cut25c,
+    by simp [TX.plan, vcPlan], rfl, ?_, ⟨m', (L, k.keys.flatten), hsite, hpost⟩, ?_⟩⟩
+  · rw [hpost.1.1.1, r1]; decide
+  · have h21 : m''.reg 21 = m.reg 21 :=
+      (hpost.1.1.2 21 (by decide)).trans (hr 21 (by decide))
+    have h26 : m''.reg 26 = m.reg 26 :=
+      (hpost.1.1.2 26 (by decide)).trans (hr 26 (by decide))
+    show F4.bound + bTail m'' 539 ≤ 32 * (afterEntry m + keysLeft m) + 744 -
+      ((run230_leaves[1]!).S.steps - S230.steps)
+    rw [hsteps]; unfold bTail afterEntry keysLeft F4.bound; rw [h21, h26]; omega
 
 end ZesuExec.Fn.TX
