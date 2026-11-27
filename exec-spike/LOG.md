@@ -672,3 +672,32 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `python3 -m unittest discover -s tools/zmap/tests` 22 OK. Residual classes are all `none` now:
   hand-written leaf theorems record no residual. `Test/Auto.lean` (Verification item 4, five
   `fail_if_success`) builds after S2-idx. `tools/verify.sh` all PASS.
+- S4-F6 (2026-11-27): F6 (`decodeParentHeader`) converted to the obligation framework
+  (assumption "Legacy proofs": F1's conversion reduced hand lines, so F6 next). Plan `F6` in
+  `Fn/F6/Vc.lean`: the map's 24 cuts (entry, 20 call-return points, 3 loop heads), the runs of
+  `Fn/F6/Runs.lean` unchanged; callees `kD` (decodeItem/F2) and `kN` (nextUint64/F3) by return
+  address, both `X := Unit` with `Preserved`; the error paths tail-call `memcpy` via `Plan.tail`
+  (S2-tail, made for this). Assertions = the spike's per-cut hypotheses (`DSt`/`NSt`/`SSt`/`OSt`,
+  registers, frame words, walk position) plus `Entry m` and the pc; budgets the spike's constants;
+  loop heads `LInv` plus the exit's registers/walk, budget `((a2 - a1) - 1) * 5 + E` (E = 1178,
+  1043, 907) read off the machine, `Env` var 32 = `a1 - a1₀`. Leaves: 74; items 98 (24 cut lemmas,
+  74 leaves): auto 0, manual 98, open 0 (`zesu_auto F6` closes 0 of 74 leaf items it tries; cut
+  lemmas are 1-line `cutR_ok`/`cutL_ok` wrappers of `Fr.match`). Continuation helpers split for
+  `ExitGoal`: `call_d`/`call_n` (Lemmas) now return the callee precondition and a
+  continuation-for-every-result instead of `Reaches`; `memcpy_exit` returns `MemcpyPre ∧ ∀ result,
+  Post`; `loop_gen`'s induction replaced by `back_step` (one back edge re-establishes `LInv` at
+  j+1) and `exit_last`; `entry_fr` no longer needs `Preserved`. `F6.reach` assembled with clean
+  axioms (guarded in Axioms.lean); `Fn/F6/Proof.lean` derives `f6_spec` from it (statement
+  unchanged); `f6_sail`, F6 compliance unchanged and build. Old stage theorems (`after0`..
+  `after18`, `afterF0`, `skip_req`, `opt_skip`, `loop_gen`, `cut_reaches`) deleted. Hand lines
+  before: Proof 1752 + Lemmas 1277 + Runs 35 = 3064; after: Vc 2269 + Lemmas 1259 + Proof 22 +
+  Runs 35 = 3585 (+521, +17%; of Vc, 148 lines are the generated-shape `leaf_<pc>_<i>` wrappers,
+  ~130 the assertion/cut/plan definitions, ~110 the generic `lg`/`call_goal`/`at_goal`/cut
+  lemmas). Comparison with F1 (1898 -> 1707, -10%): F6's leaves were already per-cut in the
+  spike, so the framework adds per-cut assertion definitions and per-leaf boilerplate without
+  removing duplicated runs; a `zesu_assemble` option taking `∀ l ∈ runX_leaves` lemmas per cut
+  (instead of one theorem per leaf) would remove the 148 wrapper lines (F6 then ~3437, +12%).
+  Merged exec-spike (indexed callees 5de908a3, runWith): F6 adapted (`kD`/`kN` over `Unit`,
+  `call_goal` takes `x`). runWith summaries for decodeItem could remove F6's 20 return-site cuts;
+  not attempted. `lake build` 269 jobs OK; `make -C tools/zmap map`, `tools/verify.sh` all PASS;
+  `zmap show f_800d5cb8`: closed+compliance, reach=yes.
