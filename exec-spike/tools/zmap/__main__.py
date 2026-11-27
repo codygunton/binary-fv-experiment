@@ -174,6 +174,17 @@ def main(argv=None):
     log.add_argument('--ledger', default=DEFAULT_LEDGER)
     log.set_defaults(func=cmd_ledger_log)
 
+    def cmd_costmodel(args):
+        from . import costmodel
+        with open(args.out, 'w') as f:
+            f.write(costmodel.render(load(args.map), merge.read_ledger(args.ledger)))
+        print(f'zmap: cost model -> {args.out}')
+    cm = sub.add_parser('costmodel', help='cost model (COSTMODEL.md) from map and ledger')
+    cm.add_argument('--map', default=DEFAULT_MAP)
+    cm.add_argument('--ledger', default=DEFAULT_LEDGER)
+    cm.add_argument('--out', required=True)
+    cm.set_defaults(func=cmd_costmodel)
+
     args = p.parse_args(argv)
     args.func(args)
 
