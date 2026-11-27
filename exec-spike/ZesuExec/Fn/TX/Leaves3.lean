@@ -1,5 +1,4 @@
-import ZesuExec.Fn.TX.Calls
-import ZesuExec.Fn.TX.Store
+import ZesuExec.Fn.TX.Leaves2
 
 /-!
 # TX: leaves that write memory and reach a cut or a call (programme plan S6 step 6)
@@ -14,157 +13,7 @@ words are read back with `load_cst`.
 namespace ZesuExec.Fn.TX
 open ZesuExec ZesuExec.Sym ZesuExec.Machine ZesuExec.Vc
 
-/-! ## What a leaf with writes keeps -/
-
-/-- `Common` survives a step that keeps `sp`, `s0`, `s1`, `s2`, `s3` and changes only TX's own
-or the allocator's memory outside the save area. -/
-theorem common_keep {σ : Sig} {m m' : Machine} (hc : Common σ m)
-    (hr : ∀ i ∈ ([2, 8, 9, 18, 19] : List (Fin 32)), m'.reg i = m.reg i)
-    (hp : Preserved m m') {R : Word → Prop} (hso : SameOutside R m m')
-    (hR : ∀ a, R a → (Owned σ a ∨ σ.A.Priv σ.g.L a) ∧ ¬ InRange (σ.sl 104) 104 a) :
-    Common σ m' := by
-  obtain ⟨hpc, hpre, hro, r2, r8, r9, r18, r19, hsv, hst, hres, hrest, hscr, hfr⟩ := hc
-  refine ⟨hpc, hpre, RodataLoaded.preserved hro hp fun _ _ hb => F1.zesu_rodata_low hb,
-    (hr 2 (by decide)).trans r2, (hr 8 (by decide)).trans r8, (hr 9 (by decide)).trans r9,
-    (hr 18 (by decide)).trans r18, (hr 19 (by decide)).trans r19, fun k hk => ?_,
-    Present.of_preserved hst hp, Present.of_preserved hres hp, Present.of_preserved hrest hp,
-    Present.of_preserved hscr hp, frame_trans hfr hso fun a h => (hR a h).1⟩
-  rw [load_congr fun t ht => hso _ fun h => (hR _ h).2 ?_]
-  · exact hsv k hk
-  · have h1 := sl_toNat hpre (k := 104) (by decide)
-    have h2 := sl_toNat hpre (k := 8 * (k + 1)) (by unfold stackBytes; omega)
-    simp only [InRange, h1]
-    rw [toNat_add_ofNat (by rw [h2]; omega), h2]
-    omega
-
-/-- A byte no write of the leaf covers keeps its value at the cut. -/
-theorem byte_keep {env : Env} {S' : SState} {m m' : Machine} (hm' : Match env S' m') {r j : Nat}
-    (hr : r < S'.regions.length) (hj : j < env.size r)
-    (hnc : ∀ w ∈ S'.mem, w.covers r j = false)
-    (h0 : some (env.mem0 r j) = m.mem (env.base r + BitVec.ofNat 64 j)) :
-    m'.mem (env.base r + BitVec.ofNat 64 j) = m.mem (env.base r + BitVec.ofNat 64 j) := by
-  rw [hm'.mem r j hr hj, ← h0]
-  have : S'.mem.find? (·.covers r j) = none := List.find?_eq_none.mpr fun w hw => by
-    simp [hnc w hw]
-  simp [memByte, this, Env.byte0]
-
-/-- A leaf over the base regions whose writes miss the save area (frame offsets `≥ 472`). -/
-theorem save_keep {σ : Sig} {m m' : Machine} {env : Env} {S' : SState} (hc : Common σ m)
-    (he : BaseEnv σ m env) (hm' : Match env S' m') (hr0 : 0 < S'.regions.length)
-    (hno : S'.mem.all (fun w => w.r != 0 || decide (w.off + w.n ≤ 472)) = true) {a : Word}
-    (ha : InRange (σ.sl 104) 104 a) : m'.mem a = m.mem a := by
-  have hpre := hc.2.1
-  have h1 := sl_toNat hpre (k := 104) (by decide)
-  have h576 := sl_toNat hpre (k := 576) (by decide)
-  have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
-  simp only [InRange, h1] at ha
-  have hb : env.base 0 = σ.sl frameBytes := by rw [he.base]; rfl
-  have hs : env.size 0 = frameBytes := by rw [he.size]; rfl
-  obtain ⟨j, hj1, hj2, rfl⟩ : ∃ j, 472 ≤ j ∧ j < 576 ∧ a = env.base 0 + BitVec.ofNat 64 j := by
-    refine ⟨a.toNat - (σ.S.toNat - 576), by omega, by omega, ?_⟩
-    apply BitVec.eq_of_toNat_eq
-    rw [hb, toNat_add_ofNat (by unfold frameBytes; omega)]
-    unfold frameBytes; rw [h576]; omega
-  refine byte_keep hm' hr0 (by rw [hs]; exact hj2) (fun w hw => ?_) ?_
-  · have := List.all_eq_true.mp hno w hw
-    simp only [Bool.or_eq_true, bne_iff_ne, ne_eq, decide_eq_true_eq] at this
-    simp only [Write.covers, Bool.and_eq_false_iff, beq_eq_false_iff_ne, ne_eq,
-      decide_eq_false_iff_not, Nat.not_le, Nat.not_lt]
-    omega
-  · rw [he.mem0, he.base]
-    exact mem0_entry (common_present hc 0 j (by decide) (by simpa [envB, entryEnv, Env.size,
-      shapeOf, frameBytes] using hj2))
-
-/-- A leaf of a cut over the base regions (`BaseEnv`) whose writes miss the save area: the
-machine at its end is `Common`, keeps TX's live list and preserves present bytes. -/
-theorem base_leaf {σ : Sig} {m m' : Machine} {env : Env} {S S' : SState} {L X : List (Word × Nat)}
-    (hc : Common σ m) (hlive : Live σ m L X) (he : BaseEnv σ m env) (hwf : Env.WF env S)
-    (hS : S.regions = baseRegions) (hm' : Match env S' m') (hS' : S'.regions = baseRegions)
-    (hfr : SameOutside (InWritable env S) m m')
-    (hno : S'.mem.all (fun w => w.r != 0 || decide (w.off + w.n ≤ 472)) = true)
-    (hr : ∀ i ∈ ([2, 8, 9, 18, 19] : List (Fin 32)), m'.reg i = m.reg i) :
-    Common σ m' ∧ Live σ m' L X ∧ Preserved m m' := by
-  have hpre := hc.2.1
-  have hp : Preserved m m' :=
-    F1.preserved_of_leaf hwf hm' (by rw [hS, hS']; exact Nat.le_refl _) hfr
-  have hown : ∀ a, InWritable env S a → Owned σ a := fun a h => he.owned hpre hS h
-  have hso : SameOutside (fun a => InWritable env S a ∧ m'.mem a ≠ m.mem a) m m' := fun a ha => by
-    by_cases hw : InWritable env S a
-    · exact Classical.byContradiction fun hne => ha ⟨hw, hne⟩
-    · exact hfr a hw
-  refine ⟨common_keep hc hr hp hso fun a ⟨hw, hne⟩ => ⟨.inl (hown a hw), fun hs =>
-      hne (save_keep hc he hm' (by rw [hS']; decide) hno hs)⟩,
-    ⟨σ.A.heap_frame' L m m' hlive.1
-      (fun a ha => hfr a fun hw => owned_not_priv hpre (hown a hw) (priv_sub hpre hlive ha)) hp,
-     hlive.2.1, hlive.2.2⟩, hp⟩
-
-/-! ## `decodeItem`'s outcome words -/
-
-/-- A list item does not start with `0x80`. -/
-theorem list_head {input : List Byte} {h q : Nat} (hd : F2.decode input = .success true h q) :
-    input.head? ≠ some 128 := by
-  cases input with
-  | nil => simp
-  | cons x rest =>
-    intro hx
-    simp only [List.head?_cons, Option.some.injEq] at hx
-    subst hx
-    simp [F2.decode] at hd
-
-/-- The payload pointer (bytes `0..7`) of a list outcome. -/
-theorem dec_ptr {p : Word} {input before : List Byte} {hh q : Nat}
-    (hd : F2.decode input = .success true hh q) :
-    ofBytesLE (((F2.result40 p input before).drop 0).take 8) = p + BitVec.ofNat 64 hh := by
-  show ofBytesLE [F2.resultByte p input before 0, F2.resultByte p input before 1,
-    F2.resultByte p input before 2, F2.resultByte p input before 3,
-    F2.resultByte p input before 4, F2.resultByte p input before 5,
-    F2.resultByte p input before 6, F2.resultByte p input before 7] = _
-  simp only [F2.resultByte, hd, F2.successByte, if_neg (list_head hd)]
-  exact ofBytesLE_bytes8 _
-
-/-- The consumed count (bytes `24..31`) of a successful outcome. -/
-theorem dec_cons {p : Word} {input before : List Byte} {b : Bool} {hh q : Nat}
-    (hd : F2.decode input = .success b hh q) :
-    ofBytesLE (((F2.result40 p input before).drop 24).take 8) = BitVec.ofNat 64 (hh + q) := by
-  show ofBytesLE [F2.resultByte p input before 24, F2.resultByte p input before 25,
-    F2.resultByte p input before 26, F2.resultByte p input before 27,
-    F2.resultByte p input before 28, F2.resultByte p input before 29,
-    F2.resultByte p input before 30, F2.resultByte p input before 31] = _
-  simp only [F2.resultByte, hd, F2.successByte]
-  exact ofBytesLE_bytes8 _
-
-/-! ## Reading written words back -/
-
-/-- A frame word at the end of a leaf over the base regions. -/
-theorem frame_word {σ : Sig} {m m' : Machine} {env : Env} {S' : SState} (he : BaseEnv σ m env)
-    (hwf : Env.WF env S') (hm' : Match env S' m') (hS' : S'.regions = baseRegions) {k : Nat}
-    (hk : 8 ≤ k) (hk' : k ≤ 576) :
-    m'.load (σ.sl k) 8 = some ((readConst S' 0 (576 - k) 8).eval env) := by
-  have := load_cst hwf hm' (r := 0) (R := frameR) (off := 576 - k) (n := 8) (by rw [hS']; rfl)
-    (by rw [he.size]; simp [envB, entryEnv, Env.size, shapeOf, frameBytes]; omega)
-  rwa [he.base, show (envB σ m).base 0 + BitVec.ofNat 64 (576 - k) = σ.sl k by
-    simp only [envB, entryEnv, Env.base, shapeOf, List.getD_cons_zero, Sig.sl, w, frameBytes]
-    bv_omega] at this
-
-/-- A word of `rest` at the end of a leaf over the base regions. -/
-theorem rest_word {σ : Sig} {m m' : Machine} {env : Env} {S' : SState} (he : BaseEnv σ m env)
-    (hwf : Env.WF env S') (hm' : Match env S' m') (hS' : S'.regions = baseRegions) {off : Nat}
-    (hoff : off = 0 ∨ off = 8) :
-    m'.load (σ.rest + BitVec.ofNat 64 off) 8 = some ((readConst S' 2 off 8).eval env) := by
-  have := load_cst hwf hm' (r := 2) (R := restR) (off := off) (n := 8) (by rw [hS']; rfl)
-    (by rw [he.size]; simp [envB, entryEnv, Env.size, shapeOf]; omega)
-  rwa [he.base] at this
-
 /-! ## `toOwnedSlice`'s precondition at a call from TX -/
-
-/-- A range of the allocator's memory is apart from a range without any of it. -/
-theorem apart_of_priv {P : Word → Prop} {p q : Word} {n k : Nat} (hn : 0 < n) (hk : 0 < k)
-    (hp : ∀ a, InRange p n a → P a) (hq : ∀ a, InRange q k a → ¬ P a) : Apart p n q k := by
-  unfold Apart
-  refine Classical.byContradiction fun h => ?_
-  rcases Nat.le_total p.toNat q.toNat with hle | hle
-  · exact hq q ⟨Nat.le_refl _, by omega⟩ (hp q ⟨hle, by omega⟩)
-  · exact hq p ⟨hle, by omega⟩ (hp p ⟨Nat.le_refl _, by omega⟩)
 
 /-- `toOwnedSlice(S-kr, S-kh, ao)` from a `Common` machine: the list header in the frame slot
 `S-kh`, its buffer (if any) a block of TX's live list. -/
@@ -239,6 +88,7 @@ theorem towned_pre {eb : Nat} {σ : Sig} {m : Machine} {L X : List (Word × Nat)
   · rw [load_congr (m := σ.m) fun t ht => ao_same hc (by omega)]
     exact hc.2.1.2.2.2.2.2.2.2.2.1
   all_goals try rw [hsp112]
+  all_goals try simp only [Sig.ao]
   all_goals try (unfold ToOwned.Apart
                  first
                    | (simp only [hSr, hSh, hS688, hsc']; omega)
@@ -395,5 +245,73 @@ theorem TX.leaf_80000068_3 :
   refine ExitGoal.at_cut rfl ⟨cut0c4, by simp [TX.plan, vcPlan], hex, ⟨hex, _, L, hs⟩, ?_⟩
   show 32 * (m'.reg 21).toNat + 300 ≤ 32 * σ.len + 323 - ((run068_leaves[3]!).S.steps - S068.steps)
   rw [hsteps, r21]; simp only [w, BitVec.toNat_ofNat]; omega
+
+theorem TX.leaf_80000068_2 :
+    LeafGoal TX.plan TX.plan.cuts[1]! ((TX.plan.leaves 0x80000068)[2]!) := by
+  show LeafGoal TX.plan cut068 (run068_leaves[2]!)
+  have hcs : (run068_leaves[2]!).conds = [SBool.eq (Sym.init 0 120 2) (Sym.lit 0),
+      SBool.ne (Sym.bin BinOp.and (Sym.init 0 104 1) (Sym.lit 1)) (Sym.lit 0),
+      SBool.eq (Sym.init 0 96 8) (Sym.lit 0)] := by decide
+  have hsteps : (run068_leaves[2]!).S.steps - S068.steps = 22 := by decide
+  intro σ m hA hc
+  have hA' : ARet f2C (unit Site064) σ m := hA
+  have h1 : SBool.eval (envB σ m) (SBool.eq (Sym.init 0 120 2) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have h2 : SBool.eval (envB σ m)
+      (SBool.ne (Sym.bin BinOp.and (Sym.init 0 104 1) (Sym.lit 1)) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have h3 : SBool.eval (envB σ m) (SBool.eq (Sym.init 0 96 8) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; simp)
+  refine ⟨nil_obligs (by decide), ?_, ?_⟩
+  · show (run068_leaves[2]!).S.steps - S068.steps ≤ 32 * σ.len + 323
+    rw [hsteps]; omega
+  intro m' hm' hex hfr
+  have hx : (run068_leaves[2]!).exit = .call 0x800d6554 0x800004a0 := by decide
+  rw [hx] at hex ⊢
+  change m'.pc.toNat = 0x800d6554 at hex
+  change Match (envB σ m) _ m' at hm'
+  change SameOutside (InWritable (envB σ m) S068) m m' at hfr
+  obtain ⟨hc', L, hh, q, hlive', hd, hle, hok, hel, -, e96⟩ := after068 hA' h1 h2 hm'
+    (by decide) hfr (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide)
+  have hl64 : σ.len < 2 ^ 64 := (wordAt σ.m (σ.rest + 8)).isLt
+  simp only [SBool.eval, e96] at h3
+  have hq : q = 0 := by
+    have := congrArg BitVec.toNat (beq_iff_eq.mp h3)
+    simp only [w, Sym.eval, BitVec.toNat_ofNat] at this
+    omega
+  subst hq
+  have reg : ∀ (i : Fin 32) (s : Sym), (run068_leaves[2]!).S.reg i.val = s →
+      m'.reg i = s.eval (envB σ m) := fun i s h => by rw [Match.reg_eq hm' i i.val rfl, h]
+  have r1 := reg 1 _ (by decide : (run068_leaves[2]!).S.reg 1 = .lit 0x800004a0)
+  have r10 := reg 10 _ (by decide : (run068_leaves[2]!).S.reg 10 = .ptr 0 440)
+  have r11 := reg 11 _ (by decide : (run068_leaves[2]!).S.reg 11 = .ptr 0 128)
+  have r12 := reg 12 _ (by decide : (run068_leaves[2]!).S.reg 12 = .ptr 3 0)
+  simp only [Sym.eval, Env.base, envB, entryEnv, shapeOf, List.getD_cons_zero,
+    List.getD_cons_succ, Sig.sl, w, frameBytes] at r1 r10 r11 r12
+  rw [show σ.S - 576#64 + BitVec.ofInt 64 440 = σ.sl 0x88 by simp only [Sig.sl, w]; bv_omega]
+    at r10
+  rw [show σ.S - 576#64 + BitVec.ofInt 64 128 = σ.sl 0x1c0 by simp only [Sig.sl, w]; bv_omega]
+    at r11
+  rw [BitVec.ofInt_ofNat, BitVec.add_zero] at r12
+  have hEX : EX ⟨hh, 0, 0, [], [], 8, 0⟩ = [] := by simp [EX, keysBlocks]
+  have hlive'' : Live σ m' L (EX ⟨hh, 0, 0, [], [], 8, 0⟩) := by rw [hEX]; exact hlive'
+  have hsite : Site49c σ (L, []) m' := ⟨⟨hh, 0, 0, [], [], 8, 0⟩, hc', hok, rfl, hel, hlive'',
+    by simp [entriesBytes], r1, fun t ht => by
+      simp only [List.length_cons, List.length_nil] at ht
+      obtain rfl | rfl | rfl : t = 0 ∨ t = 1 ∨ t = 2 := by omega
+      · exact r10
+      · exact r11
+      · exact r12⟩
+  have hpre5 : F5.Pre σ.A L [] m' := towned_pre (eb := 40) hc' hlive' r10 r11 r12
+    (by unfold RetAligned; rw [r1]; decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) (by decide) (by decide) (by decide) hel.1 (by simp) (by simp)
+    (by show (0:Nat) < (8 : Word).toNat; decide)
+    (fun h => by simp at h) (fun i hi => by simp at hi)
+  refine ⟨f5C, (L, []), rfl, hex, hpre5, fun m'' hpost => ⟨cut4a0, by simp [TX.plan, vcPlan], rfl,
+    ?_, ⟨m', (L, []), hsite, hpost⟩, ?_⟩⟩
+  · rw [hpost.1.1.1, r1]; decide
+  · show F5.bound + 23 ≤ 32 * σ.len + 323 - ((run068_leaves[2]!).S.steps - S068.steps)
+    rw [hsteps]; unfold F5.bound; omega
 
 end ZesuExec.Fn.TX
