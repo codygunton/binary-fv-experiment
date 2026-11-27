@@ -769,3 +769,18 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `byteOf_byteList`, `byteOf_sext32`, `input_byte`, `slot_word`), `dec_ptr_str`, `dec_hpos`.
   The generic write-leaf helpers moved to Leaves2 (TXLeavesC). Proof build at 00fdea01 had 14 open;
   1f8_1 and 4a0_0 went back to TXLeavesC unstarted.
+- S6 TX third hand (TXLeavesC, 2026-11-27): Cuts.lean: `s11 = ec` moved out of `Growing` into
+  `Site33c`/`Site3d0`/`Site3fc` (the `free` leaf overwrites `s11`; `Copied`/`Allocated`
+  unchanged). `Fn/TX/Grow.lean` closes 3d4_0, 400_1, 42c_0, 25c_1, 25c_4, 25c_5, 340_2;
+  `Fn/TX/Finish.lean` closes 460_0, 460_1. Reusable: `live_of_heap` (new blocks are in
+  `Priv g.L` via `arena_split`), `erase_perm`, `live_perm`, `Grown`/`ELNoHdr`/`grown_keep`
+  (EntryDone without header/copy B), `ret25c`, `grow25c` (+`growS_eval`), `ret400_copied`,
+  `at42c`, `after460`, `walked_step`, `frame_leaf_so`, `fr_in`, `wr_miss`, `edsame_frame`,
+  `leaf_copy`, `fw_same`, `cframe_keep`, `callee_frame`, `memcpy_pre`, `ctx_eval`, `shl5/3/40`.
+  Still open: 4a0_0 (success exit; needs an `ok_post` analogue of `error_post` with the
+  `OutcomeImage .ok` heap `L.erase (ep,40ec) ++ [(p',40n)] ~ g.L ++ returnedBlocks`) and
+  1f8_1, which is BLOCKED by F1's contract: `F1.Post`'s no-growth branch (`req ≤ c`) does not
+  state `BytesAt m' p items`, while its `SameOutside` lets F1 write the list buffer, so the keys
+  stored so far are not known after `ensureTotalCapacity` returns. Fix: add `BytesAt m' p items`
+  to that branch of `F1.Post` (Fn/F1/Spec.lean) and reprove it in F1 (the early-exit path writes
+  only its frame). TX.reach / tx_spec / tx_sail / compliance not assembled.
