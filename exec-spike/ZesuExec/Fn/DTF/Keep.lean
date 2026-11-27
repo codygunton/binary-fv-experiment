@@ -36,12 +36,24 @@ theorem kRest_sub {d : CutData} {r : RestLoc} (h : r ∈ kRest d) : r ∈ d.rest
   · exact h
   · exact (List.mem_filter.mp h).1
 
+/-- The items a cut's assertion says are checked: its own count at a cut reached by jumps, the call
+site's at a return site (a callee such as TX moves `rest` on by an item it may not have accepted),
+the smaller at a cut that is both. -/
+def srcChk (d : CutData) : Nat :=
+  match d.site with
+  | none => chkCount d.rest
+  | some s => if d.plain then min (chkCount d.rest) (chkCount s.rest) else chkCount s.rest
+
+theorem ChecksOk.mono {σ : Sig} {k k' : Nat} (h : ChecksOk σ k) (hk : k' ≤ k) : ChecksOk σ k' :=
+  fun i hi => h i (by omega)
+
 /-- What a cut other than the entry knows at its machine. -/
 structure Facts (d : CutData) (σ : Sig) (m : Machine) : Prop where
   common : Common σ m
   shape : ShapeOk σ d.shape m
   arms : ArmOk σ d.arms
   rest : RestOk σ m (kRest d)
+  chk : ChecksOk σ (srcChk d)
 
 def Loc.fine : Loc → Bool
   | .reg i => decide (i < 32)
@@ -81,7 +93,7 @@ theorem facts_of_ret {d : CutData} {s : Site} {σ : Sig} {m : Machine} (hs : d.s
     decide_eq_true_eq] at hrf
   obtain ⟨hrr', hrs⟩ := hrf
   refine ⟨hc, ⟨fun p hp v hv => ?_, fun p hp v hv => ?_⟩, armOk_keep harms hsite.2.2.2.1,
-    fun r hr => ?_⟩
+    fun r hr => ?_, hsite.2.2.2.2.2.2.2.mono (by simp only [srcChk, hs]; split <;> omega)⟩
   · rcases hrr' p hp with h | ⟨hmem, hcs⟩
     · rw [Val.isWord_of hv] at h; cases h
     · rw [hret.2 _ hcs]; exact hsite.2.2.1.1 p hmem v hv
@@ -110,8 +122,11 @@ theorem facts_of_ret {d : CutData} {s : Site} {σ : Sig} {m : Machine} (hs : d.s
 theorem facts_of_A {d : CutData} {σ : Sig} {m : Machine} (hpc : d.pc ≠ entry)
     (hck : SrcOk d = true) (hA : (mkCut d).A σ m) : Facts d σ m := by
   simp only [mkCut, if_neg hpc, ACut] at hA
-  rcases hA with ⟨-, -, hc, hs, ha, hr, -⟩ | ⟨s, hs, hret⟩
-  · exact ⟨hc, hs, ha, fun r h => hr r (kRest_sub h)⟩
+  rcases hA with ⟨hpl, -, hc, hs, ha, hr, -, -, hchk⟩ | ⟨s, hs, hret⟩
+  · refine ⟨hc, hs, ha, fun r h => hr r (kRest_sub h), hchk.mono ?_⟩
+    unfold srcChk; split
+    · exact Nat.le_refl _
+    · rw [if_pos hpl]; omega
   · exact facts_of_ret hs hck hret
 
 /-! ## Locations as symbolic values -/

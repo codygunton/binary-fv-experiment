@@ -614,9 +614,14 @@ theorem init_three {sh : Shape} {σ : Sig} {m : Machine} {o : Nat}
   rw [this]
   decide
 
-theorem tx_rest {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.pc ≠ entry)
+/-- A moved `rest` location after TX: `rest` one item on, and that item is TX's accepted access
+list. -/
+theorem tx_rest_al {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.pc ≠ entry)
     (hA : (mkCut d).A σ m) (hc : ∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) :
-    RestOk σ m (txRest d l) := by
+    ∀ r ∈ txRest d l, (∃ c, skip r.k σ.payload = some c ∧
+      r.loc.word σ m = if r.len then w σ.len - w c else σ.inp + w c) ∧
+      ∃ c0 es n, skip (r.k - 1) σ.payload = some c0 ∧
+        TX.candidate (σ.payload.drop c0) = .accepted es n := by
   intro r hr
   unfold txRest at hr
   split at hr
@@ -671,16 +676,18 @@ theorem tx_rest {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.pc �
   replace hq : TX.Post σ.A x.2.2 mc m := by rw [hkind] at hq; exact hq
   obtain ⟨-, -, -, cls, consumed, hallow, hl0, hl8, himg⟩ := hq
   simp only at hl0 hl8 himg
-  have hok : ∃ h p, F2.decode (σ.payload.drop c0) = .success true h p ∧
-      consumed = TX.itemConsumed h p := by
+  have hok : ∃ h p es, F2.decode (σ.payload.drop c0) = .success true h p ∧
+      consumed = TX.itemConsumed h p ∧ TX.candidate (σ.payload.drop c0) = .accepted es consumed := by
     cases cls with
     | ok es =>
+      have hc' : TX.candidate (σ.payload.drop c0) = .accepted es consumed := by
+        rw [← hin]; exact hallow
       simp only [TX.OutcomeAllowed, TX.candidate, TX.walk, hin] at hallow
       split at hallow
       · next h p hd =>
         split at hallow
         · simp only [TX.Candidate.accepted.injEq] at hallow
-          exact ⟨h, p, hd, hallow.2.symm⟩
+          exact ⟨h, p, es, hd, hallow.2.symm, hc'⟩
         · cases hallow
       · cases hallow
     | invalidInput | allocationFailure =>
@@ -692,10 +699,10 @@ theorem tx_rest {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.pc �
       have := hc _ (List.contains_iff_mem.mp hcond)
       simp only [SBool.eval, Sym.eval_lit, beq_iff_eq, init_three h3] at this
       exact absurd this (by decide)
-  obtain ⟨h, p, hd, rfl⟩ := hok
+  obtain ⟨h, p, es, hd, rfl, hcand⟩ := hok
   have hskip := skip_snoc hs0 hd
   rw [show r.k - 1 + 1 = r.k by omega] at hskip
-  refine ⟨c0 + TX.itemConsumed h p, hskip, ?_⟩
+  refine ⟨⟨c0 + TX.itemConsumed h p, hskip, ?_⟩, c0, es, _, hs0, hcand⟩
   rcases hrl with e | e <;> rw [e] <;>
     simp only [Loc.word, Bool.false_eq_true, if_false, if_true, TX.wordAt]
   · rw [← hrst, hl0, hrst, hw0]
@@ -704,6 +711,10 @@ theorem tx_rest {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.pc �
   · rw [← hr8, hl8, hr8, hw1]
     simp only [Option.getD_some, w]
     bv_omega
+
+theorem tx_rest {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.pc ≠ entry)
+    (hA : (mkCut d).A σ m) (hc : ∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) :
+    RestOk σ m (txRest d l) := fun r hr => (tx_rest_al hpc hA hc r hr).1
 
 /-- What a leaf of the source cut `d` ending in `m'` knows. -/
 structure Ctx (d : CutData) (l : Leaf) (σ : Sig) (m m' : Machine) : Prop where
@@ -917,7 +928,7 @@ theorem cur_of_A {d : CutData} {σ : Sig} {m : Machine} (hpc : d.pc ≠ entry)
     (hs : d.site = none) (hA : (mkCut d).A σ m) : CurOk σ m (budgetAt d.pc).2 := by
   simp only [mkCut, if_neg hpc, ACut, hs, reduceCtorEq, false_and, exists_false,
     or_false] at hA
-  exact hA.2.2.2.2.2.2.2
+  exact hA.2.2.2.2.2.2.2.1
 
 /-- The cursor of the source, as the payload offset `c` its index `x` evaluates to. -/
 theorem cur_idx {d : CutData} {σ : Sig} {m : Machine} (hpc : d.pc ≠ entry) (hs : d.site = none)
@@ -1434,6 +1445,166 @@ def memcpyArgs (d : CutData) (l : Leaf) : Bool :=
        (siteFields d.pc).any (fun g => g.2 == .ptr k && keptPtr g.1 == some (l.S.reg 11))
    | none => false)
 
+/-! ## Checks of the current item (open assertion item 2) -/
+
+/-- The `isList` bit of the outcome at `ko`. -/
+def isL (ko : Nat) : Sym := .bin .and (.init 0 (ko + 16) 1) (.lit 1)
+
+/-- At a `decodeItem` return site, when item `k` decodes: the outcome's `isList` bit. -/
+theorem f2_list {d : CutData} {σ : Sig} {m : Machine} {ko k : Nat} (hpc : d.pc ≠ entry)
+    (hsrc : SrcOk d = true) (hadv : advOf d = some (ko, k)) (hA : (mkCut d).A σ m) :
+    ∀ c, skip k σ.payload = some c → ∀ l h p, F2.decode (σ.payload.drop c) = .success l h p →
+      (isL ko).eval (envOf d.shape σ m) = if l then 1 else 0 := by
+  intro c hs l h p hd
+  obtain ⟨c1, before, hs1, -, hko, hres⟩ := f2_out hpc hsrc hadv hA
+  rw [hs, Option.some.injEq] at hs1
+  subst hs1
+  have hrl : (F2.result40 (σ.inp + w c) (σ.payload.drop c) before).length = 40 := by
+    simp [F2.result40]
+  simp only [isL, Sym.eval_bin, Sym.eval_lit, BinOp.eval]
+  rw [init_frame hres (by rw [hrl]; omega),
+    List.drop_eq_getElem_cons (by rw [hrl]; omega)]
+  simp only [List.take_succ_cons, List.take_zero, F2.result40, List.getElem_map,
+    List.getElem_range, F2.resultByte, hd, F2.successByte, if_neg (show ¬ (16 < 8) by decide),
+    if_neg (show ¬ (16 < 16) by decide), if_pos (show (16 = 16) from rfl)]
+  cases l <;> simp only [if_true, Bool.false_eq_true, if_false] <;> decide
+
+/-- When the outcome at `ko` holds item `k` (`decodeItem` success), the leaf's conditions say its
+error halfword is zero. -/
+theorem f2_ok {d : CutData} {σ : Sig} {m : Machine} {ko k : Nat} (hpc : d.pc ≠ entry)
+    (hsrc : SrcOk d = true) (hadv : advOf d = some (ko, k)) (hA : (mkCut d).A σ m)
+    (herr : (Sym.init 0 (ko + 32) 2).eval (envOf d.shape σ m) = 0) :
+    ∃ c l h p, skip k σ.payload = some c ∧ F2.decode (σ.payload.drop c) = .success l h p := by
+  obtain ⟨c, before, hs, -, hko, hres⟩ := f2_out hpc hsrc hadv hA
+  have hrl : (F2.result40 (σ.inp + w c) (σ.payload.drop c) before).length = 40 := by
+    simp [F2.result40]
+  rw [init_frame hres (by rw [hrl]; omega), TX.result40_err] at herr
+  have hne := (TX.err_half).mp (by simpa using herr)
+  cases hd : F2.decode (σ.payload.drop c) with
+  | error => exact absurd hd hne
+  | success l h p => exact ⟨c, l, h, p, hs, hd⟩
+
+/-- The leaf's conditions on the outcome at `ko` for the check `ch`. -/
+def chkCond (conds : List SBool) (ko : Nat) : Chk → Bool
+  | .str => conds.contains (.eq (isL ko) (.lit 0))
+  | .le n => conds.contains (.eq (isL ko) (.lit 0)) &&
+      match lenBound conds ko with | some b => decide (b ≤ n) | none => false
+  | .addr => conds.contains (.eq (isL ko) (.lit 0)) &&
+      match outLen conds ko with | some n => n == 0 || n == 20 | none => false
+  | .list => conds.contains (.ne (isL ko) (.lit 0))
+  | .al => false
+
+theorem chkCond_ok {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} {ko k : Nat}
+    (hpc : d.pc ≠ entry) (hsrc : SrcOk d = true) (hadv : advOf d = some (ko, k))
+    (hA : (mkCut d).A σ m) (hc : ∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true)
+    {c : Nat} (hs : skip k σ.payload = some c) {li : Bool} {h p : Nat}
+    (hd : F2.decode (σ.payload.drop c) = .success li h p) (hfit : h + p < 2 ^ 64) {ch : Chk}
+    (hch : chkCond l.conds ko ch = true) : ch.Ok (σ.payload.drop c) := by
+  have hli := f2_list hpc hsrc hadv hA c hs li h p hd
+  have hP := (f2_words hpc hsrc hadv hA c hs li h p hd).1
+  have hstr : ∀ (hstr : l.conds.contains (.eq (isL ko) (.lit 0)) = true), li = false := by
+    intro hstr
+    have := hc _ (List.contains_iff_mem.mp hstr)
+    simp only [SBool.eval, Sym.eval_lit, beq_iff_eq, hli] at this
+    cases li
+    · rfl
+    · exact absurd this (by decide)
+  cases ch with
+  | str => exact ⟨h, p, by rw [← hstr hch]; exact hd⟩
+  | le n =>
+    simp only [chkCond, Bool.and_eq_true] at hch
+    obtain ⟨h1, h2⟩ := hch
+    split at h2
+    case h_2 => cases h2
+    next b hb =>
+    simp only [decide_eq_true_eq] at h2
+    have hqb := hc _ (lenBound_spec hb)
+    simp only [SBool.eval, Sym.eval_lit, Bool.not_eq_true', BitVec.ult, decide_eq_false_iff_not,
+      Nat.not_lt, BitVec.toNat_ofNat, hP, w] at hqb
+    refine ⟨h, p, by rw [← hstr h1]; exact hd, ?_⟩
+    have : p % 2 ^ 64 = p := Nat.mod_eq_of_lt (by omega)
+    omega
+  | addr =>
+    simp only [chkCond, Bool.and_eq_true] at hch
+    obtain ⟨h1, h2⟩ := hch
+    split at h2
+    case h_2 => cases h2
+    next n hn =>
+    simp only [Bool.or_eq_true, beq_iff_eq] at h2
+    have hql := hc _ (outLen_spec hn)
+    simp only [SBool.eval, Sym.eval_lit, beq_iff_eq, hP, w] at hql
+    have := congrArg BitVec.toNat hql
+    simp only [BitVec.toNat_ofNat] at this
+    refine ⟨h, p, by rw [← hstr h1]; exact hd, ?_⟩
+    have : p % 2 ^ 64 = p := Nat.mod_eq_of_lt (by omega)
+    omega
+  | list =>
+    simp only [chkCond] at hch
+    have := hc _ (List.contains_iff_mem.mp hch)
+    simp only [SBool.eval, Sym.eval_lit, bne_iff_ne, ne_eq, hli] at this
+    cases li
+    · exact absurd rfl this
+    · exact ⟨h, p, hd⟩
+  | al => simp [chkCond] at hch
+
+/-- The target's checked items: no more than the source's, or one more, the item whose outcome the
+source holds passing its check for every arm (or TX's access list, accepted). -/
+def chkStep (d : CutData) (l : Leaf) (K' : Nat) : Bool :=
+  decide (K' ≤ srcChk d) ||
+  (decide (K' = srcChk d + 1) && !d.arms.isEmpty &&
+   match advUse d l with
+   | some (ko, k) => k == srcChk d && d.arms.all fun a => armsFit [a] k &&
+       match (armChecks a)[k]? with
+       | some ch => chkCond l.conds ko ch
+       | none => true
+   | none => (txRest d l).any (·.k == srcChk d + 1) &&
+       d.arms.all fun a => (armChecks a)[srcChk d]? == some .al)
+
+theorem chkStep_sound {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.pc ≠ entry)
+    (hsrc : SrcOk d = true) (hA : (mkCut d).A σ m)
+    (hc : ∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) (F : Facts d σ m) {K' : Nat}
+    (h : chkStep d l K' = true) : ChecksOk σ K' := by
+  simp only [chkStep, Bool.or_eq_true, decide_eq_true_eq, Bool.and_eq_true, Bool.not_eq_true',
+    List.isEmpty_eq_false_iff] at h
+  rcases h with h | ⟨⟨hK, hne⟩, h⟩
+  · exact F.chk.mono h
+  have ht : σ.t ∈ d.arms := by
+    rcases F.arms with h0 | h0
+    · exact absurd h0 hne
+    · exact h0
+  subst hK
+  intro i hi c hs ch hch
+  by_cases hik : i < srcChk d
+  · exact F.chk i hik c hs ch hch
+  have hi' : i = srcChk d := by omega
+  subst hi'
+  split at h
+  · next ko k hadv =>
+    simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at h
+    obtain ⟨hk, hall⟩ := h
+    subst hk
+    obtain ⟨hadv', herrc⟩ := advUse_spec hadv
+    have herr := hc _ herrc
+    simp only [SBool.eval, Sym.eval_lit, beq_iff_eq] at herr
+    obtain ⟨c1, li, h, p, hs1, hd⟩ := f2_ok hpc hsrc hadv' hA herr
+    rw [hs, Option.some.injEq] at hs1
+    subst hs1
+    have hta := hall σ.t ht
+    simp only [Bool.and_eq_true, hch] at hta
+    obtain ⟨hfit, hcond⟩ := hta
+    have hf := fit_of_arms F.common.2.1 (.inr (List.mem_singleton_self _)) hfit hs
+    obtain ⟨-, -, h64⟩ := TX.fits_bounds hf hd
+    exact chkCond_ok hpc hsrc hadv' hA hc hs hd h64 hcond
+  · simp only [Bool.and_eq_true, List.any_eq_true, beq_iff_eq, List.all_eq_true] at h
+    obtain ⟨⟨r, hr, hrk⟩, hall⟩ := h
+    have hal := hall σ.t ht
+    rw [hch, Option.some.injEq] at hal
+    subst hal
+    obtain ⟨-, c0, es, n, hs0, hcand⟩ := tx_rest_al hpc hA hc r hr
+    rw [hrk, Nat.add_sub_cancel, hs, Option.some.injEq] at hs0
+    subst hs0
+    exact ⟨es, n, hcand⟩
+
 /-- An `alloc` call's arguments: alignment `a2 ≤ 3`; size `a1` a literal in `(0, 2^63)`, or the
 payload length of the source's `decodeItem` outcome, nonzero by the leaf's condition, of an item
 whose header fits (`armsFit`: then it is at most the payload length). -/
@@ -1587,7 +1758,7 @@ theorem call_idx {d : CutData} {l : Leaf} {s : Site} {σ : Sig} {m m' : Machine}
     rw [hsk] at hix
     obtain ⟨hapre, X, hlive⟩ := hix
     have hpost' : allocPost σ.A x.1 mc m := by have := hpost.1; rw [hsk] at this; exact this
-    have hfld := hsite.2.2.2.2.2.2
+    have hfld := hsite.2.2.2.2.2.2.1
     split at hk
     case h_2 => cases hk
     next k hak =>
@@ -1695,7 +1866,7 @@ def GenCheck (d : CutData) (l : Leaf) : Bool :=
         d'.shape.Fine && shapeHolds l.S d'.shape && armsKeep d.arms d'.arms &&
         restFrom d.shape.S l.S adv (srcRest d l) d'.rest &&
         lenFrom d.shape.S l.S adv d.rest (srcRest d l) d'.rest &&
-        tgtOk d l d'.pc
+        tgtOk d l d'.pc && chkStep d l (chkCount d'.rest)
     | none => false
   | .call t r =>
     match targetOf r with
@@ -1707,7 +1878,7 @@ def GenCheck (d : CutData) (l : Leaf) : Bool :=
           lenFrom d.shape.S l.S adv d.rest (srcRest d l) d'.rest && restRet d' s &&
           l.S.reg 1 == .lit r && decide ((w r &&& ~~~(1 : Word)).toNat = r) &&
           decide (r % 4 = 0) && budgetCall d.pc d'.pc s.kind.bound steps &&
-          fieldsFrom d l (siteFields r)
+          fieldsFrom d l (siteFields r) && chkStep d l (chkCount s.rest)
       | none => false
     | none => false
   | _ => false
@@ -1762,7 +1933,8 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     rename_i d' ht
     obtain ⟨hd', hpc'⟩ := targetOf_spec ht
     simp only [Bool.and_eq_true, bne_iff_ne, ne_eq] at hex
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨hne, hpl⟩, hnx⟩, hx'⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlen⟩, hbud⟩ := hex
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hne, hpl⟩, hnx⟩, hx'⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlen⟩, hbud⟩,
+      hchk⟩ := hex
     refine ⟨hob', tgt_steps hpc hA hm hbud, fun m' hm' hexok hso => ?_⟩
     simp only [mkCut] at hm' hso
     simp only [ExitOk] at hexok
@@ -1773,7 +1945,8 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
       (show restLen d' σ m' ≤ restLen d σ m from hlen') hbud
     refine ExitGoal.at_cut rfl ⟨mkCut d', List.mem_map_of_mem hd', hexok.trans hpc'.symm, ?_, ?_⟩
     · simp only [mkCut, if_neg hne, ACut]
-      refine .inl ⟨hpl, hexok.trans hpc'.symm, hcm, hshp, harm, hrst, ?_, hcur'⟩
+      refine .inl ⟨hpl, hexok.trans hpc'.symm, hcm, hshp, harm, hrst, ?_, hcur',
+        chkStep_sound hpc hsrc hA hc F hchk⟩
       simp only [Bool.or_eq_true] at hnx
       rcases hnx with hnx | hnx
       · simp only [noExtra, Bool.and_eq_true, bne_iff_ne, ne_eq] at hnx
@@ -1792,9 +1965,9 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     case h_2 => cases hex
     rename_i s hs
     simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq, decide_eq_true_eq] at hex
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨ht', hne⟩, hsrc'⟩, hargs⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlen⟩, hrr⟩,
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨ht', hne⟩, hsrc'⟩, hargs⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlen⟩, hrr⟩,
       hra1⟩,
-      hra⟩, hr4⟩, hbud⟩, hfld⟩ := hex
+      hra⟩, hr4⟩, hbud⟩, hfld⟩, hchk⟩ := hex
     simp only [budgetCall] at hbud
     split at hbud
     case h_2 => cases hbud
@@ -1816,7 +1989,8 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     have hraM : RetAligned m' := by unfold RetAligned; rw [hr1, hra]; exact hr4
     obtain ⟨x0, hidx⟩ := call_idx C hpc hsrc hA hc hcm hshp hrst hSF hargs hraM
     have hsite : SiteA s d'.pc σ x0 m' := ⟨by rw [hpc']; exact hr1, hcm, hshp, harm, hrst, hidx,
-      by rw [hpc']; exact fieldsFrom_sound C hpc hsrc hA hfld⟩
+      by rw [hpc']; exact fieldsFrom_sound C hpc hsrc hA hfld,
+      chkStep_sound hpc hsrc hA hc F hchk⟩
     refine ⟨calleeOf s.kind, x0, ?_, ?_, hidx.1, fun m'' hpost => ?_⟩
     · show calleeAt r = _
       unfold calleeAt

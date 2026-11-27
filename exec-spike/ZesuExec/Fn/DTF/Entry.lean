@@ -134,7 +134,8 @@ theorem DTF.leaf_8000050c_0 :
   refine ExitGoal.at_cut rfl ⟨mkCut (table[1]!), hmem1, hexok.trans hpc1.symm, ?_, ?_⟩
   · simp only [mkCut, if_neg hne1, ACut]
     refine .inl ⟨hpl1, by rw [hexok, hpc1], hcm,
-      shapeOk_of_holds hwf' hm' hR0 hfine1 hsh1, .inl harms1, ?_, ?_, ?_⟩
+      shapeOk_of_holds hwf' hm' hR0 hfine1 hsh1, .inl harms1, ?_, ?_, ?_,
+      fun i hi => by rw [hrest1] at hi; simp [chkCount] at hi⟩
     · intro r hr
       rw [hrest1] at hr
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hr

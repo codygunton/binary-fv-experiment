@@ -175,6 +175,43 @@ def siteFieldsTable : List (Nat × List (Loc × FieldVal)) := [
 
 def siteFields (r : Nat) : List (Loc × FieldVal) := (siteFieldsTable.lookup r).getD []
 
+/-- How the reference decoder checks one top-level item, by its field helper (open assertion
+item 2): a string (`txNonce`, `txU128`, `txBytesView`), a string of at most `n` bytes (`txU64`,
+`txU256`), a string of 0 or 20 bytes (`txAddr`), the access list (`TX.candidate` accepts), a list
+(`txHashList`, `txAuthList`; their elements are checked inside the list loops). -/
+inductive Chk
+  | str
+  | le (n : Nat)
+  | addr
+  | al
+  | list
+  deriving DecidableEq, Repr
+
+/-- The checks of `body t`'s top-level items, in order (`fieldCount t` of them). -/
+def armChecks : Nat → List Chk
+  | 0 => [.str, .str, .le 8, .addr, .le 32, .str, .le 32, .le 32, .le 32]
+  | 1 => [.le 8, .str, .str, .le 8, .addr, .le 32, .str, .al, .le 8, .le 32, .le 32]
+  | 2 => [.le 8, .str, .str, .str, .le 8, .addr, .le 32, .str, .al, .le 8, .le 32, .le 32]
+  | 3 => [.le 8, .str, .str, .str, .le 8, .addr, .le 32, .str, .al, .str, .list, .le 8, .le 32,
+    .le 32]
+  | _ => [.le 8, .str, .str, .str, .le 8, .addr, .le 32, .str, .al, .list, .le 8, .le 32, .le 32]
+
+/-- The item at the head of `b` passes the check. -/
+def Chk.Ok : Chk → List Byte → Prop
+  | .str, b => ∃ h p, F2.decode b = .success false h p
+  | .le n, b => ∃ h p, F2.decode b = .success false h p ∧ p ≤ n
+  | .addr, b => ∃ h p, F2.decode b = .success false h p ∧ (p = 0 ∨ p = 20)
+  | .al, b => ∃ es n, TX.candidate b = .accepted es n
+  | .list, b => ∃ h p, F2.decode b = .success true h p
+
+/-- The first `k` top-level items pass their checks. -/
+def ChecksOk (σ : Sig) (k : Nat) : Prop :=
+  ∀ i < k, ∀ c, skip i σ.payload = some c → ∀ ch, (armChecks σ.t)[i]? = some ch →
+    ch.Ok (σ.payload.drop c)
+
+/-- The items a cut or call site has checked: as many as its `rest` slice is past. -/
+def chkCount (rs : List RestLoc) : Nat := rs.foldl (fun a r => max a r.k) 0
+
 /-- A buffer slot of `n` bytes at `a0`, carved from the allocator's private memory. -/
 def SlotOk (σ : Sig) (m : Machine) (n : Nat) : Prop :=
   RamRange (m.reg 10) n ∧ Present m (m.reg 10) n ∧ ∀ a, InRange (m.reg 10) n a → σ.A.Priv σ.g.L a
@@ -482,12 +519,12 @@ def CurOk (σ : Sig) (m : Machine) : Inner → Prop
 
 def PlainA (d : CutData) (σ : Sig) (m : Machine) : Prop :=
   m.pc.toNat = d.pc ∧ Common σ m ∧ ShapeOk σ d.shape m ∧ ArmOk σ d.arms ∧ RestOk σ m d.rest ∧
-    Extra d.pc σ m ∧ CurOk σ m (budgetAt d.pc).2
+    Extra d.pc σ m ∧ CurOk σ m (budgetAt d.pc).2 ∧ ChecksOk σ (chkCount d.rest)
 
 /-- The call-site predicate of the call returning to `r`. -/
 def SiteA (s : Site) (r : Nat) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   m.reg 1 = w r ∧ Common σ m ∧ ShapeOk σ s.shape m ∧ ArmOk σ s.arms ∧ RestOk σ m s.rest ∧
-    IdxOk s.kind σ x m ∧ FieldsOk σ m (siteFields r)
+    IdxOk s.kind σ x m ∧ FieldsOk σ m (siteFields r) ∧ ChecksOk σ (chkCount s.rest)
 
 def RetA (s : Site) (r : Nat) (σ : Sig) (m : Machine) : Prop :=
   ∃ mc x, SiteA s r σ x mc ∧ (calleeOf s.kind).Post σ x mc m
