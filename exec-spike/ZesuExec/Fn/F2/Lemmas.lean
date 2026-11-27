@@ -232,17 +232,15 @@ theorem bigEndian_lt (l : List Byte) : bigEndian l < 256 ^ l.length := by
 
 /-- One loop step on the accumulator: `(a << 8) | c`. -/
 theorem shl_or (a : Nat) (c : Byte) (ha : a < 2 ^ 56) :
-    (BitVec.ofNat 64 a <<< ((BitVec.ofNat 64 8).toNat % 64)) ||| c.setWidth 64 =
-      BitVec.ofNat 64 (256 * a + c.toNat) := by
+    (BitVec.ofNat 64 a <<< 8) ||| c.setWidth 64 = BitVec.ofNat 64 (256 * a + c.toNat) := by
   apply BitVec.eq_of_toNat_eq
   have hc := c.isLt
   simp only [Nat.reducePow] at hc
   rw [BitVec.toNat_or, BitVec.toNat_shiftLeft, BitVec.toNat_setWidth, BitVec.toNat_ofNat,
-    BitVec.toNat_ofNat, BitVec.toNat_ofNat]
+    BitVec.toNat_ofNat]
   have h1 : a % 2 ^ 64 = a := Nat.mod_eq_of_lt (by omega)
-  have h2 : (8 % 2 ^ 64) % 64 = 8 := by decide
   have h3 : c.toNat % 2 ^ 64 = c.toNat := Nat.mod_eq_of_lt (by omega)
-  rw [h1, h2, h3, Nat.shiftLeft_eq]
+  rw [h1, h3, Nat.shiftLeft_eq]
   have h4 : a * 2 ^ 8 % 2 ^ 64 = a * 2 ^ 8 := Nat.mod_eq_of_lt (by omega)
   rw [h4, Nat.mul_comm, ← Nat.two_pow_add_eq_or_of_lt (i := 8) (by omega)]
   have : (2 ^ 8 * a + c.toNat) % 2 ^ 64 = 2 ^ 8 * a + c.toNat := Nat.mod_eq_of_lt (by omega)
@@ -306,6 +304,18 @@ theorem decode_long {b : Byte} {rest : List Byte} {w pre : Nat} {lst : Bool}
   · simp only [decode, hb]
     rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega),
       if_neg (by omega), Nat.add_sub_cancel_left, if_pos (by omega)]
+
+theorem decode_long' {input : List Byte} {b : Byte} {w pre : Nat} {lst : Bool}
+    (hh : input.head? = some b) (hpl : (pre = 183 ∧ lst = false) ∨ (pre = 247 ∧ lst = true))
+    (hb : b.toNat = pre + w) (hw1 : 1 ≤ w) (hw8 : w ≤ 8) (hlen : w < input.length) :
+    decode input = checkedPayload input.length (1 + w) (bigEndian ((input.drop 1).take w)) lst := by
+  cases input with
+  | nil => simp at hh
+  | cons c rest =>
+    simp only [List.head?_cons, Option.some.injEq] at hh
+    subst hh
+    simp only [List.length_cons] at hlen ⊢
+    exact decode_long hpl hb hw1 hw8 hlen
 
 /-! ## Assembling `Post` -/
 

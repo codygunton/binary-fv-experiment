@@ -50,4 +50,23 @@ theorem sim_jalr {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
     exact key
   · cases hex
 
+theorem sim_jal {rd : Fin 32} {imm : BitVec 21} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.jal rd imm))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.jumpTo] at hex
+  split at hex
+  · rename_i hal
+    simp only [Option.some.injEq] at hex
+    subst hex
+    obtain ⟨z, hz⟩ := T_zca hR m.pc
+    refine sim_ctl hR hw hd hpc ?_ n
+    change Runs (execute_JAL imm (rg rd)) _ _ _
+    exact execute_JAL_run (T s m.pc) _ imm (rg rd) (m.pc + 4) m.pc
+      (get_next_pc_run _ _ (T_nextPC s m.pc)) (T_pc hR m.pc) (jump_aligned hal).1
+      (jump_aligned hal).2 z hz (wX_rg_run _ rd _)
+  · cases hex
+
 end ZesuExec.SailLink

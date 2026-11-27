@@ -98,4 +98,61 @@ def Post (m m' : Machine) : Prop :=
     BytesAt m (m.reg 10) before → before.length = 40 →
     BytesAt m' (m.reg 10) (result40 (m.reg 11) input before)
 
+/-! ## Non-vacuity -/
+
+/-- Bytes a witness machine holds outside rodata: the frame below `sp = 0xa0001000`, the
+outcome struct at `0xa0002000`, one input byte at `0xa0003000`. -/
+def witnessRam (n : Nat) : Bool :=
+  (0xa0000ff0 ≤ n && n < 0xa0001000) || (0xa0002000 ≤ n && n < 0xa0002028) || n == 0xa0003000
+
+/-- `a0 = 0xa0002000`, `a1 = 0xa0003000`, `a2 = 1` (input `[0x00]`), `sp = 0xa0001000`,
+`ra = 0x80000000`, the image's rodata loaded, every other present byte zero. -/
+def witness : Machine where
+  regs := fun i =>
+    if i.val = 2 then 0xa0001000 else if i.val = 1 then 0x80000000
+    else if i.val = 10 then 0xa0002000 else if i.val = 11 then 0xa0003000
+    else if i.val = 12 then 1 else 0
+  pc := BitVec.ofNat 64 entry
+  mem := fun a =>
+    match zesuImage.rodataByte? a.toNat with
+    | some b => some (BitVec.ofNat 8 b)
+    | none => if witnessRam a.toNat then some 0 else none
+
+theorem witness_rodata : RodataLoaded zesuImage witness := by
+  intro a b h
+  have ha : a < 2 ^ 64 := by
+    simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?] at h
+    have := (List.getElem?_eq_some_iff.mp h.2).1
+    simp at this; omega
+  simp [witness, Nat.mod_eq_of_lt ha, h]
+
+theorem witness_present (c j : Nat) (h : witnessRam (c + j) = true) (hc : c + j < 2 ^ 64) :
+    (witness.mem (BitVec.ofNat 64 c + BitVec.ofNat 64 j)).isSome := by
+  have ha : (BitVec.ofNat 64 c + BitVec.ofNat 64 j).toNat = c + j := by
+    simp [BitVec.toNat_add]; omega
+  have hlo : 0xa0000000 ≤ c + j := by
+    simp [witnessRam] at h; omega
+  have hro : zesuImage.rodataByte? (c + j) = none := by
+    simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?]
+    intro _; omega
+  simp only [witness, ha, hro, h, if_true, Option.isSome_some]
+
+example : ∃ m, Pre m := by
+  refine ⟨witness, witness_rodata, ⟨by decide, by decide, by decide, fun j hj => ?_⟩,
+    by unfold RetAligned; decide, by decide, fun j hj => ?_, by decide, by decide,
+    fun j hj => ?_, by unfold Disjoint; decide, by unfold Disjoint; decide,
+    by unfold Disjoint; decide⟩
+  · have e : witness.reg 2 - BitVec.ofNat 64 16 = BitVec.ofNat 64 0xa0000ff0 := by decide
+    rw [e]
+    exact witness_present _ _ (by simp [witnessRam]; omega) (by omega)
+  · have e : witness.reg 11 = BitVec.ofNat 64 0xa0003000 := by decide
+    have hj' : j = 0 := by
+      have : (witness.reg 12).toNat = 1 := by decide
+      omega
+    rw [e, hj']
+    exact witness_present _ _ (by decide) (by decide)
+  · have e : witness.reg 10 = BitVec.ofNat 64 0xa0002000 := by decide
+    rw [e]
+    exact witness_present _ _ (by simp [witnessRam]; omega) (by omega)
+
 end ZesuExec.Fn.F2

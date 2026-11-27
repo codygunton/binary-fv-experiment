@@ -1,5 +1,16 @@
 import ZesuExec.Fn.F2.Lemmas
 
+/-!
+# F2 proof: `f2_spec : Spec zesuImage 0x800d6960 75 Pre Post`
+
+Three `sym_run`s with the two loop heads as cuts: from the entry (`runE`, 11 leaves: 8 returns,
+1 return on empty input, 2 loop entries) and from each loop head (`runL1`, `runL2`, 3 leaves
+each: back edge, error return, success return). Every leaf is composed with `run_reaches`.
+The loops read the 1..8 big-endian length bytes; `Inv` is the loop-head invariant after `j` of
+`w` bytes and `loop_reaches` inducts on the bytes left (`w - 1 - j`), costing 5 per back edge
+and at most 17 for the last trip, so the bound is exact: 23 + 7 * 5 + 17 = 75.
+-/
+
 namespace ZesuExec.Fn.F2
 open ZesuExec ZesuExec.Sym ZesuExec.Machine
 
@@ -273,9 +284,6 @@ theorem envL_facts {m mh : Machine} {j : Nat} :
     (envL m mh j).size 2 = 40 := by
   simp [envL, Env.setVars, Env.base, Env.size, entryEnv, shape, shapeOf]
 
-theorem ptr_eval {env : Env} {r : Nat} {k : Nat} : (Sym.ptr r k).eval env = env.base r + BitVec.ofNat 64 k := by
-  simp [Sym.eval]
-
 /-- One trip through a loop head: the back edge re-establishes `Inv` at `j + 1`; the exits
 satisfy `Post`. -/
 theorem loop_step {m : Machine} (hpre : Pre m) {pre head w j : Nat} {lst : Bool} {ls : List Leaf}
@@ -309,19 +317,21 @@ theorem loop_step {m : Machine} (hpre : Pre m) {pre head w j : Nat} {lst : Bool}
   have hbyte : (envL m mh j).byte0 1 (1 + j) =
       ((bytesOf m (m.reg 11) (m.reg 12).toNat).drop 1)[j] := by
     have e := hinit 1 (1 + j) (by decide) (by rw [hs1]; omega)
-    rw [hb1, ← hso _ (pre_notFrame_in hpre (by omega))] at e
+    rw [hb1, hso _ (pre_notFrame_in hpre (by omega))] at e
     rw [bytesOf_drop_getElem _ _ _ _ (by omega), e]
     rfl
   have hacc : accSym.eval (envL m mh j) = BitVec.ofNat 64
       (bigEndian (((bytesOf m (m.reg 11) (m.reg 12).toNat).drop 1).take (j + 1))) := by
-    rw [List.take_succ, List.getElem?_eq_getElem hdl, Option.toList_some, bigEndian_append]
+    rw [List.take_add_one, List.getElem?_eq_getElem hdl, Option.toList_some, bigEndian_append]
     have hlt : bigEndian (((bytesOf m (m.reg 11) (m.reg 12).toNat).drop 1).take j) < 2 ^ 56 := by
       refine Nat.lt_of_lt_of_le (bigEndian_lt _) ?_
       have : (((bytesOf m (m.reg 11) (m.reg 12).toNat).drop 1).take j).length ≤ 7 := by
         simp; omega
       exact Nat.le_trans (Nat.pow_le_pow_right (by decide) this) (by decide)
-    simp only [accSym, Sym.eval, BinOp.eval, ofBytes1, hv32, hv 13, h13]
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : j < 2 ^ 64), Nat.one_mul, hbyte]
+    have hv13 : (envL m mh j).vars 13 = mh.reg 13 := hv 13
+    simp only [accSym, Sym.eval, BinOp.eval, ofBytes1, Nat.reduceMod, Nat.reducePow]
+    simp only [hv32, hv13, h13, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (show j < 2 ^ 64 by omega),
+      Nat.one_mul, hbyte]
     exact shl_or _ _ hlt
   have hend : endSym.eval (envL m mh j) = m.reg 11 + BitVec.ofNat 64 (j + 2) := by
     simp only [endSym, Sym.eval, BinOp.eval, hb1, hv32]
@@ -332,15 +342,13 @@ theorem loop_step {m : Machine} (hpre : Pre m) {pre head w j : Nat} {lst : Bool}
     intro k hk
     constructor
     · intro h
-      have := congrArg (fun x => x - m.reg 11) h
-      simp only [BitVec.add_sub_cancel_left] at this
-      have := congrArg BitVec.toNat this
-      simp at this; omega
+      have := congrArg BitVec.toNat h
+      simp [BitVec.toNat_add] at this
+      have := (m.reg 11).isLt
+      omega
     · intro h; rw [h]
   have hsp2 : (envL m mh j).base 0 + BitVec.ofInt 64 16 = m.reg 2 := by
     rw [hb0]; simp [BitVec.sub_add_cancel]
-  have hrest : ((bytesOf m (m.reg 11) (m.reg 12).toNat).drop 1).length + 1 = (m.reg 12).toNat := by
-    simp [bytesOf]; omega
   have hsoL : ∀ m', SameOutside (InWritable (envL m mh j) SL) mh m' →
       SameOutside (fun a => InRange (m.reg 10) 40 a ∨ InRange (m.reg 2 - 16) 16 a) m m' := by
     intro m' hfr a ha
@@ -357,7 +365,7 @@ theorem loop_step {m : Machine} (hpre : Pre m) {pre head w j : Nat} {lst : Bool}
   have hbE : ∀ k < 40, (envL m mh j).byte0 2 k = (bytesOf m (m.reg 10) 40).getD k 0 := by
     intro k hk
     have e := hinit 2 k (by decide) (by rw [hs2]; exact hk)
-    rw [hb2, ← hso _ (pre_notFrame_out hpre hk)] at e
+    rw [hb2, hso _ (pre_notFrame_out hpre hk)] at e
     rw [bytesOf_getD _ _ _ _ hk, e]; rfl
   have hhead : firstByte m ≠ 128 := fun h => by
     rw [h] at hfb; rcases hpl with ⟨rfl, -⟩ | ⟨rfl, -⟩ <;> simp at hfb <;> omega
@@ -367,8 +375,8 @@ theorem loop_step {m : Machine} (hpre : Pre m) {pre head w j : Nat} {lst : Bool}
     ⟨hex, hcs, hob, hst, hreg, hsv, hview⟩ | ⟨hex, hcs, hob, hst, hreg, hsv, hview⟩
   · -- back edge
     rw [hcs] at hc
-    simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq, SBool.eval, hend, hv11,
-      bne_iff_ne, ne_eq] at hc
+    simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq, SBool.eval, hend] at hc
+    simp only [Sym.eval, hv11, bne_iff_ne, ne_eq] at hc
     have hne : j + 2 ≠ w + 1 := fun h => hc (by rw [h])
     refine ⟨?_, by rw [hst]; show 5 - 0 ≤ b; omega, fun m' hm' hex' hfr => ?_⟩
     · rw [hob]
@@ -384,7 +392,8 @@ theorem loop_step {m : Machine} (hpre : Pre m) {pre head w j : Nat} {lst : Bool}
       · rw [← hm'.regs i, ← hvk i hi]
         simp only [keepRegs, List.mem_cons, List.not_mem_nil, or_false] at hi
         by_cases h10 : i.val = 10
-        · rw [h10, r10, ptr_eval, hb2]; exact (hv 10).trans (hkeep 10 (by decide)) |>.symm
+        · have hv10 : (envL m mh j).vars 10 = m.reg 10 := hvk 10 (by decide)
+          rw [h10, r10, hv10]; simp [Sym.eval, hb2]
         · rw [rv i.val (by simp only [varRegs, List.mem_cons, List.not_mem_nil, or_false]; omega)]
           rfl
       · rw [← hm'.regs 2]; show (l.S.reg 2).eval _ = _
@@ -402,14 +411,15 @@ theorem loop_step {m : Machine} (hpre : Pre m) {pre head w j : Nat} {lst : Bool}
   · -- error exit
     rw [hcs] at hc
     simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, SBool.eval,
-      hend, hv11, beq_iff_eq] at hc
+      hend] at hc
+    simp only [Sym.eval, hv11, beq_iff_eq] at hc
     obtain ⟨hc1, hc2⟩ := hc
     have hjw' : j + 1 = w := by have := (hcmp (w + 1) (by omega)).mp hc1; omega
+    rw [hacc] at hc2
     simp only [Sym.eval, BinOp.eval, hv12, hv14] at hc2
-    rw [show Sym.eval (envL m mh j) (Sym.bin .or (.bin .sll (.var 13) (.lit 8))
-      (.initx 1 1 (.var 32) 1 1)) = accSym.eval (envL m mh j) from rfl, hacc] at hc2
-    simp [BitVec.ult, BitVec.toNat_add] at hc2
-    refine ⟨?_, by rw [hst] at *; show l.S.steps - 0 ≤ b; omega, fun m' hm' hex' hfr => ?_⟩
+    simp only [BitVec.ult, BitVec.toNat_add, BitVec.toNat_ofNat, decide_eq_true_eq,
+      Bool.not_eq_true', decide_eq_false_iff_not, Nat.not_lt] at hc2
+    refine ⟨?_, by show l.S.steps - 0 ≤ b; omega, fun m' hm' hex' hfr => ?_⟩
     · rw [hob]
       simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
         Oblig.holds, Sym.eval, hv32, hs1, BitVec.toNat_ofNat]
@@ -417,23 +427,24 @@ theorem loop_step {m : Machine} (hpre : Pre m) {pre head w j : Nat} {lst : Bool}
       rw [Nat.mod_eq_of_lt (by omega : j < 2 ^ 64)]; omega
     · rw [hex] at hex'
       have hdec : decode (bytesOf m (m.reg 11) (m.reg 12).toNat) = .error := by
-        rw [input_cons m (by omega), decode_long hpl hfb (by omega) hw8 (by omega), checkedPayload,
-          if_neg]
-        rw [hrest, ← hjw']
+        rw [decode_long' (input_head m (by omega)) hpl hfb (by omega) hw8
+          (by rw [bytesOf_length]; omega), checkedPayload, if_neg]
+        rw [bytesOf_length, ← hjw']
         omega
       exact Reaches.done (post_of (hret m' _ hm' hex' hsv) (hsoL m' hfr)
         (bytes_err hm' (by rw [hreg]; rfl) hb2 hs2 hview hdec))
   · -- success exit
     rw [hcs] at hc
     simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, SBool.eval,
-      hend, hv11, beq_iff_eq] at hc
+      hend] at hc
+    simp only [Sym.eval, hv11, beq_iff_eq] at hc
     obtain ⟨hc1, hc2⟩ := hc
     have hjw' : j + 1 = w := by have := (hcmp (w + 1) (by omega)).mp hc1; omega
+    rw [hacc] at hc2
     simp only [Sym.eval, BinOp.eval, hv12, hv14] at hc2
-    rw [show Sym.eval (envL m mh j) (Sym.bin .or (.bin .sll (.var 13) (.lit 8))
-      (.initx 1 1 (.var 32) 1 1)) = accSym.eval (envL m mh j) from rfl, hacc] at hc2
-    simp [BitVec.ult, BitVec.toNat_add] at hc2
-    refine ⟨?_, by rw [hst] at *; show l.S.steps - 0 ≤ b; omega, fun m' hm' hex' hfr => ?_⟩
+    simp only [BitVec.ult, BitVec.toNat_add, BitVec.toNat_ofNat, decide_eq_true_eq,
+      Bool.not_eq_true', decide_eq_false_iff_not, Nat.not_lt] at hc2
+    refine ⟨?_, by show l.S.steps - 0 ≤ b; omega, fun m' hm' hex' hfr => ?_⟩
     · rw [hob]
       simp only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
         Oblig.holds, Sym.eval, hv32, hs1, BitVec.toNat_ofNat]
@@ -442,9 +453,9 @@ theorem loop_step {m : Machine} (hpre : Pre m) {pre head w j : Nat} {lst : Bool}
     · rw [hex] at hex'
       have hdec : decode (bytesOf m (m.reg 11) (m.reg 12).toNat) = .success lst (1 + w)
           (bigEndian (((bytesOf m (m.reg 11) (m.reg 12).toNat).drop 1).take (j + 1))) := by
-        rw [input_cons m (by omega), decode_long hpl hfb (by omega) hw8 (by omega), checkedPayload,
-          if_pos, hjw']
-        rw [hrest, ← hjw']
+        rw [decode_long' (input_head m (by omega)) hpl hfb (by omega) hw8
+          (by rw [bytesOf_length]; omega), checkedPayload, if_pos, hjw']
+        rw [bytesOf_length, ← hjw']
         omega
       refine Reaches.done (post_of (hret m' _ hm' hex' hsv) (hsoL m' hfr)
         (bytes_succ hm' (by rw [hreg]; rfl) hb2 hs2 hview (by cases lst <;> rfl) hbE hdec ?_ hacc ?_))
@@ -452,8 +463,7 @@ theorem loop_step {m : Machine} (hpre : Pre m) {pre head w j : Nat} {lst : Bool}
         simp only [Sym.eval, hv11, Option.some.injEq, hhead, if_false]
         rw [Nat.add_comm]
       · simp only [Sym.eval, BinOp.eval, hv14]
-        rw [show Sym.eval (envL m mh j) (Sym.bin .or (.bin .sll (.var 13) (.lit 8))
-          (.initx 1 1 (.var 32) 1 1)) = accSym.eval (envL m mh j) from rfl, hacc]
+        rw [hacc]
         apply BitVec.eq_of_toNat_eq
         simp [BitVec.toNat_add]; omega
 
@@ -474,70 +484,132 @@ theorem loop_reaches {m : Machine} (hpre : Pre m) {pre head w : Nat} {lst : Bool
     rw [show (μ + 1) * 5 + 17 - 5 = μ * 5 + 17 by omega]
     exact ih (j + 1) mh' (by omega) hI'
 
+/-- The registers and frame an entry run leaves at a loop head; `W` is the width term. -/
+abbrev EntryOK (W : Sym) (lS : SState) : Prop :=
+  lS.mem = [⟨0, 0, 8, .var 8⟩, ⟨0, 8, 8, .var 1⟩] ∧ lS.regions = regionsR ∧
+  lS.reg 2 = .ptr 0 0 ∧ lS.reg 8 = .ptr 0 16 ∧ lS.reg 10 = .ptr 2 0 ∧
+  lS.reg 11 = .bin .add (.ptr 1 0) (.bin .add W (.lit 1)) ∧ lS.reg 13 = .lit 0 ∧
+  lS.reg 14 = .bin .add W (.lit 1) ∧ lS.reg 15 = .ptr 1 1 ∧ ∀ i ∈ varRegs, lS.reg i = .var i
+
+theorem envE_facts {m : Machine} :
+    (envE m).base 0 = m.reg 2 - 16 ∧ (envE m).base 1 = m.reg 11 ∧ (envE m).base 2 = m.reg 10 ∧
+    (envE m).size 0 = 16 ∧ (envE m).size 1 = (m.reg 12).toNat ∧ (envE m).size 2 = 40 := by
+  simp [envE, Env.base, Env.size, entryEnv, shape, shapeOf]
+
+theorem pre_init {m : Machine} (hpre : Pre m) :
+    ∀ r k, r < regionsR.length → k < (envE m).size r →
+      m.mem ((envE m).base r + BitVec.ofNat 64 k) = some ((envE m).byte0 r k) := by
+  obtain ⟨-, ⟨-, -, -, hfp⟩, -, -, hinp, -, -, hout, -⟩ := hpre
+  obtain ⟨hb0, hb1, hb2, hs0, hs1, hs2⟩ := envE_facts (m := m)
+  intro r k hr hk
+  have hb : ∀ x, m.mem ((envE m).base r + BitVec.ofNat 64 k) = some x →
+      m.mem ((envE m).base r + BitVec.ofNat 64 k) = some ((envE m).byte0 r k) := by
+    intro x hx
+    rw [hx]
+    simp [envE, Env.byte0, Env.base, entryEnv] at hx ⊢
+    simp [hx]
+  simp only [regionsR, List.length_cons, List.length_nil] at hr
+  have hr3 : r = 0 ∨ r = 1 ∨ r = 2 := by omega
+  rcases hr3 with rfl | rfl | rfl
+  · rw [hs0] at hk; rw [hb0] at hb ⊢
+    obtain ⟨x, hx⟩ := Option.isSome_iff_exists.mp (hfp k hk)
+    exact hb x hx
+  · rw [hs1] at hk; rw [hb1] at hb ⊢
+    obtain ⟨x, hx⟩ := Option.isSome_iff_exists.mp (hinp k hk)
+    exact hb x hx
+  · rw [hs2] at hk; rw [hb2] at hb ⊢
+    obtain ⟨x, hx⟩ := Option.isSome_iff_exists.mp (hout k hk)
+    exact hb x hx
+
+/-- An entry leaf at a loop head establishes `Inv` with no length bytes read. -/
+theorem entry_inv {m m' : Machine} (hpre : Pre m) {pre head w : Nat} {lS : SState} {W : Sym}
+    (hm' : Match (envE m) lS m') (hpc' : m'.pc.toNat = head)
+    (hfr : SameOutside (InWritable (envE m) S0) m m')
+    (hw1 : 1 ≤ w) (hw8 : w ≤ 8) (hwl : w < (m.reg 12).toNat) (hfb : (firstByte m).toNat = pre + w)
+    (hW : W.eval (envE m) = BitVec.ofNat 64 w) (hok : EntryOK W lS) : Inv m pre head w 0 m' := by
+  obtain ⟨hmem, hreg, r2, r8, r10, r11, r13, r14, r15, rv⟩ := hok
+  obtain ⟨hb0, hb1, hb2, hs0, hs1, hs2⟩ := envE_facts (m := m)
+  have hsp := pre_sp hpre
+  have hhi := hpre.2.1.2.2.1
+  have hlen : lS.regions.length = 3 := by rw [hreg]; rfl
+  refine ⟨hpc', hw1, hw8, hwl, hfb, fun i hi => ?_, ?_, ?_, ?_, ?_, ?_, ?_, fun t ht => ?_,
+    fun t ht => ?_, ?_⟩
+  · rw [← hm'.regs i]
+    simp only [keepRegs, List.mem_cons, List.not_mem_nil, or_false] at hi
+    by_cases h10 : i.val = 10
+    · have : i = 10 := Fin.ext h10
+      subst this
+      show (lS.reg 10).eval _ = _
+      rw [r10]; simp [Sym.eval, hb2]
+    · rw [rv i.val (by simp only [varRegs, List.mem_cons, List.not_mem_nil, or_false]; omega)]
+      exact entryEnv_var m _ i
+  · rw [← hm'.regs 2]; show (lS.reg 2).eval _ = _
+    rw [r2]; simp [Sym.eval, hb0]
+  · rw [← hm'.regs 8]; show (lS.reg 8).eval _ = _
+    rw [r8]; simp [Sym.eval, hb0, BitVec.sub_add_cancel]
+  · rw [← hm'.regs 11]; show (lS.reg 11).eval _ = _
+    rw [r11]; simp only [Sym.eval, BinOp.eval, hb1, hW]
+    apply BitVec.eq_of_toNat_eq
+    simp [BitVec.toNat_add]
+  · rw [← hm'.regs 14]; show (lS.reg 14).eval _ = _
+    rw [r14]; simp only [Sym.eval, BinOp.eval, hW]
+    apply BitVec.eq_of_toNat_eq
+    simp [BitVec.toNat_add]
+  · rw [← hm'.regs 15]; show (lS.reg 15).eval _ = _
+    rw [r15]; simp [Sym.eval, hb1]
+  · rw [← hm'.regs 13]; show (lS.reg 13).eval _ = _
+    rw [r13]; simp [Sym.eval, bigEndian]
+  · have := hm'.mem 0 (8 + t) (by rw [hlen]; decide) (by rw [hs0]; omega)
+    rw [hmem, (frame_bytes _ _ _ ht).1, hb0] at this
+    exact this
+  · have := hm'.mem 0 t (by rw [hlen]; decide) (by rw [hs0]; omega)
+    rw [hmem, (frame_bytes _ _ _ ht).2, hb0] at this
+    exact this
+  · refine so_of_leaf hfr hm' (by rw [hreg]; rfl) (pre_init hpre) fun r k hr hk hn => ?_
+    rw [hmem] at hn
+    simp only [S0, entryState, regionsR, List.length_cons, List.length_nil] at hr
+    have hr3 : r = 0 ∨ r = 1 ∨ r = 2 := by omega
+    rcases hr3 with rfl | rfl | rfl
+    · rw [hs0] at hk
+      rw [hb0]
+      unfold InRange
+      rw [toNat_add_ofNat (by simp [Layout.ramHi] at hhi; omega)]
+      omega
+    · simp at hn
+    · simp at hn
+
 -- MAIN
 theorem f2_spec : Spec zesuImage entry bound Pre Post := by
-  intro m hpc ⟨hro, ⟨hal, hlo, hhi, hfp⟩, hra, hrd, hinp, hwr, hal8, hout, hd1, hd2, hd3⟩
-  have hsp : (m.reg 2 - 16).toNat = (m.reg 2).toNat - 16 := by
-    have h16 : (16 : Word).toNat = 16 := rfl
-    rw [BitVec.toNat_sub, h16]; unfold Layout.ramLo at hlo; omega
-  have hwf : Env.WF (envE m) S0 := by
-    refine entry_wf (shape m) ?_ ?_
-    · simp only [shape, shapeOf, List.mem_cons, List.not_mem_nil, or_false]
-      rintro p (rfl | rfl | rfl)
-      · refine ⟨by simp [frameR], by simp [frameR]; omega, ?_⟩
-        simp [frameR, Machine.writable, Machine.inRange]
-        simp [Layout.ramLo, Layout.ramHi] at hlo hhi ⊢; omega
-      · exact ⟨by simp [inputR], by simp [inputR, Nat.mod_one], by simpa [inputR] using hrd⟩
-      · exact ⟨by simp [outR], by simpa [outR] using hal8, by simpa [outR] using hwr⟩
-    · unfold Fn.Disjoint at hd1 hd2 hd3
-      simp only [hsp] at hd1 hd2 hd3
-      simp only [shape, shapeOf, List.map_cons, List.map_nil, List.pairwise_cons,
-        List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
-        List.Pairwise.nil, and_true, Fn.Disjoint, hsp]
-      exact ⟨⟨by omega, by omega⟩, by omega, fun _ h => h.elim⟩
+  intro m hpc hpre
+  have hro := hpre.1
+  have hra := hpre.2.2.1
+  have hwf : Env.WF (envE m) S0 := pre_wf hpre m ov []
   have hm : Match (envE m) S0 m := by
-    refine entry_match (fun i hi s hs => ?_) (fun r j hr hj => ?_) (by simp)
-    · simp only [ov] at hs
-      by_cases h2 : i.val = 2
-      · simp only [h2, if_true, Option.some.injEq] at hs
-        subst hs
-        have : i = 2 := Fin.ext h2
-        subst this
-        simp [Sym.eval, Env.base, entryEnv, shape, shapeOf, BitVec.sub_add_cancel]
-      by_cases h11 : i.val = 11
-      · simp [h11] at hs
-        subst hs
-        have : i = 11 := Fin.ext h11
-        subst this
-        simp [Sym.eval, Env.base, entryEnv, shape, shapeOf]
-      by_cases h10 : i.val = 10
-      · simp [h10] at hs
-        subst hs
-        have : i = 10 := Fin.ext h10
-        subst this
-        simp [Sym.eval, Env.base, entryEnv, shape, shapeOf]
-      simp [h2, h11, h10] at hs
-    · simp only [regionsR, List.length_cons, List.length_nil] at hr
-      have hr3 : r = 0 ∨ r = 1 ∨ r = 2 := by omega
-      rcases hr3 with rfl | rfl | rfl
-      · exact hfp j (by simpa [Env.size, entryEnv, shape, shapeOf] using hj)
-      · exact hinp j (by simpa [Env.size, entryEnv, shape, shapeOf] using hj)
-      · exact hout j (by simpa [Env.size, entryEnv, shape, shapeOf] using hj)
-  have hfit : ∀ p ∈ shape m, p.1.1.toNat + p.1.2 < 2 ^ 64 := by
-    simp only [shape, shapeOf, List.mem_cons, List.not_mem_nil, or_false]
-    simp [Machine.readable, Machine.writable, Machine.inRange, Layout.rodataLo, Layout.rodataHi,
-      Layout.inputLo, Layout.inputHi, Layout.ramLo, Layout.ramHi] at hrd hwr hhi
-    rintro p (rfl | rfl | rfl) <;> simp <;> omega
+    refine entry_match (fun i hi s hs => ?_)
+      (fun r j hr hj => Option.isSome_iff_exists.mpr ⟨_, pre_init hpre r j hr hj⟩) (by simp)
+    simp only [ov] at hs
+    by_cases h2 : i.val = 2
+    · simp only [h2, if_true, Option.some.injEq] at hs
+      subst hs
+      have : i = 2 := Fin.ext h2
+      subst this
+      simp [Sym.eval, Env.base, entryEnv, shape, shapeOf, BitVec.sub_add_cancel]
+    by_cases h11 : i.val = 11
+    · simp [h11] at hs
+      subst hs
+      have : i = 11 := Fin.ext h11
+      subst this
+      simp [Sym.eval, Env.base, entryEnv, shape, shapeOf]
+    by_cases h10 : i.val = 10
+    · simp [h10] at hs
+      subst hs
+      have : i = 10 := Fin.ext h10
+      subst this
+      simp [Sym.eval, Env.base, entryEnv, shape, shapeOf]
+    simp [h2, h11, h10] at hs
   have hso : ∀ m', SameOutside (InWritable (envE m) S0) m m' →
-      SameOutside (fun a => InRange (m.reg 10) 40 a ∨ InRange (m.reg 2 - 16) 16 a) m m' := by
-    intro m' hfr
-    refine SameOutside.mono hfr fun a ha => ?_
-    obtain ⟨p, hp, hw, hin⟩ := inWritable_entry (shape := shape m) ha hfit
-    simp only [shape, shapeOf, List.mem_cons, List.not_mem_nil, or_false] at hp
-    rcases hp with rfl | rfl | rfl
-    · exact .inr hin
-    · simp [inputR] at hw
-    · exact .inl hin
+      SameOutside (fun a => InRange (m.reg 10) 40 a ∨ InRange (m.reg 2 - 16) 16 a) m m' :=
+    fun m' hfr => SameOutside.mono hfr fun a ha => pre_writable hpre (mh := m) (ov := ov) (ks := []) ha
   have hvE : ∀ i : Fin 32, i.val ∈ [9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27] →
       (envE m).vars i.val = m.reg i := fun i _ => entryEnv_var m _ i
   have hbE : ∀ j < 40, (envE m).byte0 2 j = (bytesOf m (m.reg 10) 40).getD j 0 := fun j hj => by
@@ -558,10 +630,6 @@ theorem f2_spec : Spec zesuImage entry bound Pre Post := by
   have hs1 : (envE m).size 1 = (m.reg 12).toNat := rfl
   have hb2 : (envE m).base 2 = m.reg 10 := by simp [envE, entryEnv, Env.base, shape, shapeOf]
   have hs2 : (envE m).size 2 = 40 := rfl
-  have hp1 : ∀ k : Nat, (Sym.ptr 1 k).eval (envE m) = m.reg 11 + BitVec.ofNat 64 k := fun k => by
-    simp [Sym.eval, envE, entryEnv, Env.base, shape, shapeOf]
-  have hlen : ∀ (l : SState), l.regions = regionsR → l.regions.length = 3 := fun l h => by
-    rw [h]; rfl
   refine run_reaches runE hwf hm hpc hro fun l hl hc => ?_
   simp only [runE_leaves, List.mem_cons, List.not_mem_nil, or_false] at hl
   rcases hl with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
@@ -584,7 +652,14 @@ theorem f2_spec : Spec zesuImage entry bound Pre Post := by
     have hdec : decode (bytesOf m (m.reg 11) (m.reg 12).toNat) = .error := by f2_decode
     exact post_of (hret m' _ hm' hex (by decide)) (hso m' hfr)
       (bytes_err hm' rfl hb2 hs2 (by decide) hdec)
-  case _ => sorry
+  case _ =>
+    refine ⟨by f2_obligs, by decide, fun m' hm' hex hfr => ?_⟩
+    have hW : (Sym.bin .and (.bin .add (.bin .and (.sext 8 (.init 1 0 1)) (.lit 255)) (.lit 9)) (.lit 255)).eval (envE m) =
+        BitVec.ofNat 64 ((firstByte m).toNat - 247) := by f2_word
+    have hI := entry_inv hpre hm' hex hfr (pre := 247) (w := (firstByte m).toNat - 247)
+      (by omega) (by omega) (by omega) (by omega) hW (by decide)
+    exact (loop_reaches hpre runL2 leavesL2 (.inr ⟨rfl, rfl⟩) ((firstByte m).toNat - 247 - 1) 0 m' (by omega) hI).mono
+      (by show _ ≤ 75 - (23 - 0); omega) fun _ h => h
   case _ =>
     refine ⟨by f2_obligs, by decide, fun m' hm' hex hfr => Reaches.done ?_⟩
     have hdec : decode (bytesOf m (m.reg 11) (m.reg 12).toNat) = .error := by f2_decode
@@ -605,7 +680,14 @@ theorem f2_spec : Spec zesuImage entry bound Pre Post := by
     have hdec : decode (bytesOf m (m.reg 11) (m.reg 12).toNat) = .error := by f2_decode
     exact post_of (hret m' _ hm' hex (by decide)) (hso m' hfr)
       (bytes_err hm' rfl hb2 hs2 (by decide) hdec)
-  case _ => sorry
+  case _ =>
+    refine ⟨by f2_obligs, by decide, fun m' hm' hex hfr => ?_⟩
+    have hW : (Sym.bin .and (.bin .add (.bin .and (.sext 8 (.init 1 0 1)) (.lit 255)) (.lit 73)) (.lit 255)).eval (envE m) =
+        BitVec.ofNat 64 ((firstByte m).toNat - 183) := by f2_word
+    have hI := entry_inv hpre hm' hex hfr (pre := 183) (w := (firstByte m).toNat - 183)
+      (by omega) (by omega) (by omega) (by omega) hW (by decide)
+    exact (loop_reaches hpre runL1 leavesL1 (.inl ⟨rfl, rfl⟩) ((firstByte m).toNat - 183 - 1) 0 m' (by omega) hI).mono
+      (by show _ ≤ 75 - (21 - 0); omega) fun _ h => h
   case _ =>
     refine ⟨by f2_obligs, by decide, fun m' hm' hex hfr => Reaches.done ?_⟩
     have hdec : decode (bytesOf m (m.reg 11) (m.reg 12).toNat) = .error := by f2_decode
@@ -646,3 +728,11 @@ theorem f2_spec : Spec zesuImage entry bound Pre Post := by
       have : firstByte m ≠ 128 := fun h => by rw [h] at hx1; simp at hx1
       simp [Sym.eval, envE, entryEnv, Env.base, shape, shapeOf]
       exact fun h => absurd h this
+
+/--
+info: 'ZesuExec.Fn.F2.f2_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms f2_spec
+
+end ZesuExec.Fn.F2

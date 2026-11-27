@@ -728,6 +728,262 @@ theorem stage3b (E : Entry A L items m) {env : Env} {m3 : Machine} {p' : Word}
     · exact .inl (hpriv a h)
     · exact .inr h
 
+/-- The allocator's answer, as `alloc_spec` states it for F1's request. -/
+def AllocOut (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (g : Nat) (m2 : Machine) : Prop :=
+  (m2.reg 10 = 0 ∧ A.Heap L m2) ∨
+  (m2.reg 10 ≠ 0 ∧ A.Heap (L ++ [(m2.reg 10, g)]) m2 ∧ RamRange (m2.reg 10) g ∧ Present m2 (m2.reg 10) g ∧
+    (∀ a, InRange (m2.reg 10) g a → A.Priv L a) ∧ (∀ a, A.Priv (L ++ [(m2.reg 10, g)]) a → A.Priv L a))
+
+/-- OutOfMemory: return 2 with the list unchanged. -/
+theorem oom_post (E : Entry A L items m) {env : Env} {S Sf : SState} {mk mf : Machine}
+    (he : EnvOk m env) (hS : S.regions = [frameR, headerR, allocObjR])
+    (hmf : Match env Sf mf) (hr : 1 < Sf.regions.length) (hnw : Sf.mem.all (fun w => w.r != 1) = true)
+    (hregs : (calleeSaved.filter (· ≠ 2)).all (fun i => Sf.reg i.val == .var i.val) = true)
+    (hsp2 : Sf.reg 2 = .ptr 0 112) (ha0 : Sf.reg 10 = .lit 2)
+    (hex : mf.pc = (Sym.bin .and (.var 1) (.lit 18446744073709551614)).eval env)
+    (hinv : Inv A L m mk) (hfr : SameOutside (InWritable env S) mk mf) (hp : Preserved mk mf)
+    (hlt : (wordAt m (m.reg 10 + 16)).toNat < (m.reg 12).toNat)
+    (hheap : A.Heap L mk) (hscr : ScratchSame m mk) : Post A L items m mf := by
+  have own : ∀ a, InWritable env S a → InRange (m.reg 2 - 112) 112 a ∨ InRange (m.reg 10) 24 a :=
+    fun a h => E.inWritable2 he hS h
+  have hret : Returns m mf := returns_leaf hmf he.vars hregs
+    (by rw [hsp2]; show env.base 0 + BitVec.ofInt 64 112 = m.reg 2
+        rw [he.base0]; simp [BitVec.sub_add_cancel]) hex
+  have hlt' : ¬ (m.reg 12).toNat ≤ (wordAt m (m.reg 10 + 16)).toNat := by omega
+  refine ⟨hret, (hinv.step hfr (fun a h => E.inWritable' he hS h) hp).1, ?_⟩
+  simp only [hlt', if_false]
+  refine .inr ⟨by rw [← hmf.regs 10]; show Sym.eval env (Sf.reg 10) = 2; rw [ha0]; rfl,
+    E.header_same he hmf hr hnw,
+    A.heap_frame L mk mf hheap fun a ha => hfr a fun hw => E.ownNotPriv (own a hw) ha,
+    fun j hj => ?_⟩
+  rw [hfr _ fun hw => E.scratchNotOwn hj (own _ hw)]; exact hscr j hj
+
+theorem Entry.regionNotScratch (E : Entry A L items m) {env : Env} (he : EnvOk m env) {r j : Nat}
+    (hr : r < 3) (hj : j < env.size r) :
+    ¬ InRange (BitVec.ofNat 64 Layout.extraParams) 8 (env.base r + BitVec.ofNat 64 j) := by
+  intro hin
+  have d4 := E.d4; have d5 := E.d5; have d6 := E.d6
+  have h112 := sp112 E; have h128 := sp128 E
+  rcases E.regionAddr he hr hj with h | h | h <;>
+    simp only [Apart, InRange, h112, h128, Layout.extraParams, BitVec.toNat_ofNat, Nat.reduceMod,
+      Nat.reducePow] at d4 d5 d6 hin h <;> omega
+
+/-- The `memcpy` call of both growing paths and the return from it: `k` continues at
+`0x800cb588` with the items in the new block and the byte count in the scratch word. -/
+theorem copy_step (E : Entry A L items m) {env : Env} {S Sl : SState} {m2 mc : Machine} {b : Nat}
+    {iP : Nat}
+    (he : EnvOk m env) (hm : Match env S m2) (hwf : Env.WF env S) (hmc : Match env Sl mc)
+    (hex : mc.pc.toNat = Layout.memcpyEntry) (hfr : SameOutside (InWritable env S) m2 mc)
+    (hp : Preserved m2 mc) (hinv : Inv A L m m2)
+    (hc0 : 0 < (wordAt m (m.reg 10 + 16)).toNat ∨ (wordAt m (m.reg 10 + 8)).toNat = 0)
+    (hlt : (wordAt m (m.reg 10 + 16)).toNat < (m.reg 12).toNat)
+    (hvP : env.vars iP = m2.reg 10)
+    (hitemsP : BytesAt m2 (wordAt m (m.reg 10)) items)
+    (hne : m2.reg 10 ≠ 0)
+    (hheap : A.Heap (L ++ [(m2.reg 10, grown (m.reg 12).toNat * elemBytes)]) m2)
+    (hram' : RamRange (m2.reg 10) (grown (m.reg 12).toNat * elemBytes))
+    (hpres' : Present m2 (m2.reg 10) (grown (m.reg 12).toNat * elemBytes))
+    (hblk : ∀ a, InRange (m2.reg 10) (grown (m.reg 12).toNat * elemBytes) a → A.Priv L a)
+    (hpriv : ∀ a, A.Priv (L ++ [(m2.reg 10, grown (m.reg 12).toNat * elemBytes)]) a → A.Priv L a)
+    (hS : S.regions = [frameR, headerR, allocObjR]) (hSl : Sl.regions = [frameR, headerR, allocObjR])
+    (r10 : Sl.reg 10 = .var iP) (r11 : Sl.reg 11 = .init 1 0 8)
+    (r12 : Sl.reg 12 = .bin .sll (.init 1 8 8) (.lit 5)) (r1 : Sl.reg 1 = .lit 0x800cb588)
+    (k : ∀ m3, Match env Sl m3 → Env.WF env Sl → m3.pc.toNat = 0x800cb588 → Inv A L m m3 →
+      BytesAt m3 (m2.reg 10) items →
+      BytesAt m3 (BitVec.ofNat 64 Layout.extraParams)
+        (wordBytes (BitVec.ofNat 64 ((wordAt m (m.reg 10 + 8)).toNat * elemBytes))) →
+      A.Heap (L ++ [(m2.reg 10, grown (m.reg 12).toNat * elemBytes)]) m3 →
+      Reaches zesuImage b (Post A L items m) m3) :
+    Reaches zesuImage (3 + b) (Post A L items m) mc := by
+  have own : ∀ a, InWritable env S a → InRange (m.reg 2 - 112) 112 a ∨ InRange (m.reg 10) 24 a :=
+    fun a h => E.inWritable2 he hS h
+  have hnc := E.nc; have hlen := E.itemsLen
+  have hram := hram'; unfold RamRange Layout.ramHi at hram
+  -- the call's arguments
+  have g10 : mc.reg 10 = m2.reg 10 := by
+    rw [← hmc.regs 10]; show Sym.eval env (Sl.reg 10) = _; rw [r10]; exact hvP
+  have g11 : mc.reg 11 = wordAt m (m.reg 10) := by
+    rw [← hmc.regs 11]; show Sym.eval env (Sl.reg 11) = _; rw [r11, he.init_eq, E.ptr]
+  have hn32 : (wordAt m (m.reg 10 + 8)).toNat * elemBytes < 2 ^ 64 := by
+    simp only [elemBytes, grown] at hram ⊢; omega
+  have g12 : mc.reg 12 = BitVec.ofNat 64 ((wordAt m (m.reg 10 + 8)).toNat * elemBytes) := by
+    rw [← hmc.regs 12]; show Sym.eval env (Sl.reg 12) = _; rw [r12]
+    show BinOp.eval .sll ((Sym.init 1 8 8).eval env) (BitVec.ofNat 64 5) = _
+    rw [he.init_eq, E.len]
+    apply BitVec.eq_of_toNat_eq
+    simp only [BinOp.eval, BitVec.toNat_shiftLeft, Nat.shiftLeft_eq, BitVec.toNat_ofNat, Nat.reduceMod,
+      Nat.reducePow, elemBytes] at hn32 ⊢
+    all_goals omega
+  have g1 : mc.reg 1 = BitVec.ofNat 64 0x800cb588 := by
+    rw [← hmc.regs 1]; show Sym.eval env (Sl.reg 1) = _; rw [r1]; rfl
+  have hp2 := hinv.2.trans hp
+  -- facts about the old buffer when there is something to copy
+  have hcpos : ∀ i, i < items.length → 0 < (wordAt m (m.reg 10 + 16)).toNat := by
+    intro i hi; rw [hlen] at hi; simp only [elemBytes] at hi; omega
+  have hinP : ∀ i, i < items.length → InRange (wordAt m (m.reg 10))
+      ((wordAt m (m.reg 10 + 16)).toNat * elemBytes) (wordAt m (m.reg 10) + BitVec.ofNat 64 i) := by
+    intro i hi
+    have := (E.buf (hcpos i hi)).1; unfold RamRange Layout.ramHi at this
+    have h' : items.length ≤ (wordAt m (m.reg 10 + 16)).toNat * elemBytes := by
+      rw [hlen]; exact Nat.mul_le_mul_right _ hnc
+    simp only [InRange]; rw [toNat_add_ofNat (by omega)]; omega
+  have hitemsC : BytesAt mc (wordAt m (m.reg 10)) items := fun i hi => by
+    rw [hfr _ fun hw => E.oldNotOwn (hcpos i hi) (hinP i hi) (own _ hw)]; exact hitemsP i hi
+  have hblkPriv : ∀ i, i < (wordAt m (m.reg 10 + 8)).toNat * elemBytes →
+      A.Priv L (m2.reg 10 + BitVec.ofNat 64 i) := by
+    intro i hi
+    apply hblk
+    simp only [elemBytes, grown] at hi hram ⊢
+    simp only [InRange]; rw [toNat_add_ofNat (by omega)]; omega
+  have hpP : m2.reg 10 ≠ wordAt m (m.reg 10) ∨ (wordAt m (m.reg 10 + 8)).toNat = 0 := by
+    by_cases hn0 : (wordAt m (m.reg 10 + 8)).toNat = 0
+    · exact .inr hn0
+    · refine .inl fun e => ?_
+      have h0 : 0 < items.length := by rw [hlen]; simp only [elemBytes]; omega
+      have hpr := hblkPriv 0 (by simp only [elemBytes]; omega)
+      rw [e] at hpr
+      exact A.priv_not_live L _ hpr ⟨_, (E.buf (hcpos 0 h0)).2, by simpa using hinP 0 h0⟩
+  have hscrC : Present mc (BitVec.ofNat 64 Layout.extraParams) 8 := fun j hj => hp2.1 _ (E.scratch j hj)
+  have hdom : ziskMemcpyDomain mc = true := by
+    unfold ziskMemcpyDomain
+    rw [g1, g10, g11, g12]
+    simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq]
+    refine ⟨⟨⟨by decide, by decide⟩, ?_⟩, ?_⟩
+    · unfold Machine.present
+      exact readBytes_isSome_of fun t ht => by
+        have := hscrC t ht
+        rwa [show BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 t =
+          BitVec.ofNat 64 (Layout.extraParams + t) by bv_omega] at this
+    · by_cases hn0 : (wordAt m (m.reg 10 + 8)).toNat = 0
+      · left; rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn32, hn0, Nat.zero_mul]
+      · right
+        have hc : 0 < (wordAt m (m.reg 10 + 16)).toNat := by omega
+        have hb := (E.buf hc).1; unfold RamRange Layout.ramHi Layout.ramLo at hb
+        have hle : (wordAt m (m.reg 10 + 8)).toNat * elemBytes ≤ (wordAt m (m.reg 10 + 16)).toNat * elemBytes :=
+          Nat.mul_le_mul_right _ hnc
+        have hle2 : (wordAt m (m.reg 10 + 8)).toNat * elemBytes ≤ grown (m.reg 12).toNat * elemBytes := by
+          apply Nat.mul_le_mul_right; simp only [grown]; omega
+        have hram2 := hram'; unfold RamRange Layout.ramHi Layout.ramLo at hram2
+        rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn32]
+        simp only [elemBytes] at hle hle2 hb hram2 hpres' ⊢
+        refine ⟨⟨⟨?_, ?_⟩, ?_⟩, ?_⟩
+        · simp only [Machine.readable, Machine.inRange, Layout.ramLo, Layout.ramHi, Layout.rodataLo,
+            Layout.rodataHi, Layout.inputLo, Layout.inputHi, Bool.or_eq_true, Bool.and_eq_true,
+            decide_eq_true_eq]; omega
+        · unfold Machine.present
+          exact readBytes_isSome_of fun t ht => by
+            rw [ofNat_toNat_add, hitemsC t (by rw [hlen]; simpa only [elemBytes] using ht)]; rfl
+        · simp only [Machine.writable, Machine.inRange, Layout.ramLo, Layout.ramHi, Bool.and_eq_true,
+            decide_eq_true_eq]; omega
+        · unfold Machine.present
+          exact readBytes_isSome_of fun t ht => by
+            rw [ofNat_toNat_add]; exact hp.1 _ (hpres' t (by omega))
+  have hcall := Reaches.preserve (memcpy_spec zesuImage mc (by simpa using hex) hdom)
+  refine Reaches.trans hcall fun m3 hpost => ?_
+  obtain ⟨hz, hp3⟩ := hpost
+  have hz : ziskMemcpy mc = some m3 := hz
+  have hdst : ∀ x, InRange (mc.reg 10) (mc.reg 12).toNat x → A.Priv L x := by
+    intro x hx
+    rw [g10, g12, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn32] at hx
+    apply hblk
+    simp only [elemBytes, grown] at hx hram ⊢
+    simp only [InRange] at hx ⊢; omega
+  have hscrP : ∀ x, InRange (BitVec.ofNat 64 Layout.extraParams) 8 x → ¬ A.Priv L x :=
+    fun x hx => E.priv x (.inr (.inr (.inr hx)))
+  have hout : ∀ x, ¬ (InRange (mc.reg 10) (mc.reg 12).toNat x ∨
+      InRange (BitVec.ofNat 64 Layout.extraParams) 8 x) → m3.mem x = mc.mem x :=
+    fun x hx => memcpy_out hz (fun h => hx (.inl h)) (fun h => hx (.inr h))
+  have hm3 : Match env Sl m3 := Match.congr_machine hmc (memcpy_reg hz) fun r j hr hj => by
+    have hr3 : r < 3 := by rw [hSl] at hr; simpa using hr
+    exact hout _ fun h => h.elim (fun h => E.regionNotPriv he hr3 hj (hdst _ h))
+      (fun h => E.regionNotScratch he hr3 hj h)
+  have hpc3 : m3.pc.toNat = 0x800cb588 := by rw [memcpy_eq hz]; simp only [g1]; decide
+  have hinv3 : Inv A L m m3 := by
+    refine (hinv.step hfr (fun a h => E.inWritable' he hS h) hp).step (R := fun x =>
+      InRange (mc.reg 10) (mc.reg 12).toNat x ∨ InRange (BitVec.ofNat 64 Layout.extraParams) 8 x)
+      (fun x hx => hout x hx) (fun x h => ?_) (memcpy_preserved hz)
+    rcases h with h | h
+    · exact .inr (.inr (.inr (.inl (hdst x h))))
+    · exact .inr (.inr (.inl h))
+  refine k m3 hm3 (hwf.congr (hSl.trans hS.symm)) hpc3 hinv3 ?_ ?_ ?_
+  · -- the items, copied
+    intro i hi
+    have hi' : i < (mc.reg 12).toNat := by
+      rw [g12, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn32, ← hlen]; exact hi
+    have hne' : mc.reg 10 ≠ mc.reg 11 := by
+      rw [g10, g11]
+      rcases hpP with h | h
+      · exact h
+      · rw [hlen, h] at hi; simp at hi
+    have hb := (E.buf (hcpos i hi)).1; unfold RamRange Layout.ramHi at hb
+    have hle : (wordAt m (m.reg 10 + 8)).toNat * elemBytes ≤ (wordAt m (m.reg 10 + 16)).toNat * elemBytes :=
+      Nat.mul_le_mul_right _ hnc
+    have hg : (wordAt m (m.reg 10 + 8)).toNat * elemBytes ≤ grown (m.reg 12).toNat * elemBytes := by
+      apply Nat.mul_le_mul_right; simp only [grown]; omega
+    have := memcpy_dst hz hi' hne'
+      (by rw [g10, g12, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn32]; omega)
+      (by rw [g11, g12, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn32]; omega)
+      (by rw [g11]; intro h; obtain ⟨-, -, -, d⟩ := E.dbuf (hcpos i hi)
+          have hin := hinP i hi
+          simp only [Apart, InRange, Layout.extraParams, BitVec.toNat_ofNat, Nat.reduceMod,
+            Nat.reducePow] at d h hin; omega)
+    rw [g10, g11] at this
+    rw [this]; exact hitemsC i hi
+  · -- the byte count
+    intro i hi
+    have hi8 : i < 8 := by simpa [wordBytes] using hi
+    have hs : (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 i).toNat = Layout.extraParams + i := by
+      simp [Layout.extraParams]; omega
+    have hin : InRange (BitVec.ofNat 64 Layout.extraParams) 8
+        (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 i) := by
+      simp only [InRange]; rw [hs]; simp [Layout.extraParams]; omega
+    rw [memcpy_scratch hz hi8 fun h => hscrP _ hin (hdst _ h), g12]
+    simp [wordBytes, hi8]
+  · -- the heap
+    refine A.heap_frame _ m2 m3 hheap fun a ha => ?_
+    rw [hout a fun h => ?_, hfr a fun hw => E.ownNotPriv (own a hw) (hpriv a ha)]
+    rcases h with h | h
+    · exact A.priv_not_live _ a ha ⟨_, List.mem_append_right _ (List.mem_singleton_self _), by
+        rw [g10, g12, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn32] at h
+        have hg : (wordAt m (m.reg 10 + 8)).toNat * elemBytes ≤ grown (m.reg 12).toNat * elemBytes := by
+          apply Nat.mul_le_mul_right; simp only [grown]; omega
+        simp only [InRange] at h ⊢; omega⟩
+    · exact hscrP a h (hpriv a ha)
+
+/-- After `alloc` on the path with old capacity: OutOfMemory, or `memcpy` then `stage3b`. -/
+theorem stage2b (E : Entry A L items m) {env : Env} {m2 : Machine}
+    (he : EnvOk m env) (hm : Match env S2b m2) (hwf : Env.WF env S2b)
+    (hpc : m2.pc.toNat = 0x800cb55c) (hinv : Inv A L m m2)
+    (hc0 : 0 < (wordAt m (m.reg 10 + 16)).toNat)
+    (hlt : (wordAt m (m.reg 10 + 16)).toNat < (m.reg 12).toNat)
+    (hv310 : env.vars 310 = m2.reg 10) (hv122 : env.vars 122 = BitVec.ofNat 64 (grown (m.reg 12).toNat))
+    (hitemsP : BytesAt m2 (wordAt m (m.reg 10)) items) (hscr : ScratchSame m m2)
+    (hout : AllocOut A L (grown (m.reg 12).toNat * elemBytes) m2) :
+    Reaches zesuImage 78 (Post A L items m) m2 := by
+  refine run_reaches' run2b hwf hm hpc (hinv.ro E) ?_
+  intro l hl hc
+  simp only [run2b_leaves, List.mem_cons, List.mem_nil_iff, or_false] at hl
+  rcases hl.symm with rfl | rfl
+  · -- null: OutOfMemory
+    sym_simp at hc; simp only [beq_iff_eq, hv310] at hc
+    have hheap : A.Heap L m2 := by
+      rcases hout with ⟨-, h⟩ | ⟨hne, -⟩
+      · exact h
+      · exact absurd hc hne
+    refine ⟨fun o ho => ?_, by decide, fun mf hmf hex hfr hp => Reaches.done ?_⟩
+    · simp at ho; subst ho; simpa [Oblig.holds, Sym.eval, BinOp.eval, show env.vars 1 = m.reg 1 from he.vars 1] using E.ra
+    exact oom_post E he (by decide) hmf (by decide) (by decide) (by decide) rfl rfl hex hinv hfr hp hlt hheap hscr
+  · -- a block: copy the items with `memcpy`, then free the old buffer
+    sym_simp at hc; simp only [bne_iff_ne, ne_eq, hv310] at hc
+    obtain ⟨hne, hheap, hram', hpres', hblk, hpriv⟩ := hout.resolve_left fun h => hc h.1
+    refine ⟨fun o ho => by simp at ho, by decide, fun mc hmc hex hfr hp => ?_⟩
+    exact copy_step E he hm hwf hmc hex hfr hp hinv (.inl hc0) hlt hv310 hitemsP hne hheap hram'
+      hpres' hblk hpriv (by decide) (by decide) rfl rfl rfl rfl
+      (fun m3 hm3 hwf3 hpc3 hinv3 hitems3 hscr3 hheap3 =>
+        stage3b E he hm3 hwf3 hpc3 hinv3 hc0 hlt hv310 hv122 (by
+          have : (m2.reg 10).toNat ≠ 0 := fun e => hne (BitVec.eq_of_toNat_eq (by simpa using e))
+          omega) hram' hitems3 hscr3 hheap3 hpriv hblk)
+
 set_option hygiene false in
 /-- A path that needs the grown capacity to overflow `2^59` is infeasible. -/
 macro "f1_overflow" : tactic => `(tactic| (

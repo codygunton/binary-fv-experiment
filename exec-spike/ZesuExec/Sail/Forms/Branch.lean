@@ -67,4 +67,57 @@ theorem sim_beq {rs1 rs2 : Fin 32} {imm : BitVec 13} (hR : Rel img m s)
   exact sim_branch hR hw hd hpc rfl
     (bTypeTaken_run (RegsAgree.T (m := m) hR.regs m.pc) rs1 rs2 .BEQ) hex n
 
+theorem cond_bne (a b : Word) : (a != b) = (a != b) := rfl
+theorem cond_blt (a b : Word) : zopz0zI_s a b = a.slt b := by
+  simp [zopz0zI_s, BitVec.slt]
+theorem cond_bltu (a b : Word) : zopz0zI_u a b = a.ult b := by
+  simp [zopz0zI_u, BitVec.ult, Sail.BitVec.toNatInt]
+theorem cond_bgeu (a b : Word) : zopz0zKzJ_u a b = !a.ult b := by
+  simp only [zopz0zKzJ_u, BitVec.ult, Sail.BitVec.toNatInt]
+  by_cases h : a.toNat < b.toNat <;> simp [h] <;> omega
+
+theorem sim_bne {rs1 rs2 : Fin 32} {imm : BitVec 13} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.bne rs1 rs2 imm))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  have hcond := bTypeTaken_run (RegsAgree.T (m := m) hR.regs m.pc) rs1 rs2 .BNE
+  simp only at hcond
+  rw [cond_bne] at hcond
+  exact sim_branch hR hw hd hpc rfl hcond hex n
+
+theorem sim_blt {rs1 rs2 : Fin 32} {imm : BitVec 13} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.blt rs1 rs2 imm))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  have hcond := bTypeTaken_run (RegsAgree.T (m := m) hR.regs m.pc) rs1 rs2 .BLT
+  simp only at hcond
+  rw [cond_blt] at hcond
+  exact sim_branch hR hw hd hpc rfl hcond hex n
+
+theorem sim_bltu {rs1 rs2 : Fin 32} {imm : BitVec 13} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.bltu rs1 rs2 imm))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  have hcond := bTypeTaken_run (RegsAgree.T (m := m) hR.regs m.pc) rs1 rs2 .BLTU
+  simp only at hcond
+  rw [cond_bltu] at hcond
+  exact sim_branch hR hw hd hpc rfl hcond hex n
+
+theorem sim_bgeu {rs1 rs2 : Fin 32} {imm : BitVec 13} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.bgeu rs1 rs2 imm))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  have hcond := bTypeTaken_run (RegsAgree.T (m := m) hR.regs m.pc) rs1 rs2 .BGEU
+  simp only at hcond
+  rw [cond_bgeu] at hcond
+  exact sim_branch hR hw hd hpc rfl hcond hex n
+
 end ZesuExec.SailLink

@@ -285,4 +285,63 @@ theorem RodataLoaded.preserved {img : Image} {m m' : Machine} (hro : RodataLoade
   rw [hp.2 _ (by simp; unfold Layout.ramLo at this ⊢; omega)]
   exact hro a b h
 
+/-! ## The `memcpy` service, byte by byte -/
+
+theorem memcpy_eq {m m' : Machine} (h : ziskMemcpy m = some m') :
+    m' = { m with mem := ziskMemcpyMem m, pc := m.reg 1 &&& ~~~(1 : Word) } := by
+  unfold ziskMemcpy at h; split at h <;> simp at h; exact h.symm
+
+theorem memcpy_reg {m m' : Machine} (h : ziskMemcpy m = some m') (i : Fin 32) : m'.reg i = m.reg i := by
+  rw [memcpy_eq h]; rfl
+
+/-- Outside the destination range and the scratch word, `memcpy` changes nothing. -/
+theorem memcpy_out {m m' : Machine} (h : ziskMemcpy m = some m') {x : Word}
+    (hd : ¬ InRange (m.reg 10) (m.reg 12).toNat x)
+    (hs : ¬ InRange (BitVec.ofNat 64 Layout.extraParams) 8 x) : m'.mem x = m.mem x := by
+  rw [memcpy_eq h]
+  simp only [ziskMemcpyMem]
+  simp only [InRange] at hd hs
+  rw [if_neg (by intro h'; exact hd ⟨h'.2.2.1, h'.2.2.2⟩), if_neg (by simp [Layout.extraParams] at hs ⊢; omega)]
+  simp
+
+/-- Inside the destination range, `memcpy` copies the source byte. -/
+theorem memcpy_dst {m m' : Machine} (h : ziskMemcpy m = some m') {i : Nat}
+    (hi : i < (m.reg 12).toNat) (hne : m.reg 10 ≠ m.reg 11)
+    (hdfit : (m.reg 10).toNat + (m.reg 12).toNat ≤ 2 ^ 64)
+    (hsfit : (m.reg 11).toNat + (m.reg 12).toNat ≤ 2 ^ 64)
+    (hsrc : ¬ InRange (BitVec.ofNat 64 Layout.extraParams) 8 (m.reg 11 + BitVec.ofNat 64 i)) :
+    m'.mem (m.reg 10 + BitVec.ofNat 64 i) = m.mem (m.reg 11 + BitVec.ofNat 64 i) := by
+  rw [memcpy_eq h]
+  simp only [ziskMemcpyMem]
+  have hd : (m.reg 10 + BitVec.ofNat 64 i).toNat = (m.reg 10).toNat + i := toNat_add_ofNat (by omega)
+  have hs : (m.reg 11 + BitVec.ofNat 64 i).toNat = (m.reg 11).toNat + i := toNat_add_ofNat (by omega)
+  have hne' : (m.reg 10).toNat ≠ (m.reg 11).toNat := fun e => hne (BitVec.eq_of_toNat_eq e)
+  rw [hd, if_pos ⟨by omega, hne', by omega, by omega⟩]
+  simp only [InRange, hs] at hsrc
+  rw [show (m.reg 11).toNat + ((m.reg 10).toNat + i) - (m.reg 10).toNat = (m.reg 11).toNat + i by omega,
+    if_neg (by simp [Layout.extraParams] at hsrc ⊢; omega)]
+  congr 1; rw [ofNat_toNat_add]
+
+/-- The scratch word holds the byte count. -/
+theorem memcpy_scratch {m m' : Machine} (h : ziskMemcpy m = some m') {i : Nat} (hi : i < 8)
+    (hd : ¬ InRange (m.reg 10) (m.reg 12).toNat (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 i)) :
+    m'.mem (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 i) =
+      some ((m.reg 12).extractLsb' (8 * i) 8) := by
+  rw [memcpy_eq h]
+  simp only [ziskMemcpyMem]
+  have hx : (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 i).toNat = Layout.extraParams + i := by
+    simp [Layout.extraParams]; omega
+  simp only [InRange, hx] at hd
+  rw [hx, if_neg (by intro h'; exact hd ⟨h'.2.2.1, h'.2.2.2⟩), if_pos ⟨by omega, by omega⟩]
+  simp
+
+/-- `Match` moves to a machine with the same registers and the same region bytes. -/
+theorem Match.congr_machine {env : Env} {S : SState} {m m' : Machine} (hm : Match env S m)
+    (hregs : ∀ i, m'.reg i = m.reg i)
+    (hmem : ∀ r j, r < S.regions.length → j < env.size r →
+      m'.mem (env.base r + BitVec.ofNat 64 j) = m.mem (env.base r + BitVec.ofNat 64 j)) :
+    Match env S m' :=
+  ⟨hm.regsLen, fun i => (hm.regs i).trans (hregs i).symm,
+    fun r j hr hj => (hmem r j hr hj).trans (hm.mem r j hr hj), hm.known⟩
+
 end ZesuExec.Fn
