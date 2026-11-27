@@ -1,0 +1,11 @@
+{
+ "schema": "oblig-exec-inputs/1",
+ "function": "keysEnsureCapacity",
+ "note": "F1 paths beside zesislar's set, for tools/snap.py: a request below the capacity, a large growth, a byte-size overflow (OutOfMemory before any call) and a request the real allocator refuses.",
+ "inputs": [
+  {"id": "x_len2_cap5_shrink", "len": 2, "capacity": 5, "new_capacity": 3},
+  {"id": "x_len4_cap4_grow_big", "len": 4, "capacity": 4, "new_capacity": 200},
+  {"id": "x_len1_cap1_overflow", "len": 1, "capacity": 1, "new_capacity": 576460752303423488},
+  {"id": "x_len1_cap1_alloc_refused", "len": 1, "capacity": 1, "new_capacity": 1073741824}
+ ]
+}
