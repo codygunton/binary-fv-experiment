@@ -267,14 +267,23 @@ theorem callee_frame {σ : Sig} {m : Machine} (hc : Common σ m) {L X : List (Wo
   rw [show m.reg 2 - BitVec.ofNat 64 16 = σ.sl 592 from sp_sub hc 16]
   exact stack_present' hc (k := 592) (j := j) (by omega) (by decide)
 
-theorem shl40 {x : Word} (hx : x.toNat < 2 ^ 32) :
-    x <<< ((5#64).toNat % 64) + x <<< ((3#64).toNat % 64) = w (entrySize * x.toNat) := by
+theorem shl5 {x : Word} (hx : x.toNat < 2 ^ 40) :
+    x <<< ((5#64).toNat % 64) = w (32 * x.toNat) := by
   apply BitVec.eq_of_toNat_eq
-  rw [BitVec.toNat_add, BitVec.toNat_shiftLeft, BitVec.toNat_shiftLeft,
-    show (5#64).toNat % 64 = 5 from rfl, show (3#64).toNat % 64 = 3 from rfl,
-    Nat.shiftLeft_eq, Nat.shiftLeft_eq]
-  simp only [w, BitVec.toNat_ofNat, entrySize]
+  rw [BitVec.toNat_shiftLeft, show (5#64).toNat % 64 = 5 from rfl, Nat.shiftLeft_eq]
+  simp only [w, BitVec.toNat_ofNat]
   omega
+
+theorem shl3 {x : Word} (hx : x.toNat < 2 ^ 40) :
+    x <<< ((3#64).toNat % 64) = w (8 * x.toNat) := by
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_shiftLeft, show (3#64).toNat % 64 = 3 from rfl, Nat.shiftLeft_eq]
+  simp only [w, BitVec.toNat_ofNat]
+  omega
+
+theorem shl40 {x : Word} (hx : x.toNat < 2 ^ 40) :
+    x <<< ((5#64).toNat % 64) + x <<< ((3#64).toNat % 64) = w (entrySize * x.toNat) := by
+  rw [shl5 hx, shl3 hx, w_40]
 
 /-- `Allocated` on a machine with the same memory and the registers it reads. -/
 theorem alloc_same {σ : Sig} {m m' : Machine} {o : Obs} {k : Kobs} {L : List (Word × Nat)}
@@ -421,7 +430,7 @@ theorem TX.leaf_80000400_1 :
   have e11 : m'.reg 11 = o.ep :=
     r11.trans ((envB_var σ m 22).trans hAl.2.2.1)
   have e12 : m'.reg 12 = w (entrySize * o.ec.toNat) := by
-    rw [r12, ← shl40 hc32, ← h27]; rfl
+    rw [r12, ← shl40 (x := o.ec) (by omega), ← h27]; rfl
   have e19 : m'.reg 14 = σ.m.reg 1 := r14.trans ((envB_var σ m 19).trans hcm.2.2.2.2.2.2.2.1)
   have hn12 : (m'.reg 12).toNat = entrySize * o.ec.toNat := by
     rw [e12]; simp only [w, BitVec.toNat_ofNat, entrySize]; omega
@@ -1131,8 +1140,382 @@ theorem TX.leaf_8000025c_1 :
     show (Sym.init 0 128 8).eval (envB σ m) +
       (((Sym.init 0 136 8).eval (envB σ m)) <<< ((5#64).toNat % 64) +
         ((Sym.init 0 136 8).eval (envB σ m)) <<< ((3#64).toNat % 64)) = _
-    rw [e128, e136, shl40 (by rw [hnn]; exact hn32), hnn]
+    rw [e128, e136, shl40 (by rw [hnn]; omega), hnn]
   · show bTail m' 311 ≤ bTail m 539 - _
     rw [hsteps]; unfold bTail afterEntry; rw [hr 21 (by simp), hr 26 (by simp)]; omega
+
+/-! ## `0x8000025c`: a full list grows -/
+
+def nS : Sym := .bin .add (.init 0 136 8) (.lit 1)
+def xS : Sym := .bin .add (.bin .add (.bin .srl nS (.lit 1)) nS) (.lit 1)
+/-- The leaves' new capacity `c'` over the length word at `S-0x1b8`. -/
+def growS : Sym := .bin .or (.bin .sub (.lit 0) (.bin .sltu xS nS)) xS
+
+theorem growS_eval {env : Env} (hx : ((Sym.init 0 136 8).eval env).toNat < 2 ^ 32) :
+    growS.eval env = w (grownCap ((Sym.init 0 136 8).eval env).toNat) := by
+  have h := grow_val hx
+  simp only [growS, xS, nS, Sym.eval_bin, BinOp.eval, Sym.eval_lit] at h ⊢
+  simp only [BitVec.ult, decide_eq_true_eq]
+  exact h
+
+/-- The allocator context word `ao[0]`. -/
+theorem ctx_eval {σ : Sig} {m : Machine} (hc : Common σ m) :
+    (Sym.init 3 0 8).eval (envB σ m) = wordAt σ.m σ.ao := by
+  have hpre := hc.2.1
+  obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp hpre.2.2.2.2.2.2.2.2.1
+  have hram : RamRange σ.ao 16 := hpre.2.2.2.2.2.2.1
+  unfold RamRange Layout.ramHi at hram
+  rw [show wordAt σ.m σ.ao = v by simp [wordAt, hv]]
+  apply init_eval_load (regs := shapeOf σ) (r := 3) (by simp [shapeOf])
+  · rw [show ((shapeOf σ)[3]'(by simp [shapeOf])).1 + BitVec.ofNat 64 0 = σ.ao by simp [shapeOf],
+      load_congr (m := σ.m) (m' := m) fun t ht => ao_same hc (by omega)]
+    exact hv
+  · show σ.ao.toNat + 0 + 8 < 2 ^ 64; omega
+
+/-- A written frame range misses a frame range it does not meet. -/
+theorem wr_miss {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {off n k len : Nat} {a : Word}
+    (ho : off + n ≤ 576) (hk : k ≤ 576) (hd : off + n ≤ 576 - k ∨ 576 - k + len ≤ off)
+    (hw : InRange (σ.sl 576 + w off) n a) (ha : InRange (σ.sl k) len a) : False :=
+  sl_apart hpre (k1 := 576 - off) (n1 := n) (k2 := k) (n2 := len) (by unfold stackBytes; omega)
+    (by unfold stackBytes; omega) (by omega)
+    (fr_in hpre (by omega) (by omega) (by omega) (by omega) hw) ha
+
+/-- The leaves of `0x8000025c` that grow a full list: the finished entry (copy B written) and
+the growth spills. -/
+theorem grow25c {σ : Sig} {m m' : Machine} {S' : SState} (hA : ARet f4C Site258 σ m)
+    (he : (Sym.init 0 408 2).eval (envB σ m) = 0)
+    (hge : ((Sym.init 0 144 8).eval (envB σ m)).toNat ≤
+      ((Sym.init 0 136 8).eval (envB σ m)).toNat)
+    (hm' : Match (envB σ m) S' m') (hS' : S'.regions = baseRegions)
+    (hfr : SameOutside (InWritable (envB σ m) SBody) m m')
+    (hall : S'.mem.all (fun w => w.r == 0) = true)
+    (hno : S'.mem.all (fun w => w.r != 0 || decide (w.off + w.n ≤ 472)) = true)
+    (hkeep : ∀ wr ∈ S'.mem, wr.off + wr.n ≤ 472 ∧ (wr.off + wr.n ≤ 80 ∨
+      (88 ≤ wr.off ∧ wr.off + wr.n ≤ 128) ∨ (152 ≤ wr.off ∧ wr.off + wr.n ≤ 232) ∨ 252 ≤ wr.off))
+    (hcp : readConst S' 0 416 8 = .init 0 232 8 ∧ readConst S' 0 424 8 = .init 0 240 8 ∧
+      readConst S' 0 432 4 = .bytes (.sext 32 (.init 0 248 4)) 0 4)
+    (hsp : readConst S' 0 64 8 = .bin .sll (.init 0 136 8) (.lit 5) ∧
+      readConst S' 0 72 8 = .bin .sll (.init 0 136 8) (.lit 3) ∧
+      readConst S' 0 48 8 = .init 0 400 8 ∧ readConst S' 0 56 8 = .init 0 392 8 ∧
+      readConst S' 0 40 8 = .init 3 0 8 ∧ readConst S' 0 32 8 = .lit vtable)
+    (hr : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 26] : List (Fin 32)), S'.reg i.val = SBody.reg i.val)
+    (h23 : S'.reg 23 = nS) (h25 : S'.reg 25 = growS) (h27 : S'.reg 27 = .init 0 144 8) :
+    ∃ o k L kp', EntryDone σ m' o k L kp' [] ∧ Growing σ m' o k kp' ∧ m'.reg 27 = o.ec ∧
+      (Sym.init 0 128 8).eval (envB σ m) = o.ep ∧ (Sym.init 0 144 8).eval (envB σ m) = o.ec ∧
+      growS.eval (envB σ m) = w (grownCap o.done.length) ∧ o.done.length < 2 ^ 32 := by
+  have hcm := (ret_25c hA).1
+  have hpre := hcm.2.1
+  obtain ⟨o, k, L, kp', G, hH, hb8, hb0, -⟩ := ret25c hA he
+  obtain ⟨hwf, hm, -⟩ := body_cut hcm
+  have hrk := regs_keep hm hm' _ hr
+  have reg : ∀ (i : Fin 32) (s : Sym), S'.reg i.val = s → m'.reg i = s.eval (envB σ m) :=
+    fun i s h => by rw [Match.reg_eq hm' i i.val rfl, h]
+  have e128 := frame_init hpre (m := m) (k := 0x1c0) (by decide) (by decide) hH.1
+  have e136 := frame_init hpre (m := m) (k := 0x1b8) (by decide) (by decide)
+    (by rw [show σ.sl 0x1b8 = σ.sl 0x1c0 + 8 by simp only [Sig.sl, w]; bv_omega]; exact hH.2.1)
+  have e144 := frame_init hpre (m := m) (k := 0x1b0) (by decide) (by decide)
+    (by rw [show σ.sl 0x1b0 = σ.sl 0x1c0 + 16 by simp only [Sig.sl, w]; bv_omega]; exact hH.2.2)
+  have e392 := frame_init hpre (m := m) (k := 0xb8) (by decide) (by decide) hb8
+  have e400 := frame_init hpre (m := m) (k := 0xb0) (by decide) (by decide) hb0
+  simp only [show 576 - 0x1c0 = 128 from rfl, show 576 - 0x1b8 = 136 from rfl,
+    show 576 - 0x1b0 = 144 from rfl, show 576 - 0xb8 = 392 from rfl,
+    show 576 - 0xb0 = 400 from rfl] at e128 e136 e144 e392 e400
+  have hNH := G.2.2.2.1
+  have hn32 : o.done.length < 2 ^ 32 := by have := hNH.1; have := hNH.2.2.2.1; omega
+  have hnn : (w o.done.length).toNat = o.done.length := by
+    simp only [w, BitVec.toNat_ofNat]; omega
+  have hec : o.done.length = o.ec.toNat := by
+    rw [e136, e144, hnn] at hge; have := hNH.1; omega
+  have hlive := G.2.2.2.2.1
+  obtain ⟨hc', hlive', -⟩ := base_leaf hcm hlive (BaseEnv.ofB σ m) hwf rfl hm' hS' hfr hno
+    fun i hi => hrk i (by simp at hi ⊢; omega)
+  have hso := frame_leaf_so hcm rfl hm' hS' hfr hall
+  have hWst : ∀ a, (∃ wr ∈ S'.mem, InRange (σ.sl 576 + w wr.off) wr.n a) →
+      InRange (σ.sl stackBytes) stackBytes a := by
+    rintro a ⟨wr, hwr, hin⟩
+    have := (hkeep wr hwr).1
+    exact sl_in_stack hpre (k := 576 - wr.off) (n := wr.n) (by unfold stackBytes; omega)
+      (by omega) (fr_in hpre (by omega) (by omega) (by omega) (by omega) hin)
+  have hWk : ∀ j len, (j = 80 ∧ len = 8 ∨ j = 128 ∧ len = 24 ∨ j = 232 ∧ len = 20) → ∀ a,
+      (∃ wr ∈ S'.mem, InRange (σ.sl 576 + w wr.off) wr.n a) →
+      ¬ InRange (σ.sl (576 - j)) len a := by
+    rintro j len hj a ⟨wr, hwr, hin⟩ ha
+    obtain ⟨h1, h2⟩ := hkeep wr hwr
+    exact wr_miss hpre (k := 576 - j) (by omega) (by omega) (by omega) hin ha
+  have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
+  have inS : ∀ {kk len t : Nat}, kk ≤ 576 → len ≤ kk → t < len →
+      InRange (σ.sl kk) len (σ.sl kk + BitVec.ofNat 64 t) := fun {kk len t} hk hl ht => by
+    have h3 := sl_toNat hpre (k := kk) (by unfold stackBytes; omega)
+    exact in_self (by rw [h3]; omega) ht
+  have G' := grown_keep G hc' hlive' (fun i hi => hrk i (by simp at hi ⊢; omega))
+    (rest_bytes hpre hso fun a h => .inl (hWst a h))
+    (fun kn hkn t ht => hso _ fun h => by
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
+      rcases hkn with rfl | rfl
+      · exact hWk 80 8 (by simp) _ h (inS (by decide) (by decide) ht)
+      · exact hWk 232 20 (by simp) _ h (inS (by decide) (by decide) ht))
+    (fun b hb t ht => hso _ fun h => by
+      have hP := (hlive.2.2 b (List.mem_append_left _ hb))
+      have hram := hP.2.1
+      unfold RamRange Layout.ramHi at hram
+      exact stack_not_priv hpre (hWst _ h) (hP.2.2 _ (in_self (by omega) ht)))
+  have hH' := hdr_congr hH fun t ht => hso _ fun h =>
+    hWk 128 24 (by simp) _ h (inS (by decide) (by decide) ht)
+  -- copy B from copy A
+  have hwf' : Env.WF (envB σ m) S' := hwf.congr (by rw [hS']; rfl)
+  have hA := G.2.2.2.2.2.2.1.2.2
+  obtain ⟨cp0, cp1, cp2⟩ := hcp
+  have cp := fun d s n hn hd hs hv => leaf_copy (S' := S') hcm hwf' hm' hS' (d := d) (s := s)
+    (n := n) hn hd hs hv
+  have c0 := cp 416 232 8 (by decide) (by decide) (by decide) fun u hu => by
+    rw [cp0]; exact byteOf_byteList (by decide) hu
+  have c1 := cp 424 240 8 (by decide) (by decide) (by decide) fun u hu => by
+    rw [cp1]; exact byteOf_byteList (by decide) hu
+  have c2 := cp 432 248 4 (by decide) (by decide) (by decide) fun u hu => by
+    rw [cp2]
+    show byteOf (ofBytesLE (byteList (byteOf ((((Sym.init 0 248 4).eval (envB σ m)).setWidth 32
+      ).signExtend 64)) 0 4)) u = _
+    rw [byteOf_byteList (by decide) hu, Nat.zero_add, byteOf_sext32 _ hu]
+    exact byteOf_byteList (by decide) hu
+  have hB : BytesAt m' (σ.sl 0xa0) (itemPayload (ent σ o k) k.ah 20) := fun i hi => by
+    have hi20 : i < 20 := by simp only [itemPayload, List.length_take] at hi; omega
+    rw [← hA i hi]
+    rcases Nat.lt_or_ge i 8 with h8 | h8
+    · have := c0 i h8
+      rw [show σ.sl (576 - 416) = σ.sl 0xa0 from rfl,
+        show σ.sl 576 + BitVec.ofNat 64 (232 + i) = σ.sl 0x158 + BitVec.ofNat 64 i by
+          simp only [Sig.sl, w]; bv_omega] at this
+      exact this
+    rcases Nat.lt_or_ge i 16 with h16 | h16
+    · have := c1 (i - 8) (by omega)
+      rw [show σ.sl (576 - 424) + BitVec.ofNat 64 (i - 8) = σ.sl 0xa0 + BitVec.ofNat 64 i by
+          simp only [Sig.sl, w]; bv_omega,
+        show σ.sl 576 + BitVec.ofNat 64 (240 + (i - 8)) = σ.sl 0x158 + BitVec.ofNat 64 i by
+          simp only [Sig.sl, w]; bv_omega] at this
+      exact this
+    · have := c2 (i - 16) (by omega)
+      rw [show σ.sl (576 - 432) + BitVec.ofNat 64 (i - 16) = σ.sl 0xa0 + BitVec.ofNat 64 i by
+          simp only [Sig.sl, w]; bv_omega,
+        show σ.sl 576 + BitVec.ofNat 64 (248 + (i - 16)) = σ.sl 0x158 + BitVec.ofNat 64 i by
+          simp only [Sig.sl, w]; bv_omega] at this
+      exact this
+  -- the growth spills
+  have fw := fun kk hk hk' => frame_word (BaseEnv.ofB σ m) hwf' hm' hS' (k := kk) hk hk'
+  obtain ⟨s64, s72, s48, s56, s40, s32⟩ := hsp
+  have hx40 : ((Sym.init 0 136 8).eval (envB σ m)).toNat < 2 ^ 40 := by rw [e136, hnn]; omega
+  have f200 := fw 0x200 (by decide) (by decide)
+  rw [show 576 - 0x200 = 64 from rfl, s64] at f200
+  have f1f8 := fw 0x1f8 (by decide) (by decide)
+  rw [show 576 - 0x1f8 = 72 from rfl, s72] at f1f8
+  have f210 := fw 0x210 (by decide) (by decide)
+  rw [show 576 - 0x210 = 48 from rfl, s48, e400] at f210
+  have f208 := fw 0x208 (by decide) (by decide)
+  rw [show 576 - 0x208 = 56 from rfl, s56, e392] at f208
+  have f218 := fw 0x218 (by decide) (by decide)
+  rw [show 576 - 0x218 = 40 from rfl, s40, ctx_eval hcm] at f218
+  have f220 := fw 0x220 (by decide) (by decide)
+  rw [show 576 - 0x220 = 32 from rfl, s32] at f220
+  have hgr : growS.eval (envB σ m) = w (grownCap o.done.length) := by
+    rw [growS_eval (by rw [e136, hnn]; exact hn32), e136, hnn]
+  have hG : Growing σ m' o k kp' := by
+    refine ⟨hec, ?_, by rw [reg 25 _ h25, hgr], ?_, ?_, f210, f208, f218, f220⟩
+    · rw [reg 23 _ h23]
+      show (Sym.init 0 136 8).eval (envB σ m) + 1#64 = _
+      rw [e136]; simp only [w, BitVec.ofNat_add]
+    · rw [f200]; congr 1
+      show ((Sym.init 0 136 8).eval (envB σ m)) <<< ((5#64).toNat % 64) = _
+      rw [shl5 hx40, e136, hnn]
+    · rw [f1f8]; congr 1
+      show ((Sym.init 0 136 8).eval (envB σ m)) <<< ((3#64).toNat % 64) = _
+      rw [shl3 hx40, e136, hnn]
+  obtain ⟨g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12⟩ := G'
+  exact ⟨o, k, _, kp', ⟨g1, g2, g3, ⟨hH', g4⟩, g5, g6, g7, g8, g9, g10, g11, g12, hB⟩, hG,
+    (reg 27 _ h27).trans e144, e128, e144, hgr, hn32⟩
+
+theorem TX.leaf_8000025c_4 :
+    LeafGoal TX.plan TX.plan.cuts[10]! ((TX.plan.leaves 0x8000025c)[4]!) := by
+  show LeafGoal TX.plan cut25c (run25c_leaves[4]!)
+  have hsteps : (run25c_leaves[4]!).S.steps - cut25c.S.steps = 50 := by decide
+  have hcs : (run25c_leaves[4]!).conds = [SBool.eq (Sym.init 0 408 2) (Sym.lit 0),
+      SBool.geu (Sym.init 0 136 8) (Sym.init 0 144 8), SBool.eq (Sym.init 0 144 8) (Sym.lit 0),
+      SBool.eq (Sym.bin .mulhu growS (Sym.lit 40)) (Sym.lit 0),
+      SBool.ne (Sym.bin .add (Sym.bin .sll growS (Sym.lit 5)) (Sym.bin .sll growS (Sym.lit 3)))
+        (Sym.lit 0)] := by decide
+  intro σ m hA hc
+  have hcm := (ret_25c hA).1
+  have hpre := hcm.2.1
+  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 539; unfold bTail; omega, ?_⟩
+  intro m' hm' hex hfr
+  have hx : (run25c_leaves[4]!).exit = .call 0x80042494 0x800003d4 := by decide
+  rw [hx] at hex ⊢
+  change m'.pc.toNat = 0x80042494 at hex
+  change Match (envB σ m) _ m' at hm'
+  change SameOutside (InWritable (envB σ m) SBody) m m' at hfr
+  have h1 : SBool.eval (envB σ m) (SBool.eq (Sym.init 0 408 2) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have h2 : SBool.eval (envB σ m) (SBool.geu (Sym.init 0 136 8) (Sym.init 0 144 8)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have he : (Sym.init 0 408 2).eval (envB σ m) = 0 := by simpa [SBool.eval, Sym.eval] using h1
+  have hge : ((Sym.init 0 144 8).eval (envB σ m)).toNat ≤
+      ((Sym.init 0 136 8).eval (envB σ m)).toNat := by
+    have : ¬ (((Sym.init 0 136 8).eval (envB σ m)).toNat <
+      ((Sym.init 0 144 8).eval (envB σ m)).toNat) := by simpa [SBool.eval, BitVec.ult] using h2
+    omega
+  obtain ⟨o, k, L, kp', hED, hG, h27, e128, e144, hgr, hn32⟩ := grow25c hA he hge hm' (by decide)
+    hfr (by decide) (by decide) (by decide) ⟨by decide, by decide, by decide⟩
+    ⟨by decide, by decide, by decide, by decide, by decide, by decide⟩ (by decide) (by decide)
+    (by decide) (by decide)
+  obtain ⟨-, hm, -⟩ := body_cut hcm
+  have hr := regs_keep hm hm' _ (by decide : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 26] : List (Fin 32)),
+    (run25c_leaves[4]!).S.reg i.val = SBody.reg i.val)
+  have reg : ∀ (i : Fin 32) (s : Sym), (run25c_leaves[4]!).S.reg i.val = s →
+      m'.reg i = s.eval (envB σ m) := fun i s h => by rw [Match.reg_eq hm' i i.val rfl, h]
+  have r1 := reg 1 _ (by decide : (run25c_leaves[4]!).S.reg 1 = .lit 0x800003d4)
+  have r10 := reg 10 _ (by decide : (run25c_leaves[4]!).S.reg 10 = .init 3 0 8)
+  have r11 := reg 11 _ (by decide : (run25c_leaves[4]!).S.reg 11 =
+    .bin .add (.bin .sll growS (.lit 5)) (.bin .sll growS (.lit 3)))
+  have r12 := reg 12 _ (by decide : (run25c_leaves[4]!).S.reg 12 = .lit 3)
+  have r13 := reg 13 _ (by decide : (run25c_leaves[4]!).S.reg 13 = .var 19)
+  have r22 := reg 22 _ (by decide : (run25c_leaves[4]!).S.reg 22 = .init 0 128 8)
+  have hgc := grownCap_lt hn32
+  have hc40 : (w (grownCap o.done.length)).toNat = grownCap o.done.length := by
+    simp only [w, BitVec.toNat_ofNat]; omega
+  have e11 : m'.reg 11 = w (entrySize * grownCap o.done.length) := by
+    rw [r11]
+    show growS.eval (envB σ m) <<< ((5#64).toNat % 64) + growS.eval (envB σ m) <<< ((3#64).toNat % 64) = _
+    rw [hgr, shl40 (by rw [hc40]; omega), hc40]
+  have hn11 : (m'.reg 11).toNat = entrySize * grownCap o.done.length := by
+    rw [e11]; simp only [w, BitVec.toNat_ofNat, entrySize]; omega
+  have hpos : 0 < grownCap o.done.length := by unfold grownCap; omega
+  have hcm' := hED.1
+  have hsite : Site3d0 σ L m' := ⟨o, k, kp', hED, hG, h27, r22.trans e128,
+    by simp only [Sym.eval] at r1; exact r1, fun t ht => by
+      simp only [List.length_cons, List.length_nil] at ht
+      obtain rfl | rfl | rfl | rfl : t = 0 ∨ t = 1 ∨ t = 2 ∨ t = 3 := by omega
+      · exact r10.trans (ctx_eval hcm)
+      · exact e11
+      · simp only [Sym.eval] at r12; exact r12
+      · exact r13.trans ((envB_var σ m 19).trans hcm.2.2.2.2.2.2.2.1)⟩
+  obtain ⟨hstk, hcf⟩ := callee_frame hcm' hED.2.2.2.2.1
+  have hpre2 : allocPre σ.A L m' := ⟨hED.2.2.2.2.1.1,
+    by rw [hn11]; simp only [entrySize]; omega, by rw [hn11]; simp only [entrySize]; omega,
+    by simp only [Sym.eval] at r12; rw [r12]; decide, hstk,
+    by unfold RetAligned; simp only [Sym.eval] at r1; rw [r1]; decide, hcf⟩
+  refine ⟨allocC, L, rfl, hex, hpre2, fun m'' hpost => ⟨cut3d4, by simp [TX.plan, vcPlan],
+    rfl, ?_, ⟨m', L, hsite, hpost⟩, ?_⟩⟩
+  · rw [hpost.1.1.1]; simp only [Sym.eval] at r1; rw [r1]; decide
+  · have h21 : m''.reg 21 = m.reg 21 := (hpost.1.1.2 21 (by decide)).trans (hr 21 (by simp))
+    have h26 : m''.reg 26 = m.reg 26 := (hpost.1.1.2 26 (by decide)).trans (hr 26 (by simp))
+    show 53 + bTail m'' 389 ≤ bTail m 539 - _
+    rw [hsteps]; unfold bTail afterEntry; rw [h21, h26]; omega
+
+theorem TX.leaf_8000025c_5 :
+    LeafGoal TX.plan TX.plan.cuts[10]! ((TX.plan.leaves 0x8000025c)[5]!) := by
+  show LeafGoal TX.plan cut25c (run25c_leaves[5]!)
+  have hsteps : (run25c_leaves[5]!).S.steps - cut25c.S.steps = 52 := by decide
+  have hcs : (run25c_leaves[5]!).conds = [SBool.eq (Sym.init 0 408 2) (Sym.lit 0),
+      SBool.geu (Sym.init 0 136 8) (Sym.init 0 144 8), SBool.ne (Sym.init 0 144 8) (Sym.lit 0),
+      SBool.eq (Sym.bin .mulhu growS (Sym.lit 40)) (Sym.lit 0)] := by decide
+  intro σ m hA hc
+  have hcm := (ret_25c hA).1
+  have hpre := hcm.2.1
+  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 539; unfold bTail; omega, ?_⟩
+  intro m' hm' hex hfr
+  have hx : (run25c_leaves[5]!).exit = .call 0x8004218c 0x80000340 := by decide
+  rw [hx] at hex ⊢
+  change m'.pc.toNat = 0x8004218c at hex
+  change Match (envB σ m) _ m' at hm'
+  change SameOutside (InWritable (envB σ m) SBody) m m' at hfr
+  have h1 : SBool.eval (envB σ m) (SBool.eq (Sym.init 0 408 2) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have h2 : SBool.eval (envB σ m) (SBool.geu (Sym.init 0 136 8) (Sym.init 0 144 8)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have h3 : SBool.eval (envB σ m) (SBool.ne (Sym.init 0 144 8) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have h4 : SBool.eval (envB σ m) (SBool.eq (Sym.bin .mulhu growS (Sym.lit 40)) (Sym.lit 0)) =
+    true := hc _ (by rw [hcs]; simp)
+  have he : (Sym.init 0 408 2).eval (envB σ m) = 0 := by simpa [SBool.eval, Sym.eval] using h1
+  have hge : ((Sym.init 0 144 8).eval (envB σ m)).toNat ≤
+      ((Sym.init 0 136 8).eval (envB σ m)).toNat := by
+    have : ¬ (((Sym.init 0 136 8).eval (envB σ m)).toNat <
+      ((Sym.init 0 144 8).eval (envB σ m)).toNat) := by simpa [SBool.eval, BitVec.ult] using h2
+    omega
+  obtain ⟨o, k, L, kp', hED, hG, h27, e128, e144, hgr, hn32⟩ := grow25c hA he hge hm' (by decide)
+    hfr (by decide) (by decide) (by decide) ⟨by decide, by decide, by decide⟩
+    ⟨by decide, by decide, by decide, by decide, by decide, by decide⟩ (by decide) (by decide)
+    (by decide) (by decide)
+  obtain ⟨hwf, hm, -⟩ := body_cut hcm
+  have hr := regs_keep hm hm' _ (by decide : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 26] : List (Fin 32)),
+    (run25c_leaves[5]!).S.reg i.val = SBody.reg i.val)
+  have reg : ∀ (i : Fin 32) (s : Sym), (run25c_leaves[5]!).S.reg i.val = s →
+      m'.reg i = s.eval (envB σ m) := fun i s h => by rw [Match.reg_eq hm' i i.val rfl, h]
+  have r1 := reg 1 _ (by decide : (run25c_leaves[5]!).S.reg 1 = .lit 0x80000340)
+  have r10 := reg 10 _ (by decide : (run25c_leaves[5]!).S.reg 10 = .init 3 0 8)
+  have r11 := reg 11 _ (by decide : (run25c_leaves[5]!).S.reg 11 = .init 0 128 8)
+  have r12 := reg 12 _ (by decide : (run25c_leaves[5]!).S.reg 12 =
+    .bin .add (.bin .sll (.init 0 144 8) (.lit 5)) (.bin .sll (.init 0 144 8) (.lit 3)))
+  have r13 := reg 13 _ (by decide : (run25c_leaves[5]!).S.reg 13 = .lit 3)
+  have r14 := reg 14 _ (by decide : (run25c_leaves[5]!).S.reg 14 =
+    .bin .add (.bin .sll growS (.lit 5)) (.bin .sll growS (.lit 3)))
+  have r15 := reg 15 _ (by decide : (run25c_leaves[5]!).S.reg 15 = .var 19)
+  have r22 := reg 22 _ (by decide : (run25c_leaves[5]!).S.reg 22 =
+    .bin .mulhu growS (.lit 40))
+  have hgc := grownCap_lt hn32
+  have hc40 : (w (grownCap o.done.length)).toNat = grownCap o.done.length := by
+    simp only [w, BitVec.toNat_ofNat]; omega
+  have hgx : (growS.eval (envB σ m)).toNat < 2 ^ 40 := by rw [hgr, hc40]; omega
+  have hEL := hED.2.2.2.1
+  have hec0 : 0 < o.ec.toNat := by
+    simp only [SBool.eval, e144, bne_iff_ne, ne_eq] at h3
+    exact Nat.pos_of_ne_zero fun h0 => h3 (BitVec.eq_of_toNat_eq (by simpa using h0))
+  have hwf' : Env.WF (envB σ m) (run25c_leaves[5]!).S := hwf.congr (by decide)
+  have fw := fun kk hk hk' => frame_word (BaseEnv.ofB σ m) hwf' hm' (by decide) (k := kk) hk hk'
+  have f228 := fw 0x228 (by decide) (by decide)
+  rw [show 576 - 0x228 = 24 from rfl,
+    show readConst (run25c_leaves[5]!).S 0 24 8 = .init 0 128 8 by decide, e128] at f228
+  have f230 := fw 0x230 (by decide) (by decide)
+  rw [show 576 - 0x230 = 16 from rfl,
+    show readConst (run25c_leaves[5]!).S 0 16 8 = .bin .sll growS (.lit 3) by decide] at f230
+  have f238 := fw 0x238 (by decide) (by decide)
+  rw [show 576 - 0x238 = 8 from rfl,
+    show readConst (run25c_leaves[5]!).S 0 8 8 = .bin .sll growS (.lit 5) by decide] at f238
+  have f240 := fw 0x240 (by decide) (by decide)
+  rw [show 576 - 0x240 = 0 from rfl, show readConst (run25c_leaves[5]!).S 0 0 8 =
+    .bin .add (.bin .sll growS (.lit 5)) (.bin .sll growS (.lit 3)) by decide] at f240
+  have e40 : (Sym.bin .add (.bin .sll growS (.lit 5)) (.bin .sll growS (.lit 3))).eval
+      (envB σ m) = w (entrySize * grownCap o.done.length) := by
+    show growS.eval (envB σ m) <<< ((5#64).toNat % 64) + growS.eval (envB σ m) <<< ((3#64).toNat % 64) = _
+    rw [shl40 hgx, hgr, hc40]
+  have hsite : Site33c σ m' := ⟨o, k, L, kp', hED, hG, h27, hec0, by
+      rw [r22]; simpa [SBool.eval] using h4, f228,
+    by rw [f230]; congr 1; show growS.eval (envB σ m) <<< ((3#64).toNat % 64) = _
+       rw [shl3 hgx, hgr, hc40],
+    by rw [f238]; congr 1; show growS.eval (envB σ m) <<< ((5#64).toNat % 64) = _
+       rw [shl5 hgx, hgr, hc40],
+    by rw [f240, e40],
+    by simp only [Sym.eval] at r1; exact r1, fun t ht => by
+      simp only [List.length_cons, List.length_nil] at ht
+      obtain rfl | rfl | rfl | rfl | rfl | rfl : t = 0 ∨ t = 1 ∨ t = 2 ∨ t = 3 ∨ t = 4 ∨ t = 5 :=
+        by omega
+      · exact r10.trans (ctx_eval hcm)
+      · exact r11.trans e128
+      · refine r12.trans ?_
+        show (Sym.init 0 144 8).eval (envB σ m) <<< ((5#64).toNat % 64) +
+          (Sym.init 0 144 8).eval (envB σ m) <<< ((3#64).toNat % 64) = _
+        rw [e144, shl40 (by have := hEL.2.2.2.2.1; omega)]; rfl
+      · simp only [Sym.eval] at r13; exact r13
+      · exact r14.trans e40
+      · exact r15.trans ((envB_var σ m 19).trans hcm.2.2.2.2.2.2.2.1)⟩
+  have hcm' := hED.1
+  obtain ⟨hstk, -⟩ := callee_frame hcm' hED.2.2.2.2.1
+  have hpre2 : F0.Pre m' := ⟨hcm'.2.2.1, hstk,
+    by unfold RetAligned; simp only [Sym.eval] at r1; rw [r1]; decide⟩
+  refine ⟨remapC, (), rfl, hex, hpre2, fun m'' hpost => ⟨cut340, by simp [TX.plan, vcPlan],
+    rfl, ?_, ⟨m', (), hsite, hpost⟩, ?_⟩⟩
+  · rw [hpost.1.1.1]; simp only [Sym.eval] at r1; rw [r1]; decide
+  · have h21 : m''.reg 21 = m.reg 21 := (hpost.1.1.2 21 (by decide)).trans (hr 21 (by simp))
+    have h26 : m''.reg 26 = m.reg 26 := (hpost.1.1.2 26 (by decide)).trans (hr 26 (by simp))
+    show 9 + bTail m'' 478 ≤ bTail m 539 - _
+    rw [hsteps]; unfold bTail afterEntry; rw [h21, h26]; omega
 
 end ZesuExec.Fn.TX
