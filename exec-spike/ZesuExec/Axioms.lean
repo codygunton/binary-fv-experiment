@@ -21,6 +21,7 @@ import ZesuExec.Sym.Summary
 import ZesuExec.Vc.Sound
 import ZesuExec.Vc.SoundW
 import ZesuExec.Fn.F1.Vc
+import ZesuExec.Fn.DTF.Reach
 
 /-! Axiom guards for every end theorem (plan Verification item 4). -/
 
@@ -209,3 +210,9 @@ info: 'ZesuExec.Fn.F6.F6.reach' depends on axioms: [propext, Classical.choice, Q
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.F6.F6.reach
+
+/--
+info: 'ZesuExec.Fn.DTF.DTF.reach_from' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.DTF.DTF.reach_from
