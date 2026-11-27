@@ -1339,4 +1339,151 @@ theorem TX.leaf_8000010c_3 :
       ((run10c_leaves[3]!).S.steps - S10c.steps)
     rw [hsteps]; unfold outerLeft; rw [h21]; unfold F2.bound; omega
 
+/-! ## `0x800001a0`: a 32-byte key -/
+
+/-- The keys loop's facts across a step that writes only free stack bytes apart from the magic
+spill, the entries and keys list headers and the address copy. -/
+theorem ie_keep {σ : Sig} {m m' : Machine} {o : Obs} {k : Kobs} {L : List (Word × Nat)}
+    {n : Nat} (hie : InEntry σ m o k L) (hko : KeysOk σ m o k) (hkl : KList σ m k n)
+    (hc' : Common σ m') (hp : Preserved m m') {R : Word → Prop} (hso : SameOutside R m m')
+    (hR : ∀ a, R a → InRange (σ.sl stackBytes) stackBytes a)
+    (hR1 : ∀ a, R a → ¬ InRange (σ.sl 0x1f0) 8 a) (hR2 : ∀ a, R a → ¬ InRange (σ.sl 0x1c0) 24 a)
+    (hR3 : ∀ a, R a → ¬ InRange (σ.sl 0x158) 20 a) (hR4 : ∀ a, R a → ¬ InRange (σ.sl 0x118) 24 a)
+    (hr : ∀ i ∈ ([20, 21, 22, 23, 24, 26, 27] : List (Fin 32)), m'.reg i = m.reg i) :
+    InEntry σ m' o k L ∧ KeysOk σ m' o k ∧ KList σ m' k n := by
+  obtain ⟨hc, hok, ⟨r20, r21, hi, hmag⟩, hel, hlive, ⟨hd, hle, r26⟩, ⟨had, hal, hab⟩, hklo,
+    r27⟩ := hie
+  obtain ⟨hkw, r23, r22, r24⟩ := hko
+  obtain ⟨hH, hn, hq0, hc1, hc32, hram, hyl, hkb⟩ := hkl
+  have hpre := hc.2.1
+  have hS := (entry_nums hpre).2.1; unfold Layout.ramHi at hS
+  have h158 := sl_toNat hpre (k := 0x158) (by decide)
+  refine ⟨⟨hc', outerOk_keep hpre hso (fun a h => .inl (hR a h)) hok,
+      ⟨(hr 20 (by decide)).trans r20, (hr 21 (by decide)).trans r21, hi,
+        frame_keep hpre hso (k := 0x1f0) (by decide) (by decide) (fun a h hin => hR1 a h hin)
+          hmag⟩,
+      elist_keep hpre hel hlive (fun b hb => List.mem_append_left _ hb) hso hR hR2,
+      live_keep hpre hlive hso hp hR, ⟨hd, hle, (hr 26 (by decide)).trans r26⟩,
+      ⟨had, hal, bytes_congr hab fun t ht => hso _ fun h => hR3 _ h (in_self (by omega)
+        (by simp only [itemPayload, List.length_take] at ht; omega))⟩, hklo,
+      (hr 27 (by decide)).trans r27⟩,
+    ⟨hkw, (hr 23 (by decide)).trans r23, (hr 22 (by decide)).trans r22,
+      (hr 24 (by decide)).trans r24⟩,
+    ⟨hdr_keep hpre hso (by decide) (by decide) hR4 hH, hn, hq0, hc1, hc32, hram, hyl, ?_⟩⟩
+  rcases Nat.eq_zero_or_pos k.kc.toNat with h0 | h0
+  · have : k.keys = [] := List.eq_nil_of_length_eq_zero (by omega)
+    rw [this]; intro i hi; simp at hi
+  · exact bytes_keep_priv hpre hso hR hkb (block_priv hlive (p := k.kq)
+      (n := keySize * k.kc.toNat) (by simp [EX, KX, h0]) (hram h0)
+      (by rw [flatten_length _ hyl]; exact Nat.mul_le_mul_left _ hn))
+
+/-- `ret1a0` with the whole keys-loop state. -/
+theorem ret1a0' {σ : Sig} {m : Machine} (h : ARet f2C (unit Site19c) σ m) :
+    Common σ m ∧ ∃ o k L, InEntry σ m o k L ∧ KeysOk σ m o k ∧ KList σ m k k.keys.length ∧
+      k.j < k.kl ∧ ∃ before : List Byte,
+        BytesAt m (σ.sl 0x100) (F2.result40 (keyPtr σ o k) (kwin σ o k) before) := by
+  have hcm := A1a0_common h
+  obtain ⟨mc, _, ⟨o, k, L, hie, hko, hkl, hj, ha⟩, hpost, hp⟩ := h
+  have hc := hie.1
+  have hpre := hc.2.1
+  have hout : mc.reg 10 = σ.sl 0x100 := ha.arg 0 (by simp)
+  have hin : mc.reg 11 = keyPtr σ o k := ha.arg 1 (by simp)
+  have hlen : mc.reg 12 = w (k.kl - k.j) := ha.arg 2 (by simp)
+  have hR := f2_frame hc hout (by decide) (by decide)
+  have hx : ∀ {kk nn : Nat}, kk ≤ 576 → (0x100 + nn ≤ kk ∨ kk + 40 ≤ 0x100) →
+      ∀ a, (InRange (mc.reg 10) 40 a ∨ InRange (mc.reg 2 - 16) 16 a) →
+        ¬ InRange (σ.sl kk) nn a := by
+    intro kk nn hkk hd a h hin
+    rw [hout, show mc.reg 2 - 16 = σ.sl 592 from sp_sub hc 16] at h
+    rcases h with h | h
+    · exact sl_apart hpre (by decide) (by unfold stackBytes; omega) hd h hin
+    · exact sl_apart hpre (by decide) (by unfold stackBytes; omega) (by omega) h hin
+  obtain ⟨hie', hko', hkl'⟩ := ie_keep hie hko hkl hcm hp hpost.2.1 hR
+    (hx (by decide) (by decide)) (hx (by decide) (by decide)) (hx (by decide) (by decide))
+    (hx (by decide) (by decide)) (fun i hi => hpost.1.2 i (by revert hi; revert i; decide))
+  have hl64 : σ.len < 2 ^ 64 := (wordAt σ.m (σ.rest + 8)).isLt
+  have hok := hie.2.1
+  have hpl := hok.2.1
+  have hi := hie.2.2.1.2.2.1
+  have hle := hie.2.2.2.2.2.1.2.1
+  have hkb := hie.2.2.2.2.2.2.2.1.2
+  have hl : (mc.reg 12).toNat = k.kl - k.j := by
+    rw [hlen]; simp only [w, BitVec.toNat_ofNat]; omega
+  obtain ⟨before, -, hb⟩ := f2_result hc hout (by decide) (by decide)
+    (off := o.h + o.i + k.eh + (k.ah + 20) + k.kh + k.j)
+    (by rw [hin]; simp only [keyPtr, kplPtr, aftPtr, entPtr, curPtr, w]; bv_omega) (by omega) hpost
+  rw [hl, ← kwin_eq σ o k hle hkb (by omega),
+    show σ.inp + w (o.h + o.i + k.eh + (k.ah + 20) + k.kh + k.j) = keyPtr σ o k by
+      simp only [keyPtr, kplPtr, aftPtr, entPtr, curPtr, w]; bv_omega] at hb
+  exact ⟨hcm, o, k, L, hie', hko', hkl', hj, before, hb⟩
+
+/-- `ensureTotalCapacity(S-kh, ao, req)` from a `Common` machine. -/
+theorem f1_pre_tx {σ : Sig} {m : Machine} {L X : List (Word × Nat)} {items : List Byte}
+    (hc : Common σ m) (hlive : Live σ m L X) {kh : Nat}
+    (hhdr : m.reg 10 = σ.sl kh) (hao : m.reg 11 = σ.ao) (hreq : (m.reg 12).toNat < 2 ^ 32)
+    (hra : RetAligned m) (hkh : 24 ≤ kh) (hkh' : kh ≤ 576) (hkh8 : kh % 8 = 0)
+    {p n c : Word} (hH : F1.HeaderIs m (σ.sl kh) p n c) (hnc : n.toNat ≤ c.toNat)
+    (hit : items.length = n.toNat * F1.elemBytes) (hp : 0 < p.toNat)
+    (hX : 0 < c.toNat → RamRange p (c.toNat * F1.elemBytes) ∧ (p, c.toNat * F1.elemBytes) ∈ X)
+    (hb : BytesAt m p items) : F1.Pre σ.A L items m := by
+  have hpre := hc.2.1
+  obtain ⟨hlo, hhi, h16, -, -, -⟩ := entry_nums hpre
+  have hlo' : 2684355264 ≤ σ.S.toNat := by unfold Layout.ramLo at hlo; omega
+  have hS704 := sl_toNat hpre (k := stackBytes) (Nat.le_refl _)
+  have hSh := sl_toNat hpre (k := kh) (by unfold stackBytes; omega)
+  have hS704' : (σ.sl 704).toNat = σ.S.toNat - 704 := sl_toNat hpre (by decide)
+  have r2 : m.reg 2 = σ.sl 576 := hc.2.2.2.1
+  have hsp : (m.reg 2).toNat = σ.S.toNat - 576 := by rw [r2]; exact sl_toNat hpre (by decide)
+  have hsp128 : m.reg 2 - 128 = σ.sl 704 := by rw [r2]; simp only [Sig.sl, w]; bv_omega
+  obtain ⟨-, -, -, -, -, -, hRao, hao8, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -,
+    d27, -, -, -, d31, -, -, d34, hP⟩ := hpre
+  unfold Apart at d27 d31 d34
+  rw [hS704] at d27 d34
+  unfold stackBytes at d27 d34
+  unfold RamRange at hRao
+  have e1 : F1.wordAt m (σ.sl kh) = p := f1w hH.1
+  have e2 : F1.wordAt m (σ.sl kh + 8) = n := f1w hH.2.1
+  have e3 : F1.wordAt m (σ.sl kh + 16) = c := f1w hH.2.2
+  have hnp : ∀ a, (InRange (σ.sl kh) 24 a ∨ InRange σ.ao 16 a ∨ InRange (σ.sl 704) 128 a ∨
+      InRange scratch 8 a) → ¬ σ.A.Priv σ.g.L a := by
+    intro a h
+    rcases h with h | h | h | h
+    · exact stack_not_priv hc.2.1 (sl_in_stack hc.2.1 (by unfold stackBytes; omega) hkh h)
+    · exact hP a (.inr (.inl h))
+    · exact stack_not_priv hc.2.1 (sl_in_stack hc.2.1 (by decide) (by decide) h)
+    · exact hP a (.inr (.inr (.inr (.inr (.inr h)))))
+  have hsc : scratch.toNat = Layout.extraParams := by simp [scratch, Layout.extraParams]
+  have hsc' : (BitVec.ofNat 64 Layout.extraParams).toNat = Layout.extraParams := by
+    simp [Layout.extraParams]
+  rw [hsc] at d31 d34
+  have hblk : 0 < c.toNat → ∀ a, InRange p (c.toNat * F1.elemBytes) a → σ.A.Priv σ.g.L a :=
+    fun h0 a ha => (hlive.2.2 _ (hX h0).2).2.2 a ha
+  have hel : 0 < F1.elemBytes := by decide
+  simp only [F1.Pre, hhdr, hao, e1, e2, e3]
+  refine ⟨hc.2.2.1, ⟨by rw [hsp]; omega, by rw [hsp]; unfold Layout.ramLo; omega,
+    by rw [hsp]; omega, fun j hj => ?_⟩, hra, ?_, ?_, hH, hnc, hit, hp,
+    fun h0 => ⟨(hX h0).1, hlive.2.1.symm.subset (List.mem_append_right _ (hX h0).2)⟩, hb,
+    hRao, hao8, ?_, common_vtable hc, hreq, hc.2.2.2.2.2.2.2.2.2.2.2.2.1, hlive.1, ?_, ?_, ?_,
+    ?_, ?_, ?_, fun h0 => ⟨
+      apart_of_priv (Nat.mul_pos h0 hel) (by decide) (hblk h0) fun a h => hnp a (.inl h),
+      apart_of_priv (Nat.mul_pos h0 hel) (by decide) (hblk h0) fun a h => hnp a (.inr (.inl h)),
+      (by rw [hsp128]; exact apart_of_priv (Nat.mul_pos h0 hel) (by decide) (hblk h0)
+            (fun a h => hnp a (.inr (.inr (.inl h))))),
+      apart_of_priv (Nat.mul_pos h0 hel) (by decide) (hblk h0)
+        fun a h => hnp a (.inr (.inr (.inr h)))⟩, fun a h => fun hpa =>
+      hnp a ?_ (priv_sub hc.2.1 hlive hpa)⟩
+  · have := stack_present' hc (k := 704) (j := j) (by omega) (by decide)
+    rwa [show m.reg 2 - 128#64 = σ.sl 704 by rw [r2]; simp only [Sig.sl, w]; bv_omega]
+  · unfold RamRange; rw [hSh]; unfold Layout.ramLo Layout.ramHi at *; omega
+  · rw [hSh]; exact Nat.sub_mod_eq_zero_of_mod_eq (by omega)
+  · rw [load_congr (m := σ.m) fun t ht => ao_same hc (by omega)]
+    exact hc.2.1.2.2.2.2.2.2.2.2.1
+  all_goals try rw [hsp128]
+  all_goals try simp only [Sig.ao]
+  all_goals try (unfold F1.Apart
+                 first
+                   | (simp only [hSh, hS704', hsc']; omega)
+                   | omega)
+  all_goals try (simpa only [hsp128] using h)
+
 end ZesuExec.Fn.TX
