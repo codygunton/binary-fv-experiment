@@ -119,7 +119,7 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   only with `--build`. Result: 2 PASS, 3 PASS, 9 PASS; exit 0. The only `bv_decide` text in
   `ZesuExec bfv` is backticked prose in `bfv/BinaryFv/RiscV/Model/SailEnumAux.lean`.
 
-## S3 — Sail link (TrackT, in progress)
+## S3 — Sail link (TrackT, TrackT2)
 - 2026-11-27 TrackT: step 1 `tools/closure.py` (55 modules, no `BinaryFv.Zesu`, no
   `native_decide`). Step 2 done: all 55 `bfv` modules build against the specialised tree
   (`/home/cody/.cache/zesu-tmp/exec-spike/bin/bfvbuild` EXIT 0); removed-feature premises
@@ -148,3 +148,32 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `Fn/Preserve.lean` (`Reaches.preserve`: presence and bytes below RAM survive every run).
   `lake build ZesuExec.Fn.F1.Proof` (deps built): 5.0 s wall, 1.81 GB peak. Lines: Spec 95,
   Regions 28, Runs 29, Proof 1310. Non-vacuity example for F1 still to add.
+- 2026-11-27 TrackT2: `dec_tac` finisher fixed (`rw [toNat_append_add]` instead of `simp only`:
+  the generated `+++` carries instance widths `1+8+1+10` that `simp` does not unify); all 32
+  `dec_<form>` proved; `decode_sound` (`ZesuExec/Sail/Decode.lean`) by splitting `decodeNat` with
+  `ite_imp` (`split at h` exceeds simp's step limit on the 32-way `if` chain).
+- TrackT2: rung = S1 as built (both patches; no fallback). `ZesuExec/Sail/Forms/`: `Common.lean`
+  (`sim_of_exec`: generic lift of an `execute` run from `T s pc` through `runHartActiveControlFlow`
+  + `tryStepGenericRetires`; `sim_wreg`, `sim_fall`, `sim_ctl`; `rX_rg_run`/`wX_rg_run` for any
+  `Fin 32`; PMA matching of the three profile regions), `Mem.lean` (byte lists, `loadPma`,
+  `storePma`, `sim_store_of_exec`), `RegWrite.lean` (16 forms), `Branch.lean` (5), `Jump.lean`
+  (jal, jalr), `Load.lean` (5), `Store.lean` (4). All 32 `Instr` constructors proved: no `Proved`
+  restriction. `Step.lean` `sail_step_sim`; `Run.lean` `SailReaches`, `sail_reaches` (service case
+  builds `sailMemcpy m s`); `Axioms.lean` `#guard_msgs` `#print axioms` = [propext,
+  Classical.choice, Quot.sound] for `decode_sound`, `sail_step_sim`, `sail_reaches`.
+  Fresh build of all `ZesuExec.Sail.*` (bfv cached): 22.3 s wall, 95 s CPU, 2.3 GB peak; slowest
+  modules Decode 8.1 s, Forms.Common 8.2 s, the rest ≤ 1.3 s each.
+- TrackT2 engine A (`ZesuExec/Test/DifftestSail.lean`, wired into `Difftest.lean`): the model's
+  root module `LeanRV64DExecutable` declares the Sail simulator's `main` (clash with
+  `zesu-difftest`'s), so `bfv/.../Model/{State,Abi}.lean` now import its 13 submodules, and
+  `ZesuExec/Sail/ModelInit.lean` copies `sail_model_init` verbatim (`InitCheck.modelInit_eq : modelInit
+  = sail_model_init () := rfl`). Initial state: `modelInit`, then zero for the 14 registers the
+  Lean backend leaves absent (its `initialize_registers` is empty; the C emulator zeroes undefined
+  registers), then the model's `reset ()`. `init_model` is not used: the model's own
+  `config_is_valid` rejects the S1 profile configuration (`check_mmu_config`: Svrsw60t59b, Ssccptr,
+  Svade, Svadu still enabled with S/Sv39 disabled; `check_mem_layout` (`check_pma_regions`);
+  `check_misc_extension_dependencies`) — an S1 configuration issue, not fixed here.
+  `configuredB` holds on every initial state. Result: `zesu-difftest` prints `agree … sail = machine
+  = unicorn … configuredB` on all 19 F1 and 26 F2 snapshots (45/45; ≤ 0.95 s, 82 MB each).
+  `OPEN/S3/decode_immediates.goals.txt` removed (resolved).
+- Gate S3: PASS. Next: S6 (`Fn/<Id>/Sail.lean`) uses `sail_reaches` unrestricted.
