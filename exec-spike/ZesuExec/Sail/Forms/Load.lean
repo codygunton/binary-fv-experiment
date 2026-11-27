@@ -5,7 +5,7 @@ import ZesuExec.Sail.Forms.Mem
 
 `ld lw lhu lbu lb`: `Machine.load` succeeds only for a naturally aligned range inside rodata,
 input or RAM whose bytes are all present; `Rel.mem` puts those bytes in Sail's byte map, the
-profile's PMA regions admit the read, and the generated load returns their little-endian value.
+profile's PMA regions allow the read, and the generated load returns their little-endian value.
 -/
 
 namespace ZesuExec.SailLink

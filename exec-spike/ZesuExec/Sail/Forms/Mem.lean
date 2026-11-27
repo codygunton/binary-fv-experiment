@@ -5,7 +5,7 @@ import ZesuExec.Sail.Forms.Common
 
 Byte lists: `Machine.readBytes` against Sail's byte map, the little-endian value of a byte list
 (`leNat`) as both `Machine.ofBytesLE` and the generated `leWord`, alignment, and the PMA checks of
-the profile's regions for the accesses `Machine.load` and `Machine.store` admit.
+the profile's regions for the accesses `Machine.load` and `Machine.store` allow.
 -/
 
 namespace ZesuExec.SailLink
