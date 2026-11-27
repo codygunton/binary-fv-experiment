@@ -404,4 +404,69 @@ theorem ed_congr {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs} {L X : List (W
     · exact bytes_congr hkb fun t ht => hs.blk (kp', keySize * k.keys.length)
         (by simp [KD, hk]) t (by rw [flatten_length _ hkeys] at ht; exact ht)
 
+/-- Blocks in different parts of TX's live blocks do not meet. -/
+theorem live_apart {σ : Sig} {m : Machine} {L Y1 Y2 : List (Word × Nat)}
+    (hlive : Live σ m L (Y1 ++ Y2)) {b c : Word × Nat} (hb : b ∈ Y1) (hc : c ∈ Y2) :
+    b.1.toNat + b.2 ≤ c.1.toNat ∨ c.1.toNat + c.2 ≤ b.1.toNat := by
+  have hp := (σ.A.live_ok L m hlive.1).1
+  rw [hlive.2.1.pairwise_iff (fun h => h.symm), List.pairwise_append, List.pairwise_append] at hp
+  exact hp.2.1.2.2 b hb c hc
+
+theorem in_self {a : Word} {n t : Nat} (hfit : a.toNat + n < 2 ^ 64) (ht : t < n) :
+    InRange a n (a + BitVec.ofNat 64 t) := by
+  simp only [InRange]; rw [toNat_add_ofNat (by omega)]; omega
+
+/-- A callee that writes only free stack bytes, the scratch word, the allocator's memory or
+other live blocks `Y` keeps what `EntryDone` reads. -/
+theorem edsame_of {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs} {kp' : Word}
+    {L Y : List (Word × Nat)} (hpre : Pre σ.A σ.g σ.m)
+    (hlive : Live σ mc L (EX o ++ KD k kp' ++ Y)) {R : Word → Prop} (hso : SameOutside R mc m)
+    (hR : ∀ a, R a → (InRange (σ.sl stackBytes) stackBytes a ∧
+        ∀ kn ∈ ([(0x1f0, 8), (0x1c0, 24), (0x158, 20), (0xa0, 20)] : List (Nat × Nat)),
+          ¬ InRange (σ.sl kn.1) kn.2 a) ∨
+      InRange scratch 8 a ∨ σ.A.Priv L a ∨ ∃ c ∈ Y, InRange c.1 c.2 a) :
+    EDSame σ o k kp' mc m := by
+  have hblkP : ∀ c ∈ EX o ++ KD k kp' ++ Y, ∀ a, InRange c.1 c.2 a → σ.A.Priv σ.g.L a :=
+    fun c hc a h => (hlive.2.2 c hc).2.2 a h
+  have hlo := (entry_nums hpre).1
+  refine ⟨fun t ht => hso _ fun hr => ?_, fun kn hkn t ht => hso _ fun hr => ?_,
+    fun b hb t ht => hso _ fun hr => ?_⟩
+  · have hfit := pre_fit hpre ((σ.rest, 16), restR) (by simp [shapeFull])
+    have hin : InRange σ.rest 16 (σ.rest + BitVec.ofNat 64 t) := in_self (by simpa using hfit) ht
+    have hown : Owned σ (σ.rest + BitVec.ofNat 64 t) := .inr (.inl hin)
+    rcases hR _ hr with ⟨hs, -⟩ | h | h | ⟨c, hc, h⟩
+    · have h2 := sl_toNat hpre (k := stackBytes) (Nat.le_refl _)
+      have d9 : Apart (σ.sl stackBytes) stackBytes σ.rest 16 :=
+        hpre.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+      unfold Apart at d9; simp only [InRange] at hs hin; rw [h2] at hs d9; omega
+    · have d33 : Apart scratch 8 σ.rest 16 :=
+        hpre.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+      unfold Apart at d33; simp only [InRange] at h hin
+      simp only [scratch, Layout.extraParams, BitVec.toNat_ofNat] at h d33; omega
+    · exact owned_not_priv hpre hown (priv_sub hpre hlive h)
+    · exact owned_not_priv hpre hown (hblkP c (by simp [hc]) _ h)
+  · have hk : kn.1 ≤ 576 ∧ kn.2 ≤ kn.1 := by
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
+      rcases hkn with rfl | rfl | rfl | rfl <;> decide
+    have h3 := sl_toNat hpre (k := kn.1) (by unfold stackBytes; omega)
+    have hin : InRange (σ.sl kn.1) kn.2 (σ.sl kn.1 + BitVec.ofNat 64 t) :=
+      in_self (by rw [h3]; unfold Layout.ramLo at hlo; omega) ht
+    have hst := sl_in_stack hpre (by unfold stackBytes; omega) hk.2 hin
+    rcases hR _ hr with ⟨-, hs⟩ | h | h | ⟨c, hc, h⟩
+    · exact hs kn hkn hin
+    · exact scratch_not_stack hpre h hst
+    · exact stack_not_priv hpre hst (priv_sub hpre hlive h)
+    · exact stack_not_priv hpre hst (hblkP c (by simp [hc]) _ h)
+  · have hram := (hlive.2.2 b (by simp only [List.mem_append] at hb ⊢; exact .inl hb)).2.1
+    unfold RamRange Layout.ramHi at hram
+    have hin : InRange b.1 b.2 (b.1 + BitVec.ofNat 64 t) := in_self (by omega) ht
+    have hP := hblkP b (by simp only [List.mem_append] at hb ⊢; exact .inl hb) _ hin
+    rcases hR _ hr with ⟨hs, -⟩ | h | h | ⟨c, hc, h⟩
+    · exact stack_not_priv hpre hs hP
+    · exact owned_not_priv hpre (.inr (.inr (.inr h))) hP
+    · exact σ.A.priv_not_live L _ h ⟨b, hlive.2.1.symm.subset (by
+        simp only [List.mem_append] at hb ⊢; exact .inr (.inl hb)), hin⟩
+    · have := live_apart hlive hb hc
+      simp only [InRange] at hin h; omega
+
 end ZesuExec.Fn.TX
