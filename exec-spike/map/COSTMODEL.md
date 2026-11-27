@@ -11,27 +11,27 @@ Rates and counts only; no extrapolated total.
 | contract | 2 | 5.5 | 11 | 0 | 0 |
 | cut_lemma | 12 | 4 | 99 | 0 | 0 |
 | infra | 15 | 11 | 515 | 0 | 0 |
-| leaf | 20 | 10 | 260 | 0 | 0 |
+| leaf | 27 | 10 | 330 | 0 | 0 |
 | rule | 7 | 20 | 182 | 0 | 0 |
 | run | 1 | 10 | 10 | 0 | 0 |
 
-Plan leaves: auto 17, manual 112, open 28 (auto share 11%). Ledger `leaf` minutes per manual leaf: 2.3.
+Plan leaves: auto 17, manual 119, open 21 (auto share 11%). Ledger `leaf` minutes per manual leaf: 2.8.
 
 | residual class (manual and open leaves) | leaves |
 |---|---:|
-| oblig | 61 |
+| oblig | 66 |
 | callee-pre | 24 |
 | tail | 24 |
-| budget | 20 |
+| budget | 17 |
 | cut | 7 |
-| post | 3 |
 | @LeafGoalC | 1 |
+| post | 1 |
 
 ## Functions: static features and actuals
 
 | function | state | cuts | loops | calls | joins | leaves_estimate | n_instr | leaves auto/manual/open | ledger items | minutes | $ |
 |---|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|
-| f_80000000 rlp_decode.txAccessList | conditional | 21 | 2 | 12 | 11 | 50 | 323 | 10/13/28 | 35 | 436 | 0 |
+| f_80000000 rlp_decode.txAccessList | conditional | 21 | 2 | 12 | 11 | 50 | 323 | 10/20/21 | 42 | 506 | 0 |
 | f_8000050c rlp_decode.decodeTxFields | contract-draft | 153 | 50 | 87 | 75 | 478 | 2825 | 0/0/0 | 3 | 23 | 0 |
 | f_8004218c alt_fl_alloc.remap | closed+sail | 1 | 0 | 0 | 0 | 1 | 9 | 0/0/0 | 0 | 0 | 0 |
 | f_800cb40c array_list.Aligned([32]u8,null).ensureTotalCapacity | closed+sail | 9 | 0 | 4 | 7 | 18 | 107 | 7/8/0 | 9 | 142 | 0 |

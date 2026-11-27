@@ -735,3 +735,16 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   next, which close once the function declares its assertion facts (`@[zesu_fact]`), not
   attempted here. `Test/Auto.lean` negative tests build; `lake build` OK; zmap tests OK;
   `tools/verify.sh` all PASS after `make -C tools/zmap map`.
+- S6 TX step 6/7 (TXLeaves, 2026-11-27): merged exec-spike 8d760c3a (F6) and 9f7202ca (S4b
+  `zesu_fact`). Cut lemmas: all 17 closed (`Ret.lean`: `0x1f8 0x25c 0x340 0x3d4 0x400 0x42c 0x4a0`
+  via `ret_*` = `Common` + pc after each callee; `Store.lean`: `0x230 0x460`, a sixth region (slot in
+  a live block, `wf_snoc`, `slot_ok`)). S4b facts (`Facts.lean`: dead-344 `a0 = 0` after remap,
+  `40 c' ≠ 0`, growth `n < 2^32` with `grow_mulhu`/`grow_bytes`, `Common` at every cut, saved `ra`):
+  `zesu_auto TX` re-run in `Proof.lean`, auto 5 -> 10 of 68 (`25c_2 25c_3 25c_6 340_1 340_3`).
+  Hand leaves (mine, 17): `068_0..1` (`Err.lean`: `err_leaf`, `f2_result`, outcome bytes),
+  `0d8_0..1` (`Outer.lean`: `outer_err`, `OuterState` over `decodeItem`), `10c_0..2`
+  (`Entry.lean`), `15c_0..1`, `1a0_0..2` (`Keys.lean`), `0c4_0`, `18c_0` (`Calls.lean`); P2Summaries
+  adds 5 in `Leaves2.lean` (`1f8_0 25c_0 3d4_1 340_0 4a0_1`). Counts: 68 items, 10 auto, 37 manual
+  (17 cut lemmas + 20 leaves), 21 open. Gate S6 fallback: `TX.reach_from` assembled with the 21
+  open leaves as fields of `TX.Open`, listed in the map and saved one goal each in `OPEN/TX/`
+  (statement, residual class, `Leaf.pp`). `tx_spec`/`tx_sail` not added (needs `TX.reach`).
