@@ -240,9 +240,9 @@ def sail_model_init (x_0 : Unit) : SailM Unit := do
   writeReg htif_payload_writes (zeros (n := 4))
   writeReg pma_regions [{ base := 0b0000000000000000000000000000000001000000000000000000000000000000#64
                           size := 0b0000000000000000000000000000000001000000000000000000000000000000#64
-                          attributes := { mem_type := MainMemory
-                                          cacheable := true
-                                          coherent := true
+                          attributes := { mem_type := IOMemory
+                                          cacheable := false
+                                          coherent := false
                                           executable := false
                                           readable := true
                                           writable := false
@@ -258,9 +258,9 @@ def sail_model_init (x_0 : Unit) : SailM Unit := do
                                           supports_pte_write := true }
                           include_in_device_tree := true }, { base := 0b0000000000000000000000000000000010000000000000000000000000000000#64
                                                               size := 0b0000000000000000000000000000000000001000000000000000000000000000#64
-                                                              attributes := { mem_type := MainMemory
-                                                                              cacheable := true
-                                                                              coherent := true
+                                                              attributes := { mem_type := IOMemory
+                                                                              cacheable := false
+                                                                              coherent := false
                                                                               executable := true
                                                                               readable := true
                                                                               writable := false
@@ -277,7 +277,7 @@ def sail_model_init (x_0 : Unit) : SailM Unit := do
                                                               include_in_device_tree := true }, { base := 0b0000000000000000000000000000000010100000000000000000000000000000#64
                                                                                                   size := 0b0000000000000000000000000000000000100000000000000000000000000000#64
                                                                                                   attributes := { mem_type := MainMemory
-                                                                                                                  cacheable := true
+                                                                                                                  cacheable := false
                                                                                                                   coherent := true
                                                                                                                   executable := false
                                                                                                                   readable := true

@@ -1,5 +1,5 @@
 diff --git a/config/config.json.in b/config/config.json.in
-index 11038a26..0206cca8 100644
+index 11038a26..47f5880b 100644
 --- a/config/config.json.in
 +++ b/config/config.json.in
 @@ -147,11 +147,11 @@
@@ -16,7 +16,7 @@ index 11038a26..0206cca8 100644
        "tor_supported": true,
        "na4_supported": true,
        "napot_supported": true
-@@ -217,20 +217,20 @@
+@@ -217,19 +217,19 @@
      // the `misaligned` PMA attribute for a region, see the comments for
      // `memory.misaligned.exceptions` above.
      "regions": [
@@ -35,13 +35,12 @@ index 11038a26..0206cca8 100644
          },
          "attributes": {
 -          "mem_type" : "IOMemory",
-+          "mem_type": "MainMemory",
-           "cacheable": true,
--          "coherent": false,
-+          "coherent": true,
+-          "cacheable": true,
++          "mem_type": "IOMemory",
++          "cacheable": false,
+           "coherent": false,
            "executable": false,
            "readable": true,
-           "writable": false,
 @@ -245,33 +245,33 @@
              },
              "amo": "AccessFault"
@@ -74,12 +73,11 @@ index 11038a26..0206cca8 100644
 +          "value": "0x8000000"
          },
          "attributes": {
--          "mem_type": "IOMemory",
--          "cacheable": false,
-+          "mem_type": "MainMemory",
-+          "cacheable": true,
-           "coherent": true,
+           "mem_type": "IOMemory",
+           "cacheable": false,
+-          "coherent": true,
 -          "executable": false,
++          "coherent": false,
 +          "executable": true,
            "readable": true,
 -          "writable": true,
@@ -124,7 +122,8 @@ index 11038a26..0206cca8 100644
          },
          "attributes": {
            "mem_type": "MainMemory",
-           "cacheable": true,
+-          "cacheable": true,
++          "cacheable": false,
            "coherent": true,
 -          "executable": true,
 +          "executable": false,
@@ -162,6 +161,57 @@ index 11038a26..0206cca8 100644
      },
      "Zibi": {
        "supported": true
+@@ -688,39 +688,39 @@
+       "supported": true
+     },
+     "Ssccptr": {
+-      "supported": true
++      "supported": false
+     },
+     "Sscofpmf": {
+-      "supported": true
++      "supported": false
+     },
+     "Sscounterenw": {
+-      "supported": true
++      "supported": false
+     },
+     "Sstc": {
+-      "supported": true
++      "supported": false
+     },
+     // Enabling Sstvala requires that the exceptions specified in the extension
+     // have their appropriate settings under `base.xtval_nonzero`.
+     "Sstvala": {
+-      "supported": true
++      "supported": false
+     },
+     "Svade": {
+-      "supported": true
++      "supported": false
+     },
+     "Svadu": {
+-      "supported": true
++      "supported": false
+     },
+     "Svinval": {
+-      "supported": true
++      "supported": false
+     },
+     "Svrsw60t59b": {
+-      "supported": @CONFIG_XLEN_IS_64@
++      "supported": false
+     },
+     "Svnapot": {
+-      "supported": @CONFIG_XLEN_IS_64@
++      "supported": false
+     },
+     "Ssnpm": {
+-      "supported": @CONFIG_XLEN_IS_64@,
++      "supported": false,
+       "supported_pmlen_7": true,
+       "supported_pmlen_16": true
+     },
 @@ -742,16 +742,16 @@
        "sfence_vma_illegal_if_svbare_only": true
      },
@@ -183,3 +233,16 @@ index 11038a26..0206cca8 100644
      },
      "Stateen": {
        "Smstateen": {
+@@ -772,10 +772,10 @@
+       "mcid_length": 12
+     },
+     "Svpbmt": {
+-      "supported": @CONFIG_XLEN_IS_64@
++      "supported": false
+     },
+     "Svvptc": {
+-      "supported": true
++      "supported": false
+     }
+   }
+ }

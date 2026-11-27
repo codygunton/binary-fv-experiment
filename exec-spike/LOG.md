@@ -86,6 +86,23 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
 - 2026-11-27: `Test/Sym.lean` builds: all 32 `Instr` constructors (the plan's list of "33 forms"
   names 32 mnemonics) agree between `stepI` and `exec`; refusals of
   `csrrs`, store past end, odd halfword load hold (`decide +kernel`). Gate S4 met.
+- 2026-11-27 TrackT2: configuration fixed so the model's own `config_is_valid` holds (it failed
+  `check_mmu_config`, `check_mem_layout`, `check_misc_extension_dependencies`). `01-profile-config.patch`
+  now also disables Ssccptr, Sscofpmf, Sscounterenw, Sstc, Sstvala, Svade, Svadu, Svinval,
+  Svrsw60t59b, Svnapot, Ssnpm, Svpbmt, Svvptc (S-mode/Sv* dependants); input and ROM regions are
+  IOMemory, not cacheable, not coherent (the validator requires MainMemory to be read-write); RAM is
+  not cacheable (Ziccif requires cacheable coherent main memory to be executable). Attempt 1 also
+  disabled Ziccif: that turns the 4-byte fetch into two 2-byte fetches and broke
+  `bfv/.../Platform/Fetch.lean`; reverted in attempt 2 in favour of the non-cacheable RAM.
+  Regeneration (`nix build .#zesuSailRiscvLean`, 408 s) changed only `PlatformConfig.lean`
+  (`hartSupports`), `ValidateConfig.lean` and the root `sail_model_init` (region attributes);
+  regeneration check passes. Repairs: `Rel.zesuPma` takes the memory type; `ModelInit.lean`
+  re-copied (`modelInit_eq` by `rfl` holds). All 55 `bfv` modules, `ZesuExec.Sail.*` (incl. the
+  `#guard_msgs` axioms check) and `ZesuExec.Fn.F{0,1,2}.Sail` build; rebuild of model + S3 59 s
+  wall. Engine A now runs `init_model ""` (validator + reset); the zero-init of the 14 registers the
+  Lean backend leaves absent is still needed (without it `init_model` throws `Unreachable`).
+  Three-way `zesu-difftest`: 45/45 agree, `configuredB` on every initial state. Rung unchanged:
+  both patches. PROVENANCE sha256 of `01-profile-config.patch` updated; SPECIALISATION lists keys.
 
 ## S5 — functions (coordinator)
 - 2026-11-27: `Fn/Common.lean` (entry state/env, `entry_match`, `entry_wf`, `inWritable_entry`).

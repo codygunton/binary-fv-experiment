@@ -1078,13 +1078,13 @@ def hartSupports (merge_var : extension) : Bool :=
             Ext_Zvkt))))
   | Ext_Zvksc => ((hartSupports Ext_Zvks) && (hartSupports Ext_Zvbc))
   | Ext_Zvksg => ((hartSupports Ext_Zvks) && (hartSupports Ext_Zvkg))
-  | Ext_Ssccptr => true
-  | Ext_Sscofpmf => true
-  | Ext_Sscounterenw => true
-  | Ext_Ssnpm => ((true : Bool) && (xlen == 64))
+  | Ext_Ssccptr => false
+  | Ext_Sscofpmf => false
+  | Ext_Sscounterenw => false
+  | Ext_Ssnpm => ((false : Bool) && (xlen == 64))
   | Ext_Ssstateen => true
-  | Ext_Sstc => true
-  | Ext_Sstvala => true
+  | Ext_Sstc => false
+  | Ext_Sstvala => false
   | Ext_Sstvecd => (hartSupports Ext_S)
   | Ext_Ssu64xl => ((hartSupports Ext_S) && (xlen == 64))
   | Ext_Svbare => true
@@ -1092,13 +1092,13 @@ def hartSupports (merge_var : extension) : Bool :=
   | Ext_Sv39 => ((false : Bool) && (xlen == 64))
   | Ext_Sv48 => ((false : Bool) && (xlen == 64))
   | Ext_Sv57 => ((false : Bool) && (xlen == 64))
-  | Ext_Svade => true
-  | Ext_Svadu => true
-  | Ext_Svinval => true
-  | Ext_Svnapot => ((true : Bool) && (xlen == 64))
-  | Ext_Svpbmt => ((true : Bool) && (xlen == 64))
-  | Ext_Svrsw60t59b => true
-  | Ext_Svvptc => true
+  | Ext_Svade => false
+  | Ext_Svadu => false
+  | Ext_Svinval => false
+  | Ext_Svnapot => ((false : Bool) && (xlen == 64))
+  | Ext_Svpbmt => ((false : Bool) && (xlen == 64))
+  | Ext_Svrsw60t59b => false
+  | Ext_Svvptc => false
   | Ext_Smcntrpmf => true
   | Ext_Smmpm => ((true : Bool) && (xlen == 64))
   | Ext_Smnpm => ((true : Bool) && (xlen == 64))

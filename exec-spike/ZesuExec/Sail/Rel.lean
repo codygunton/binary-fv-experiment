@@ -32,11 +32,12 @@ deriving instance DecidableEq for PMA_Region
 deriving instance DecidableEq for PointerMaskingMode
 
 /-- The attributes the profile configuration gives every region (copied from the stock RAM
-region by `01-profile-config.patch`), with the region's own `readable`/`writable`/`executable`. -/
-def zesuPma (x r w : Bool) : PMA where
-  mem_type := .MainMemory
-  cacheable := true
-  coherent := true
+region by `01-profile-config.patch`), with the region's own memory type (`main`: MainMemory and
+coherent; otherwise IOMemory, not coherent; never cacheable) and `readable`/`writable`/`executable`. -/
+def zesuPma (main x r w : Bool) : PMA where
+  mem_type := if main then .MainMemory else .IOMemory
+  cacheable := false
+  coherent := main
   executable := x
   readable := r
   writable := w
@@ -52,11 +53,11 @@ def zesuPma (x r w : Bool) : PMA where
 /-- The value `sail_model_init` writes to `pma_regions` under the profile configuration:
 input, program ROM, RAM. -/
 def zesuPmaRegions : List PMA_Region :=
-  [ { base := 0x40000000#64, size := 0x40000000#64, attributes := zesuPma false true false,
+  [ { base := 0x40000000#64, size := 0x40000000#64, attributes := zesuPma false false true false,
       include_in_device_tree := true },
-    { base := 0x80000000#64, size := 0x8000000#64, attributes := zesuPma true true false,
+    { base := 0x80000000#64, size := 0x8000000#64, attributes := zesuPma false true true false,
       include_in_device_tree := true },
-    { base := 0xa0000000#64, size := 0x20000000#64, attributes := zesuPma false true true,
+    { base := 0xa0000000#64, size := 0x20000000#64, attributes := zesuPma true false true true,
       include_in_device_tree := true } ]
 
 /-- The profile invariants and the registers read by the retiring path of every proved form. -/

@@ -6,7 +6,7 @@
 | lean-sail runtime | `rems-project/lean-sail` rev `79b4d08505af29d88b3918f32d29840fae1fa191` |
 | nixpkgs (`flake.lock`) | `NixOS/nixpkgs` rev `f205b5574fd0cb7da5b702a2da51507b7f4fdd1b` (Sail compiler: `pkgs.ocamlPackages.sail`) |
 | Sail modules | `main;I_insts;M_insts`, target `generated_lean_executable_rv64d` |
-| `01-profile-config.patch` | sha256 `b0cebad68e9574052d83dbf3a14628337ab4a8c12c03c7c83c1607133900d938` |
+| `01-profile-config.patch` | sha256 `2b7e4c591701442743dfffe2c13d5e16b0d6d7fcf6533ea5824833ef041fe775` |
 | `02-specialise.patch` | sha256 `d06cf8aedb93636bf1b4a65ce8243e08826dc731d0ac4a1d415ef143e5d9e7dc` |
 
 Build: `nix build -L .#zesuSailRiscvLean` (derivations `zesuSailRiscvRaw`, `zesuSailRiscvLean` in

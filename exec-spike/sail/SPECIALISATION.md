@@ -10,7 +10,7 @@ Two patches against the pinned sail-riscv source, applied by `zesuSailRiscvRaw` 
 |---|---|---|
 | `memory.pmp.count` | 16 | 0 |
 | `memory.pmp.usable_count` | 16 | 0 |
-| `memory.regions` | ROM `0x1000+0x1000` (IOMemory), MMIO `0x2000000+0x10000000`, RAM `0x80000000+0x80000000` | input `0x40000000+0x40000000` (r, not w, not x), ROM `0x80000000+0x8000000` (r, not w, x), RAM `0xa0000000+0x20000000` (r, w, not x); all other attributes copied from the stock RAM region |
+| `memory.regions` | ROM `0x1000+0x1000` (IOMemory), MMIO `0x2000000+0x10000000`, RAM `0x80000000+0x80000000` | input `0x40000000+0x40000000` (IOMemory, not cacheable, not coherent; r, not w, not x), ROM `0x80000000+0x8000000` (IOMemory, not cacheable, not coherent; r, not w, x), RAM `0xa0000000+0x20000000` (MainMemory, not cacheable; r, w, not x); all other attributes copied from the stock RAM region. The read-only regions are IOMemory because the model's validator (`check_pma_region`) requires MainMemory to be readable and writable |
 | `platform.clint.supported` | true | false |
 | `platform.simple_interrupt_generator.supported` | true | false |
 | `extensions.S.supported` | true | false |
@@ -19,9 +19,29 @@ Two patches against the pinned sail-riscv source, applied by `zesuSailRiscvRaw` 
 | `extensions.Sv39.supported` | `@CONFIG_XLEN_IS_64@` | false |
 | `extensions.Sv48.supported` | `@CONFIG_XLEN_IS_64@` | false |
 | `extensions.Sv57.supported` | `@CONFIG_XLEN_IS_64@` | false |
+| `extensions.Ssccptr.supported` | true | false |
+| `extensions.Sscofpmf.supported` | true | false |
+| `extensions.Sscounterenw.supported` | true | false |
+| `extensions.Sstc.supported` | true | false |
+| `extensions.Sstvala.supported` | true | false |
+| `extensions.Svade.supported` | true | false |
+| `extensions.Svadu.supported` | true | false |
+| `extensions.Svinval.supported` | true | false |
+| `extensions.Svrsw60t59b.supported` | `@CONFIG_XLEN_IS_64@` | false |
+| `extensions.Svnapot.supported` | `@CONFIG_XLEN_IS_64@` | false |
+| `extensions.Ssnpm.supported` | `@CONFIG_XLEN_IS_64@` | false |
+| `extensions.Svpbmt.supported` | `@CONFIG_XLEN_IS_64@` | false |
+| `extensions.Svvptc.supported` | true | false |
 
-`dtb_address` (`0x1000`) is unchanged: the Lean generation does not run configuration
-validation, and generation succeeded with the stock value.
+The S-mode extensions (`Ss*`, `Sv*`, `Ssnpm`) are disabled because S and Sv39 are: the model's
+own `config_is_valid` rejects Svrsw60t59b, Ssccptr, Svade, Svadu, Svpbmt, Svnapot, Svvptc
+(`check_mmu_config`) and Sstvala (`check_misc_extension_dependencies`) without them; the rest
+depend on S by definition. RAM is not cacheable because `Ziccif` (kept: disabling it turns the
+4-byte fetch into two 2-byte fetches) requires every cacheable coherent main-memory region to be
+executable, and RAM is not (`check_mem_layout`); `cacheable` is read only by the validator. With these keys
+`config_is_valid` holds, so `init_model ""` runs (engine A of `zesu-difftest`).
+
+`dtb_address` (`0x1000`) is unchanged: the model's validator accepts it.
 
 ## `02-specialise.patch`: hunks
 

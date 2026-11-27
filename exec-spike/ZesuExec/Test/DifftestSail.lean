@@ -7,8 +7,8 @@ import ZesuExec.Image.Gen
 
 `engineA img m0 bytes stop` builds a Sail state from the model's own initialisation
 (`modelInit`, which is `sail_model_init` by `ZesuExec.Sail.InitCheck.modelInit_eq`, then
-the model's reset path `reset ()`; `init_model` would first assert the model's
-configuration validator, which the profile configuration does not pass, see `LOG.md`), writes `PC`,
+`init_model ""`, which asserts the model's configuration validator `config_is_valid` and then runs
+the model's reset path `reset ()`), writes `PC`,
 `x1 … x31`, the image's `.text` words and the snapshot bytes, checks `configuredB`, and runs
 `try_step` until `PC = stop`. At `Layout.memcpyEntry` it substitutes the ZisK service exactly as
 `SailReaches.service` does: `ziskMemcpy` on the machine read off the Sail state, and the Sail state
@@ -37,8 +37,9 @@ def runSail {α : Type} (label : String) (act : SailM α) (s : State) :
   | .ok a s' => .ok (a, s')
   | .error e _ => .error s!"{label}: {e.print}"
 
-/-- The registers the generated `sail_model_init` leaves absent but the reset path or the step
-reads. The Lean backend's `initialize_registers` is empty, so they are absent from the register map
+/-- The registers the generated `sail_model_init` leaves absent but `init_model` (reset) or the
+step reads (still needed with the validated configuration: without them `init_model` fails).
+The Lean backend's `initialize_registers` is empty, so they are absent from the register map
 (a read throws); the C emulator gives these undefined registers the value zero, and so does this. -/
 def undefinedInit : SailM Unit := do
   writeReg mtvec default; writeReg stvec default; writeReg mcause default
@@ -51,7 +52,7 @@ def undefinedInit : SailM Unit := do
 def initState : Except String State := do
   let (_, s) ← runSail "sail_model_init" modelInit default
   let (_, s) ← runSail "undefined registers" undefinedInit s
-  let (_, s) ← runSail "reset" (reset ()) s
+  let (_, s) ← runSail "init_model" (init_model "") s
   return s
 
 /-- Load the machine's registers, `PC`, the `.text` words of `img` and the listed bytes. -/

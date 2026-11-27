@@ -276,36 +276,36 @@ def check_mmu_config (_ : Unit) : SailM Bool := do
       (print_endline "Sv32 is enabled: Sv32 is not supported on RV64."))
     else ()
   let valid : Bool :=
-    if ((true : Bool) : Bool)
+    if ((false : Bool) : Bool)
     then (valid && (require_Sv39 "Svrsw60t59b"))
     else valid
   let valid ← (( do
-    if ((true : Bool) : Bool)
+    if ((false : Bool) : Bool)
     then
       (do
         (pure (valid && (← (require_virtual_memory "Ssccptr")))))
     else (pure valid) ) : SailM Bool )
   let valid ← (( do
-    if ((true : Bool) : Bool)
+    if ((false : Bool) : Bool)
     then
       (do
         (pure (valid && (← (require_virtual_memory "Svade")))))
     else (pure valid) ) : SailM Bool )
   let valid ← (( do
-    if ((true : Bool) : Bool)
+    if ((false : Bool) : Bool)
     then
       (do
         (pure (valid && (← (require_virtual_memory "Svadu")))))
     else (pure valid) ) : SailM Bool )
   let valid : Bool :=
-    if ((true : Bool) : Bool)
+    if ((false : Bool) : Bool)
     then (valid && (require_Sv39 "Svpbmt"))
     else valid
   let valid : Bool :=
-    if ((true : Bool) : Bool)
+    if ((false : Bool) : Bool)
     then (valid && (require_Sv39 "Svnapot"))
     else valid
-  if ((true : Bool) : Bool)
+  if ((false : Bool) : Bool)
   then
     (do
       (pure (valid && (← (require_virtual_memory "Svvptc")))))
@@ -758,8 +758,8 @@ def check_mem_layout (_ : Unit) : SailM Bool := do
           ziccif := true
           zicclsm := true
           ziccrse := true
-          ssccptr := true
-          svadu := true }
+          ssccptr := false
+          svadu := false }
       let pmas_ok ← do
         (pure (check_pma_regions (← readReg pma_regions) (zeros (n := 64)) (zeros (n := 64))
             check_opts false))
@@ -925,7 +925,7 @@ def check_misc_extension_dependencies (_ : Unit) : Bool :=
       valid)
     else valid
   let valid : Bool :=
-    if ((true : Bool) : Bool)
+    if ((false : Bool) : Bool)
     then
       (let valid : Bool :=
         if ((not (false : Bool)) : Bool)
@@ -975,7 +975,7 @@ def check_misc_extension_dependencies (_ : Unit) : Bool :=
           "The Ssqosid extension is enabled but Zicsr is disabled: supporting Ssqosid requires Zicsr.")
       valid)
     else valid
-  if (((true : Bool) && (((Sail.BitVec.extractLsb sys_writable_hpm_counters 31 3) &&& (Sail.BitVec.extractLsb
+  if (((false : Bool) && (((Sail.BitVec.extractLsb sys_writable_hpm_counters 31 3) &&& (Sail.BitVec.extractLsb
              sys_scounteren_writable_bits 31 3)) != (Sail.BitVec.extractLsb
            sys_writable_hpm_counters 31 3))) : Bool)
   then
