@@ -95,9 +95,10 @@ theorem spill_cut {σ : Sig} {m : Machine} (hc : Common σ m)
 
 /-! ## Return sites -/
 
-theorem TX.cut_800001f8 : CutOK TX.plan TX.plan.cuts[8]! := by
-  show CutOK TX.plan cut1f8
-  rintro σ m ⟨mc, x, ⟨o, k, kh', hIE, -, -, hKL, -, -, ha⟩, ⟨hret, hso, -⟩, hp⟩
+/-- `Common` and the pc after `ensureTotalCapacity` returns to `0x800001f8`. -/
+theorem ret_1f8 {σ : Sig} {m : Machine} (h : ARet f1C Site1f4 σ m) :
+    Common σ m ∧ m.pc.toNat = c1f8 := by
+  obtain ⟨mc, x, ⟨o, k, kh', hIE, -, -, hKL, -, -, ha⟩, ⟨hret, hso, -⟩, hp⟩ := h
   have hc := hIE.1
   have hpre := hc.2.1
   have hlive := hIE.2.2.2.2.1
@@ -115,7 +116,13 @@ theorem TX.cut_800001f8 : CutOK TX.plan TX.plan.cuts[8]! := by
       refine X_R hpre hlive (b := (k.kq, keySize * k.kc.toNat)) ?_ ?_
       · simp [EX, KX, hc0]
       · simpa [Nat.mul_comm, keySize, F1.elemBytes] using h
-  exact ⟨(body_cut hm).1, (body_cut hm).2.1, (body_cut hm).2.2, ret_pc hret ha.1 (by decide)⟩
+  exact ⟨hm, ret_pc hret ha.1 (by decide)⟩
+
+theorem TX.cut_800001f8 : CutOK TX.plan TX.plan.cuts[8]! := by
+  show CutOK TX.plan cut1f8
+  intro σ m h
+  obtain ⟨hm, hpc⟩ := ret_1f8 h
+  exact ⟨(body_cut hm).1, (body_cut hm).2.1, (body_cut hm).2.2, hpc⟩
 
 theorem stack_not_priv {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {a : Word}
     (h : InRange (σ.sl stackBytes) stackBytes a) : ¬ σ.A.Priv σ.g.L a :=
@@ -163,9 +170,9 @@ theorem frame_keep' {σ : Sig} {mc m : Machine} (hpre : Pre σ.A σ.g σ.m) {R :
     · exact stack_not_priv hpre hs h
     · exact scratch_not_stack hpre h hs) h
 
-theorem TX.cut_8000025c : CutOK TX.plan TX.plan.cuts[10]! := by
-  show CutOK TX.plan cut25c
-  rintro σ m ⟨mc, x, ⟨o, k, hIE, -, -, hKL, ha⟩, ⟨hret, hso, -⟩, hp⟩
+theorem ret_25c {σ : Sig} {m : Machine} (h : ARet f4C Site258 σ m) :
+    Common σ m ∧ m.pc.toNat = c25c := by
+  obtain ⟨mc, x, ⟨o, k, hIE, -, -, hKL, ha⟩, ⟨hret, hso, -⟩, hp⟩ := h
   have hc := hIE.1
   have hpre := hc.2.1
   have hlive := hIE.2.2.2.2.1
@@ -184,11 +191,17 @@ theorem TX.cut_8000025c : CutOK TX.plan TX.plan.cuts[10]! := by
     · refine X_R hpre hlive (b := (k.kq, keySize * k.kc.toNat)) ?_ ?_
       · simp [EX, KX, hc0]
       · simpa [Nat.mul_comm, keySize, F4.elemBytes] using h
-  exact ⟨(body_cut hm).1, (body_cut hm).2.1, (body_cut hm).2.2, ret_pc hret ha.1 (by decide)⟩
+  exact ⟨hm, ret_pc hret ha.1 (by decide)⟩
 
-theorem TX.cut_800004a0 : CutOK TX.plan TX.plan.cuts[16]! := by
-  show CutOK TX.plan cut4a0
-  rintro σ m ⟨mc, x, ⟨o, hc, -, -, hEL, hlive, -, ha⟩, ⟨hret, hso, -⟩, hp⟩
+theorem TX.cut_8000025c : CutOK TX.plan TX.plan.cuts[10]! := by
+  show CutOK TX.plan cut25c
+  intro σ m h
+  obtain ⟨hm, hpc⟩ := ret_25c h
+  exact ⟨(body_cut hm).1, (body_cut hm).2.1, (body_cut hm).2.2, hpc⟩
+
+theorem ret_4a0 {σ : Sig} {m : Machine} (h : ARet f5C Site49c σ m) :
+    Common σ m ∧ m.pc.toNat = c4a0 := by
+  obtain ⟨mc, x, ⟨o, hc, -, -, hEL, hlive, -, ha⟩, ⟨hret, hso, -⟩, hp⟩ := h
   have hpre := hc.2.1
   have hres : mc.reg 10 = σ.sl 0x88 := ha.arg 0 (by simp)
   have hhdr : mc.reg 11 = σ.sl 0x1c0 := ha.arg 1 (by simp)
@@ -205,11 +218,17 @@ theorem TX.cut_800004a0 : CutOK TX.plan TX.plan.cuts[16]! := by
     · refine X_R hpre hlive (b := (o.ep, entrySize * o.ec.toNat)) ?_ ?_
       · simp [EX, hc0]
       · simpa [Nat.mul_comm, entrySize, F5.elemBytes] using h
-  exact ⟨(body_cut hm).1, (body_cut hm).2.1, (body_cut hm).2.2, ret_pc hret ha.1 (by decide)⟩
+  exact ⟨hm, ret_pc hret ha.1 (by decide)⟩
 
-theorem TX.cut_80000340 : CutOK TX.plan TX.plan.cuts[11]! := by
-  show CutOK TX.plan cut340
-  rintro σ m ⟨mc, _, ⟨o, k, L, kp', hED, hG, -, -, -, -, -, -, ha⟩, ⟨hret, -, hso⟩, hp⟩
+theorem TX.cut_800004a0 : CutOK TX.plan TX.plan.cuts[16]! := by
+  show CutOK TX.plan cut4a0
+  intro σ m h
+  obtain ⟨hm, hpc⟩ := ret_4a0 h
+  exact ⟨(body_cut hm).1, (body_cut hm).2.1, (body_cut hm).2.2, hpc⟩
+
+theorem ret_340 {σ : Sig} {m : Machine} (h : ARet remapC (unit Site33c) σ m) :
+    Common σ m ∧ m.pc.toNat = c340 ∧ m.load (σ.sl 0x220) 8 = some (w vtable) := by
+  obtain ⟨mc, _, ⟨o, k, L, kp', hED, hG, -, -, -, -, -, -, ha⟩, ⟨hret, -, hso⟩, hp⟩ := h
   have hc := hED.1
   have hpre := hc.2.1
   have hR : ∀ a, InRange (mc.reg 2 - 16) 16 a → CallR σ a := fun a h => by
@@ -223,12 +242,18 @@ theorem TX.cut_80000340 : CutOK TX.plan TX.plan.cuts[11]! := by
       have h2 := sl_toNat hpre (k := 0x220) (by decide)
       have := (entry_nums hpre).1; unfold Layout.ramLo at this
       simp only [InRange, h1, h2] at h hin; omega) hG.2.2.2.2.2.2.2.2.2
-  obtain ⟨h1, h2, h3⟩ := spill_cut hm hsp
-  exact ⟨h1, h2, h3, ret_pc hret ha.1 (by decide)⟩
+  exact ⟨hm, ret_pc hret ha.1 (by decide), hsp⟩
 
-theorem TX.cut_800003d4 : CutOK TX.plan TX.plan.cuts[12]! := by
-  show CutOK TX.plan cut3d4
-  rintro σ m ⟨mc, L, ⟨o, k, kp', hED, -, -, ha⟩, ⟨hret, hso, -⟩, hp⟩
+theorem TX.cut_80000340 : CutOK TX.plan TX.plan.cuts[11]! := by
+  show CutOK TX.plan cut340
+  intro σ m h
+  obtain ⟨hm, hpc, hsp⟩ := ret_340 h
+  obtain ⟨h1, h2, h3⟩ := spill_cut hm hsp
+  exact ⟨h1, h2, h3, hpc⟩
+
+theorem ret_3d4 {σ : Sig} {m : Machine} {L : List (Word × Nat)}
+    (h : ∃ mc, Site3d0 σ L mc ∧ allocC.Post σ L mc m) : Common σ m ∧ m.pc.toNat = c3d4 := by
+  obtain ⟨mc, ⟨o, k, kp', hED, -, -, ha⟩, ⟨hret, hso, -⟩, hp⟩ := h
   have hc := hED.1
   have hpre := hc.2.1
   have hm : Common σ m := common_ret hc hret hp hso fun a h => by
@@ -236,13 +261,19 @@ theorem TX.cut_800003d4 : CutOK TX.plan TX.plan.cuts[12]! := by
     · exact live_R hpre hED.2.2.2.2.1 h
     · rw [show mc.reg 2 - 16 = σ.sl 592 from sp_sub hc 16] at h
       exact stack_R hpre (by decide) (by decide) h
-  exact ⟨(body_cut hm).1, (body_cut hm).2.1, (body_cut hm).2.2, ret_pc hret ha.1 (by decide)⟩
+  exact ⟨hm, ret_pc hret ha.1 (by decide)⟩
+
+theorem TX.cut_800003d4 : CutOK TX.plan TX.plan.cuts[12]! := by
+  show CutOK TX.plan cut3d4
+  rintro σ m ⟨mc, L, hs, hpost⟩
+  obtain ⟨hm, hpc⟩ := ret_3d4 ⟨mc, hs, hpost⟩
+  exact ⟨(body_cut hm).1, (body_cut hm).2.1, (body_cut hm).2.2, hpc⟩
 
 theorem grownCap_ge (n : Nat) : n ≤ grownCap n := by unfold grownCap; omega
 
-theorem TX.cut_80000400 : CutOK TX.plan TX.plan.cuts[13]! := by
-  show CutOK TX.plan cut400
-  rintro σ m ⟨mc, _, ⟨o, k, L, kp', p'', hAl, ha⟩, hmc, hp⟩
+theorem ret_400 {σ : Sig} {m : Machine} (h : ARet memcpyC (unit Site3fc) σ m) :
+    Common σ m ∧ m.pc.toNat = c400 ∧ m.load (σ.sl 0x220) 8 = some (w vtable) := by
+  obtain ⟨mc, _, ⟨o, k, L, kp', p'', hAl, ha⟩, hmc, hp⟩ := h
   have hc := hAl.1.1
   have hpre := hc.2.1
   have hlive := hAl.1.2.2.2.2.1
@@ -271,15 +302,19 @@ theorem TX.cut_80000400 : CutOK TX.plan TX.plan.cuts[13]! := by
   have hsp : m.load (σ.sl 0x220) 8 = some (w vtable) :=
     frame_keep' hpre hso (by decide) (by decide) (fun a h => h.imp (hRp a) id)
       hAl.2.1.2.2.2.2.2.2.2.2.2
-  obtain ⟨h1, h2, h3⟩ := spill_cut hm hsp
-  exact ⟨h1, h2, h3, ret_pc hret ha.1 (by decide)⟩
+  exact ⟨hm, ret_pc hret ha.1 (by decide), hsp⟩
 
-theorem TX.cut_8000042c : CutOK TX.plan TX.plan.cuts[14]! := by
-  show CutOK TX.plan cut42c
-  rintro σ m (⟨hpc, o, k, L, kp', p'', hcop, -⟩ |
-    ⟨mc, L, ⟨o, k, kp', p'', hcop, hec, ha⟩, ⟨hret, hso, -, -⟩, hp⟩)
-  · have hc := hcop.1.1.1
-    exact ⟨(body_cut hc).1, (body_cut hc).2.1, (body_cut hc).2.2, hpc⟩
+theorem TX.cut_80000400 : CutOK TX.plan TX.plan.cuts[13]! := by
+  show CutOK TX.plan cut400
+  intro σ m h
+  obtain ⟨hm, hpc, hsp⟩ := ret_400 h
+  obtain ⟨h1, h2, h3⟩ := spill_cut hm hsp
+  exact ⟨h1, h2, h3, hpc⟩
+
+theorem ret_42c {σ : Sig} {m : Machine} (h : A42c σ m) : Common σ m ∧ m.pc.toNat = c42c := by
+  rcases h with ⟨hpc, o, k, L, kp', p'', hcop, -⟩ |
+    ⟨mc, L, ⟨o, k, kp', p'', hcop, hec, ha⟩, ⟨hret, hso, -, -⟩, hp⟩
+  · exact ⟨hcop.1.1.1, hpc⟩
   · have hc := hcop.1.1.1
     have hpre := hc.2.1
     have hlive := hcop.1.1.2.2.2.2.1
@@ -296,6 +331,12 @@ theorem TX.cut_8000042c : CutOK TX.plan TX.plan.cuts[14]! := by
         exact X_R hpre hlive (b := (o.ep, entrySize * o.ec.toNat)) (by simp [EX, hec]) h
       · rw [show mc.reg 2 - 16 = σ.sl 592 from sp_sub hc 16] at h
         exact stack_R hpre (by decide) (by decide) h
-    exact ⟨(body_cut hm).1, (body_cut hm).2.1, (body_cut hm).2.2, ret_pc hret ha.1 (by decide)⟩
+    exact ⟨hm, ret_pc hret ha.1 (by decide)⟩
+
+theorem TX.cut_8000042c : CutOK TX.plan TX.plan.cuts[14]! := by
+  show CutOK TX.plan cut42c
+  intro σ m h
+  obtain ⟨hm, hpc⟩ := ret_42c h
+  exact ⟨(body_cut hm).1, (body_cut hm).2.1, (body_cut hm).2.2, hpc⟩
 
 end ZesuExec.Fn.TX
