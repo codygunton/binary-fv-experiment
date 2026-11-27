@@ -746,3 +746,4 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   remaining leaf fails at the exit goal (postcondition semantics, callee preconditions, the next
   cut's assertion, tail callee), so no hand leaf was deleted. `Test/Auto.lean` builds; `lake
   build` 258 jobs OK; `tools/verify.sh` all PASS after `make -C tools/zmap map`.
+- S4d (2026-11-27, decision): exit-goal automation for F6 stopped. Residual tail/callee-pre/post/cut goals in F6 are per-field decoder correctness (SSt/DSt step over the field schedule, walk semantics), not side conditions; tagging per-field hand steps as @[zesu_fact] would relabel hand proofs as auto. Automation scope stays: infeasible leaves (zesu_fact), obligations/budgets (S4c), residual classification. No commit.
