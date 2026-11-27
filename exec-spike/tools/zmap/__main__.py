@@ -37,8 +37,9 @@ def cmd_build(args):
     digest = elfread.sha256(args.elf)
     if digest != args.sha256.lower():
         sys.exit(f'zmap: {args.elf} has sha256 {digest}, expected {args.sha256}')
-    static = analyze.build(args.elf)
+    static = analyze.build(args.elf, join_cuts=args.join_cuts)
     static['elf_sha256'] = digest
+    static['join_cuts'] = args.join_cuts
     try:
         from . import hints
         static['hints'] = hints.attach(static, args.elf, args.debug_object)
@@ -126,6 +127,8 @@ def main(argv=None):
     b.add_argument('--sha256', required=True)
     b.add_argument('--debug-object', required=True)
     b.add_argument('--out', required=True)
+    b.add_argument('--join-cuts', action='store_true',
+                   help='also cut at every join cut candidate (fanin_paths >= 4); off by default')
     b.set_defaults(func=cmd_build)
 
     mg = sub.add_parser('merge', help='merge static map, status, reviews, ledger')

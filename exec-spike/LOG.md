@@ -438,3 +438,22 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   decodes to its mnemonic), 3.4 s. No DTF snapshots: zesislar's runner has no `decodeTxFields`
   profile or inputs. After the image change: `lake build` OK, difftest F1 19 + F2 26 + TX 16
   agree, `tools/verify.sh` all PASS. 18 min (contract 7).
+- S7-prep (2026-11-27, branch `probe-unaligned`): DTF snapshots, join cuts, legacy `v`.
+  `tools/snap.py` gains `--fn DTF` with its own profile `dtf_profile` (zesislar's runner has none):
+  `a0` result (0x128 bytes), `a1` allocator object, `a2` `tx_type`, `a3`/`a4` payload. Inputs
+  `tools/snap_inputs/decodeTxFields.json` (19, hand-encoded RLP payloads; no EVM test vectors under
+  `vendor/`): legacy (EIP-155, contract creation with data, `v_raw = 2^70+36`, `v_raw = 5`),
+  2930 with one access-list entry and two keys, 1559, 4844 with two blob hashes, 7702 with two
+  authorizations, a 9-byte nonce (clamped), a non-canonical `00 05` nonce (accepted), and nine
+  errors (truncated, 19-byte `to`, 9-byte gas limit, 33-byte value, 19-byte access-list address,
+  31-byte blob hash, byte-string authorization, list chain id, empty payload). All 19 `returned`
+  under Unicorn with the expected kind; `zesu-difftest --fn DTF`: **19/19 agree** (sail = machine =
+  unicorn), no disagreement. The draft `DTF.decode` (`#eval` on the same 19 payloads) gives the
+  snapshots' outcome kind and the compared fields (chain id, nonce, `v`, `to` present, data length,
+  access-list, blob-hash and authorization counts) on every input. zmap: `build --join-cuts` (off by
+  default) adds every `join_cut_candidates` pc as a cut with `why: "join"` and recounts paths
+  (`txAccessList` 15 → 21 cuts, 53 → 50 leaves; DTF 138 → 153 cuts, 527 → 478; F1 5 → 9, 20 → 18);
+  `static.json` records `join_cuts`; test `JoinCuts`; 19 tests OK. Legacy `v`
+  (`STATEMENTS.md` § DTF open point 3) settled against the disassembly `0x80002a88..0x80002b28`:
+  `chain_id = ((v_raw-35)>>1) mod 2^64`, `v = (v_raw-35) & 1`, as `legacyV`; snapshot
+  `legacy_v_huge` gives `chain_id 0`, `v 1`. 5 min.

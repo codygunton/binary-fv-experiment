@@ -167,7 +167,7 @@ def typedHead (priority : Bool) : P (Nat × Nat × Option Nat × Nat × Nat × O
   pure (c, n, pf, gp, gl, t, val, d)
 
 /-- Legacy `v`: EIP-155 `v = chainId·2 + 35 + yParity`, else `v = 27 + yParity`; the `@intCast`s
-truncate to 64 bits (`ReleaseFast`). -/
+truncate to 64 bits (checked against the disassembly at `0x80002a88..0x80002b28`). -/
 def legacyV (vRaw : Nat) : Option Nat × Nat :=
   if 35 ≤ vRaw then (some ((vRaw - 35) / 2 % 2 ^ 64), (vRaw - 35) % 2)
   else if 27 ≤ vRaw then (none, (vRaw - 27) % 2 ^ 64)

@@ -80,6 +80,26 @@ class Heuristics(unittest.TestCase):
         self.assertEqual(len(jt[0]['targets']), 5)
 
 
+class JoinCuts(unittest.TestCase):
+    """`build(join_cuts=True)` adds every join cut candidate as a `join` cut; off by default."""
+
+    def test_join_cuts(self):
+        joined = {f['id']: f for f in analyze.build(ELF, join_cuts=True)['functions']}
+        for f in MAP['functions']:
+            self.assertFalse(any(c['why'] == 'join' for c in f['cuts']))
+            g = joined[f['id']]
+            cuts = {c['pc']: c['why'] for c in g['cuts']}
+            self.assertEqual(g['join_cut_candidates'], f['join_cut_candidates'])
+            for j in f['join_cut_candidates']:
+                self.assertIn(j, cuts)
+            base = {c['pc'] for c in f['cuts']}
+            self.assertEqual({pc for pc, why in cuts.items() if why == 'join'},
+                             set(f['join_cut_candidates']) - base)
+        tx_base, tx = fn('rlp_decode.txAccessList'), joined['f_80000000']
+        self.assertEqual(len(tx['cuts']), len(tx_base['cuts']) + 6)
+        self.assertEqual((tx_base['leaves_estimate'], tx['leaves_estimate']), (53, 50))
+
+
 class Committed(unittest.TestCase):
     """The committed map/static.json is for this ELF and agrees with a fresh build."""
 

@@ -554,7 +554,7 @@ def may_return(cfg, noreturn):
     return False
 
 
-def analyze_function(binary, cfg, noreturn):
+def analyze_function(binary, cfg, noreturn, join_cuts=False):
     f, insns, ctrl, tables = cfg['f'], cfg['insns'], cfg['ctrl'], cfg['tables']
     blocks, starts, exits, calls = cfg['blocks'], cfg['starts'], cfg['exits'], cfg['calls']
     start_set = set(starts)
@@ -606,19 +606,27 @@ def analyze_function(binary, cfg, noreturn):
             cuts.setdefault(c['ret'], 'ret')
 
     # Paths per segment; a call block ends its leaf at the call.
-    def sink(n):
-        return n in cuts
-
     seg_succ = {s: ([] if exits.get(s) in ('call', 'table') else succ[s]) for s in starts}
-    leaves = 0
-    fanin = Counter()
     join_set = set(joins)
-    for cp in sorted(cuts):
-        paths, into = segment_counts(cp, seg_succ, sink)
-        leaves += paths
-        for j, k in into.items():
-            if j in join_set and j != cp:
-                fanin[j] += k
+
+    def segments(cuts):
+        leaves, fanin = 0, Counter()
+        for cp in sorted(cuts):
+            paths, into = segment_counts(cp, seg_succ, lambda n: n in cuts)
+            leaves += paths
+            for j, k in into.items():
+                if j in join_set and j != cp:
+                    fanin[j] += k
+        return leaves, fanin
+
+    leaves, fanin = segments(cuts)
+    candidates = [j for j in joins if fanin[j] >= 4]
+    # `--join-cuts`: the join cut candidates of the fixed rule become cut points too (S5 probe 1
+    # decides whether this is the default); paths and fan-in are recounted with them.
+    if join_cuts and candidates:
+        for j in candidates:
+            cuts.setdefault(j, 'join')
+        leaves, fanin = segments(cuts)
 
     # Layout: longest path layer over the forward graph, order by address.
     layer = {}
@@ -704,7 +712,7 @@ def analyze_function(binary, cfg, noreturn):
         'loops': [{'head': h, 'body': sorted(loop_bodies[h])} for h in sorted(heads)],
         'joins': [{'at': j, 'fanin_paths': fanin[j]} for j in joins],
         'cuts': [{'pc': pc, 'why': why} for pc, why in sorted(cuts.items())],
-        'join_cut_candidates': [j for j in joins if fanin[j] >= 4],
+        'join_cut_candidates': candidates,
         'leaves_estimate': leaves,
         'forms': dict(sorted(forms.items())),
         'blockers': blockers,
@@ -775,7 +783,7 @@ def load_functions(symbols):
     return out
 
 
-def build(elf, start_symbol='_start'):
+def build(elf, start_symbol='_start', join_cuts=False):
     """Analyse the ELF; return the static map dict (without hints)."""
     sections = elfread.sections(elf)
     functions = load_functions(elfread.func_symbols(elf))
@@ -794,7 +802,7 @@ def build(elf, start_symbol='_start'):
             if cfg['f'].id in noreturn and may_return(cfg, noreturn):
                 noreturn.discard(cfg['f'].id)
                 changed = True
-    fns = [analyze_function(binary, cfg, noreturn) for cfg in cfgs]
+    fns = [analyze_function(binary, cfg, noreturn, join_cuts) for cfg in cfgs]
     for fn in fns:
         fn['noreturn'] = fn['id'] in noreturn
     by_id = {fn['id']: fn for fn in fns}

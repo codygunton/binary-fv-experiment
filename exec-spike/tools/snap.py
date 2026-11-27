@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Entry/return snapshots of F1, F2 and TX under Unicorn, for `zesu-difftest` (plan S2 step 4).
+"""Entry/return snapshots of F1, F2, TX and DTF under Unicorn, for `zesu-difftest` (plan S2 step 4).
 
-    snap.py --runner <zesislar>/tools/oblig/exec/run.py --fn F1|F2|TX [--elf ELF] [--inputs FILE ...]
+    snap.py --runner <zesislar>/tools/oblig/exec/run.py --fn F1|F2|TX|DTF [--elf ELF] [--inputs FILE ...]
             [--input ID ...] --out DIR
 
 Imports zesislar's Unicorn runner `run.py` as a module and runs its profile (`keysEnsureCapacity`
-for F1, `decodeItem` for F2, `txAccessList` for TX) on each input of the given input sets (runner
-schema `oblig-exec-inputs/1`; default: `inputs/<profile>.json` beside `run.py`; `tools/snap_inputs/`
-adds F1 paths the runner's set lacks). Unlike `run.py`, the allocator entries are not hooked:
+for F1, `decodeItem` for F2, `txAccessList` for TX; DTF uses `dtf_profile` below, the runner has
+none) on each input of the given input sets (runner schema `oblig-exec-inputs/1`; default:
+`inputs/<profile>.json` beside `run.py`, for DTF `tools/snap_inputs/decodeTxFields.json`;
+`tools/snap_inputs/` adds F1 paths the runner's set lacks). Unlike `run.py`, the allocator entries are not hooked:
 Unicorn executes the real `alt_fl_alloc.{alloc,remap,free}` reached through the vtable; only the
 `memcpy` stub is replaced, by the runner's ZisK service hook.
 
@@ -30,7 +31,7 @@ import json
 import sys
 from pathlib import Path
 
-FNS = {'F1': 'keysEnsureCapacity', 'F2': 'decodeItem', 'TX': 'txAccessList'}
+FNS = {'F1': 'keysEnsureCapacity', 'F2': 'decodeItem', 'TX': 'txAccessList', 'DTF': 'decodeTxFields'}
 PAGE = 0x1000
 # Readable regions of `ZesuExec.Layout` (half-open): rodata, input, RAM.
 REGIONS = [(0x8010fd80, 0x80118678), (0x40000000, 0x80000000), (0xa0000000, 0xc0000000)]
@@ -42,6 +43,52 @@ def load_runner(path: Path):
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+def dtf_profile(r):
+    """`rlp_decode.decodeTxFields` (zesislar's runner has no profile for it).
+
+    a0 = result `anyerror!input.Transaction` (0x128 bytes; u16 error code at +0x120), a1 = allocator
+    object `{ctx, vtable}`, a2 = `tx_type` (input field `tx_type`, 0-4), a3/a4 = the payload slice
+    (input field `hex`: the content of the transaction's RLP list). Layout of `input.Transaction`
+    from the debug object (`OPEN/DTF/BLOCKERS.md`, `ZesuExec/Fn/DTF/Spec.lean`).
+    """
+    import struct
+
+    class DecodeTxFields(r.Profile):
+        name, symbol = 'decodeTxFields', 'rlp_decode.decodeTxFields'
+        oom_expect = {'kind': 'Error'}
+
+        def setup(self, m, row):
+            data = bytes.fromhex(row['hex'])
+            m.own('input', r.DATA_PTR, len(data), False, data)
+            allocator = r.allocator_cells(m, r.CELLS + 0x20)
+            m.own('result', r.RESULT_PTR, 0x128, True, b'\xaa' * 0x128)
+            return [r.RESULT_PTR, allocator, row['tx_type'], r.DATA_PTR, len(data)]
+
+        def outcome(self, m, row):
+            res = m.read(r.RESULT_PTR, 0x128)
+            err = struct.unpack_from('<H', res, 0x120)[0]
+            if err != 0:
+                return {'kind': 'Error' if err == 3 else f'Other(err={err})', 'err': err}
+            le = lambda o, n: int.from_bytes(res[o:o + n], 'little')  # noqa: E731
+            opt = lambda o, n, t: le(o, n) if res[t] == 1 else None  # noqa: E731
+            sl = lambda o: (le(o, 8), le(o + 8, 8))  # noqa: E731
+            (dp, dn), (ap, an), (bp, bn), (up, un) = sl(0xc0), sl(0xd0), sl(0xe0), sl(0xf0)
+            return {'kind': 'Success', 'err': 0, 'tx_type': res[0x108], 'chain_id': opt(0xa0, 8, 0xa8),
+                    'nonce': le(0xb0, 8), 'gas_price': le(0, 16),
+                    'gas_priority_fee': opt(0x10, 16, 0x20), 'gas_limit': le(0xb8, 8),
+                    'to': res[0x109:0x11d].hex() if res[0x11d] == 1 else None, 'value': le(0x30, 32),
+                    'data': m.read(dp, dn).hex() if dn else '', 'access_list_len': an,
+                    'blob_hashes': [m.read(bp + 32 * k, 32).hex() for k in range(bn)],
+                    'max_fee_per_blob_gas': le(0x50, 16), 'authorizations': un, 'v': le(0x100, 8),
+                    'r': le(0x60, 32), 's': le(0x80, 32)}
+
+    return DecodeTxFields()
+
+
+def profile_for(r, fn: str):
+    return dtf_profile(r) if fn == 'DTF' else r.PROFILES[FNS[fn]]
 
 
 def runs(a: int, data: bytes) -> list[dict]:
@@ -91,7 +138,7 @@ def regs(r, m) -> list[int]:
 
 
 def snapshot(r, elf, fn: str, row: dict, max_insns: int) -> dict:
-    profile = r.PROFILES[FNS[fn]]
+    profile = profile_for(r, fn)
 
     def machine():
         m = r.Machine(elf, profile, row, [], None, 'top', max_insns)
@@ -140,7 +187,9 @@ def main(argv=None) -> int:
     r = load_runner(args.runner.resolve())
     elf = r.Elf(args.elf or r.DEFAULT_ELF)
     rows = []
-    for f in args.inputs or [args.runner.parent / 'inputs' / f'{FNS[args.fn]}.json']:
+    default = (Path(__file__).parent / 'snap_inputs' / 'decodeTxFields.json' if args.fn == 'DTF'
+               else args.runner.parent / 'inputs' / f'{FNS[args.fn]}.json')
+    for f in args.inputs or [default]:
         spec = json.loads(f.read_text())
         if spec.get('function') != FNS[args.fn]:
             raise SystemExit(f'{f}: inputs are for {spec.get("function")!r}, not {FNS[args.fn]!r}')

@@ -517,8 +517,13 @@ Open (to settle before review):
    `decode = none → code 3` and restrict allocation failure (as TX's `OutcomeAllowed`).
 2. Bytes of the result not written by the decoded variant (the `gas_priority_fee` / `chain_id` /
    `to` payloads when `null`, padding) are unconstrained.
-3. The legacy `@intCast` truncation and the `@intCast` of `v_raw - 27` are read from the source
-   for `ReleaseFast`; they are not yet checked against the disassembly.
+3. (Settled.) Legacy `v`, checked against the disassembly (`0x80002a88..0x80002b28`): `v_raw`
+   is a 4-limb u256 (`s10` low limb); `v_raw < 35` iff the high limbs are zero and the low limb is
+   below 35. Otherwise `chain_id = ((v_raw - 35) >> 1) mod 2^64` (bits 1..64 of the difference,
+   the borrow into limb 1 included: `srli`/`slli 0x3f`/`or`) and `v = (v_raw - 35) & 1`; below
+   35 and from 27, `v = v_raw - 27` with `chain_id = null`; below 27, `v = 0`. This is `legacyV`.
+   Snapshot `legacy_v_huge` (`v_raw = 2^70 + 36`) gives `chain_id = 0` (2^69 truncated) and
+   `v = 1` on all three engines.
 4. Heap shape: the returned slices are not tied to the `fresh` blocks (TX's `returnedBlocks`
    form), and leaked blocks on error are not separated from returned ones.
 5. Sail agreement (EVM-Sail `decode_legacy_tx`, `decode_access_list_tx`, `decode_fee_market_tx`,

@@ -1,0 +1,178 @@
+{
+ "schema": "oblig-exec-inputs/1",
+ "function": "decodeTxFields",
+ "note": "decodeTxFields payloads (the content of the transaction list) for tools/snap.py --fn DTF, hand-encoded RLP; tx_type is passed in a2",
+ "inputs": [
+  {
+   "id": "legacy_eip155",
+   "tx_type": 0,
+   "hex": "098504a817c800825208940102030405060708090a0b0c0d0e0f1011121314880de0b6b3a76400008025a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Success"
+   },
+   "note": "v_raw 37: chain_id 1, v 0"
+  },
+  {
+   "id": "legacy_create_v27",
+   "tx_type": 0,
+   "hex": "800182cf088080a8000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223242526271ca01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Success"
+   },
+   "note": "to null, 40 data bytes, v_raw 28 -> v 1"
+  },
+  {
+   "id": "legacy_v_huge",
+   "tx_type": 0,
+   "hex": "0101825208940102030405060708090a0b0c0d0e0f1011121314808089400000000000000024a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Success"
+   },
+   "note": "v_raw 2^70+36: (v-35)/2 = 2^69 does not fit u64 (@intCast)"
+  },
+  {
+   "id": "legacy_v_small",
+   "tx_type": 0,
+   "hex": "0101825208940102030405060708090a0b0c0d0e0f1011121314808005a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Success"
+   },
+   "note": "v_raw 5 < 27: v 0, chain_id null"
+  },
+  {
+   "id": "eip2930",
+   "tx_type": 1,
+   "hex": "01030782753094aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa05820102f85bf859940102030405060708090a0b0c0d0e0f1011121314f842a01111111111111111111111111111111111111111111111111111111111111111a0222222222222222222222222222222222222222222222222222222222222222201a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Success"
+   },
+   "note": "one access-list entry, two keys"
+  },
+  {
+   "id": "eip1559",
+   "tx_type": 2,
+   "hex": "01040264825208940102030405060708090a0b0c0d0e0f10111213148080c080a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Success"
+   },
+   "note": "empty access list"
+  },
+  {
+   "id": "eip4844",
+   "tx_type": 3,
+   "hex": "01050264825208940102030405060708090a0b0c0d0e0f10111213148080c003f842a01111111111111111111111111111111111111111111111111111111111111111a0222222222222222222222222222222222222222222222222222222222222222201a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Success"
+   },
+   "note": "two blob hashes"
+  },
+  {
+   "id": "eip7702",
+   "tx_type": 4,
+   "hex": "0106026482c350940102030405060708090a0b0c0d0e0f10111213148080c0f888f8420194aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0701a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321f8420194aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0701a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba98765432180a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Success"
+   },
+   "note": "two authorization tuples"
+  },
+  {
+   "id": "eip1559_nonce_9_bytes",
+   "tx_type": 2,
+   "hex": "01890100000000000000000264825208940102030405060708090a0b0c0d0e0f10111213148080c080a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Success"
+   },
+   "note": "nonce of 9 bytes clamps to maxInt(u64)"
+  },
+  {
+   "id": "noncanonical_int",
+   "tx_type": 2,
+   "hex": "018200050264825208940102030405060708090a0b0c0d0e0f10111213148080c080a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Success"
+   },
+   "note": "nonce 00 05: leading zero accepted (no canonical check)"
+  },
+  {
+   "id": "legacy_truncated",
+   "tx_type": 0,
+   "hex": "098504a817c800825208940102030405060708090a0b0c0d0e0f1011121314880de0b6b3a76400008025a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd",
+   "expect": {
+    "kind": "Error"
+   },
+   "note": "last field cut short"
+  },
+  {
+   "id": "legacy_to_19_bytes",
+   "tx_type": 0,
+   "hex": "0901825208930102030405060708090a0b0c0d0e0f10111213808025a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Error"
+   },
+   "note": "to of 19 bytes"
+  },
+  {
+   "id": "legacy_gas_9_bytes",
+   "tx_type": 0,
+   "hex": "090189010000000000000000940102030405060708090a0b0c0d0e0f1011121314808025a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Error"
+   },
+   "note": "gas_limit of 9 bytes (txU64)"
+  },
+  {
+   "id": "legacy_value_33_bytes",
+   "tx_type": 0,
+   "hex": "0901825208940102030405060708090a0b0c0d0e0f1011121314a10100000000000000000000000000000000000000000000000000000000000000008025a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Error"
+   },
+   "note": "value of 33 bytes (txU256)"
+  },
+  {
+   "id": "eip2930_al_address_19",
+   "tx_type": 1,
+   "hex": "01030782753094aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0580d6d5930102030405060708090a0b0c0d0e0f10111213c001a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Error"
+   },
+   "note": "access-list entry address of 19 bytes"
+  },
+  {
+   "id": "eip4844_hash_31",
+   "tx_type": 3,
+   "hex": "01050264825208940102030405060708090a0b0c0d0e0f10111213148080c003e09f1111111111111111111111111111111111111111111111111111111111111101a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Error"
+   },
+   "note": "blob hash of 31 bytes"
+  },
+  {
+   "id": "eip7702_auth_bytes",
+   "tx_type": 4,
+   "hex": "0106026482c350940102030405060708090a0b0c0d0e0f10111213148080c0c10180a01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef880fedcba987654321",
+   "expect": {
+    "kind": "Error"
+   },
+   "note": "authorization item is a byte string"
+  },
+  {
+   "id": "nonce_is_list",
+   "tx_type": 1,
+   "hex": "c003",
+   "expect": {
+    "kind": "Error"
+   },
+   "note": "chain id field is a list"
+  },
+  {
+   "id": "empty_payload",
+   "tx_type": 2,
+   "hex": "",
+   "expect": {
+    "kind": "Error"
+   },
+   "note": "no fields"
+  }
+ ]
+}
