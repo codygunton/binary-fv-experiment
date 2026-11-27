@@ -1,6 +1,6 @@
 import ZesuExec.Compliance.TXSail
 import ZesuExec.Compliance.F2
-import ZesuExec.Fn.TX.Spec
+import ZesuExec.Fn.TX.Sail
 import ZesuExec.Sail.Run
 
 /-!
@@ -22,9 +22,10 @@ entries and keys, or both reject), or one of the three access-list triggers hold
 an address string of at most 32 bytes but not 20, a key string shorter than 32 bytes, or bytes
 after an entry's keys list. Sail's `encoded` span is not compared.
 
-(c) `tx_compliance_of` / `tx_compliance_sail_of`: from `tx_spec` (passed as a hypothesis), the
+(c) `tx_compliance_of` / `tx_compliance_sail_of`: from a `Spec` of TX (a hypothesis), the
 binary reaches a state satisfying `Post` whose input satisfies the meaning; the `_sail` form
-transfers it to the Sail RISC-V model by `sail_reaches`.
+transfers it to the Sail RISC-V model by `sail_reaches`. `tx_compliance` /
+`tx_compliance_sail` specialise them to `tx_spec`.
 -/
 
 namespace ZesuExec.Compliance.TX
@@ -403,7 +404,7 @@ theorem pre_domain {A : Fn.AllocAssumptions zesuImage} {g : Params} {m : Machine
   obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, hd, -⟩ := h
   exact hd
 
-/-- Compliance from `tx_spec` (a hypothesis until it is proven). -/
+/-- Compliance from a `Spec` of TX (`tx_compliance` takes `tx_spec`). -/
 theorem tx_compliance_of {bound : Nat} {A : Fn.AllocAssumptions zesuImage} {g : Params}
     (hspec : Spec zesuImage Fn.TX.entry bound (Pre A g) (Post A g))
     (m : Machine) (hpc : m.pc.toNat = Fn.TX.entry) (hpre : Pre A g m) :
@@ -419,6 +420,20 @@ theorem tx_compliance_sail_of {bound : Nat} {A : Fn.AllocAssumptions zesuImage} 
     SailLink.SailReaches zesuImage bound
       (fun s' => ∃ m', SailLink.Rel zesuImage m' s' ∧ Compliant A g m m') s :=
   SailLink.sail_reaches h (tx_compliance_of hspec m hpc hpre)
+
+/-- TX complies with EVM-Sail's `decode_access_list` modulo the known bugs. -/
+theorem tx_compliance (A : Fn.AllocAssumptions zesuImage) (g : Params) (m : Machine)
+    (hpc : m.pc.toNat = Fn.TX.entry) (hpre : Pre A g m) :
+    Reaches zesuImage Fn.TX.bound (Compliant A g m) m :=
+  tx_compliance_of (tx_spec A g) m hpc hpre
+
+/-- `tx_compliance` on the Sail RISC-V model, by `sail_reaches`. -/
+theorem tx_compliance_sail (A : Fn.AllocAssumptions zesuImage) (g : Params) {m : Machine}
+    {s : BinaryFv.RiscV.State} (h : SailLink.Rel zesuImage m s)
+    (hpc : m.pc.toNat = Fn.TX.entry) (hpre : Pre A g m) :
+    SailLink.SailReaches zesuImage Fn.TX.bound
+      (fun s' => ∃ m', SailLink.Rel zesuImage m' s' ∧ Compliant A g m m') s :=
+  tx_compliance_sail_of (tx_spec A g) h hpc hpre
 
 /-! ## Witnesses -/
 

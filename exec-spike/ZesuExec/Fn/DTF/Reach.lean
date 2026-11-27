@@ -5,7 +5,7 @@ import ZesuExec.Fn.DTF.Leaves
 
 `zesu_assemble DTF`: `DTF.Open` holds every cut lemma and leaf neither `zesu_auto` nor
 `Leaves.lean` proved; `DTF.reach_from : DTF.Open → ∀ c ∈ DTF.plan.cuts, ∀ σ m, c.A σ m → Reaches …`
-is conditional on `DTF.Open` and, through `σ.hTX`, on TX's contract.
+is conditional on `DTF.Open` only (`txAccessList`'s callee is `TX.tx_spec`).
 -/
 
 namespace ZesuExec.Fn.DTF

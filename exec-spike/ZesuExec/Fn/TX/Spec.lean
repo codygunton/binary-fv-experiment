@@ -21,6 +21,8 @@ namespace ZesuExec.Fn.TX
 open ZesuExec
 
 def entry : Nat := 0x80000000
+/-- `32 · len + 424` steps for an input of `len ≤ 2^30` bytes (the input buffer or RAM). -/
+def bound : Nat := 32 * 2 ^ 30 + 424
 
 /-! ## The reference decoder (`AccessListCandidate.v`) over `F2.decode` (`candidateDecodeItem`) -/
 

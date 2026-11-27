@@ -75,7 +75,7 @@ theorem outer_err {σ : Sig} {m : Machine} {o : Obs} {L X : List (Word × Nat)} 
     (hnone : (entriesWalk (win σ o).length (win σ o)).2 = none) : ErrOk σ m := by
   obtain ⟨hdec, hle, hr0, hr8, hw⟩ := hok
   have hpl : (entriesWalk (pl σ o).length (pl σ o)).2 = none := by
-    rw [hw.2]; simp only [win] at hnone; rw [hnone]; rfl
+    rw [hw.2.1]; simp only [win] at hnone; rw [hnone]; rfl
   have hlen : σ.len < 2 ^ 64 := (wordAt σ.m (σ.rest + 8)).isLt
   have hcons : itemConsumed o.h o.p = o.h + o.p := Nat.mod_eq_of_lt (by omega)
   have hcand : candidate σ.input = .rejected (some (o.h + o.p)) := by

@@ -98,7 +98,7 @@ theorem spill_cut {σ : Sig} {m : Machine} (hc : Common σ m)
 /-- `Common` and the pc after `ensureTotalCapacity` returns to `0x800001f8`. -/
 theorem ret_1f8 {σ : Sig} {m : Machine} (h : ARet f1C Site1f4 σ m) :
     Common σ m ∧ m.pc.toNat = c1f8 := by
-  obtain ⟨mc, x, ⟨o, k, kh', hIE, -, -, hKL, -, -, ha⟩, ⟨hret, hso, -⟩, hp⟩ := h
+  obtain ⟨mc, x, ⟨o, k, kh', hIE, -, -, hKL, -, -, ha⟩, ⟨⟨hret, hso, -⟩, -⟩, hp⟩ := h
   have hc := hIE.1
   have hpre := hc.2.1
   have hlive := hIE.2.2.2.2.1
@@ -228,7 +228,7 @@ theorem TX.cut_800004a0 : CutOK TX.plan TX.plan.cuts[16]! := by
 
 theorem ret_340 {σ : Sig} {m : Machine} (h : ARet remapC (unit Site33c) σ m) :
     Common σ m ∧ m.pc.toNat = c340 ∧ m.load (σ.sl 0x220) 8 = some (w vtable) := by
-  obtain ⟨mc, _, ⟨o, k, L, kp', hED, hG, -, -, -, -, -, -, ha⟩, ⟨hret, -, hso⟩, hp⟩ := h
+  obtain ⟨mc, _, ⟨o, k, L, kp', hED, hG, -, -, -, -, -, -, -, ha⟩, ⟨hret, -, hso⟩, hp⟩ := h
   have hc := hED.1
   have hpre := hc.2.1
   have hR : ∀ a, InRange (mc.reg 2 - 16) 16 a → CallR σ a := fun a h => by
@@ -241,7 +241,7 @@ theorem ret_340 {σ : Sig} {m : Machine} (h : ARet remapC (unit Site33c) σ m) :
       have h1 := sl_toNat hpre (k := 592) (by decide)
       have h2 := sl_toNat hpre (k := 0x220) (by decide)
       have := (entry_nums hpre).1; unfold Layout.ramLo at this
-      simp only [InRange, h1, h2] at h hin; omega) hG.2.2.2.2.2.2.2.2.2
+      simp only [InRange, h1, h2] at h hin; omega) hG.2.2.2.2.2.2.2.2
   exact ⟨hm, ret_pc hret ha.1 (by decide), hsp⟩
 
 theorem TX.cut_80000340 : CutOK TX.plan TX.plan.cuts[11]! := by
@@ -253,7 +253,7 @@ theorem TX.cut_80000340 : CutOK TX.plan TX.plan.cuts[11]! := by
 
 theorem ret_3d4 {σ : Sig} {m : Machine} {L : List (Word × Nat)}
     (h : ∃ mc, Site3d0 σ L mc ∧ allocC.Post σ L mc m) : Common σ m ∧ m.pc.toNat = c3d4 := by
-  obtain ⟨mc, ⟨o, k, kp', hED, -, -, ha⟩, ⟨hret, hso, -⟩, hp⟩ := h
+  obtain ⟨mc, ⟨o, k, kp', hED, -, -, -, ha⟩, ⟨hret, hso, -⟩, hp⟩ := h
   have hc := hED.1
   have hpre := hc.2.1
   have hm : Common σ m := common_ret hc hret hp hso fun a h => by
@@ -273,7 +273,7 @@ theorem grownCap_ge (n : Nat) : n ≤ grownCap n := by unfold grownCap; omega
 
 theorem ret_400 {σ : Sig} {m : Machine} (h : ARet memcpyC (unit Site3fc) σ m) :
     Common σ m ∧ m.pc.toNat = c400 ∧ m.load (σ.sl 0x220) 8 = some (w vtable) := by
-  obtain ⟨mc, _, ⟨o, k, L, kp', p'', hAl, ha⟩, hmc, hp⟩ := h
+  obtain ⟨mc, _, ⟨o, k, L, kp', p'', hAl, -, ha⟩, hmc, hp⟩ := h
   have hc := hAl.1.1
   have hpre := hc.2.1
   have hlive := hAl.1.2.2.2.2.1
@@ -301,7 +301,7 @@ theorem ret_400 {σ : Sig} {m : Machine} (h : ARet memcpyC (unit Site3fc) σ m) 
     · exact scratch_R hpre h
   have hsp : m.load (σ.sl 0x220) 8 = some (w vtable) :=
     frame_keep' hpre hso (by decide) (by decide) (fun a h => h.imp (hRp a) id)
-      hAl.2.1.2.2.2.2.2.2.2.2.2
+      hAl.2.1.2.2.2.2.2.2.2.2
   exact ⟨hm, ret_pc hret ha.1 (by decide), hsp⟩
 
 theorem TX.cut_80000400 : CutOK TX.plan TX.plan.cuts[13]! := by
