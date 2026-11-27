@@ -122,9 +122,7 @@ theorem pre_rodata {m : Machine} (hpre : Pre m) {a b : Nat}
   have hsp := pre_sp hpre
   obtain ⟨-, ⟨-, hlo, -, -⟩, -⟩ := hpre
   have ha : a < 0x80200000 := by
-    simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?] at h
-    have := (List.getElem?_eq_some_iff.mp h.2).1
-    simp at this; omega
+    have := zesu_rodata_range h; unfold Layout.rodataHi at this; omega
   simp only [InRange, hsp, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (show a < 2 ^ 64 by omega)]
   unfold Layout.ramLo at hlo
   omega

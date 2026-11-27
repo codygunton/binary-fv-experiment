@@ -119,6 +119,13 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `Proof.lean` 4.0 s. Lines: Spec 157, Regions 58, Proof 1057, Lemmas 148. Non-vacuity example
   (slice `{0xa0003000, 1}`, input `[0x00]`). `STATEMENTS.md` `## F3`: 9 deliberate differences.
   Next: F6 `decodeParentHeader`.
+- 2026-11-27 ProveF2: F2/F3 switched to `Fn.zesu_rodata_range` after the image gained
+  `0x80114fb8:80`, `0x801152b0:16`; `lake build ZesuExec.Fn.F3.Proof` passes (also rebuilds F2).
+  F6 open, not started in Lean: findings and design in `OPEN/F6/plan.md` (all 20 call segments
+  evaluate with the extended image; contract files and line ranges; F3-style fresh cut states per
+  call because the callees write inside F6's frame; loops as in F3). Next: `Fn/F6/Spec.lean`
+  (candidate walk over `F2.decode`, 80-byte result, scratch word, `headerFits` in `Pre`), then
+  Regions/Proof per the plan; `lake build ZesuExec.Fn.F6.Proof`.
 
 ## Verification tools
 - ImageCheck 2026-11-27: `tools/check_image.sh [Gen.lean] [ELF]` (item 9): parses every

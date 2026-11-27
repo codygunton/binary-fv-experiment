@@ -108,9 +108,7 @@ theorem witness_len : wordAt witness (witness.reg 11 + 8) = 1 := by decide
 theorem witness_rodata : RodataLoaded zesuImage witness := by
   intro a b h
   have ha : a < 2 ^ 64 := by
-    simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?] at h
-    have := (List.getElem?_eq_some_iff.mp h.2).1
-    simp at this; omega
+    have := zesu_rodata_range h; unfold Layout.rodataHi at this; omega
   simp [witness, Nat.mod_eq_of_lt ha, h]
 
 theorem witness_present (c j : Nat) (hc : c + j < 2 ^ 64)
@@ -123,8 +121,9 @@ theorem witness_present (c j : Nat) (hc : c + j < 2 ^ 64)
     · simp [witnessRam] at h; omega
     · omega
   have hro : zesuImage.rodataByte? (c + j) = none := by
-    simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?]
-    intro _; omega
+    cases h' : zesuImage.rodataByte? (c + j) with
+    | none => rfl
+    | some b => have := zesu_rodata_range h'; unfold Layout.rodataHi at this; omega
   simp only [witness, ha, hro]
   split <;> (try rfl)
   split <;> (try rfl)

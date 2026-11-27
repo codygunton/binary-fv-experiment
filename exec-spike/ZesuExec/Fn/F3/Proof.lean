@@ -197,9 +197,7 @@ theorem Entry.match0 {m : Machine} (e : Entry m) : Match (envE m) S0 m := by
 
 theorem rodata_lt : ∀ a b, zesuImage.rodataByte? a = some b → a < Layout.ramLo := by
   intro a b h
-  simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?] at h
-  have := (List.getElem?_eq_some_iff.mp h.2).1
-  simp at this; unfold Layout.ramLo; omega
+  have := zesu_rodata_range h; unfold Layout.rodataHi at this; unfold Layout.ramLo; omega
 
 def calleeVars : List Nat := [21, 22, 23, 24, 25, 26, 27]
 
