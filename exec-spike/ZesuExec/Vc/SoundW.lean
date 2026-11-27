@@ -116,8 +116,16 @@ theorem vc_soundW (P : PlanW σ img)
   | ret t => rw [hE] at hx; exact done 0 m' .refl (Nat.zero_le _) hx
   | «at» pc =>
     rw [hE] at hx
-    obtain ⟨c', hc', -, hA', hle⟩ := hx
-    exact atCut c' hc' m' hA' 0 .refl (by omega)
+    cases ht : P.tail pc with
+    | some k =>
+      simp only [ExitGoal, ht] at hx
+      obtain ⟨hpc', hpre, hbd, hpost⟩ := hx
+      obtain ⟨k₁, m₁, hk₁, hr₁, hP⟩ := k.spec g m' hpc' hpre
+      exact done k₁ m₁ hr₁ (by omega) (hpost m₁ hP)
+    | none =>
+      simp only [ExitGoal, ht] at hx
+      obtain ⟨c', hc', -, hA', hle⟩ := hx
+      exact atCut c' hc' m' hA' 0 .refl (by omega)
   | jumpInd t =>
     rw [hE] at hx
     obtain ⟨c', hc', -, hA', hle⟩ := hx
