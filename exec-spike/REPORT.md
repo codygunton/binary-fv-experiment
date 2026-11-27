@@ -14,7 +14,7 @@ specialised by two reviewable patches), and seven functions of the Zesu ELF prov
 | F3 | `rlp_decode.nextUint64` | proved; compliance proved | `f3_spec`, `f3_sail`, `Compliance.F3.f3_candidate_agrees`, `f3_compliance`, `f3_compliance_sail` |
 | F4 | keys `toOwnedSlice` | proved (given `AllocAssumptions`) | `f4_spec`, `f4_sail` |
 | F5 | entries `toOwnedSlice` | proved (given `AllocAssumptions`) | `f5_spec`, `f5_sail` |
-| F6 | `decodeParentHeader` | proved; compliance in progress | `f6_spec` (bound 2178), `f6_sail` |
+| F6 | `decodeParentHeader` | proved; compliance proved | `f6_spec` (bound 2178), `f6_sail`, `Compliance.F6.f6_candidate_agrees`, `f6_compliance`, `f6_compliance_sail` |
 
 Every listed theorem has a `#guard_msgs`-checked `#print axioms` in `ZesuExec/Axioms.lean`
 listing only `propext`, `Classical.choice`, `Quot.sound`.

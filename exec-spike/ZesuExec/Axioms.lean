@@ -1,3 +1,4 @@
+import ZesuExec.Compliance.F6
 import ZesuExec.Fn.F6.Sail
 import ZesuExec.Compliance.F3
 import ZesuExec.Compliance.F2
@@ -144,4 +145,16 @@ info: 'ZesuExec.Fn.F6.f6_sail' depends on axioms: [propext, Classical.choice, Qu
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.F6.f6_sail
+
+/--
+info: 'ZesuExec.Compliance.F6.f6_compliance' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Compliance.F6.f6_compliance
+
+/--
+info: 'ZesuExec.Compliance.F6.f6_compliance_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Compliance.F6.f6_compliance_sail
 
