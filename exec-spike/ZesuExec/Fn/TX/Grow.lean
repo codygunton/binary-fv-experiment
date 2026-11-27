@@ -1518,4 +1518,142 @@ theorem TX.leaf_8000025c_5 :
     show 9 + bTail m'' 478 ≤ bTail m 539 - _
     rw [hsteps]; unfold bTail afterEntry; rw [h21, h26]; omega
 
+/-! ## `0x80000340`: `remap` returned null, `alloc` -/
+
+/-- A frame word survives a call that writes only its 16-byte callee frame. -/
+theorem cframe_keep {σ : Sig} {mc m : Machine} (hc : Common σ mc)
+    (hso : SameOutside (InRange (mc.reg 2 - 16) 16) mc m) {j : Nat} (hj : 8 ≤ j) (hj' : j ≤ 576)
+    {v : Word} (h : mc.load (σ.sl j) 8 = some v) : m.load (σ.sl j) 8 = some v :=
+  frame_keep hc.2.1 hso hj' hj (fun a ha hin => by
+    rw [show mc.reg 2 - 16 = σ.sl 592 from sp_sub hc 16] at ha
+    exact sl_apart hc.2.1 (k1 := 592) (n1 := 16) (k2 := j) (n2 := 8) (by decide)
+      (by unfold stackBytes; omega) (by omega) ha hin) h
+
+/-- A frame word a leaf rewrote with its own value. -/
+theorem fw_same {σ : Sig} {m m' : Machine} {S' : SState} (hc : Common σ m)
+    (hwf : Env.WF (envB σ m) S') (hm' : Match (envB σ m) S' m') (hS' : S'.regions = baseRegions)
+    {j : Nat} (hj : 8 ≤ j) (hj' : j ≤ 576) (hv : readConst S' 0 (576 - j) 8 = .init 0 (576 - j) 8)
+    {v : Word} (h : m.load (σ.sl j) 8 = some v) : m'.load (σ.sl j) 8 = some v := by
+  rw [frame_word (BaseEnv.ofB σ m) hwf hm' hS' hj hj', hv, frame_init hc.2.1 hj hj' h]
+
+/-- `EntryDone`'s bytes survive a leaf that writes frame words apart from its slots. -/
+theorem edsame_frame {σ : Sig} {m m' : Machine} {S' : SState} {o : Obs} {k : Kobs} {kp' : Word}
+    {L X : List (Word × Nat)} (hc : Common σ m) (hlive : Live σ m L (EX o ++ KD k kp' ++ X))
+    (hso : SameOutside (fun a => ∃ wr ∈ S'.mem, InRange (σ.sl 576 + w wr.off) wr.n a) m m')
+    (hkeep : ∀ wr ∈ S'.mem, wr.off + wr.n ≤ 472 ∧ (wr.off + wr.n ≤ 80 ∨
+      (88 ≤ wr.off ∧ wr.off + wr.n ≤ 128) ∨ (152 ≤ wr.off ∧ wr.off + wr.n ≤ 232) ∨
+      (252 ≤ wr.off ∧ wr.off + wr.n ≤ 416) ∨ 436 ≤ wr.off)) :
+    EDSame σ o k kp' m m' := by
+  have hpre := hc.2.1
+  have hWst : ∀ a, (∃ wr ∈ S'.mem, InRange (σ.sl 576 + w wr.off) wr.n a) →
+      InRange (σ.sl stackBytes) stackBytes a := by
+    rintro a ⟨wr, hwr, hin⟩
+    have := (hkeep wr hwr).1
+    exact sl_in_stack hpre (k := 576 - wr.off) (n := wr.n) (by unfold stackBytes; omega)
+      (by omega) (fr_in hpre (by omega) (by omega) (by omega) (by omega) hin)
+  refine edsame_of hpre hlive hso fun a ⟨wr, hwr, hin⟩ => .inl ⟨hWst a ⟨wr, hwr, hin⟩,
+    fun kn hkn ha => ?_⟩
+  obtain ⟨h1, h2⟩ := hkeep wr hwr
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
+  rcases hkn with rfl | rfl | rfl | rfl <;>
+    exact wr_miss hpre (by omega) (by decide) (by dsimp only; omega) hin ha
+
+theorem TX.leaf_80000340_2 :
+    LeafGoal TX.plan TX.plan.cuts[11]! ((TX.plan.leaves 0x80000340)[2]!) := by
+  show LeafGoal TX.plan cut340 (run340_leaves[2]!)
+  have hsteps : (run340_leaves[2]!).S.steps - cut340.S.steps = 29 := by decide
+  intro σ m hA _
+  obtain ⟨hcm, -, hsp⟩ := ret_340 hA
+  have hpre := hcm.2.1
+  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 478; unfold bTail; omega, ?_⟩
+  intro m' hm' hex hfr
+  have hx : (run340_leaves[2]!).exit = .call 0x80042494 0x800003d4 := by decide
+  rw [hx] at hex ⊢
+  change m'.pc.toNat = 0x80042494 at hex
+  change Match (envB σ m) _ m' at hm'
+  change SameOutside (InWritable (envB σ m) SSpill) m m' at hfr
+  obtain ⟨hwf, hm, -⟩ := spill_cut hcm hsp
+  obtain ⟨mc, _, ⟨o, k, L, kp', hED, hG, h27, -, -, l228, l230, l238, l240, -⟩,
+    ⟨hret, -, hso⟩, hpres⟩ := hA
+  have hc0 := hED.1
+  have hlive := hED.2.2.2.2.1
+  have hEL := hED.2.2.2.1
+  -- after `remap`: only its frame changed
+  have rk : ∀ i ∈ ([20, 21, 23, 25, 26, 27] : List (Fin 32)), m.reg i = mc.reg i :=
+    fun i hi => hret.2 i (by simp only [calleeSaved]; simp at hi ⊢; omega)
+  have hheap : σ.A.Heap L m := σ.A.heap_frame' L mc m hlive.1 (fun a ha => hso a fun h =>
+    stack_not_priv hpre (cframe_R hc0 h).1 (priv_sub hpre hlive ha)) hpres
+  have hEDm := ed_congr hED hcm hheap (fun i hi => rk i (by simp at hi ⊢; omega))
+    (edsame_of (Y := []) hpre (by simpa using hlive) hso fun a h => .inl (cframe_R hc0 h))
+  have ck := fun {j : Nat} (hj : 8 ≤ j) (hj' : j ≤ 576) {v : Word} (h : mc.load (σ.sl j) 8 = some v) =>
+    cframe_keep hc0 hso hj hj' h
+  obtain ⟨g0, g23, g25, g200, g1f8, g210, g208, g218, g220⟩ := hG
+  -- the leaf: spills rewritten with their values, the flag byte
+  have hS : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 23, 25, 26, 27] : List (Fin 32)),
+      (run340_leaves[2]!).S.reg i.val = SSpill.reg i.val := by decide
+  have hr := regs_keep hm hm' _ hS
+  have reg : ∀ (i : Fin 32) (s : Sym), (run340_leaves[2]!).S.reg i.val = s →
+      m'.reg i = s.eval (envB σ m) := fun i s h => by rw [Match.reg_eq hm' i i.val rfl, h]
+  have r1 := reg 1 _ (by decide : (run340_leaves[2]!).S.reg 1 = .lit 0x800003d4)
+  have r10 := reg 10 _ (by decide : (run340_leaves[2]!).S.reg 10 = .init 0 40 8)
+  have r11 := reg 11 _ (by decide : (run340_leaves[2]!).S.reg 11 =
+    .bin .add (.init 0 8 8) (.init 0 16 8))
+  have r12 := reg 12 _ (by decide : (run340_leaves[2]!).S.reg 12 = .lit 3)
+  have r13 := reg 13 _ (by decide : (run340_leaves[2]!).S.reg 13 = .var 19)
+  have r22 := reg 22 _ (by decide : (run340_leaves[2]!).S.reg 22 = .init 0 24 8)
+  obtain ⟨hc', hlive', -⟩ := base_leaf hcm hEDm.2.2.2.2.1 (BaseEnv.ofB σ m) hwf rfl hm'
+    (by decide) hfr (by decide) fun i hi => hr i (by simp at hi ⊢; omega)
+  have hso' := frame_leaf_so hcm rfl hm' (by decide) hfr (by decide)
+  have hED' := ed_congr hEDm hc' hlive'.1 (fun i hi => hr i (by simp at hi ⊢; omega))
+    (edsame_frame hcm hEDm.2.2.2.2.1 hso' (by decide))
+  have hwf' : Env.WF (envB σ m) (run340_leaves[2]!).S := hwf.congr (by decide)
+  have fs := fun {j : Nat} (hj : 8 ≤ j) (hj' : j ≤ 576)
+    (hv : readConst (run340_leaves[2]!).S 0 (576 - j) 8 = .init 0 (576 - j) 8) {v : Word}
+    (h : m.load (σ.sl j) 8 = some v) => fw_same hcm hwf' hm' (by decide) hj hj' hv h
+  have hG' : Growing σ m' o k kp' := ⟨g0, (hr 23 (by simp)).trans ((rk 23 (by simp)).trans g23),
+    (hr 25 (by simp)).trans ((rk 25 (by simp)).trans g25),
+    fs (by decide) (by decide) (by decide) (ck (by decide) (by decide) g200),
+    fs (by decide) (by decide) (by decide) (ck (by decide) (by decide) g1f8),
+    fs (by decide) (by decide) (by decide) (ck (by decide) (by decide) g210),
+    fs (by decide) (by decide) (by decide) (ck (by decide) (by decide) g208),
+    fs (by decide) (by decide) (by decide) (ck (by decide) (by decide) g218),
+    by rw [frame_word (BaseEnv.ofB σ m) hwf' hm' (by decide) (k := 0x220) (by decide) (by decide),
+      show readConst (run340_leaves[2]!).S 0 (576 - 0x220) 8 = .lit vtable by decide]; rfl⟩
+  have hn32 : o.done.length < 2 ^ 32 := by have := hEL.2.1; have := hEL.2.2.2.2.1; omega
+  have hgc := grownCap_lt hn32
+  have e40 := frame_init hpre (k := 0x218) (by decide) (by decide) (ck (by decide) (by decide) g218)
+  have e24 := frame_init hpre (k := 0x228) (by decide) (by decide) (ck (by decide) (by decide) l228)
+  have e16 := frame_init hpre (k := 0x230) (by decide) (by decide) (ck (by decide) (by decide) l230)
+  have e8 := frame_init hpre (k := 0x238) (by decide) (by decide) (ck (by decide) (by decide) l238)
+  simp only [show 576 - 0x218 = 40 from rfl, show 576 - 0x228 = 24 from rfl,
+    show 576 - 0x230 = 16 from rfl, show 576 - 0x238 = 8 from rfl] at e40 e24 e16 e8
+  have e11 : m'.reg 11 = w (entrySize * grownCap o.done.length) := by
+    rw [r11]
+    show (Sym.init 0 8 8).eval (envB σ m) + (Sym.init 0 16 8).eval (envB σ m) = _
+    rw [e8, e16, w_40]
+  have hn11 : (m'.reg 11).toNat = entrySize * grownCap o.done.length := by
+    rw [e11]; simp only [w, BitVec.toNat_ofNat, entrySize]; omega
+  have hsite : Site3d0 σ L m' := ⟨o, k, kp', hED', hG',
+    (hr 27 (by simp)).trans ((rk 27 (by simp)).trans h27), r22.trans e24,
+    by simp only [Sym.eval] at r1; exact r1, fun t ht => by
+      simp only [List.length_cons, List.length_nil] at ht
+      obtain rfl | rfl | rfl | rfl : t = 0 ∨ t = 1 ∨ t = 2 ∨ t = 3 := by omega
+      · exact r10.trans e40
+      · exact e11
+      · simp only [Sym.eval] at r12; exact r12
+      · exact r13.trans ((envB_var σ m 19).trans hcm.2.2.2.2.2.2.2.1)⟩
+  obtain ⟨hstk, hcf⟩ := callee_frame hc' hED'.2.2.2.2.1
+  have hpre2 : allocPre σ.A L m' := ⟨hED'.2.2.2.2.1.1,
+    by rw [hn11]; simp only [entrySize, grownCap]; omega,
+    by rw [hn11]; simp only [entrySize]; omega,
+    by simp only [Sym.eval] at r12; rw [r12]; decide, hstk,
+    by unfold RetAligned; simp only [Sym.eval] at r1; rw [r1]; decide, hcf⟩
+  refine ⟨allocC, L, rfl, hex, hpre2, fun m'' hpost => ⟨cut3d4, by simp [TX.plan, vcPlan],
+    rfl, ?_, ⟨m', L, hsite, hpost⟩, ?_⟩⟩
+  · rw [hpost.1.1.1]; simp only [Sym.eval] at r1; rw [r1]; decide
+  · have h21 : m''.reg 21 = m.reg 21 := (hpost.1.1.2 21 (by decide)).trans (hr 21 (by simp))
+    have h26 : m''.reg 26 = m.reg 26 := (hpost.1.1.2 26 (by decide)).trans (hr 26 (by simp))
+    show 53 + bTail m'' 389 ≤ bTail m 478 - _
+    rw [hsteps]; unfold bTail afterEntry; rw [h21, h26]; omega
+
 end ZesuExec.Fn.TX
