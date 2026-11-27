@@ -436,3 +436,46 @@ Differences from Rocq: blob and excess triggers are per reached field rather tha
 the candidate's overall success (so they also fire where both reject later); the profile limits
 come from `σ` instead of the fixed default; no `2^31` input bound is needed (the Lean host reads
 `inputBytes.getD`); `headerFits` is not needed by the agreement.
+
+## TX `rlp_decode.txAccessList` (`Fn/TX/Spec.lean`)
+
+Rocq: `TxAccessListContract.v` (`txAccessListArgsWellFormed`, `txAccessListEntryResources`,
+`txAccessListExitResources`, `txAccessListResultImage`, `txAccessListHeapImage`,
+`txAccessListReturnedHeap`, `txAccessListAllows`), the reference decoder
+`Candidates/AccessListCandidate.v` and the domain of `TxAccessListMeaning.v`.
+
+| Lean | Rocq | note |
+|---|---|---|
+| `EntryValue`, `Candidate`, `keysWalk`, `entryWalk`, `entriesWalk`, `walk`, `candidate`, `calls` | `AccessListEntryValue`, `AccessListCandidate`, `accessListKeysWalk`, `accessListEntry`, `accessListEntriesWalk`, `accessListWalk`, `candidateAccessList`, `accessListCalls` | same recursion and fuel over `F2.decode` (`candidateDecodeItem`); lengths in `Nat` |
+| `HeaderFits`, `Domain` | `headerFits` (`RlpDecodeItem.v:58`), `txAccessListDomain` (`accessListHeadersFit` and the `2^30` Sail source limit) | same |
+| `OutcomeClass`, `OutcomeAllowed`, `candidateConsumed` | `TxAccessListOutcomeClass`, `txAccessListOutcomeAllowed`, `accessListCandidateConsumed` | same |
+| `EntryImage`, `entryBytes`, `entriesBytes` | `TxAccessListEntryImage`, `txAccessListEntryBytes`, `txAccessListEntriesBytes` | keys pointer as a `Word` |
+| `Params` | the logical part of `TxAccessListArgs` | input bytes and the allocator's live blocks `L`; the register and saved values are read from the entry machine |
+| `Pre A g` | `txAccessListArgsWellFormed` with the owned resources of `txAccessListEntryResources` | see differences 1-4 |
+| `OutcomeImage A g`, `Post A g` | `txAccessListResultImage`, `txAccessListHeapImage`, `txAccessListReturnedHeap`, `txAccessListExitResources`, `txAccessListAllows` | see differences 5-8 |
+
+Differences:
+1. `res` and `rest` are 8-aligned (`res.toNat % 8 = 0`, `rest.toNat % 8 = 0`): the machine's
+   loads and stores are naturally aligned (as F2's outcome pointer). This strengthens `Pre`.
+2. `zisk_input_end` (`txInputEnd`, `txAccessListSysRegs`) is dropped: the machine has no such
+   register (as F2). The input lies in the input buffer `[2^30, 2^31)` or in RAM (`InputArea`).
+3. Ownership `∗` becomes explicit `Apart` facts (the Rocq `separateRanges` list plus the scratch
+   word against every other range) and "avoids `Priv L`" for every owned range (as F1).
+4. The vtable cells (`altFlVtable`) are rodata (`RodataLoaded`); the allocator object holds
+   `{ctx, 0x801136d8}`; `altFlHeap` is `A.Heap g.L`. Allocation alignment (`log2Align` 0 for keys,
+   3 for entries) is not stated: `AllocAssumptions` blocks carry no alignment.
+5. The Sail half of `TxAccessListMeaningModuloKnownBugs` (`txAccessListSailAgrees` or a known-bug
+   trigger) is not in `Post`; it is the compliance statement's (S6 step 8), as for F2. `Domain`
+   (which includes the Sail source limit) stays in `Pre`, as in `txAccessListArgsWellFormed`.
+6. The returned heap (`txOwnedSlice`, `altFlBlock`) is `A.Heap L'` with `L'` a permutation of
+   `g.L ++ returnedBlocks p entries images` on success, `g.L ++ leaked` on error; slice bytes are
+   `BytesAt` facts. The success result's bytes 18..23 are unconstrained (as in Rocq).
+7. The frame `txAccessListFrameBase ↦ₘ∗ txAfterFrame` and the callee area are the
+   `SameOutside` range `[sp - 704, sp)`; the scratch word is `Present` with any value.
+8. Registers: `Returns` (pc = `ra`, `sp` and `s0`–`s11` restored); the caller-saved registers
+   are unconstrained, as in `txAccessListExitResources`.
+- Non-vacuity: `pre_nonvacuous` — for any `A`, any machine `m0` with `A.Heap [] m0` and an
+  allocator memory `Priv []` above `0xa0003000` and away from the scratch word, a machine with
+  `Pre A ⟨[0xc0], []⟩ m` exists. The decoder is checked by `decide` on four inputs (empty list,
+  byte string, one entry with one key, a 19-byte address).
+- No end theorem yet: `tx_spec` comes in S6 step 7. Cut design: `OPEN/TX/CUTS.md`.

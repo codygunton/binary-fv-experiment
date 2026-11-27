@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Entry/return snapshots of F1 and F2 under Unicorn, for `zesu-difftest` (plan S2 step 4).
+"""Entry/return snapshots of F1, F2 and TX under Unicorn, for `zesu-difftest` (plan S2 step 4).
 
-    snap.py --runner <zesislar>/tools/oblig/exec/run.py --fn F1|F2 [--elf ELF] [--inputs FILE ...]
+    snap.py --runner <zesislar>/tools/oblig/exec/run.py --fn F1|F2|TX [--elf ELF] [--inputs FILE ...]
             [--input ID ...] --out DIR
 
 Imports zesislar's Unicorn runner `run.py` as a module and runs its profile (`keysEnsureCapacity`
-for F1, `decodeItem` for F2) on each input of the given input sets (runner schema
-`oblig-exec-inputs/1`; default: `inputs/<profile>.json` beside `run.py`; `tools/snap_inputs/`
+for F1, `decodeItem` for F2, `txAccessList` for TX) on each input of the given input sets (runner
+schema `oblig-exec-inputs/1`; default: `inputs/<profile>.json` beside `run.py`; `tools/snap_inputs/`
 adds F1 paths the runner's set lacks). Unlike `run.py`, the allocator entries are not hooked:
 Unicorn executes the real `alt_fl_alloc.{alloc,remap,free}` reached through the vtable; only the
 `memcpy` stub is replaced, by the runner's ZisK service hook.
@@ -30,7 +30,7 @@ import json
 import sys
 from pathlib import Path
 
-FNS = {'F1': 'keysEnsureCapacity', 'F2': 'decodeItem'}
+FNS = {'F1': 'keysEnsureCapacity', 'F2': 'decodeItem', 'TX': 'txAccessList'}
 PAGE = 0x1000
 # Readable regions of `ZesuExec.Layout` (half-open): rodata, input, RAM.
 REGIONS = [(0x8010fd80, 0x80118678), (0x40000000, 0x80000000), (0xa0000000, 0xc0000000)]

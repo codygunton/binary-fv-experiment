@@ -371,3 +371,25 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   functions (bottom-up), then 44 blocker classes by target-set instructions. Note: `blocked` precedes
   `out` in the rule order, so 318 includes functions outside the target set. Unit tests 18 OK
   (merge/queue on the legacy fixture `tests/fixtures/status_legacy.json`, tests only). Gate S3 passed.
+- S6-prep (2026-11-27, TX `rlp_decode.txAccessList`): `ZesuExec/Fn/TX/Spec.lean` transcribes
+  `TxAccessListContract.v` with the reference decoder of `AccessListCandidate.v` (over `F2.decode`)
+  and the domain of `TxAccessListMeaning.v`: `Params` (σ: input bytes, allocator live list), `Pre A
+  g`, `OutcomeImage`, `Post A g`; the Sail half of the meaning is left to compliance (as F2).
+  `decide` checks the decoder on `c0`, `80`, one entry with one key, a 19-byte address;
+  `pre_nonvacuous` (input `c0`). Checked with `lake env lean ZesuExec/Fn/TX/Spec.lean` (clean, 1.5 s);
+  `lake build ZesuExec.Fn.TX.Spec` not run: `ZesuExec/Sym/Tactic.lean` is modified (S4, uncommitted)
+  and the build would rebuild it and everything after it under S4's build. Not imported in
+  `ZesuExec.lean`. `STATEMENTS.md` section TX (8 differences), `map/reviews.json` TX
+  transcribed/unreviewed, ledger `contract` item. `OPEN/TX/CUTS.md`: the 15 map cuts with segment
+  exits and longest paths, regions per cut from the segment's own loads/stores, assertion content from
+  the annotation rows (`loop-c4`, `loop-18c`, `join-*`, `return-d8`, `dead-3e0/344/2ec`), budgets
+  (`32·len + 1130` at entry, `32·r + 1006` at `0xc4`, `10·kr + 1464 + 32·R` at `0x18c`, from the callee
+  bounds and the map's longest segment paths), the image change S6 needs (only TX's 323 words; no new
+  rodata). Finding: TX loads the address and key payloads from the input with `ld`/`lw` at
+  `+0x130..+0x138` and `+0x1c4..+0x1d0` (unaligned for real inputs: zesislar's `one_entry_1_key` has
+  the address at offset 4) and stores keys with `sd` into a keys buffer allocated with alignment 1
+  (`+0x230..+0x23c`); the machine's loads/stores are aligned, so TX's runs need S5 probe 3 before S6
+  step 5. Compliance check: `vendor/evm-sail-lean/Evm/Lib/Rlp/Codecs/Transactions.lean` has
+  `decode_access_list` (l.180) and its entries/keys walkers, so no `compliance-spec-missing`.
+  `tools/snap.py --fn TX` added: 16/16 zesislar inputs `returned` under Unicorn (real allocator);
+  `zesu-difftest --fn TX` needs `Gen.TX` (image change), not wired.
