@@ -759,3 +759,17 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   (Pre A g) (Post A g)`. Sail's `encoded` span is not compared. Witnesses by `decide`: agreeing
   (1 entry, 1 key), 19-byte address, 31-byte key, trailing byte after keys. Axiom guards added
   (3). `lake build` 277 jobs OK; `tools/verify.sh` all PASS after `make -C tools/zmap map`.
+- S5-p2c (2026-11-27, gate: blocked, fallback taken; no Fn/F6 change): F6 through decodeItem
+  `runWith` summaries (`⟨F2.bound, abiClobbers, none, [(a0, 40)]⟩`, as F3). Measured with every
+  current cut kept, one `runWith` per cut start: of the 17 cut-started runs that cross a
+  decodeItem call, `runWith` returns `none` for 11 (from retS0..retS7, ret9, ret10, ret12,
+  ret13); it accepts the runs from entry, ret0, ret11, ret14, ret15, ret16 (same leaf counts as
+  `run`). Removing a skip return cut makes the merged run fail at the second call. Cause:
+  `CallRec.okB` (S5-p2) havocs a written range into the leaf's single initial memory `mem0`, so
+  a call may not write bytes the path already read. F6 reuses its outcome slots (frame 64 for
+  fields 0..8, 280 for 9..11, 104 for 12..14) and branches on the previous outcome before the
+  next call. Cuts/leaves/items/hand lines unchanged (24 / 74 / 98 / Vc 2276 + Lemmas 1259).
+  Probe time ~2 s per `runWith` batch. Needed before this conversion: summaries that leave fresh
+  symbolic writes (new variables per call) in the written range instead of havocking `mem0`
+  (generic: `Sym/Summary.lean`, `runWith_sound`). Prior evidence on the line count: F3's one
+  summarised call took hand lines +277. Reported to DTFPipeline. ~25 min.

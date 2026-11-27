@@ -8,9 +8,10 @@ Rates and counts only; no extrapolated total.
 | kind | items | median min | total min | median $ | total $ |
 |---|---:|---:|---:|---:|---:|
 | assertion | 1 | 30 | 30 | 0 | 0 |
+| compliance | 1 | 75 | 75 | 0 | 0 |
 | contract | 2 | 5.5 | 11 | 0 | 0 |
 | cut_lemma | 3 | 15 | 63 | 0 | 0 |
-| infra | 15 | 11 | 515 | 0 | 0 |
+| infra | 17 | 12 | 615 | 0 | 0 |
 | leaf | 2 | 24.5 | 49 | 0 | 0 |
 | rule | 10 | 18.5 | 234 | 0 | 0 |
 | run | 1 | 10 | 10 | 0 | 0 |
@@ -35,7 +36,7 @@ Plan leaves: auto 12, manual 100, open 45 (auto share 8%). Ledger `leaf` minutes
 | f_8000050c rlp_decode.decodeTxFields | contract-draft | 153 | 50 | 87 | 75 | 478 | 2825 | 0/0/0 | 3 | 23 | 0 |
 | f_8004218c alt_fl_alloc.remap | closed+sail | 1 | 0 | 0 | 0 | 1 | 9 | 0/0/0 | 0 | 0 | 0 |
 | f_800cb40c array_list.Aligned([32]u8,null).ensureTotalCapacity | closed+sail | 9 | 0 | 4 | 7 | 18 | 107 | 7/8/0 | 9 | 142 | 0 |
-| f_800d5cb8 rlp_decode.decodeParentHeader | closed+compliance | 32 | 3 | 21 | 13 | 82 | 367 | 0/74/0 | 0 | 0 | 0 |
+| f_800d5cb8 rlp_decode.decodeParentHeader | closed+compliance | 32 | 3 | 21 | 13 | 82 | 367 | 0/74/0 | 1 | 25 | 0 |
 | f_800d6274 rlp_decode.nextUint64 | closed+compliance | 4 | 1 | 1 | 3 | 9 | 53 | 0/0/0 | 1 | 30 | 0 |
 | f_800d6554 array_list.Aligned(input.AccessListEntry,null).toOwnedSlice | closed+sail | 10 | 0 | 6 | 9 | 22 | 138 | 0/0/0 | 0 | 0 | 0 |
 | f_800d677c array_list.Aligned([32]u8,null).toOwnedSlice | closed+sail | 10 | 0 | 6 | 9 | 22 | 121 | 0/0/0 | 0 | 0 | 0 |
