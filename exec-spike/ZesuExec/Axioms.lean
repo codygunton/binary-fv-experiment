@@ -22,6 +22,7 @@ import ZesuExec.Sym.Summary
 import ZesuExec.Vc.Sound
 import ZesuExec.Vc.SoundW
 import ZesuExec.Fn.F1.Vc
+import ZesuExec.Fn.DTF.Reach
 
 /-! Axiom guards for every end theorem (plan Verification item 4). -/
 
