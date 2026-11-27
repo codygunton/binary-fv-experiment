@@ -568,3 +568,26 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `spec` (axioms unchanged). `exit_intro` picks the tail case when `P.tail pc` is `some`.
   `Test/Vc.lean`: plan `Tail` (`jal x0, memcpy` from one cut, `tail` = `Callee.memcpy`) assembles
   to `Tail.reach` with clean axioms. F1/F2 proofs unchanged; `lake build` 263 jobs OK.
+- S5-p2b (2026-11-27): `runWith` in the Vc framework; F1 through `remap` without its return-site
+  cut. `Sym/Summary.lean`: `runWith_sound` also gives, for leaves without summarised calls,
+  `env' = env` and `SameOutside` of the writable regions only (new `goW_calls`). `Vc/SoundW.lean`:
+  `PlanW extends Plan` (`sums`, `F0`, `X` callee footprint outside the caller's regions, `Qc`,
+  `wleaves : Nat → List LeafW`; existing plans unchanged), `PlanW.callsAt` (distinct calls per
+  cut), goals `CallGoal` (= `CallHyp` under the cut's assertion), `LeafGoalC` (leaves with calls:
+  `∀ env'` agreeing with the cut `Env`, the run `RunsIn k m m'`, `CallFact`s, `FootW` footprint),
+  `LeafGoalW` (plain `LeafGoal` of `P.toPlan` for call-free leaves, so their statements and proofs
+  are as before); `vc_soundW` (guarded; tail case of S2-tail included). `Vc/AssembleW.lean`:
+  `zesu_planw` / `zesu_autow` / `zesu_assemblew` (items `cut_`, `leaf_`, `call_<pc>_<k>`),
+  tactics `leafc_intro`, `call_intro`. F1 (`Fn/F1/Vc.lean`, a `PlanW`, `sums` = `F0.summary`,
+  `X` = remap's 16 bytes below F1's frame): cut `0x800cb4f8` (`cR`, `S1`, `AR`, `envR`, `remapC`,
+  `runR`) gone; entry run is `runWith` (10 leaves; 4–6 carry the remap call). Old `leaf_..._4`'s
+  body became `F1.call_800cb40c_0` (`f0_spec` + `F0.callPost`); old `runR` leaves 0/1/2 became
+  entry leaves 4/5/6 over the entry terms (conditions moved to `env0` by `conds_env0`, `EnvOk`
+  by `EnvOk.of_agree`); `alloc_call` takes the footprint with `X`. Cut points 5 → 4, runs 5 → 4,
+  items 21 → 20 (4 cut lemmas, 15 leaves, 1 call goal): auto 5, manual 15, open 0 (was auto 5,
+  manual 16). `Fn/F1/Vc.lean` 903 → 902 lines; generic `Vc/SoundW.lean` 136, `Vc/AssembleW.lean`
+  249. `f1_spec` derived as before (`Proof.lean` unchanged); `Test/Budget.lean` restated on the
+  `runWith` leaves (same costs 29/112/123/137/197). `lake build` OK, `tools/verify.sh` all PASS
+  after `make -C tools/zmap map`. Gate S5.2 now passed for both halves (F3/decodeItem, F1/remap);
+  alloc fallback unchanged. `zmap show f_800cb40c` still lists the static map's 5 cut points
+  (S1 cut rule); the plan uses 4. ~60 min.
