@@ -712,17 +712,17 @@ def cL11 : Cut Machine := cutL loop11 AL11 907
 def kD : Callee Machine zesuImage where
   entry := F2.entry
   bound := F2.bound
-  Pre := fun _ => F2.Pre
-  Post := fun _ m m' => F2.Post m m' ∧ Preserved m m'
-  spec := fun _ m hpc hpre => Reaches.preserve (F2.f2_spec m hpc hpre)
+  Pre := fun _ _ => F2.Pre
+  Post := fun _ _ m m' => F2.Post m m' ∧ Preserved m m'
+  spec := fun _ _ m hpc hpre => Reaches.preserve (F2.f2_spec m hpc hpre)
 
 /-- nextUint64 (F3), with `Preserved`. -/
 def kN : Callee Machine zesuImage where
   entry := F3.entry
   bound := F3.bound
-  Pre := fun _ => F3.Pre
-  Post := fun _ m m' => F3.Post m m' ∧ Preserved m m'
-  spec := fun _ m hpc hpre => Reaches.preserve (F3.f3_spec m hpc hpre)
+  Pre := fun _ _ => F3.Pre
+  Post := fun _ _ m m' => F3.Post m m' ∧ Preserved m m'
+  spec := fun _ _ m hpc hpre => Reaches.preserve (F3.f3_spec m hpc hpre)
 
 def vcPlan : Plan Machine zesuImage where
   cuts := [cE, cR0, cS0, cS1, cS2, cS3, cS4, cS5, cS6, cS7, cS8, c9, c10, c11, c12, c13, c14,
@@ -770,15 +770,15 @@ theorem mc_goal {m mf : Machine} {rem : Nat}
     (h : MemcpyPre mf ∧ ∀ m2, MemcpyPost mf m2 → Post m m2)
     (hpc : mf.pc.toNat = Layout.memcpyEntry) (hrem : 3 ≤ rem) :
     ExitGoal F6.plan m mf rem (.at Layout.memcpyEntry) :=
-  ExitGoal.at_tail (k := Callee.memcpy Machine zesuImage) rfl ⟨hpc, h.1, hrem, h.2⟩
+  ExitGoal.at_tail (k := Callee.memcpy Machine zesuImage) rfl ⟨(), hpc, h.1, hrem, h.2⟩
 
 /-- A call: the callee's precondition, and the assertion at the return cut after it. -/
-theorem call_goal {m m1 : Machine} {rem t r : Nat} {k : Callee Machine zesuImage}
+theorem call_goal {m m1 : Machine} {rem t r : Nat} {k : Callee Machine zesuImage} {x : k.X}
     (hk : F6.plan.callee r = some k) (hpc : m1.pc.toNat = k.entry) {c' : Cut Machine}
     (hc' : c' ∈ F6.plan.cuts) (hcpc : c'.pc = r) (hb : ∀ m2, k.bound + c'.budget m m2 ≤ rem)
-    (h : k.Pre m m1 ∧ ∀ m2, k.Post m m1 m2 → m2.pc.toNat = r ∧ c'.A m m2) :
+    (h : k.Pre m x m1 ∧ ∀ m2, k.Post m x m1 m2 → m2.pc.toNat = r ∧ c'.A m m2) :
     ExitGoal F6.plan m m1 rem (.call t r) :=
-  ⟨k, hk, hpc, h.1, fun m2 hp => ⟨c', hc', hcpc, (h.2 m2 hp).1, (h.2 m2 hp).2, hb m2⟩⟩
+  ⟨k, x, hk, hpc, h.1, fun m2 hp => ⟨c', hc', hcpc, (h.2 m2 hp).1, (h.2 m2 hp).2, hb m2⟩⟩
 
 /-- A jump to a cut point. -/
 theorem at_goal {m m' : Machine} {rem pc : Nat} (ht : F6.plan.tail pc = none) {c' : Cut Machine}
@@ -985,7 +985,7 @@ theorem leaves17 : ∀ l ∈ run17_leaves, LeafGoal F6.plan c17 l := by
     simp only [Sym.eval_lit, bne_iff_ne, ne_eq] at h56
     have hr0 : r - c % 2 ^ 64 ≠ 0 := fun h0 => h56 (by rw [h0])
     refine ⟨by simp, by decide, fun m1 hm1 hex hfr => ?_⟩
-    refine call_goal (k := kN) (c' := c18) rfl hex (mem_cut (by simp [vcPlan])) rfl
+    refine call_goal (k := kN) (x := ()) (c' := c18) rfl hex (mem_cut (by simp [vcPlan])) rfl
       (fun _ => Nat.le_of_ble_eq_true rfl)
       (call_n n e hs.fr hm1 hfr (by decide) (roff := 248) (o := o + c % 2 ^ 64)
         (r := r - c % 2 ^ 64) (ret := ret18) (by decide) (by decide) (by decide)
@@ -1049,7 +1049,7 @@ theorem leaves16 : ∀ l ∈ run16_leaves, LeafGoal F6.plan c16 l := by
       rw [v18, hcw'] at h1
       have hrc := cond_len' hr64 h1
       refine ⟨by simp, by decide, fun m1 hm1 hex hfr => ?_⟩
-      refine call_goal (k := kN) (c' := c17) rfl hex (mem_cut (by simp [vcPlan])) rfl
+      refine call_goal (k := kN) (x := ()) (c' := c17) rfl hex (mem_cut (by simp [vcPlan])) rfl
         (fun _ => Nat.le_of_ble_eq_true rfl)
         (call_n n e hs.fr hm1 hfr (by decide) (roff := 216)
           (o := o + (h + p) % 2 ^ 64) (r := r - (h + p) % 2 ^ 64) (ret := ret17) (by decide)
@@ -1155,7 +1155,7 @@ theorem leaves15 : ∀ l ∈ run15_leaves, LeafGoal F6.plan c15 l := by
     have h56' : (Sym.init 0 56 8).eval (envC m mh c0) = BitVec.ofNat 64 (r - c % 2 ^ 64) := by
       rw [hso.2, adv_len hr64 hc]
     refine ⟨by simp, by decide, fun m1 hm1 hex hfr => ?_⟩
-    refine call_goal (k := kD) (c' := c16) rfl hex (mem_cut (by simp [vcPlan])) rfl
+    refine call_goal (k := kD) (x := ()) (c' := c16) rfl hex (mem_cut (by simp [vcPlan])) rfl
       (fun _ => Nat.le_of_ble_eq_true rfl)
       (call_d n e hs.fr hm1 hfr (by decide) (off := 176)
         (o := o + c % 2 ^ 64) (r := r - c % 2 ^ 64) (ret := ret16) (by decide) (by decide)
@@ -1200,7 +1200,7 @@ theorem leaves14 : ∀ l ∈ run14_leaves, LeafGoal F6.plan c14 l := by
     rw [v18, hcw] at h1
     have hrc := cond_len' hr64 h1
     refine ⟨by simp, by decide, fun m1 hm1 hex hfr => ?_⟩
-    refine call_goal (k := kN) (c' := c15) rfl hex (mem_cut (by simp [vcPlan])) rfl
+    refine call_goal (k := kN) (x := ()) (c' := c15) rfl hex (mem_cut (by simp [vcPlan])) rfl
       (fun _ => Nat.le_of_ble_eq_true rfl)
       (call_n n e hs.d.fr hm1 hfr (by decide) (roff := 144) (o := o + (h + p) % 2 ^ 64)
         (r := r - (h + p) % 2 ^ 64) (ret := ret15) (by decide) (by decide) (by decide)
@@ -1307,7 +1307,7 @@ theorem opt_leaves {k pc ret B' : Nat} {ls : List Leaf} (hk : schedule[k]? = som
       rw [v18, hcw, adv_len hr64 hc]
     refine ⟨by simp [hob0], by omega, fun m1 hm1 hex hfr => ?_⟩
     rw [hex0] at hex ⊢
-    refine call_goal (k := kD) hret hex hc' rfl (fun _ => by simp only [kD, cutR, F2.bound]; omega)
+    refine call_goal (k := kD) (x := ()) hret hex hc' rfl (fun _ => by simp only [kD, cutR, F2.bound]; omega)
       (call_d n e hs.d.fr hm1 hfr hk0 (off := 104) (by decide) (by decide)
         (by have := hs.d.fit; omega) g1 hra hrp
         (by rw [g10]; simp [Sym.eval, (envC_facts m mh c0).b0]) e11 e12
@@ -1346,7 +1346,7 @@ theorem to12 {m mh m1 : Machine} (n : Nums m) (e : Entry m) (hc : Fr m mh) {c : 
     (g20 : (lS.reg 20).eval (envC m mh c) = BitVec.ofNat 64 v2)
     (hw : walk (inputOf m) = fieldWalk (schedule.drop 12) (sl m o r) [v0, v1, v2])
     {rem t : Nat} (hrem : 75 + 818 ≤ rem) : ExitGoal F6.plan m m1 rem (.call t ret12) := by
-  refine call_goal (k := kD) (c' := c12) rfl hex (mem_cut (by simp [vcPlan])) rfl
+  refine call_goal (k := kD) (x := ()) (c' := c12) rfl hex (mem_cut (by simp [vcPlan])) rfl
     (fun _ => by simp only [kD, c12, cutR, F2.bound]; omega)
     (call_d n e hc hm1 hfr hk (off := 104) (by decide) (by decide) hor g1 (by decide)
       (by decide) (by rw [g10]; simp [Sym.eval, (envC_facts m mh c).b0]) g11 g12
@@ -1370,7 +1370,7 @@ theorem to11 {m mh m1 : Machine} (n : Nums m) (e : Entry m) (hc : Fr m mh) {c : 
     (g22 : (lS.reg 22).eval (envC m mh c) = BitVec.ofNat 64 v1)
     (hw : walk (inputOf m) = fieldWalk (schedule.drop 11) (sl m o r) [v0, v1])
     {rem t : Nat} (hrem : 75 + 955 ≤ rem) : ExitGoal F6.plan m m1 rem (.call t ret11) := by
-  refine call_goal (k := kD) (c' := c11) rfl hex (mem_cut (by simp [vcPlan])) rfl
+  refine call_goal (k := kD) (x := ()) (c' := c11) rfl hex (mem_cut (by simp [vcPlan])) rfl
     (fun _ => by simp only [kD, c11, cutR, F2.bound]; omega)
     (call_d n e hc hm1 hfr hk (off := 280) (by decide) (by decide) hor g1 (by decide)
       (by decide) (by rw [g10]; simp [Sym.eval, (envC_facts m mh c).b0]) g11 g12
@@ -1392,7 +1392,7 @@ theorem to10 {m mh m1 : Machine} (n : Nums m) (e : Entry m) (hc : Fr m mh) {c : 
     (g21 : (lS.reg 21).eval (envC m mh c) = BitVec.ofNat 64 v0)
     (hw : walk (inputOf m) = fieldWalk (schedule.drop 10) (sl m o r) [v0])
     {rem t : Nat} (hrem : 75 + 1091 ≤ rem) : ExitGoal F6.plan m m1 rem (.call t ret10) := by
-  refine call_goal (k := kD) (c' := c10) rfl hex (mem_cut (by simp [vcPlan])) rfl
+  refine call_goal (k := kD) (x := ()) (c' := c10) rfl hex (mem_cut (by simp [vcPlan])) rfl
     (fun _ => by simp only [kD, c10, cutR, F2.bound]; omega)
     (call_d n e hc hm1 hfr hk (off := 280) (by decide) (by decide) hor g1 (by decide)
       (by decide) (by rw [g10]; simp [Sym.eval, (envC_facts m mh c).b0]) g11 g12
@@ -1927,7 +1927,7 @@ theorem skip_leaves {k pc ret B' : Nat} {rR' : Fin 32} {ls : List Leaf}
       rw [v18, hcw, adv_len hr64 hc]
     refine ⟨by simp [hob0], by omega, fun m1 hm1 hex hfr => ?_⟩
     rw [hex0] at hex ⊢
-    refine call_goal (k := kD) hret hex hc' rfl (fun _ => by simp only [kD, cutR, F2.bound]; omega)
+    refine call_goal (k := kD) (x := ()) hret hex hc' rfl (fun _ => by simp only [kD, cutR, F2.bound]; omega)
       (call_d n e hs.d.fr hm1 hfr hk0 (off := 64) (by decide) (by decide)
         (by have := hs.d.fit; omega) g1 hra hrp
         (by rw [g10]; simp [Sym.eval, (envC_facts m mh c0).b0]) e11 e12
@@ -1996,7 +1996,7 @@ theorem leavesS8 : ∀ l ∈ runS8_leaves, LeafGoal F6.plan cS8 l := by
         BitVec.ofNat 64 (r - (h + p) % 2 ^ 64) := by
       show (Sym.var 20).eval _ - (Sym.init 0 88 8).eval _ = _; rw [v20, hcw, adv_len hr64 hc]
     refine ⟨by simp, by decide, fun m1 hm1 hex hfr => ?_⟩
-    refine call_goal (k := kD) (c' := c9) rfl hex (mem_cut (by simp [vcPlan])) rfl
+    refine call_goal (k := kD) (x := ()) (c' := c9) rfl hex (mem_cut (by simp [vcPlan])) rfl
       (fun _ => Nat.le_of_ble_eq_true rfl)
       (call_d n e hs.d.fr hm1 hfr (by decide) (off := 280)
         (o := o + (h + p) % 2 ^ 64) (r := r - (h + p) % 2 ^ 64) (ret := ret9) (by decide)
@@ -2069,7 +2069,7 @@ theorem leaves0 : ∀ l ∈ run0_leaves, LeafGoal F6.plan cR0 l := by
       have e11 : (Sym.init 0 8 8).eval (envC m mh c0) = m.reg 11 + BitVec.ofNat 64 h := by
         rw [hptr, if_neg (fun h' => hp0' (h128 h')), ofNat_add_ofNat, Nat.zero_add]
       refine ⟨by simp, by decide, fun m1 hm1 hex hfr => ?_⟩
-      refine call_goal (k := kD) (c' := cS0) rfl hex (mem_cut (by simp [vcPlan])) rfl
+      refine call_goal (k := kD) (x := ()) (c' := cS0) rfl hex (mem_cut (by simp [vcPlan])) rfl
         (fun _ => Nat.le_of_ble_eq_true rfl)
         (call_d n e hs.fr hm1 hfr (by decide) (off := 64) (o := h) (r := p)
           (ret := 0x800d5d38) (by decide) (by decide) hfit rfl (by decide) (by decide)
@@ -2101,7 +2101,7 @@ theorem leavesE : ∀ l ∈ runE_leaves, LeafGoal F6.plan cE l := by
     (by rw [g 12]; show (Sym.var 12).eval _ = _; exact (var_eval 12).trans (by simp))
     (by unfold RetAligned; rw [g 1]
         show (BitVec.ofNat 64 ret0 &&& ~~~(1 : Word)).toNat % 4 = 0; decide)
-  refine call_goal (k := kD) (c' := cR0) rfl hex (mem_cut (by simp [vcPlan])) rfl
+  refine call_goal (k := kD) (x := ()) (c' := cR0) rfl hex (mem_cut (by simp [vcPlan])) rfl
     (fun _ => Nat.le_of_ble_eq_true rfl) ⟨hpre1, fun m2 ⟨hp, hpr⟩ => ?_⟩
   obtain ⟨hfr2, hpc2, -, hout, -⟩ := hpost m2 hp hpr
   have hpc2' : m2.pc.toNat = ret0 := by

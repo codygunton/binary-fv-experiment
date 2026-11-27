@@ -1,22 +1,33 @@
 import ZesuExec.Fn.F3.Lemmas
 import ZesuExec.Vc.Tactics
+import ZesuExec.Vc.RunWith
 
 /-!
 # F3 proof: `f3_spec : Spec zesuImage 0x800d6274 160 Pre Post`
 
-Runs: from the entry to the call of `rlp.decodeItem` (`runE`, 17 steps); decodeItem by
-`F2.f2_spec` (75); from the return point (`runR`: three error returns, the empty-payload return,
-the loop entry, at most 26 steps); the loop over the payload bytes (`runL`: back edge 5, exit
-20). The state after the call is described on the machine (`CallState`) and re-entered as a
-fresh symbolic state, as is the loop head (`Inv`).
+Runs: from the entry through the call of `rlp.decodeItem` to the returns and the loop head
+(`runW`, `runWith` with decodeItem's `Summary`: three error returns, the empty-payload return,
+the loop entry, at most 118 steps of which 75 are decodeItem's bound); the loop over the payload
+bytes (`runL`: back edge 5, exit 20). The call is discharged by `F2.f2_spec` in `CallHyp`, which
+also records the machine after the call (`CallState`); the leaves after the call read
+decodeItem's outcome through `CallFact`. The loop head is re-entered as a fresh symbolic state
+(`Inv`). The return address of the call is not a cut point (programme plan S5 probe 2).
 -/
 
 namespace ZesuExec.Fn.F3
 open ZesuExec ZesuExec.Sym ZesuExec.Machine
 
-sym_run runE := run zesuImage [retPc, loopHead] 100 entry S0
-sym_run runR := run zesuImage [retPc, loopHead] 100 retPc SR
-sym_run runL := run zesuImage [retPc, loopHead] 100 loopHead SL
+/-- `rlp.decodeItem` (F2): at most `F2.bound` instructions; writes the 40-byte outcome `a0`
+points to. -/
+def decodeItemSum : Summary := ⟨F2.bound, abiClobbers, none, [(10, 40)]⟩
+
+def sums (t : Nat) : Option Summary := if t = F2.entry then some decodeItemSum else none
+
+/-- What the callee leaves outside the caller's regions: decodeItem's frame below F3's. -/
+def X (m : Machine) : Word → Prop := InRange (m.reg 2 - 112) 112
+
+sym_runw runW := runWith zesuImage sums [loopHead] 64 100 entry S0
+sym_run runL := run zesuImage [loopHead] 100 loopHead SL
 
 set_option linter.unusedSimpArgs false
 
@@ -211,8 +222,20 @@ abbrev CallLeaf (lS : SState) : Prop :=
   lS.mem = [⟨0, 48, 8, .var 20⟩, ⟨0, 56, 8, .var 19⟩, ⟨0, 64, 8, .var 18⟩, ⟨0, 72, 8, .var 9⟩,
     ⟨0, 80, 8, .var 8⟩, ⟨0, 88, 8, .var 1⟩] ∧ lS.regions = regionsR
 
-theorem leafE : ∀ l ∈ runE_leaves, CallLeaf l.S ∧ l.exit = .call 0x800d6960 0x800d62b8 ∧
-    l.conds = [] ∧ l.obligs = [] ∧ l.S.steps = 17 := by decide
+theorem callsW₁ : ∀ l ∈ runW_leaves, ∀ c ∈ l.calls, CallLeaf c.S ∧ c.target = F2.entry ∧
+    c.ret = retPc ∧ c.conds = [] ∧ c.prevWr = [] := by decide
+
+theorem callsW₂ : ∀ l ∈ runW_leaves, ∀ c ∈ l.calls, c.wr = [(0, 8, 40)] ∧ c.F = 64 ∧
+    c.bound = F2.bound ∧ c.result = none ∧ c.S.okB 64 [] = true ∧ c.keptB = true := by decide
+
+/-- The one summarised call on every path of `runW`: its state is the legacy call leaf's. -/
+theorem callsW : ∀ l ∈ runW_leaves, ∀ c ∈ l.calls, CallLeaf c.S ∧ c.target = F2.entry ∧
+    c.ret = retPc ∧ c.conds = [] ∧ c.prevWr = [] ∧ c.wr = [(0, 8, 40)] ∧ c.F = 64 ∧
+    c.bound = F2.bound ∧ c.result = none ∧ c.S.okB 64 [] = true ∧ c.keptB = true :=
+  fun l hl c hc =>
+    let ⟨a1, a2, a3, a4, a5⟩ := callsW₁ l hl c hc
+    let ⟨b1, b2, b3, b4, b5, b6⟩ := callsW₂ l hl c hc
+    ⟨a1, a2, a3, a4, a5, b1, b2, b3, b4, b5, b6⟩
 
 theorem len_eval {m : Machine} (e : Entry m) :
     (Sym.init 1 8 8).eval (envE m) = wordAt m (m.reg 11 + 8) := by
@@ -336,9 +359,28 @@ theorem bytesOf_congr {m m' : Machine} {a : Word} {n : Nat}
   intro j hj
   rw [h j (List.mem_range.mp hj)]
 
+/-- Memory after a leaf differs from the start only inside written regions, which `R` covers, and
+inside `X ⊆ R`. -/
+theorem so_of_leafW {env : Env} {S lS : SState} {m m' : Machine} {R X : Word → Prop}
+    (hfr : SameOutside (FootW env S X) m m') (hX : ∀ a, X a → R a) (hm' : Match env lS m')
+    (hreg : lS.regions = S.regions)
+    (hinit : ∀ r j, r < S.regions.length → j < env.size r → lS.mem.all (·.r != r) = true →
+      m.mem (env.base r + BitVec.ofNat 64 j) = some (env.byte0 r j))
+    (hR : ∀ r j, r < S.regions.length → j < env.size r → lS.mem.all (·.r != r) = false →
+      R (env.base r + BitVec.ofNat 64 j)) :
+    SameOutside R m m' := by
+  intro a ha
+  by_cases hw : InWritable env S a
+  · obtain ⟨r, R', j, hR', -, hj, rfl⟩ := hw
+    have hr := (List.getElem?_eq_some_iff.mp hR').1
+    by_cases hn : lS.mem.all (·.r != r) = true
+    · rw [F2.match_nowrite hm' (by rw [hreg]; exact hr) hn hj, hinit r j hr hj hn]
+    · exact absurd (hR r j hr hj (by simpa using hn)) ha
+  · exact hfr a fun h => h.elim hw fun hx => ha (hX a hx)
+
 /-- From the call leaf over decodeItem's contract to the return point. -/
 theorem call_state {m m1 m2 : Machine} (e : Entry m) {lS : SState} (hm1 : Match (envE m) lS m1)
-    (hok : CallLeaf lS) (hfr1 : SameOutside (InWritable (envE m) S0) m m1) (hp1 : Preserved m m1)
+    (hok : CallLeaf lS) (hfr1 : SameOutside (FootW (envE m) S0 (X m)) m m1) (hp1 : Preserved m m1)
     (hpost : F2.Post m1 m2) (hp2 : Preserved m1 m2) :
     CallState m m2 ∧ m2.pc.toNat = retPc := by
   obtain ⟨r1, r2, r8, r9, r10, r11, r12, r18, r19, r20, rv⟩ := call_regs e hm1 hok
@@ -356,7 +398,8 @@ theorem call_state {m m1 m2 : Machine} (e : Entry m) {lS : SState} (hm1 : Match 
     rw [r2, BitVec.toNat_sub, h96]; simp; omega
   -- m → m1: only the frame changed
   have hso1 : SameOutside (InRange (m.reg 2 - 112) 112) m m1 := by
-    refine F2.so_of_leaf hfr1 hm1 hreg e.init fun r j hr hj hn => ?_
+    refine so_of_leafW hfr1 (fun _ h => h) hm1 hreg (fun r j hr hj _ => e.init r j hr hj)
+      fun r j hr hj hn => ?_
     rw [hmem] at hn
     simp only [S0, entryState, regionsR, List.length_cons, List.length_nil] at hr
     have hr4 : r = 0 ∨ r = 1 ∨ r = 2 ∨ r = 3 := by omega
@@ -600,37 +643,53 @@ theorem ret_so {m mh mf : Machine} (e : Entry m) (hc : CallState m mh) {c : Word
   rw [hfr a fun h => ha (e.writable (mh := mh) (ov := ov) (ks := knownR) h)]
   exact hso a fun h => ha (.inr (.inr h))
 
-/-- A region's byte after a leaf, through the leaf's view of it. -/
-theorem leaf_byte {m mh mf : Machine} {c : Word} {lS : SState} (hm' : Match (envR m mh c) lS mf)
-    (hreg : lS.regions = regionsR) {r n : Nat} {v : Nat → Option (Sym × Nat)}
-    (hv : viewOK lS.mem r n v = true) (hr : r < 4) {j : Nat} (hj : j < n)
-    (hjs : j < (envR m mh c).size r) :
-    mf.mem ((envR m mh c).base r + BitVec.ofNat 64 j) = some (match v j with
-      | some (s, k) => byteOf (s.eval (envR m mh c)) k
-      | none => (envR m mh c).byte0 r j) := by
-  rw [hm'.mem r j (by rw [hreg]; exact hr) hjs, memByte_view hv hj]; rfl
+/-- What a leaf after the call knows about its environment `env`, `mh` being the machine right
+after decodeItem returned: the region bases and sizes, the result and slice bytes as at entry,
+decodeItem's outcome as in `mh`. -/
+structure RetEnv (m mh : Machine) (env : Env) : Prop where
+  b0 : env.base 0 = m.reg 2 - 96
+  b1 : env.base 1 = m.reg 11
+  b2 : env.base 2 = m.reg 10
+  b3 : env.base 3 = wordAt m (m.reg 11)
+  s0 : env.size 0 = 96
+  s1 : env.size 1 = 16
+  s2 : env.size 2 = 16
+  s3 : env.size 3 = (wordAt m (m.reg 11 + 8)).toNat
+  kept : ∀ r j, (r = 1 ∨ r = 2) → j < 16 →
+    env.byte0 r j = (m.mem (env.base r + BitVec.ofNat 64 j)).getD 0
+  out : ∀ k < 40, env.byte0 0 (8 + k) = (mh.mem (m.reg 2 - 96 + BitVec.ofNat 64 (8 + k))).getD 0
+  call : CallState m mh
 
-/-- An unchanged result or slice byte is the entry byte. -/
-theorem kept_byte {m mh : Machine} (e : Entry m) (hc : CallState m mh) (c : Word) {r : Nat}
-    (hr : r = 1 ∨ r = 2) {j : Nat} (hj : j < 16) :
-    (envR m mh c).byte0 r j = (m.mem ((envR m mh c).base r + BitVec.ofNat 64 j)).getD 0 := by
-  obtain ⟨-, hb1, hb2, -, -, -, -, -, -, -, hby⟩ := envR_facts m mh c
+theorem CallState.retEnv {m mh : Machine} (e : Entry m) (hc : CallState m mh) (c : Word) :
+    RetEnv m mh (envR m mh c) := by
+  obtain ⟨hb0, hb1, hb2, hb3, hs0, hs1, hs2, hs3, -, -, hby⟩ := envR_facts m mh c
   have hso := hc.2.2.2.2.2.2.2.2.2.2
+  refine ⟨hb0, hb1, hb2, hb3, hs0, hs1, hs2, hs3, fun r j hr hj => ?_,
+    fun k _ => by rw [hby, hb0], hc⟩
   rw [hby]
   rcases hr with rfl | rfl
   · rw [hb1, hso _ (e.notStack e.d6 e.slFit hj)]
   · rw [hb2, hso _ (e.notStack e.d5 e.resFit hj)]
 
-theorem res_err {m mh mf : Machine} {c : Word} {lS : SState}
-    (hm' : Match (envR m mh c) lS mf) (hreg : lS.regions = regionsR)
+/-- A region's byte after a leaf, through the leaf's view of it. -/
+theorem leaf_byte {env : Env} {mf : Machine} {lS : SState} (hm' : Match env lS mf)
+    (hreg : lS.regions = regionsR) {r n : Nat} {v : Nat → Option (Sym × Nat)}
+    (hv : viewOK lS.mem r n v = true) (hr : r < 4) {j : Nat} (hj : j < n)
+    (hjs : j < env.size r) :
+    mf.mem (env.base r + BitVec.ofNat 64 j) = some (match v j with
+      | some (s, k) => byteOf (s.eval env) k
+      | none => env.byte0 r j) := by
+  rw [hm'.mem r j (by rw [hreg]; exact hr) hjs, memByte_view hv hj]; rfl
+
+theorem res_err {m mh mf : Machine} {env : Env} {lS : SState} (he : RetEnv m mh env)
+    (hm' : Match env lS mf) (hreg : lS.regions = regionsR)
     (hv : viewOK lS.mem 2 16 (twoWords (.lit 0) (.lit 3)) = true)
     (hn : nextUint64 (inputOf m) = none) :
     ∀ j < 16, mf.mem (m.reg 10 + BitVec.ofNat 64 j) =
       some (resultByte (inputOf m) ((m.mem (m.reg 10 + BitVec.ofNat 64 j)).getD 0) j) := by
-  obtain ⟨-, -, hb2, -, -, -, hs2, -⟩ := envR_facts m mh c
   intro j hj
-  have := leaf_byte hm' hreg hv (by decide) hj (by rw [hs2]; exact hj)
-  rw [hb2] at this
+  have := leaf_byte hm' hreg hv (by decide) hj (by rw [he.s2]; exact hj)
+  rw [he.b2] at this
   rw [this, resultByte, hn]
   unfold twoWords
   by_cases h8 : j < 8
@@ -638,16 +697,15 @@ theorem res_err {m mh mf : Machine} {c : Word} {lS : SState}
   · simp only [h8, if_false, Sym.eval]
     congr 2; omega
 
-theorem res_ok {m mh mf : Machine} (e : Entry m) (hc : CallState m mh) {c : Word} {lS : SState}
-    (hm' : Match (envR m mh c) lS mf) (hreg : lS.regions = regionsR) {a : Sym} {v : Word}
-    {n : Nat} (hv : viewOK lS.mem 2 16 (wordTag a) = true) (ha : a.eval (envR m mh c) = v)
+theorem res_ok {m mh mf : Machine} {env : Env} {lS : SState} (he : RetEnv m mh env)
+    (hm' : Match env lS mf) (hreg : lS.regions = regionsR) {a : Sym} {v : Word}
+    {n : Nat} (hv : viewOK lS.mem 2 16 (wordTag a) = true) (ha : a.eval env = v)
     (hs : nextUint64 (inputOf m) = some (v, n)) :
     ∀ j < 16, mf.mem (m.reg 10 + BitVec.ofNat 64 j) =
       some (resultByte (inputOf m) ((m.mem (m.reg 10 + BitVec.ofNat 64 j)).getD 0) j) := by
-  obtain ⟨-, -, hb2, -, -, -, hs2, -⟩ := envR_facts m mh c
   intro j hj
-  have := leaf_byte hm' hreg hv (by decide) hj (by rw [hs2]; exact hj)
-  rw [kept_byte e hc c (.inr rfl) hj, hb2] at this
+  have := leaf_byte hm' hreg hv (by decide) hj (by rw [he.s2]; exact hj)
+  rw [he.kept 2 j (.inr rfl) hj, he.b2] at this
   rw [this, resultByte, hs]
   unfold wordTag
   by_cases h8 : j < 8
@@ -656,31 +714,29 @@ theorem res_ok {m mh mf : Machine} (e : Entry m) (hc : CallState m mh) {c : Word
     · simp [h8, h10, Sym.eval]
     · simp [h8, h10]
 
-theorem sl_kept {m mh mf : Machine} (e : Entry m) (hc : CallState m mh) {c : Word} {lS : SState}
-    (hm' : Match (envR m mh c) lS mf) (hreg : lS.regions = regionsR)
+theorem sl_kept {m mh mf : Machine} {env : Env} {lS : SState} (he : RetEnv m mh env)
+    (hm' : Match env lS mf) (hreg : lS.regions = regionsR)
     (hv : viewOK lS.mem 1 16 (fun _ => none) = true) (hn : nextUint64 (inputOf m) = none) :
     ∀ j < 16, mf.mem (m.reg 11 + BitVec.ofNat 64 j) =
       some (sliceByte (wordAt m (m.reg 11)) (wordAt m (m.reg 11 + 8)) (inputOf m)
         ((m.mem (m.reg 11 + BitVec.ofNat 64 j)).getD 0) j) := by
-  obtain ⟨-, hb1, -, -, -, hs1, -⟩ := envR_facts m mh c
   intro j hj
-  have := leaf_byte hm' hreg hv (by decide) hj (by rw [hs1]; exact hj)
-  rw [kept_byte e hc c (.inl rfl) hj, hb1] at this
+  have := leaf_byte hm' hreg hv (by decide) hj (by rw [he.s1]; exact hj)
+  rw [he.kept 1 j (.inl rfl) hj, he.b1] at this
   rw [this, sliceByte, hn]
 
-theorem sl_ok {m mh mf : Machine} {c : Word} {lS : SState}
-    (hm' : Match (envR m mh c) lS mf) (hreg : lS.regions = regionsR) {p q : Sym} {v : Word} {n : Nat}
+theorem sl_ok {m mh mf : Machine} {env : Env} {lS : SState} (he : RetEnv m mh env)
+    (hm' : Match env lS mf) (hreg : lS.regions = regionsR) {p q : Sym} {v : Word} {n : Nat}
     (hv : viewOK lS.mem 1 16 (twoWords p q) = true)
-    (hp : p.eval (envR m mh c) = wordAt m (m.reg 11) + BitVec.ofNat 64 n)
-    (hq : q.eval (envR m mh c) = wordAt m (m.reg 11 + 8) - BitVec.ofNat 64 n)
+    (hp : p.eval env = wordAt m (m.reg 11) + BitVec.ofNat 64 n)
+    (hq : q.eval env = wordAt m (m.reg 11 + 8) - BitVec.ofNat 64 n)
     (hs : nextUint64 (inputOf m) = some (v, n)) :
     ∀ j < 16, mf.mem (m.reg 11 + BitVec.ofNat 64 j) =
       some (sliceByte (wordAt m (m.reg 11)) (wordAt m (m.reg 11 + 8)) (inputOf m)
         ((m.mem (m.reg 11 + BitVec.ofNat 64 j)).getD 0) j) := by
-  obtain ⟨-, hb1, -, -, -, hs1, -⟩ := envR_facts m mh c
   intro j hj
-  have := leaf_byte hm' hreg hv (by decide) hj (by rw [hs1]; exact hj)
-  rw [hb1] at this
+  have := leaf_byte hm' hreg hv (by decide) hj (by rw [he.s1]; exact hj)
+  rw [he.b1] at this
   rw [this, sliceByte, hs]
   unfold twoWords
   by_cases h8 : j < 8
@@ -689,22 +745,21 @@ theorem sl_ok {m mh mf : Machine} {c : Word} {lS : SState}
 
 /-! ## decodeItem's outcome, read back -/
 
-theorem outcome_bytes {m mh : Machine} (hc : CallState m mh) (c : Word) :
-    ∃ before : List Byte, ∀ k < 40, (envR m mh c).byte0 0 (8 + k) =
+theorem outcome_bytes {m mh : Machine} {env : Env} (he : RetEnv m mh env) :
+    ∃ before : List Byte, ∀ k < 40, env.byte0 0 (8 + k) =
       F2.resultByte (wordAt m (m.reg 11)) (inputOf m) before k := by
-  obtain ⟨hb0, -, -, -, -, -, -, -, -, -, hby⟩ := envR_facts m mh c
-  obtain ⟨before, -, hb⟩ := hc.2.2.2.2.2.2.2.2.1
-  exact ⟨before, fun k hk => by rw [hby, hb0, hb k hk]; rfl⟩
+  obtain ⟨before, -, hb⟩ := he.call.2.2.2.2.2.2.2.2.1
+  exact ⟨before, fun k hk => by rw [he.out k hk, hb k hk]; rfl⟩
 
 theorem init_word {env : Env} {off : Nat} {w : Word} (h : ∀ t < 8, env.byte0 0 (off + t) = byteOf w t) :
     (Sym.init 0 off 8).eval env = w := by
   simp only [Sym.eval]
   exact word_of_bytes h
 
-theorem outcome_err {m mh : Machine} (hc : CallState m mh) (c : Word)
+theorem outcome_err {m mh : Machine} {env : Env} (he : RetEnv m mh env)
     (hd : F2.decode (inputOf m) = .error) :
-    (Sym.init 0 40 2).eval (envR m mh c) = BitVec.ofNat 64 4 := by
-  obtain ⟨before, hb⟩ := outcome_bytes hc c
+    (Sym.init 0 40 2).eval env = BitVec.ofNat 64 4 := by
+  obtain ⟨before, hb⟩ := outcome_bytes he
   have h0 := hb 32 (by decide)
   have h1 := hb 33 (by decide)
   simp only [F2.resultByte, hd, F2.errorByte] at h0 h1
@@ -712,16 +767,16 @@ theorem outcome_err {m mh : Machine} (hc : CallState m mh) (c : Word)
   rw [show 40 = 8 + 32 from rfl, h0, show 40 + 1 = 8 + 33 from rfl, h1]
   decide
 
-theorem outcome_ok {m mh : Machine} (hc : CallState m mh) (c : Word) {b : Bool} {h p : Nat}
+theorem outcome_ok {m mh : Machine} {env : Env} (he : RetEnv m mh env) {b : Bool} {h p : Nat}
     (hd : F2.decode (inputOf m) = .success b h p) :
-    (Sym.init 0 40 2).eval (envR m mh c) = BitVec.ofNat 64 0 ∧
-    (Sym.bin .and (.init 0 24 1) (.lit 1)).eval (envR m mh c) = BitVec.ofNat 64 (if b then 1 else 0) ∧
-    (Sym.init 0 16 8).eval (envR m mh c) = BitVec.ofNat 64 p ∧
-    (Sym.init 0 32 8).eval (envR m mh c) = BitVec.ofNat 64 (h + p) ∧
-    (Sym.init 0 8 8).eval (envR m mh c) =
+    (Sym.init 0 40 2).eval env = BitVec.ofNat 64 0 ∧
+    (Sym.bin .and (.init 0 24 1) (.lit 1)).eval env = BitVec.ofNat 64 (if b then 1 else 0) ∧
+    (Sym.init 0 16 8).eval env = BitVec.ofNat 64 p ∧
+    (Sym.init 0 32 8).eval env = BitVec.ofNat 64 (h + p) ∧
+    (Sym.init 0 8 8).eval env =
       (if (inputOf m).head? = some 128 then 1 else wordAt m (m.reg 11) + BitVec.ofNat 64 h) := by
-  obtain ⟨before, hb⟩ := outcome_bytes hc c
-  have hr : ∀ k < 40, (envR m mh c).byte0 0 (8 + k) = F2.successByte
+  obtain ⟨before, hb⟩ := outcome_bytes he
+  have hr : ∀ k < 40, env.byte0 0 (8 + k) = F2.successByte
       (if (inputOf m).head? = some 128 then 1 else wordAt m (m.reg 11) + BitVec.ofNat 64 h)
       (BitVec.ofNat 64 p) (BitVec.ofNat 64 (h + p)) b before k := fun k hk => by
     rw [hb k hk, F2.resultByte, hd]
@@ -913,8 +968,8 @@ theorem loop_step {m : Machine} (e : Entry m) {h p j : Nat} {mh : Machine} {b : 
     · rw [hex] at hex'
       have hs := nextUint64_ok hd hp8
       refine Reaches.done (post_of (ret_returns hc hm' hex' hsv) (ret_so e hc hfr)
-        (res_ok e hc hm' hreg hvr (hacc.trans (by rw [hjp'])) hs)
-        (sl_ok hm' hreg hvs ?_ ?_ hs))
+        (res_ok (hc.retEnv e _) hm' hreg hvr (hacc.trans (by rw [hjp'])) hs)
+        (sl_ok (hc.retEnv e _) hm' hreg hvs ?_ ?_ hs))
       · simp only [Sym.eval, BinOp.eval, hb3, hv10, r10]; simp
       · simp only [Sym.eval, BinOp.eval, hv20, hv10, r10]
 
@@ -944,108 +999,330 @@ macro "f3_conds" : tactic => `(tactic| (
   simp only [Sym.eval] at hcs
   try simp [BitVec.ult, bne, BitVec.toNat_eq] at hcs))
 
-theorem after_call {m mh : Machine} (e : Entry m) (hc : CallState m mh) (c : Word)
-    (hpc : mh.pc.toNat = retPc) : Reaches zesuImage 68 (Post m) mh := by
-  obtain ⟨hb0, hb1, hb2, hb3, hs0, hs1, hs2, hs3, hv32, hv, hby⟩ := envR_facts m mh c
-  have hm : Match (envR m mh c) SR mh :=
-    hc.match e (ov := ovR) (fun _ _ => rfl) (fun s hs => by simp [ovR] at hs)
-  have hwf : Env.WF (envR m mh c) SR := F2.setVars_wf (e.wf mh ovR knownR) _ _
-  have hso := hc.2.2.2.2.2.2.2.2.2.2
-  have hal : (retT.eval (envR m mh c)).toNat % 4 = 0 := by
-    simpa [retT, Sym.eval, BinOp.eval, F2.notOne, Env.setVars, envR, savedOf] using e.ra
-  have hv20 : (envR m mh c).vars 20 = wordAt m (m.reg 11 + 8) := (hv 20).trans hc.2.2.2.2.2.2.1
+/-- `Post`'s frame from a leaf's: the writable regions are the result, the slice and the frame;
+decodeItem's frame is the rest of the 112 stack bytes. -/
+theorem ret_soW {m mf : Machine} (e : Entry m)
+    (hfr : SameOutside (FootW (envE m) S0 (X m)) m mf) :
+    SameOutside (fun a => InRange (m.reg 10) 16 a ∨ InRange (m.reg 11) 16 a ∨
+      InRange (m.reg 2 - 112) 112 a) m mf :=
+  fun a ha => hfr a fun h => ha (h.elim (fun hw => e.writable (mh := m) hw) fun hx => .inr (.inr hx))
+
+/-- A return leaf after the call. -/
+theorem ret_leafW {m mh mf : Machine} (e : Entry m) {env' : Env} {lS : SState} {b : Nat}
+    (he : RetEnv m mh env') (hv : ∀ i : Fin 32, env'.vars i.val = m.reg i) (hm' : Match env' lS mf)
+    (hregs : (calleeSaved.filter (· ≠ 2)).all (fun i => lS.reg i.val == .var i.val) = true)
+    (hsp : lS.reg 2 = .ptr 0 96)
+    (hex : mf.pc = (Sym.bin .and (.var 1) (.lit 18446744073709551614)).eval env')
+    (hfr : SameOutside (FootW (envE m) S0 (X m)) m mf)
+    (hres : ∀ j < 16, mf.mem (m.reg 10 + BitVec.ofNat 64 j) =
+      some (resultByte (inputOf m) ((m.mem (m.reg 10 + BitVec.ofNat 64 j)).getD 0) j))
+    (hsl : ∀ j < 16, mf.mem (m.reg 11 + BitVec.ofNat 64 j) =
+      some (sliceByte (wordAt m (m.reg 11)) (wordAt m (m.reg 11 + 8)) (inputOf m)
+        ((m.mem (m.reg 11 + BitVec.ofNat 64 j)).getD 0) j)) :
+    Reaches zesuImage b (Post m) mf :=
+  Reaches.done (post_of (returns_leaf hm' hv hregs
+    (by rw [hsp]; simp [Sym.eval, he.b0, BitVec.sub_add_cancel]) hex) (ret_soW e hfr) hres hsl)
+
+/-- The calls' facts give every leaf after the call its environment: the entry environment with
+decodeItem's outcome as in the machine `mh` right after the call. -/
+theorem envW {m : Machine} {l : LeafW} (hl : l ∈ runW_leaves) {env' : Env}
+    (hf : ∀ c ∈ l.calls,
+      CallFact zesuImage (X m) (fun _ _ m₂ => CallState m m₂) (envE m) 64 env' l.wr c) :
+    ∃ mh, RetEnv m mh env' := by
+  have hlw : ∀ l ∈ runW_leaves, l.wr = [(0, 8, 40)] ∧ 0 < l.calls.length := by decide
+  obtain ⟨hw, hlen⟩ := hlw l hl
+  obtain ⟨c, hc⟩ := List.exists_mem_of_length_pos hlen
+  obtain ⟨-, -, -, -, hp, hcw, hF, -⟩ := callsW l hl c hc
+  obtain ⟨env₁, m₁, m₂, hag1, -, -, hcs, rest, hwr, hag2⟩ := hf c hc
+  rw [hw, hp, hcw] at hwr
+  have hr0 : rest = [] := by simpa using hwr
+  rw [hp] at hag1
+  rw [hF, hcw, hr0] at hag2
+  obtain ⟨hb0, hb1, hb2, hb3, hs0, hs1, hs2, hs3⟩ := envE_facts m
+  have hreg : env'.regions = (envE m).regions := hag2.regions.trans hag1.regions
+  have hb : ∀ r, env'.base r = (envE m).base r := fun r => by simp [Env.base, hreg]
+  have hs : ∀ r, env'.size r = (envE m).size r := fun r => by simp [Env.size, hreg]
+  have hmem : ∀ r j, env'.byte0 r j = if Ranges.covers [(0, 8, 40)] r j then
+      (m₂.mem ((envE m).base r + BitVec.ofNat 64 j)).getD 0 else (envE m).byte0 r j := by
+    intro r j
+    rw [Env.byte0, hag2.mem0 r j rfl]
+    simp only [Env.havoc, hag1.base]
+    split
+    · rfl
+    · rw [hag1.mem0 r j rfl]; rfl
+  refine ⟨m₂, by rw [hb, hb0], by rw [hb, hb1], by rw [hb, hb2], by rw [hb, hb3],
+    by rw [hs, hs0], by rw [hs, hs1], by rw [hs, hs2], by rw [hs, hs3], fun r j hr hj => ?_,
+    fun k hk => ?_, hcs⟩
+  · rw [hmem, if_neg (by rcases hr with rfl | rfl <;> simp [Ranges.covers]), hb]; rfl
+  · rw [hmem, if_pos (by simp [Ranges.covers]; omega), hb0]
+
+/-- The machine at the loop entry leaf keeps the call state. -/
+theorem CallState.of_leafW {m mh mf : Machine} (e : Entry m) {env' : Env} {lS : SState}
+    (he : RetEnv m mh env') (hag : Env.Agree (envE m) env' 64 [(0, 8, 40)])
+    (hm' : Match env' lS mf) (hfr : SameOutside (FootW (envE m) S0 (X m)) m mf)
+    (hk : lS.reg 2 = .ptr 0 0 ∧ lS.reg 8 = .ptr 0 96 ∧ lS.reg 9 = .ptr 2 0 ∧
+      lS.reg 18 = .ptr 1 0 ∧ lS.reg 19 = .ptr 3 0 ∧ lS.reg 20 = .init 1 8 8 ∧
+      ∀ i ∈ calleeVars, lS.reg i = .var i)
+    (hmem : lS.mem = [⟨0, 48, 8, .var 20⟩, ⟨0, 56, 8, .var 19⟩, ⟨0, 64, 8, .var 18⟩,
+      ⟨0, 72, 8, .var 9⟩, ⟨0, 80, 8, .var 8⟩, ⟨0, 88, 8, .var 1⟩])
+    (hreg : lS.regions = regionsR) : CallState m mf := by
+  have hv : ∀ i : Fin 32, env'.vars i.val = m.reg i := fun i =>
+    (hag.vars i.val (by omega)).trans (entryEnv_var m _ i)
+  have g : ∀ i : Fin 32, mf.reg i = (lS.reg i.val).eval env' := fun i => (hm'.regs i).symm
+  obtain ⟨k2, k8, k9, k18, k19, k20, kv⟩ := hk
+  have h96 := e.sp96
+  have h112 := e.sp112
+  obtain ⟨hlo, hhi, -⟩ := e.ram
+  unfold Layout.ramLo at hlo; unfold Layout.ramHi at hhi
+  have hm0 : ∀ j < 96, mf.mem (m.reg 2 - 96 + BitVec.ofNat 64 j) =
+      some (memByte env' lS.mem 0 j) := fun j hj => by
+    have := hm'.mem 0 j (by rw [hreg]; decide) (by rw [he.s0]; exact hj)
+    rwa [he.b0] at this
+  have hv1 : env'.vars 1 = m.reg 1 := hv 1
+  have hv8 : env'.vars 8 = m.reg 8 := hv 8
+  have hv9 : env'.vars 9 = m.reg 9 := hv 9
+  have hv18 : env'.vars 18 = m.reg 18 := hv 18
+  have hv19 : env'.vars 19 = m.reg 19 := hv 19
+  have hv20 : env'.vars 20 = m.reg 20 := hv 20
+  refine ⟨fun i hi => ?_, ?_, ?_, ?_, ?_, ?_, ?_, fun w hw t ht => ?_, ?_, fun k hk => ?_, ?_⟩
+  · rw [g i, kv _ hi]; exact hv i
+  · rw [g 2]; show (lS.reg 2).eval _ = _; rw [k2]; simp [Sym.eval, he.b0]
+  · rw [g 8]; show (lS.reg 8).eval _ = _; rw [k8]; simp [Sym.eval, he.b0, BitVec.sub_add_cancel]
+  · rw [g 9]; show (lS.reg 9).eval _ = _; rw [k9]; simp [Sym.eval, he.b2]
+  · rw [g 18]; show (lS.reg 18).eval _ = _; rw [k18]; simp [Sym.eval, he.b1]
+  · rw [g 19]; show (lS.reg 19).eval _ = _; rw [k19]; simp [Sym.eval, he.b3]
+  · rw [g 20]; show (lS.reg 20).eval _ = _; rw [k20, Sym.eval_agree hag _ (by decide)]
+    exact len_eval e
+  · simp only [knownR, List.mem_cons, List.not_mem_nil, or_false] at hw
+    rcases hw with rfl | rfl | rfl | rfl | rfl | rfl <;> dsimp only at ht ⊢ <;>
+      rw [hm0 _ (by omega), hmem] <;>
+      simp [memByte_cons, Write.covers, savedOf, Sym.eval, hv1, hv8, hv9, hv18, hv19, hv20] <;>
+      simp (disch := omega) only [if_pos, if_neg, Nat.add_sub_cancel_left] <;>
+      intro h <;> omega
+  · obtain ⟨before, hbl, hbb⟩ := he.call.2.2.2.2.2.2.2.2.1
+    refine ⟨before, hbl, fun k hk => ?_⟩
+    rw [hm0 _ (by omega)]
+    have hnone : memByte env' lS.mem 0 (8 + k) = env'.byte0 0 (8 + k) := by
+      rw [hmem]; unfold memByte
+      rw [List.find?_eq_none.mpr (by
+        intro w hw
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hw
+        rcases hw with rfl | rfl | rfl | rfl | rfl | rfl <;> simp [Write.covers] <;> omega)]
+    rw [hnone, he.out k hk, hbb k hk]; rfl
+  · rw [hm0 _ hk]; rfl
+  · have hfr' : SameOutside (FootW env' S0 (X m)) m mf := fun a ha => hfr a fun h =>
+      ha (h.elim (fun hw => .inl (InWritable.of_regions (env' := envE m)
+        (hag.regions.symm) rfl hw)) .inr)
+    refine so_of_leafW hfr' (fun _ h => h) hm' (by rw [hreg]; rfl)
+      (fun r j hr hj hn => ?_) (fun r j hr hj hn => ?_)
+    · have hr0 : r ≠ 0 := by rintro rfl; rw [hmem] at hn; simp at hn
+      have hcov : Ranges.covers [(0, 8, 40)] r j = false := by simp [Ranges.covers]; omega
+      rw [Env.byte0, hag.mem0 r j hcov, hag.base]
+      exact e.init r j hr (by rwa [← hag.size])
+    · have hr0 : r = 0 := by
+        simp only [S0, entryState, regionsR, List.length_cons, List.length_nil] at hr
+        rw [hmem] at hn
+        rcases (show r = 0 ∨ r = 1 ∨ r = 2 ∨ r = 3 by omega) with h | h | h | h <;>
+          subst h <;> simp at hn ⊢
+      subst hr0
+      rw [he.s0] at hj; rw [he.b0]
+      unfold InRange; rw [toNat_add_ofNat (by rw [h96]; omega), h96, h112]; omega
+
+/-- decodeItem's footprint lies in the 112 stack bytes below the entry `sp`, outside the frame
+bytes `0 .. 7` and `48 .. 95`. -/
+theorem callee_fp {m m1 : Machine} (e : Entry m) (r2 : m1.reg 2 = m.reg 2 - 96)
+    (r10 : m1.reg 10 = m.reg 2 - 96 + BitVec.ofNat 64 8) {a : Word}
+    (h : InRange (m1.reg 10) 40 a ∨ InRange (m1.reg 2 - 16) 16 a) :
+    (m.reg 2).toNat - 112 ≤ a.toNat ∧ a.toNat < (m.reg 2).toNat - 48 ∧
+      ¬ ((m.reg 2).toNat - 96 ≤ a.toNat ∧ a.toNat < (m.reg 2).toNat - 88) := by
+  have h96 := e.sp96
+  obtain ⟨hlo, hhi, -⟩ := e.ram
+  unfold Layout.ramLo at hlo; unfold Layout.ramHi at hhi
+  have hout : (m1.reg 10).toNat = (m.reg 2).toNat - 88 := by
+    rw [r10, toNat_add_ofNat (by rw [h96]; omega), h96]; omega
+  have hfr : (m1.reg 2 - 16).toNat = (m.reg 2).toNat - 112 := by
+    rw [r2, BitVec.toNat_sub, h96]; simp; omega
+  rcases h with h | h <;> simp only [InRange, hout, hfr] at h <;> omega
+
+/-! ## The leaves of `runW` after the call -/
+
+theorem leavesW {m : Machine} (e : Entry m) : ∀ l ∈ runW_leaves, ∀ env',
+    Env.Agree (envE m) env' 64 l.wr → (∀ c ∈ l.leaf.conds, c.eval env' = true) →
+    (∀ o ∈ l.leaf.obligs, o.holds env') ∧ l.leaf.S.steps - S0.steps ≤ bound ∧
+    ((∀ c ∈ l.calls,
+        CallFact zesuImage (X m) (fun _ _ m₂ => CallState m m₂) (envE m) 64 env' l.wr c) →
+      ∀ m', Match env' l.leaf.S m' → ExitOk env' l.leaf.exit m' →
+        SameOutside (FootW (envE m) S0 (X m)) m m' →
+        Reaches zesuImage (bound - (l.leaf.S.steps - S0.steps)) (Post m) m') := by
+  intro l hl env' hag hcs
+  have hl0 := hl
+  have hv : ∀ i : Fin 32, env'.vars i.val = m.reg i := fun i =>
+    (hag.vars i.val (by omega)).trans (entryEnv_var m _ i)
+  have hv1 : env'.vars 1 = m.reg 1 := hv 1
+  have hal : ((Sym.bin .and (.var 1) (.lit 18446744073709551614)).eval env').toNat % 4 = 0 := by
+    have := e.ra; unfold RetAligned at this
+    simpa [Sym.eval, BinOp.eval, F2.notOne, hv1] using this
   have hlen : (inputOf m).length = (wordAt m (m.reg 11 + 8)).toNat := by simp [F2.bytesOf]
   have hfit := e.inputFit
-  refine run_reaches runR hwf hm hpc (e.ro_of hso) fun l hl hcs => ?_
-  simp only [runR_leaves, List.mem_cons, List.not_mem_nil, or_false] at hl
-  rcases hd : F2.decode (inputOf m) with _ | ⟨b, h, p⟩
-  · -- decodeItem failed: only the status branch is taken
-    have hst := outcome_err hc c hd
-    have hn : nextUint64 (inputOf m) = none := by simp [nextUint64, hd]
-    rcases hl with rfl | rfl | rfl | rfl | rfl
-    · refine ⟨by simpa [Oblig.holds] using hal, by decide, fun m' hm' hex hfr => ?_⟩
-      exact Reaches.done (post_of (ret_returns hc hm' hex (by decide)) (ret_so e hc hfr)
-        (res_err hm' rfl (by decide) hn) (sl_kept e hc hm' rfl (by decide) hn))
-    all_goals leaf_infeasible
-  obtain ⟨hst, hfl, hpl, hcons, hptr⟩ := outcome_ok hc c hd
-  obtain ⟨hh9, hhp, h128, hp64⟩ := decode_success hd
-  rw [hlen] at hhp
-  have hcw : (Sym.init 0 32 8).eval (envR m mh c) = BitVec.ofNat 64 (h + p) := hcons
-  cases b
-  · rcases hl with rfl | rfl | rfl | rfl | rfl
-    · leaf_infeasible
-    · exfalso; f3_conds
-    · -- empty payload
-      f3_conds
-      simp only [Nat.mod_eq_of_lt hp64] at hcs
-      have hp0 : p = 0 := by omega
-      subst hp0
-      have hs := nextUint64_ok hd (by decide)
-      refine ⟨by simpa [Oblig.holds] using hal, by decide, fun m' hm' hex hfr => ?_⟩
-      refine Reaches.done (post_of (ret_returns hc hm' hex (by decide)) (ret_so e hc hfr)
-        (res_ok e hc hm' rfl (a := .lit 0) (by decide) (by simp [Sym.eval, F2.bigEndian]) hs)
-        (sl_ok hm' rfl (p := .bin .add (.ptr 3 0) (.init 0 32 8))
-          (q := .bin .sub (.var 20) (.init 0 32 8)) (by decide) ?_ ?_ hs))
-      · show (Sym.ptr 3 0).eval _ + (Sym.init 0 32 8).eval _ = _
-        rw [hcw]; simp [Sym.eval, hb3]
-      · show (Sym.var 20).eval _ - (Sym.init 0 32 8).eval _ = _
-        rw [hcw]; simp [Sym.eval, hv20]
-    · -- loop entry
-      f3_conds
-      simp only [Nat.mod_eq_of_lt hp64] at hcs
-      have hp8 : p ≤ 8 := by omega
-      have hp0 : p ≠ 0 := by omega
-      refine ⟨by simp, by decide, fun m' hm' hex hfr => ?_⟩
-      have hm'' : m'.mem = mh.mem :=
-        F2.mem_eq_of_nowrite hm' hfr rfl rfl (hc.init e _)
-      have hhead : ¬ (inputOf m).head? = some 128 := fun h' => hp0 (h128 h')
-      have hI : Inv m h p 0 m' := by
-        refine ⟨hc.of_leaf hm' (by decide) hm'', hex, hd, by omega, hp8, by omega,
-          by rw [Nat.mod_eq_of_lt (by omega)] at hhp; exact hhp, ?_, ?_, ?_, ?_⟩
-        · rw [← hm'.regs 10]; exact hcw
-        · rw [← hm'.regs 11]; show (Sym.lit 0).eval _ = _; simp [Sym.eval, F2.bigEndian]
-        · rw [← hm'.regs 12]
-          show (Sym.init 0 8 8).eval (envR m mh c) = _
-          rw [hptr, if_neg hhead]; rfl
-        · rw [← hm'.regs 13]
-          show (Sym.init 0 8 8).eval (envR m mh c) + (Sym.init 0 16 8).eval (envR m mh c) = _
-          rw [hptr, if_neg hhead, hpl, ofNat_add_ofNat]
-      exact (loop_reaches e (p - 1) 0 m' (by omega) hI).mono
-        (by show _ ≤ 68 - (13 - 0); omega) fun _ h => h
-    · -- more than 8 payload bytes
-      f3_conds
-      simp only [Nat.mod_eq_of_lt hp64] at hcs
-      have hn : nextUint64 (inputOf m) = none := by
-        have h8 : 8 < p := by omega
-        simp [nextUint64, hd]; omega
-      refine ⟨by simpa [Oblig.holds] using hal, by decide, fun m' hm' hex hfr => ?_⟩
-      exact Reaches.done (post_of (ret_returns hc hm' hex (by decide)) (ret_so e hc hfr)
-        (res_err hm' rfl (by decide) hn) (sl_kept e hc hm' rfl (by decide) hn))
-  · have hn : nextUint64 (inputOf m) = none := by simp [nextUint64, hd]
-    rcases hl with rfl | rfl | rfl | rfl | rfl
-    · leaf_infeasible
-    · refine ⟨by simpa [Oblig.holds] using hal, by decide, fun m' hm' hex hfr => ?_⟩
-      exact Reaches.done (post_of (ret_returns hc hm' hex (by decide)) (ret_so e hc hfr)
-        (res_err hm' rfl (by decide) hn) (sl_kept e hc hm' rfl (by decide) hn))
-    all_goals exfalso; f3_conds
+  have hok1 : ∀ l ∈ runW_leaves, (Sym.init 1 8 8).okB 64 l.wr = true := by decide
+  have hlenE : (Sym.init 1 8 8).eval env' = wordAt m (m.reg 11 + 8) := by
+    rw [Sym.eval_agree hag _ (hok1 l hl)]
+    exact len_eval e
+  simp only [runW_leaves, List.mem_cons, List.not_mem_nil, or_false] at hl
+  rcases hl with rfl | rfl | rfl | rfl | rfl
+  · -- status error: decodeItem failed
+    refine ⟨by simpa [Oblig.holds] using hal, by decide, fun hf m' hm' hex hfr => ?_⟩
+    obtain ⟨mh, he⟩ := envW hl0 hf
+    rcases hd : F2.decode (inputOf m) with _ | ⟨b, h, p⟩
+    · have hn : nextUint64 (inputOf m) = none := by simp [nextUint64, hd]
+      exact ret_leafW e he hv hm' (by decide) rfl hex hfr (res_err he hm' rfl (by decide) hn)
+        (sl_kept he hm' rfl (by decide) hn)
+    · have hst := (outcome_ok he hd).1
+      first | leaf_infeasible | (exfalso; f3_conds)
+  · -- a list item
+    refine ⟨by simpa [Oblig.holds] using hal, by decide, fun hf m' hm' hex hfr => ?_⟩
+    obtain ⟨mh, he⟩ := envW hl0 hf
+    rcases hd : F2.decode (inputOf m) with _ | ⟨b, h, p⟩
+    · have hst := outcome_err he hd
+      first | leaf_infeasible | (exfalso; f3_conds)
+    · obtain ⟨hst, hfl, -⟩ := outcome_ok he hd
+      cases b
+      · first | leaf_infeasible | (exfalso; f3_conds)
+      · have hn : nextUint64 (inputOf m) = none := by simp [nextUint64, hd]
+        exact ret_leafW e he hv hm' (by decide) rfl hex hfr (res_err he hm' rfl (by decide) hn)
+          (sl_kept he hm' rfl (by decide) hn)
+  · -- empty payload
+    refine ⟨by simpa [Oblig.holds] using hal, by decide, fun hf m' hm' hex hfr => ?_⟩
+    obtain ⟨mh, he⟩ := envW hl0 hf
+    rcases hd : F2.decode (inputOf m) with _ | ⟨b, h, p⟩
+    · have hst := outcome_err he hd
+      first | leaf_infeasible | (exfalso; f3_conds)
+    · obtain ⟨hst, hfl, hpl, hcons, -⟩ := outcome_ok he hd
+      obtain ⟨-, -, -, hp64⟩ := decode_success hd
+      have hcw : (Sym.init 0 32 8).eval env' = BitVec.ofNat 64 (h + p) := hcons
+      cases b
+      · f3_conds
+        simp only [Nat.mod_eq_of_lt hp64] at hcs
+        have hp0 : p = 0 := by omega
+        subst hp0
+        have hs := nextUint64_ok hd (by decide)
+        refine ret_leafW e he hv hm' (by decide) rfl hex hfr
+          (res_ok he hm' rfl (a := .lit 0) (by decide) (by simp [Sym.eval, F2.bigEndian]) hs)
+          (sl_ok he hm' rfl (p := .bin .add (.ptr 3 0) (.init 0 32 8))
+            (q := .bin .sub (.init 1 8 8) (.init 0 32 8)) (by decide) ?_ ?_ hs)
+        · show (Sym.ptr 3 0).eval _ + (Sym.init 0 32 8).eval _ = _
+          rw [hcw]; simp [Sym.eval, he.b3]
+        · show (Sym.init 1 8 8).eval _ - (Sym.init 0 32 8).eval _ = _
+          rw [hcw, hlenE]
+      · first | leaf_infeasible | (exfalso; f3_conds)
+  · -- loop entry
+    refine ⟨by simp, by decide, fun hf m' hm' hex hfr => ?_⟩
+    obtain ⟨mh, he⟩ := envW hl0 hf
+    rcases hd : F2.decode (inputOf m) with _ | ⟨b, h, p⟩
+    · have hst := outcome_err he hd
+      first | leaf_infeasible | (exfalso; f3_conds)
+    · obtain ⟨hst, hfl, hpl, hcons, hptr⟩ := outcome_ok he hd
+      obtain ⟨hh9, hhp, h128, hp64⟩ := decode_success hd
+      rw [hlen] at hhp
+      have hcw : (Sym.init 0 32 8).eval env' = BitVec.ofNat 64 (h + p) := hcons
+      cases b
+      · f3_conds
+        simp only [Nat.mod_eq_of_lt hp64] at hcs
+        have hp8 : p ≤ 8 := by omega
+        have hp0 : p ≠ 0 := by omega
+        have hhead : ¬ (inputOf m).head? = some 128 := fun h' => hp0 (h128 h')
+        have hI : Inv m h p 0 m' := by
+          refine ⟨CallState.of_leafW e he hag hm' hfr (by decide) rfl rfl, hex, hd, by omega, hp8,
+            by omega, by rw [Nat.mod_eq_of_lt (by omega)] at hhp; exact hhp, ?_, ?_, ?_, ?_⟩
+          · rw [← hm'.regs 10]; exact hcw
+          · rw [← hm'.regs 11]; show (Sym.lit 0).eval _ = _; simp [Sym.eval, F2.bigEndian]
+          · rw [← hm'.regs 12]
+            show (Sym.init 0 8 8).eval env' = _
+            rw [hptr, if_neg hhead]; rfl
+          · rw [← hm'.regs 13]
+            show (Sym.init 0 8 8).eval env' + (Sym.init 0 16 8).eval env' = _
+            rw [hptr, if_neg hhead, hpl, ofNat_add_ofNat]
+        exact (loop_reaches e (p - 1) 0 m' (by omega) hI).mono
+          (by show _ ≤ bound - (105 - 0); unfold bound; omega) fun _ h => h
+      · first | leaf_infeasible | (exfalso; f3_conds)
+  · -- more than 8 payload bytes
+    refine ⟨by simpa [Oblig.holds] using hal, by decide, fun hf m' hm' hex hfr => ?_⟩
+    obtain ⟨mh, he⟩ := envW hl0 hf
+    rcases hd : F2.decode (inputOf m) with _ | ⟨b, h, p⟩
+    · have hst := outcome_err he hd
+      first | leaf_infeasible | (exfalso; f3_conds)
+    · obtain ⟨hst, hfl, hpl, -⟩ := outcome_ok he hd
+      obtain ⟨-, -, -, hp64⟩ := decode_success hd
+      cases b
+      · f3_conds
+        simp only [Nat.mod_eq_of_lt hp64] at hcs
+        have hn : nextUint64 (inputOf m) = none := by
+          have h8 : 8 < p := by omega
+          simp [nextUint64, hd]; omega
+        exact ret_leafW e he hv hm' (by decide) rfl hex hfr (res_err he hm' rfl (by decide) hn)
+          (sl_kept he hm' rfl (by decide) hn)
+      · first | leaf_infeasible | (exfalso; f3_conds)
 
 /-! ## The end theorem -/
 
 theorem f3_spec : Spec zesuImage entry bound Pre Post := by
   intro m hpc hpre
   have e := Entry.of_pre hpre
-  refine run_reaches' runE (e.wf m ov [⟨1, 0, 8, .ptr 3 0⟩]) e.match0 hpc e.ro
-    fun l hl hcs => ?_
-  obtain ⟨hok, hex0, -, hob, hst⟩ := leafE l hl
-  refine ⟨by rw [hob]; simp, by rw [hst]; decide, fun m1 hm1 hex1 hfr1 hp1 => ?_⟩
-  rw [hex0] at hex1
-  have hpre1 := pre_call e hm1 hok hp1
-  have hcall := Reaches.preserve (F2.f2_spec m1 (by simpa [F2.entry] using hex1) hpre1)
-  rw [hst]
-  refine Reaches.mono (b := 75 + 68) (Reaches.trans hcall fun m2 hpost => ?_) (by decide)
-    fun _ h => h
-  obtain ⟨hcs2, hpc2⟩ := call_state e hm1 hok hfr1 hp1 hpost.1 hpost.2
-  exact after_call e hcs2 0 hpc2
+  refine runWith_reaches (X := X m) (Qc := fun _ _ m₂ => CallState m m₂) runW ?_
+    (e.wf m ov [⟨1, 0, 8, .ptr 3 0⟩]) e.match0 hpc e.ro (leavesW e)
+  -- the call: decodeItem by `F2.f2_spec`
+  intro l hl c hc env₁ m₁ k hag1 _ _ hm1 hpc1 hrun hfr1
+  obtain ⟨hok, ht, hr, -, hp, hcw, -, hb, hres, hokS, hov⟩ := callsW l hl c hc
+  rw [hp] at hag1
+  have hm1E : Match (envE m) c.S m₁ := Match.agree hag1.symm hokS hm1
+  have hp1 := hrun.preserved
+  obtain ⟨k₂, m₂, hk₂, hr₂, hpost, hp2⟩ :=
+    Reaches.preserve (F2.f2_spec m₁ (by rw [hpc1, ht]) (pre_call e hm1E hok hp1))
+  obtain ⟨hcs2, hpc2⟩ := call_state e hm1E hok hfr1 hp1 hpost hp2
+  obtain ⟨-, r2, -, -, r10, -⟩ := call_regs e hm1E hok
+  have h96 := e.sp96
+  have h112 := e.sp112
+  obtain ⟨hlo, hhi, -⟩ := e.ram
+  unfold Layout.ramLo at hlo; unfold Layout.ramHi at hhi
+  have hreg : c.S.regions = regionsR := hok.2.2.2.2.2.2.2.2.2.2.2.2
+  obtain ⟨hb0, hb1, hb2, hb3, hs0, hs1, hs2, hs3⟩ := envE_facts m
+  refine ⟨k₂, m₂, (by rw [hb]; exact hk₂), hr₂, ⟨(by rw [hr]; exact hpc2),
+    CallRec.keep_of_returns hov hpost.1, (fun v hv => by rw [hres] at hv; cases hv),
+    (fun r j hrl hj hcov => ?_), (fun r j _ hj hcov => ?_), (fun a ha => ?_),
+    (fun a b _ _ hab => e.ro_of hcs2.2.2.2.2.2.2.2.2.2.2 a b hab)⟩, hcs2⟩
+  · -- bytes outside the outcome: decodeItem writes only its outcome and its own frame
+    rw [hag1.base]
+    show m₂.mem ((envE m).base r + BitVec.ofNat 64 j) = m₁.mem ((envE m).base r + BitVec.ofNat 64 j)
+    refine hpost.2.1 _ fun h => ?_
+    have fp := callee_fp e r2 r10 h
+    rw [hreg] at hrl
+    simp only [regionsR, List.length_cons, List.length_nil] at hrl
+    rw [hag1.size] at hj
+    change j < (envE m).size r at hj
+    rcases (show r = 0 ∨ r = 1 ∨ r = 2 ∨ r = 3 by omega) with rfl | rfl | rfl | rfl
+    · rw [hs0] at hj; rw [hb0, toNat_add_ofNat (by rw [h96]; omega), h96] at fp
+      rw [hcw] at hcov; simp [Ranges.covers] at hcov
+      omega
+    · rw [hs1] at hj; rw [hb1] at fp
+      have := e.notStack e.d6 e.slFit hj
+      unfold InRange at this; rw [h112] at this; omega
+    · rw [hs2] at hj; rw [hb2] at fp
+      have := e.notStack e.d5 e.resFit hj
+      unfold InRange at this; rw [h112] at this; omega
+    · rw [hs3] at hj; rw [hb3] at fp
+      have := e.notStack e.d3 e.inputFit hj
+      unfold InRange at this; rw [h112] at this; omega
+  · -- the outcome bytes are present after the call
+    rw [hcw] at hcov; simp [Ranges.covers] at hcov
+    obtain ⟨⟨rfl, h8⟩, h48⟩ := hcov
+    rw [hag1.base]
+    show (m₂.mem ((envE m).base 0 + BitVec.ofNat 64 j)).isSome = true
+    rw [hb0]
+    exact hcs2.2.2.2.2.2.2.2.2.2.1 j (by omega)
+  · -- decodeItem's footprint is inside the 112 stack bytes
+    refine hpost.2.1 a fun h => ha (.inr ?_)
+    have fp := callee_fp e r2 r10 h
+    unfold X InRange; rw [h112]; omega
 
 /--
 info: 'ZesuExec.Fn.F3.f3_spec' depends on axioms: [propext, Classical.choice, Quot.sound]

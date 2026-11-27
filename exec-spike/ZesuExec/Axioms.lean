@@ -17,7 +17,9 @@ import ZesuExec.Fn.F5.Sail
 import ZesuExec.Sail.Run
 import ZesuExec.Sail.Step
 import ZesuExec.Sym.Sound
+import ZesuExec.Sym.Summary
 import ZesuExec.Vc.Sound
+import ZesuExec.Vc.SoundW
 import ZesuExec.Fn.F1.Vc
 
 /-! Axiom guards for every end theorem (plan Verification item 4). -/
@@ -189,6 +191,18 @@ info: 'ZesuExec.Sym.Match.generalise_to' depends on axioms: [propext, Classical.
 -/
 #guard_msgs in
 #print axioms ZesuExec.Sym.Match.generalise_to
+
+/--
+info: 'ZesuExec.Sym.runWith_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Sym.runWith_sound
+
+/--
+info: 'ZesuExec.Vc.vc_soundW' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Vc.vc_soundW
 
 /--
 info: 'ZesuExec.Fn.F6.F6.reach' depends on axioms: [propext, Classical.choice, Quot.sound]
