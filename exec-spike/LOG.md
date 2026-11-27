@@ -837,3 +837,32 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     `budget` (the budget lookup is behind `budgetAt`), `oblig`.
   - `lake build` 283 jobs OK (268 s from cold DTF modules, peak 2.6 GB); `tools/verify.sh` all
     PASS after `make -C tools/zmap map`; ledger +978 S7 items (980 DTF items in all).
+- S7 cont. (2026-11-27, branch `dtf`, after `git merge exec-spike`, fast-forward): DTF budget
+  lookups and cut lemmas. **Counts before → after: manual 70 → 146, auto 0 → 0, open 577 → 501**
+  (cut lemmas open 91 → 15, leaves open 486 → 486).
+  - Budget: `@[zesu_simp] budgetOf_eq` and one `budgetAt_<pc>` row per cut (`Cuts.lean`,
+    generated from `budgetTable`). No leaf's first failing stage is `budget` any more (the 113
+    `oblig` leaves stop before it). `zesu_auto DTF` still closes 0 of 647 (each leaf also needs
+    its obligations and exit). `Vc.lean` now takes 14 min (262 s at S7); the likely cause, not
+    measured, is the 161 extra `zesu_simp` rows tried by every `leaf_norm`.
+  - Return sites (`Ret.lean`): "`Common` survives the call" per callee kind, modelled on TX's
+    `common_ret`/`common_f2`: `common_ret` (any callee whose writes are DTF's stack below the save
+    area or `Priv g.L`, given the live list after it), `ret_f2` (outcome slot `a0 = fr + k`,
+    `k + 144 ≤ 0x370`), `ret_alloc` (`Live` grows by the new block, carved from `Priv g.L`),
+    `ret_remap`. One generic theorem `cut_ret` (return-site shape vs call-site shape checked by
+    `decide`, `RetCheck`) closes 72 return-site cut lemmas (63 `decodeItem`, 7 `alloc`, 2 `remap`).
+    `IdxOk` (call-site predicate) now carries the callee's `Pre` and `Live σ m x.1 X` (allocator,
+    F1, F4, TX), which `ret_alloc` needs (the block size is positive, the live list is DTF's).
+  - Entry: `cut_entry` (`Avail`, the part of `Common` `Match` needs, holds at the entry machine).
+    Region 4: `match_gen` (the base regions and region 4 at `a0`), `wf_slot` (`entry_wf` with
+    pointwise disjointness, so a zero-length payload needs no `Apart` with the slot),
+    `cut_slot` (`0x80002138`, `0x80002434`: the slot is `Priv g.L`, apart from frame, result,
+    allocator object and payload by `Pre`), `cut_table` (`0x80000574`: the table word is rodata,
+    `table_rodata` by `decide`).
+  - Still open cut lemmas (15): 7 `memcpy` and 2 `free` returns (the destination / freed block is
+    not located by the assertions: `OPEN/DTF/CUTS.md` groups 1 and 3), 4 TX returns (TX's
+    `OutcomeImage` does not say the returned or leaked blocks come from `Priv g.L`, which `Live`
+    needs), F1 and F4 (the list buffer, group 3).
+  - Queue classes (486 leaves): `cut ite` 268 (`leaf_auto` stops at `if pc = entry` in
+    `mkCut`), `callee-pre` 105, `oblig` 113.
+  - `lake build` OK; `tools/verify.sh` all PASS after `make -C tools/zmap map`; ledger +78.

@@ -247,13 +247,15 @@ theorem Kind.spec : ∀ (k : Kind) (σ : Sig) (x : Idx),
 def calleeOf (k : Kind) : Callee Sig zesuImage :=
   famCallee k.entry k.bound k.Pre k.Post k.spec
 
-/-- What the call site says about the callee's index: the live list is the heap's (allocator
-calls, F1, F4, TX; TX's parameters carry it too). -/
+/-- What the call site says about the callee's index: the callee's precondition, and the live list
+is DTF's `Live` list (allocator calls, F1, F4, TX; TX's parameters carry it too). The return-site
+cut lemmas need both (`Live` after an `alloc`, its size positive). -/
 def IdxOk (k : Kind) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
+  k.Pre σ x m ∧
   match k with
   | .f2 | .memcpy | .remap => True
-  | .tx => x.2.2.L = x.1 ∧ σ.A.Heap x.1 m
-  | _ => σ.A.Heap x.1 m
+  | .tx => x.2.2.L = x.1 ∧ ∃ X, Live σ m x.1 X
+  | _ => ∃ X, Live σ m x.1 X
 
 /-! ## Assertions -/
 
@@ -465,6 +467,174 @@ def innerOf (σ : Sig) (m : Machine) : Inner → Nat
 
 def budgetOf (d : CutData) (σ : Sig) (m : Machine) : Nat :=
   (budgetAt d.pc).1 + 256 * restLen d σ m + innerOf σ m (budgetAt d.pc).2
+
+/-! Budget lookups for `budget_auto` (`leaf_norm` rewrites by `zesu_simp`): `budgetOf` and one
+`budgetAt` row per cut point (generated from `budgetTable`). -/
+
+@[zesu_simp] theorem budgetOf_eq (d : CutData) (σ : Sig) (m : Machine) :
+    budgetOf d σ m = (budgetAt d.pc).1 + 256 * restLen d σ m + innerOf σ m (budgetAt d.pc).2 := rfl
+
+@[zesu_simp] theorem budgetAt_8000050c : budgetAt 0x8000050c = (34359750421, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000574 : budgetAt 0x80000574 = (34359750395, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000588 : budgetAt 0x80000588 = (5649, .none) := rfl
+@[zesu_simp] theorem budgetAt_8000059c : budgetAt 0x8000059c = (5569, .none) := rfl
+@[zesu_simp] theorem budgetAt_800005dc : budgetAt 0x800005dc = (34359750390, .none) := rfl
+@[zesu_simp] theorem budgetAt_800005f0 : budgetAt 0x800005f0 = (34359750310, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000634 : budgetAt 0x80000634 = (34359749653, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_8000065c : budgetAt 0x8000065c = (34359749568, .none) := rfl
+@[zesu_simp] theorem budgetAt_8000069c : budgetAt 0x8000069c = (34359745912, .none) := rfl
+@[zesu_simp] theorem budgetAt_800006b0 : budgetAt 0x800006b0 = (34359745832, .none) := rfl
+@[zesu_simp] theorem budgetAt_800006f4 : budgetAt 0x800006f4 = (34359745175, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_8000071c : budgetAt 0x8000071c = (34359745090, .none) := rfl
+@[zesu_simp] theorem budgetAt_8000075c : budgetAt 0x8000075c = (34359747290, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000770 : budgetAt 0x80000770 = (34359747210, .none) := rfl
+@[zesu_simp] theorem budgetAt_800007b4 : budgetAt 0x800007b4 = (34359746553, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_800007dc : budgetAt 0x800007dc = (34359746468, .none) := rfl
+@[zesu_simp] theorem budgetAt_8000081c : budgetAt 0x8000081c = (34359745161, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000830 : budgetAt 0x80000830 = (34359745081, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000874 : budgetAt 0x80000874 = (34359744424, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_8000089c : budgetAt 0x8000089c = (34359744339, .none) := rfl
+@[zesu_simp] theorem budgetAt_800008e8 : budgetAt 0x800008e8 = (4912, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000910 : budgetAt 0x80000910 = (4827, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000960 : budgetAt 0x80000960 = (4167, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000994 : budgetAt 0x80000994 = (4079, .none) := rfl
+@[zesu_simp] theorem budgetAt_800009d8 : budgetAt 0x800009d8 = (3422, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000a00 : budgetAt 0x80000a00 = (3337, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000a48 : budgetAt 0x80000a48 = (34359748911, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000a70 : budgetAt 0x80000a70 = (34359748826, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000ac4 : budgetAt 0x80000ac4 = (34359748165, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000af8 : budgetAt 0x80000af8 = (34359748077, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000b4c : budgetAt 0x80000b4c = (34359747416, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000b80 : budgetAt 0x80000b80 = (34359747328, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000bc4 : budgetAt 0x80000bc4 = (34359746671, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000bec : budgetAt 0x80000bec = (34359746586, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000c34 : budgetAt 0x80000c34 = (34359744433, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000c5c : budgetAt 0x80000c5c = (34359744348, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000cb0 : budgetAt 0x80000cb0 = (34359743687, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000ce4 : budgetAt 0x80000ce4 = (34359743599, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000d38 : budgetAt 0x80000d38 = (34359742938, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000d6c : budgetAt 0x80000d6c = (34359742850, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000db0 : budgetAt 0x80000db0 = (34359742193, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000dd8 : budgetAt 0x80000dd8 = (34359742108, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000e20 : budgetAt 0x80000e20 = (34359745811, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000e48 : budgetAt 0x80000e48 = (34359745726, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000e9c : budgetAt 0x80000e9c = (34359745065, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000ed0 : budgetAt 0x80000ed0 = (34359744977, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000f24 : budgetAt 0x80000f24 = (34359744316, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000f58 : budgetAt 0x80000f58 = (34359744228, .none) := rfl
+@[zesu_simp] theorem budgetAt_80000f9c : budgetAt 0x80000f9c = (34359743571, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80000fc4 : budgetAt 0x80000fc4 = (34359743486, .none) := rfl
+@[zesu_simp] theorem budgetAt_8000100c : budgetAt 0x8000100c = (34359743682, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80001034 : budgetAt 0x80001034 = (34359743597, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001084 : budgetAt 0x80001084 = (34359742937, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_800010b8 : budgetAt 0x800010b8 = (34359742849, .none) := rfl
+@[zesu_simp] theorem budgetAt_800010fc : budgetAt 0x800010fc = (34359742192, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80001124 : budgetAt 0x80001124 = (34359742107, .none) := rfl
+@[zesu_simp] theorem budgetAt_800011b4 : budgetAt 0x800011b4 = (3232, .none) := rfl
+@[zesu_simp] theorem budgetAt_800011f0 : budgetAt 0x800011f0 = (17, .none) := rfl
+@[zesu_simp] theorem budgetAt_800011f8 : budgetAt 0x800011f8 = (15, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001254 : budgetAt 0x80001254 = (2569, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_800012f0 : budgetAt 0x800012f0 = (34359742001, .none) := rfl
+@[zesu_simp] theorem budgetAt_8000134c : budgetAt 0x8000134c = (34359741338, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_800013c8 : budgetAt 0x800013c8 = (2466, .none) := rfl
+@[zesu_simp] theorem budgetAt_800013fc : budgetAt 0x800013fc = (19, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001400 : budgetAt 0x80001400 = (18, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001468 : budgetAt 0x80001468 = (34359746479, .none) := rfl
+@[zesu_simp] theorem budgetAt_800014bc : budgetAt 0x800014bc = (34359745818, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_8000155c : budgetAt 0x8000155c = (34359742001, .none) := rfl
+@[zesu_simp] theorem budgetAt_800015b0 : budgetAt 0x800015b0 = (34359741340, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80001650 : budgetAt 0x80001650 = (34359743379, .none) := rfl
+@[zesu_simp] theorem budgetAt_800016a4 : budgetAt 0x800016a4 = (34359742718, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80001708 : budgetAt 0x80001708 = (2392, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001748 : budgetAt 0x80001748 = (34359741236, .none) := rfl
+@[zesu_simp] theorem budgetAt_800017a0 : budgetAt 0x800017a0 = (34359741161, .none) := rfl
+@[zesu_simp] theorem budgetAt_800017c4 : budgetAt 0x800017c4 = (2382, .none) := rfl
+@[zesu_simp] theorem budgetAt_800017d8 : budgetAt 0x800017d8 = (2302, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001828 : budgetAt 0x80001828 = (1642, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_800018a4 : budgetAt 0x800018a4 = (34359745715, .none) := rfl
+@[zesu_simp] theorem budgetAt_800018fc : budgetAt 0x800018fc = (34359745640, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001940 : budgetAt 0x80001940 = (34359741237, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001998 : budgetAt 0x80001998 = (34359741162, .none) := rfl
+@[zesu_simp] theorem budgetAt_800019dc : budgetAt 0x800019dc = (34359742615, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001a34 : budgetAt 0x80001a34 = (34359742540, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001a5c : budgetAt 0x80001a5c = (34359741151, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001a70 : budgetAt 0x80001a70 = (2354, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001aa4 : budgetAt 0x80001aa4 = (2266, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001ae8 : budgetAt 0x80001ae8 = (1609, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80001b10 : budgetAt 0x80001b10 = (1524, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001b60 : budgetAt 0x80001b60 = (864, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80001bcc : budgetAt 0x80001bcc = (1545, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001c24 : budgetAt 0x80001c24 = (883, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80001c84 : budgetAt 0x80001c84 = (34359745630, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001c98 : budgetAt 0x80001c98 = (6833, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001ccc : budgetAt 0x80001ccc = (6745, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001d40 : budgetAt 0x80001d40 = (34359741152, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001d54 : budgetAt 0x80001d54 = (2355, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001d88 : budgetAt 0x80001d88 = (2267, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001dcc : budgetAt 0x80001dcc = (1610, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80001df4 : budgetAt 0x80001df4 = (1525, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001e48 : budgetAt 0x80001e48 = (864, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80001eb0 : budgetAt 0x80001eb0 = (34359742530, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001ec4 : budgetAt 0x80001ec4 = (3733, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001ef8 : budgetAt 0x80001ef8 = (3645, .none) := rfl
+@[zesu_simp] theorem budgetAt_80001f54 : budgetAt 0x80001f54 = (2982, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80001fac : budgetAt 0x80001fac = (785, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002004 : budgetAt 0x80002004 = (123, .be 14 15) := rfl
+@[zesu_simp] theorem budgetAt_80002064 : budgetAt 0x80002064 = (2889, .none) := rfl
+@[zesu_simp] theorem budgetAt_800020ac : budgetAt 0x800020ac = (2871, .list (.reg 22)) := rfl
+@[zesu_simp] theorem budgetAt_800020c0 : budgetAt 0x800020c0 = (2791, .list (.reg 22)) := rfl
+@[zesu_simp] theorem budgetAt_8000211c : budgetAt 0x8000211c = (2571, .list (.reg 22)) := rfl
+@[zesu_simp] theorem budgetAt_80002138 : budgetAt 0x80002138 = (2564, .list (.reg 22)) := rfl
+@[zesu_simp] theorem budgetAt_80002180 : budgetAt 0x80002180 = (2352, .none) := rfl
+@[zesu_simp] theorem budgetAt_800021b0 : budgetAt 0x800021b0 = (2265, .none) := rfl
+@[zesu_simp] theorem budgetAt_800021f4 : budgetAt 0x800021f4 = (1608, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_8000221c : budgetAt 0x8000221c = (1523, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002274 : budgetAt 0x80002274 = (861, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_800022e4 : budgetAt 0x800022e4 = (2484, .none) := rfl
+@[zesu_simp] theorem budgetAt_800022f0 : budgetAt 0x800022f0 = (2346, .none) := rfl
+@[zesu_simp] theorem budgetAt_8000230c : budgetAt 0x8000230c = (2264, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002350 : budgetAt 0x80002350 = (1607, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80002378 : budgetAt 0x80002378 = (1522, .none) := rfl
+@[zesu_simp] theorem budgetAt_800023cc : budgetAt 0x800023cc = (861, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_8000241c : budgetAt 0x8000241c = (2568, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002420 : budgetAt 0x80002420 = (2567, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002434 : budgetAt 0x80002434 = (2562, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_800024d0 : budgetAt 0x800024d0 = (6723, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_800024ec : budgetAt 0x800024ec = (6641, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_8000252c : budgetAt 0x8000252c = (6552, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002574 : budgetAt 0x80002574 = (5897, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80002600 : budgetAt 0x80002600 = (5791, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002654 : budgetAt 0x80002654 = (5698, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002690 : budgetAt 0x80002690 = (5046, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_800026d4 : budgetAt 0x800026d4 = (4955, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002710 : budgetAt 0x80002710 = (4303, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80002754 : budgetAt 0x80002754 = (4212, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_8000279c : budgetAt 0x8000279c = (3557, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_80002820 : budgetAt 0x80002820 = (3453, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002868 : budgetAt 0x80002868 = (2798, .be 10 11) := rfl
+@[zesu_simp] theorem budgetAt_800029a8 : budgetAt 0x800029a8 = (2714, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_800029c4 : budgetAt 0x800029c4 = (2708, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_800029c8 : budgetAt 0x800029c8 = (2707, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002a08 : budgetAt 0x80002a08 = (2639, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002a1c : budgetAt 0x80002a1c = (2637, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002a38 : budgetAt 0x80002a38 = (2627, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002a6c : budgetAt 0x80002a6c = (2572, .list (.slot 0x68)) := rfl
+@[zesu_simp] theorem budgetAt_80002b50 : budgetAt 0x80002b50 = (765, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002bb4 : budgetAt 0x80002bb4 = (103, .be 14 15) := rfl
+@[zesu_simp] theorem budgetAt_80002c68 : budgetAt 0x80002c68 = (2412, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002c94 : budgetAt 0x80002c94 = (765, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002cfc : budgetAt 0x80002cfc = (102, .be 14 15) := rfl
+@[zesu_simp] theorem budgetAt_80002db8 : budgetAt 0x80002db8 = (82, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002dbc : budgetAt 0x80002dbc = (81, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002dc4 : budgetAt 0x80002dc4 = (79, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002ecc : budgetAt 0x80002ecc = (2410, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002ee0 : budgetAt 0x80002ee0 = (2402, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002f14 : budgetAt 0x80002f14 = (2347, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002f54 : budgetAt 0x80002f54 = (2491, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002f90 : budgetAt 0x80002f90 = (762, .none) := rfl
+@[zesu_simp] theorem budgetAt_80002ff0 : budgetAt 0x80002ff0 = (101, .be 15 16) := rfl
+@[zesu_simp] theorem budgetAt_80003064 : budgetAt 0x80003064 = (762, .none) := rfl
+@[zesu_simp] theorem budgetAt_800030d4 : budgetAt 0x800030d4 = (97, .be 15 16) := rfl
 
 /-! ## The plan -/
 
