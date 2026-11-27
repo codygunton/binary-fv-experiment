@@ -12,7 +12,7 @@ Rates and counts only; no extrapolated total.
 | contract | 3 | 7 | 41 | 0 | 0 |
 | cut | 7 | 0.2 | 1.4 | 0 | 0 |
 | cut_lemma | 253 | 0.5 | 249 | 0 | 0 |
-| infra | 24 | 13.5 | 803 | 0 | 0 |
+| infra | 30 | 18.5 | 1019 | 0 | 0 |
 | leaf | 959 | 0 | 1174 | 0 | 0 |
 | rule | 18 | 30 | 634 | 0 | 0 |
 | run | 162 | 0.0 | 13.2 | 0 | 0 |
