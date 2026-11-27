@@ -279,3 +279,45 @@ Deliberate differences:
    payload ≤ 8 bytes, `checkedPayload`), so there is no wrap and they equal Rocq's integers.
 9. `inputAddressFits` follows from `Pre`; the decodeItem meaning modulo known bugs is used only
    through `F2.decode` (= `candidateDecodeItem`); the Sail half belongs to S6.
+
+### F3 (`ZesuExec/Compliance/F3.lean`)
+
+Rocq has no stand-alone Sail statement for `nextUint64`; `NextUint64Meaning.v` (header comment)
+records that `rlp_decode_uint64` agrees one way and that the binary's acceptance of non-canonical
+integers is the known bug `RlpUintNonCanonical` (`KnownBugs.v`), whose trigger
+(`ParentHeaderBugTriggers.v:148-162`) tests `sailShortUintCanonical`
+(`ParentHeaderSailItems.v:49-60`). Sail functions: `rlp_decode_item`, then `rlp_decode_uint64`
+(`Decoding.lean:625`) on its field, the cursor advancing by the field's full length, as in
+`_rec_decode_parent_header_fields` at fields 17 and 18 (`StatelessInput.lean:893-950`).
+
+```lean
+def sailNext (input : List Byte) : Evm.SailM (Nat × Nat)       -- (value, full length)
+def sailRun (input : List Byte) (σ : SailRegs) := ((sailNext input).run (hostOf input)).run σ
+theorem sailRun_eq : sailRun input σ = match sailItem input with
+  | none => .error .Exit σ
+  | some (l, off, len) => if l = false ∧ len ≤ 8 ∧ uintCanon input.toArray off len = true
+      then .ok ((bigEndian ((input.drop off).take len), off + len), hostOf input) σ
+      else .error .Exit σ
+theorem f3_candidate_agrees (input : List Byte) (σ : SailRegs) :
+    SailRelates (sailRun input σ) (nextUint64 input) ∨ ∃ bug ∈ knownBugs, bugApplies bug input σ
+theorem f3_compliance (m) (hpc : m.pc.toNat = entry) (hpre : Pre m) :
+    Reaches zesuImage bound (Compliant m) m
+theorem f3_compliance_sail (h : SailLink.Rel zesuImage m s) (hpc) (hpre : Pre m) :
+    SailLink.SailReaches zesuImage bound
+      (fun s' => ∃ m', SailLink.Rel zesuImage m' s' ∧ Compliant m m') s
+```
+
+Axioms of all three: `propext`, `Classical.choice`, `Quot.sound`.
+
+| Lean | Rocq | Note |
+|---|---|---|
+| `nextUint64` (`Fn/F3/Spec.lean`) | `nextUint64RootResult` | candidate, reused |
+| `SailRelates` | (none) | Sail `(v, c)` with `v < 2^64` ↔ `some (ofNat v, c)`; `Error.Exit` ↔ `none`; other failures `False` |
+| `uintCanon bs off len` | `sailShortUintCanonical` | `rlp_item_uint_canonical` for `len ≤ 55`, proved equal (`uint_canonical_short`) |
+| `bugApplies .rlpUintNonCanonical` | `uintNonCanonicalb` at one item | `decode = success false h p`, `p ≤ 8`, `uintCanon … h p = false`, Sail exits; other classes `False` |
+| `NextUint64MeaningModuloKnownBugs input` | part of `ParentHeaderMeaningModuloKnownBugs` | `∀ σ`, agreement or a listed bug |
+| `Compliant m m'` | `nextUint64ContractExit` + meaning | `Post m m'` and the meaning for every `input` read through the slice as in `Post` |
+
+`rlpLongLengthWrap` never excuses an F3 result (`decode_header_le`: a success has header ≤ 9, and
+the candidate accepts only payload ≤ 8). `ParentHeaderUintOver8` concerns base fee, which Sail
+decodes with `rlp_decode_u256`, not `rlp_decode_uint64`; it is not part of this comparison.

@@ -253,3 +253,13 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   Lines: 52 + 148 + 58 + 265.
 - S6: F3 not started: `Fn/F3/Proof.lean` has no `f3_spec` yet (`OPEN/S6/README.md`). F6 not
   attempted. `ZesuExec/Axioms.lean` not edited (not mine): guards live in `Compliance/F2.lean`.
+- S6: F3. `ZesuExec/Compliance/RlpUint.lean` (`uint_canonical_short` = `uintCanon`,
+  `uint_canonical_long`, `decode_uint64_eval`); `RlpItem.lean`'s width lemmas now take any slice
+  offset. `ZesuExec/Compliance/F3.lean`: Sail side `sailNext` = `rlp_decode_item` then
+  `rlp_decode_uint64`, advance by the field's full length (what
+  `_rec_decode_parent_header_fields` does at fields 17/18); `f3_candidate_agrees` with
+  `rlpUintNonCanonical` the only excusing class (wrap impossible: header ≤ 9, payload ≤ 8),
+  `f3_compliance`, `f3_compliance_sail` (via `sail_reaches`, as `f3_sail`); `#guard_msgs` axioms
+  standard three. Witnesses `82 00 01` (bug) and `82 01 00` (agree). `lake build
+  ZesuExec.Compliance.F2 ZesuExec.Compliance.F3` passes; per module: RlpItem 1.4 s, RlpUint 1.7 s,
+  F3 1.5 s, ≤ 1.6 GB. Lines: RlpUint 145, F3 310.
