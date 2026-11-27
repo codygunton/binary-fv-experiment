@@ -747,3 +747,15 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   cut's assertion, tail callee), so no hand leaf was deleted. `Test/Auto.lean` builds; `lake
   build` 258 jobs OK; `tools/verify.sh` all PASS after `make -C tools/zmap map`.
 - S4d (2026-11-27, decision): exit-goal automation for F6 stopped. Residual tail/callee-pre/post/cut goals in F6 are per-field decoder correctness (SSt/DSt step over the field schedule, walk semantics), not side conditions; tagging per-field hand steps as @[zesu_fact] would relabel hand proofs as auto. Automation scope stays: infeasible leaves (zesu_fact), obligations/budgets (S4c), residual classification. No commit.
+- S6.8 (2026-11-27, gate: closed, conditional on `tx_spec`): TX compliance, new files only.
+  `Compliance/TXSail.lean`: EVM-Sail `decode_access_list` in closed form — pure `sailKeys`,
+  `sailEntry`, `sailEntries`, `sailAccess` (address/slot counts) with `keys_eval`, `dkeys_eval`,
+  `entries_eval`, `access_eval` (fuel induction over the Sail recursions; every failure is the
+  `fatal_error RlpDecode` exit). `Compliance/TX.lean`: triggers of `TxAccessListBugTriggers.v`
+  (`addrC`/`keyC`/`trailC` over `calls input`, `bugTrigger`), `fits_eq` (on `HeaderFits` the
+  candidate's `decode` is Sail's item), `keys_rel`/`entry_rel`/`entries_rel`/`access_rel`
+  (candidate counts = Sail counts or a trigger), `tx_candidate_agrees` (on `Domain`),
+  `tx_compliance_of`/`tx_compliance_sail_of` taking `hspec : Spec zesuImage TX.entry bound
+  (Pre A g) (Post A g)`. Sail's `encoded` span is not compared. Witnesses by `decide`: agreeing
+  (1 entry, 1 key), 19-byte address, 31-byte key, trailing byte after keys. Axiom guards added
+  (3). `lake build` 277 jobs OK; `tools/verify.sh` all PASS after `make -C tools/zmap map`.

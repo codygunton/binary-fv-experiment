@@ -12,7 +12,7 @@ Rates and counts only; no extrapolated total.
 | cut_lemma | 3 | 15 | 63 | 0 | 0 |
 | infra | 15 | 11 | 515 | 0 | 0 |
 | leaf | 2 | 24.5 | 49 | 0 | 0 |
-| rule | 8 | 18.5 | 204 | 0 | 0 |
+| rule | 10 | 18.5 | 234 | 0 | 0 |
 | run | 1 | 10 | 10 | 0 | 0 |
 
 Plan leaves: auto 12, manual 100, open 45 (auto share 8%). Ledger `leaf` minutes per manual leaf: 0.5.
