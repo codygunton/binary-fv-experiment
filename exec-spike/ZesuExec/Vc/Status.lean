@@ -44,6 +44,13 @@ def nearName (env : Environment) (fn : Name) (s : String) : Name :=
   let n := fn ++ Name.mkSimple s
   if env.contains n then n else fn.getPrefix ++ Name.mkSimple s
 
+/-- The compliance theorem `s` of `fn = ZesuExec.Fn.X.X`: `nearName`, else
+`ZesuExec.Compliance.X.s` (where the compliance modules put it). -/
+def complianceName (env : Environment) (fn : Name) (s : String) : Name :=
+  let n := nearName env fn s
+  if env.contains n then n
+  else `ZesuExec.Compliance ++ Name.mkSimple fn.getPrefix.getString! ++ Name.mkSimple s
+
 def planJson (entries : Array Entry) (env : Environment) (fn : Name) (cuts : Array CutInfo) : Json :=
   let entry := (cuts[0]?.map (·.pc)).getD 0
   let opens := (entries.filterMap fun
@@ -64,7 +71,7 @@ def planJson (entries : Array Entry) (env : Environment) (fn : Name) (cuts : Arr
     | none =>
       let f := fn.getString!.toLower
       theoremsJson env (some (fn ++ `reach)) (nearName env fn s!"{f}_spec")
-        (nearName env fn s!"{f}_sail") (some (nearName env fn s!"{f}_compliance"))
+        (nearName env fn s!"{f}_sail") (some (complianceName env fn s!"{f}_compliance"))
   Json.mkObj [("id", toJson s!"f_{hexNat entry}"), ("fn", toJson fn.toString),
     ("entry", toJson entry), ("legacy", toJson false),
     ("assembled", toJson (env.contains (fn ++ `reach_from))), ("cuts", Json.arr cutsJ.toArray),

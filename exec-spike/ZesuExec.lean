@@ -106,3 +106,5 @@ import ZesuExec.Fn.TX.Proof
 import ZesuExec.Fn.TX.Sail
 import ZesuExec.Fn.F6.Vc
 import ZesuExec.Test.Auto
+import ZesuExec.Compliance.TXSail
+import ZesuExec.Compliance.TX

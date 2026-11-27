@@ -784,3 +784,24 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   stored so far are not known after `ensureTotalCapacity` returns. Fix: add `BytesAt m' p items`
   to that branch of `F1.Post` (Fn/F1/Spec.lean) and reprove it in F1 (the early-exit path writes
   only its frame). TX.reach / tx_spec / tx_sail / compliance not assembled.
+- S6 TX finish (TXFinish, 2026-11-27): F1's contract is not changed (rule 7); its plan's Post is
+  `PostKeep := Post ∧ (req ≤ capacity → BytesAt m' p items)` (`Fn/F1/Vc.lean`): leaf 0 (no
+  growth) writes only F1's frame and the header (its `InWritable` is frame ∪ header, the buffer
+  is apart by `oldNotOwn`), the other exits grow or fail and take the conjunct vacuously.
+  `f1_spec_keep` (new) is `F1.reach`; `f1_spec` is derived by dropping the conjunct
+  (`git diff 7a9e7da8 -- Fn/F1/Spec.lean`: no statement change). TX's `f1C` uses
+  `f1_spec_keep`. `Fn/TX/Room.lean`: `after1f8` (the keys loop state after F1 returned 0, both
+  branches; grown buffer `{p', grown(n+1)}` via `live_of_heap`/`erase_perm`, footprint through
+  `edsame_of`), `ie_same`, leaf 1f8_1. `Fn/TX/Vc.lean`: `error_post` refactored onto
+  `exit_post` (epilogue, registers, `rest`), `ok_post` (`OutcomeImage .ok` from `okWrites` and a
+  live list `L ~ g.L ++ returnedBlocks`). `Fn/TX/Done.lean`: `accepted_of` (walked payload →
+  `candidate = accepted done (itemConsumed h p)`), leaf 4a0_0 (F5's empty and success branches;
+  keys slices survive F5 by `live_apart`). `zesu_assemble TX`: 68 items, 10 auto, 58 manual,
+  0 open → `TX.reach`. `tx_spec : Spec zesuImage 0x80000000 bound (Pre A g) (Post A g)` with
+  `bound := 32·2^30 + 424` (`len_le`: the input is in the input buffer or RAM); `tx_sail`
+  (`Fn/TX/Sail.lean`). Compliance: `Compliance/TX.lean`, `TXSail.lean` taken from exec-spike
+  (258a3dba, unchanged since), `tx_compliance`/`tx_compliance_sail` specialise the `_of` forms
+  to `tx_spec`; `zesu-status` finds compliance theorems under `ZesuExec.Compliance.<F>`
+  (`complianceName`). Axioms guards for `f1_spec_keep`, `TX.reach`, `tx_spec`, `tx_sail` and the
+  five compliance theorems. `lake build` OK; `make -C tools/zmap map`; `tools/verify.sh` all PASS;
+  `zmap show f_80000000`: closed+compliance.

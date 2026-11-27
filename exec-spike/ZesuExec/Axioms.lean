@@ -1,3 +1,4 @@
+import ZesuExec.Compliance.TX
 import ZesuExec.Compliance.F6
 import ZesuExec.Fn.F6.Sail
 import ZesuExec.Compliance.F3
@@ -209,3 +210,57 @@ info: 'ZesuExec.Fn.F6.F6.reach' depends on axioms: [propext, Classical.choice, Q
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.F6.F6.reach
+
+/--
+info: 'ZesuExec.Fn.F1.f1_spec_keep' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.F1.f1_spec_keep
+
+/--
+info: 'ZesuExec.Fn.TX.TX.reach' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.TX.TX.reach
+
+/--
+info: 'ZesuExec.Fn.TX.tx_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.TX.tx_spec
+
+/--
+info: 'ZesuExec.Fn.TX.tx_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.TX.tx_sail
+
+/--
+info: 'ZesuExec.Compliance.TX.tx_candidate_agrees' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Compliance.TX.tx_candidate_agrees
+
+/--
+info: 'ZesuExec.Compliance.TX.tx_compliance_of' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Compliance.TX.tx_compliance_of
+
+/--
+info: 'ZesuExec.Compliance.TX.tx_compliance_sail_of' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Compliance.TX.tx_compliance_sail_of
+
+/--
+info: 'ZesuExec.Compliance.TX.tx_compliance' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Compliance.TX.tx_compliance
+
+/--
+info: 'ZesuExec.Compliance.TX.tx_compliance_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Compliance.TX.tx_compliance_sail
