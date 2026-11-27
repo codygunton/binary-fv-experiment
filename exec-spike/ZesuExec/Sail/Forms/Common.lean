@@ -367,4 +367,58 @@ theorem sim_wreg {img : Image} {m : Machine} {s : State} {w : Nat} {i : Instr}
 theorem sign_extend_eq {k : Nat} (x : BitVec k) : sign_extend (m := 64) x = x.signExtend 64 := by
   simp [sign_extend, Sail.BitVec.signExtend]
 
+theorem Machine.setReg_zero (m : Machine) (v : Word) : m.setReg ⟨0, by decide⟩ v = m := by
+  simp [Machine.setReg]
+
+/-- A fall-through instruction that changes nothing but `nextPC`'s successor. -/
+theorem sim_fall {img : Image} {m : Machine} {s : State} {w : Nat} {i : Instr}
+    (hR : Rel img m s) (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some i)
+    (hpc : Layout.textLo ≤ m.pc.toNat ∧ m.pc.toNat < Layout.textHi ∧ m.pc.toNat % 4 = 0)
+    (hexec : Runs (execute (toSail i)) (T s m.pc) (T s m.pc) (.Retire_Success ())) (n : Nat) :
+    ∃ s', Runs (try_step n false) s s' false ∧ Rel img m.advance s' := by
+  have := sim_wreg (rd := ⟨0, by decide⟩) (v := 0) hR hw hd hpc hexec n
+  rwa [Machine.setReg_zero] at this
+
+/-- The state after `execute` overwrote `nextPC` with a jump target `t`. -/
+abbrev J (s : State) (pc t : BitVec 64) : State :=
+  { T s pc with regs := (T s pc).regs.insert nextPC t }
+
+/-- A control transfer to `t` that also writes the link `link` to `x rd` (`rd = 0`: no link). -/
+theorem sim_ctl {img : Image} {m : Machine} {s : State} {w : Nat} {i : Instr}
+    (hR : Rel img m s) (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some i)
+    (hpc : Layout.textLo ≤ m.pc.toNat ∧ m.pc.toNat < Layout.textHi ∧ m.pc.toNat % 4 = 0)
+    {rd : Fin 32} {t link : Word}
+    (hexec : Runs (execute (toSail i)) (T s m.pc) (setX (J s m.pc t) rd link)
+      (.Retire_Success ()))
+    (n : Nat) :
+    ∃ s', Runs (try_step n false) s s' false ∧ Rel img { m.setReg rd link with pc := t } s' := by
+  have hmem : (setX (J s m.pc t) rd link).mem = s.mem := setX_mem _ _ _
+  refine sim_of_exec hR hw hd hpc hexec ?_ ?_ ?_ ?_ ?_ n
+  · rw [setX_get?_ne (Ne.symm (xreg_ne_nextPC rd))]; exact get?_insert_self _
+  · intro r h1 h2; rw [setX_get?_ne (Ne.symm (h2 rd))]; exact get?_insert_ne _ h1
+  · have hJ : RegsAgree m (J s m.pc t) := fun j hj => by
+      rw [get?_insert_ne _ (xreg_ne_nextPC j)]; exact RegsAgree.T (m := m) hR.regs m.pc j hj
+    exact hJ.setX rd link
+  · intro x b hb
+    rw [hmem]
+    have : ({ m.setReg rd link with pc := t } : Machine).mem = m.mem := by
+      unfold Machine.setReg; split <;> rfl
+    rw [this] at hb; exact hR.mem x b hb
+  · intro seg hseg k w hk h1 h2; unfold CodeAt; rw [hmem]; exact hR.code seg hseg k w hk h1 h2
+
+/-- A 4-aligned jump target passes the generated `jump_to` alignment checks. -/
+theorem jump_aligned {t : BitVec 64} (h : t.toNat % 4 = 0) :
+    Sail.BitVec.access t 0 = 0#1 ∧ Sail.BitVec.access t 1 = 0#1 :=
+  ⟨(fetchAligned_of_mod_four h).1, (fetchAligned_of_mod_four h).2.1⟩
+
+/-- `misa` read for the `Zca` gate of `jump_to`. -/
+theorem T_zca {img : Image} {m : Machine} {s : State} (hR : Rel img m s) (pc : BitVec 64) :
+    ∃ z, Runs (currentlyEnabled extension.Ext_Zca) (T s pc) (T s pc) z := by
+  obtain ⟨mi, hmi, _⟩ := hR.conf.misa
+  exact ⟨_, currentlyEnabledZca_run _ mi (by rw [T_get? (by decide) (by decide)]; exact hmi)⟩
+
+theorem T_pc {img : Image} {m : Machine} {s : State} (hR : Rel img m s) (pc : BitVec 64) :
+    Runs (readReg PC) (T s pc) (T s pc) m.pc :=
+  readReg_run _ PC _ (by rw [T_get? (by decide) (by decide)]; exact hR.pc)
+
 end ZesuExec.SailLink
