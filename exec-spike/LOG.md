@@ -422,7 +422,7 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   (types 0-4: `0x80000588 0x8000081c 0x8000069c 0x8000075c 0x800005dc`; the sixth word points
   outside), **no range check** — both callers (`decodeSingleTx`, `decodeTxItem`) reject
   `tx_type > 4`, so `Pre` carries `tx_type ≤ 4`; the 11 indirect calls are allocator vtable slots
-  (alloc ×7 slot 0, remap ×2 slot 2, free ×2 slot 3); 26 misaligned sites (`to` and blob-hash copies
+  (alloc ×7 slot 0, remap ×2 slot 2, free ×2 slot 3); 24 misaligned sites (`to` and blob-hash copies
   from RLP payloads, odd result offsets `0x21 0xa9 0x109 0x111 0x119`), supported since probe 3.
   `ZesuExec/Fn/DTF/Spec.lean` (draft/unreviewed): reference decoder over `F2.decode` and
   `TX.candidate` (`StateT (List Byte) Option` parsers per field helper), `Pre`/`Post` with the
