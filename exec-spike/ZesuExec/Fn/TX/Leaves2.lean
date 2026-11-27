@@ -1,4 +1,4 @@
-import ZesuExec.Fn.TX.Keys
+import ZesuExec.Fn.TX.Calls
 
 /-!
 # TX: leaves of the cuts after `ensureTotalCapacity`, `toOwnedSlice`, the allocator calls,
@@ -468,5 +468,106 @@ theorem edsame_of {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs} {kp' : Word}
         simp only [List.mem_append] at hb ⊢; exact .inr (.inl hb)), hin⟩
     · have := live_apart hlive hb hc
       simp only [InRange] at hin h; omega
+
+/-! ## `0x80000400`: after `memcpy` -/
+
+/-- `Growing` carries over when its registers and spill slots are kept. -/
+theorem growing_keep {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs} {kp' : Word}
+    (h : Growing σ mc o k kp') (hr : ∀ i ∈ ([23, 25, 27] : List (Fin 32)), m.reg i = mc.reg i)
+    (hs : ∀ j ∈ ([0x200, 0x1f8, 0x210, 0x208, 0x218, 0x220] : List Nat), ∀ t < 8,
+      m.mem (σ.sl j + BitVec.ofNat 64 t) = mc.mem (σ.sl j + BitVec.ofNat 64 t)) :
+    Growing σ m o k kp' := by
+  obtain ⟨h0, h23, h25, h27, s1, s2, s3, s4, s5, s6⟩ := h
+  have l : ∀ j ∈ ([0x200, 0x1f8, 0x210, 0x208, 0x218, 0x220] : List Nat),
+      m.load (σ.sl j) 8 = mc.load (σ.sl j) 8 := fun j hj => load_congr (hs j hj)
+  exact ⟨h0, (hr 23 (by decide)).trans h23, (hr 25 (by decide)).trans h25,
+    (hr 27 (by decide)).trans h27, (l _ (by simp)).trans s1, (l _ (by simp)).trans s2,
+    (l _ (by simp)).trans s3, (l _ (by simp)).trans s4, (l _ (by simp)).trans s5,
+    (l _ (by simp)).trans s6⟩
+
+/-- After `memcpy` of an empty list into the new block: `Allocated` again. -/
+theorem ret400_empty {σ : Sig} {m : Machine} (h : ARet memcpyC (unit Site3fc) σ m)
+    (h27 : m.reg 27 = 0) :
+    ∃ o k L kp' p'', Allocated σ m o k L kp' p'' ∧ o.ec.toNat = 0 ∧ o.done = [] := by
+  obtain ⟨hcm, -, -⟩ := ret_400 h
+  obtain ⟨mc, _, ⟨o, k, L, kp', p'', ⟨hED, hG, r22, r24, hp0, hpres⟩, ha⟩, hmc, hp⟩ := h
+  have hpre := hcm.2.1
+  have hreg := memcpy_reg hmc
+  have hec : o.ec.toNat = 0 := by rw [← hG.2.2.2.1, ← hreg 27, h27]; rfl
+  have hdone : o.done = [] := List.eq_nil_of_length_eq_zero (by rw [hG.1, hec])
+  have h12 : mc.reg 12 = w (entrySize * o.done.length) := ha.arg 2 (by simp)
+  have hn : (mc.reg 12).toNat = 0 := by
+    rw [h12, hdone]; rfl
+  have hout : ∀ a, ¬ InRange scratch 8 a → m.mem a = mc.mem a := fun a hs =>
+    memcpy_out hmc (by simp only [InRange, hn]; omega) hs
+  have hso : SameOutside (fun a => InRange scratch 8 a) mc m := fun a ha => hout a ha
+  have hlive := hED.2.2.2.2.1
+  have hheap : σ.A.Heap L m := σ.A.heap_frame' L mc m hlive.1 (fun a ha => hout a fun hs =>
+    owned_not_priv hpre (.inr (.inr (.inr hs))) (priv_sub hpre hlive ha)) (memcpy_preserved hmc)
+  have hED' := ed_congr hED hcm hheap (fun i _ => hreg i)
+    (edsame_of hpre hlive hso fun a h => .inr (.inl h))
+  have hG' := growing_keep hG (fun i _ => hreg i) fun j hj t ht => hout _ fun hs => by
+    have hk : j ≤ 576 ∧ 8 ≤ j := by
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hj
+      rcases hj with rfl | rfl | rfl | rfl | rfl | rfl <;> decide
+    have h3 := sl_toNat hpre (k := j) (by unfold stackBytes; omega)
+    have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
+    exact scratch_not_stack hpre hs (sl_in_stack hpre (k := j) (n := 8)
+      (by unfold stackBytes; omega) hk.2 (in_self (by rw [h3]; omega) ht))
+  exact ⟨o, k, L, kp', p'', ⟨hED', hG', (hreg 22).trans r22, (hreg 24).trans r24, hp0,
+    Present.of_preserved hpres (memcpy_preserved hmc)⟩, hec, hdone⟩
+
+/-- `Common` depends on memory and five registers. -/
+theorem common_congr {σ : Sig} {m m' : Machine} (h : Common σ m) (hmem : m'.mem = m.mem)
+    (hr : ∀ i : Fin 32, m'.reg i = m.reg i) : Common σ m' := by
+  obtain ⟨rm, pcm, mm⟩ := m
+  obtain ⟨r', pc', mm'⟩ := m'
+  simp only at hmem; subst hmem
+  obtain ⟨hpc, hpre, hro, h2, h8, h9, h18, h19, hsv, hst, hres, hrest, hscr, hfr⟩ := h
+  exact ⟨hpc, hpre, hro, (hr 2).trans h2, (hr 8).trans h8, (hr 9).trans h9, (hr 18).trans h18,
+    (hr 19).trans h19, hsv, hst, hres, hrest, hscr, hfr⟩
+
+/-- `Allocated` across a step that changes neither memory nor registers. -/
+theorem alloc_congr {σ : Sig} {m m' : Machine} {o : Obs} {k : Kobs} {L : List (Word × Nat)}
+    {kp' p'' : Word} (h : Allocated σ m o k L kp' p'') (hmem : m'.mem = m.mem)
+    (hr : ∀ i : Fin 32, m'.reg i = m.reg i) : Allocated σ m' o k L kp' p'' := by
+  obtain ⟨hED, hG, r22, r24, hp0, hpres⟩ := h
+  have hm : ∀ a, m'.mem a = m.mem a := fun a => by rw [hmem]
+  have hheap : σ.A.Heap L m' := σ.A.heap_frame' L m m' hED.2.2.2.2.1.1 (fun a _ => hm a)
+    ⟨fun a h => by rw [hm]; exact h, fun a _ => hm a⟩
+  refine ⟨ed_congr hED (common_congr hED.1 hmem hr) hheap (fun i _ => hr i)
+    ⟨fun t _ => hm _, fun _ _ t _ => hm _, fun _ _ t _ => hm _⟩,
+    growing_keep hG (fun i _ => hr i) (fun _ _ t _ => hm _), (hr 22).trans r22,
+    (hr 24).trans r24, hp0, fun j hj => by rw [hm]; exact hpres j hj⟩
+
+theorem TX.leaf_80000400_0 :
+    LeafGoal TX.plan TX.plan.cuts[13]! ((TX.plan.leaves 0x80000400)[0]!) := by
+  show LeafGoal TX.plan cut400 (run400_leaves[0]!)
+  have hcs : (run400_leaves[0]!).conds = [SBool.eq (Sym.var 27) (Sym.lit 0)] := by decide
+  intro σ m hA hc
+  have hsteps : (run400_leaves[0]!).S.steps - cut400.S.steps = 1 := by decide
+  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 377; unfold bTail; omega, ?_⟩
+  intro m' hm' hex hfr
+  have hx : (run400_leaves[0]!).exit = .at 0x8000042c := by decide
+  rw [hx] at hex ⊢
+  change m'.pc.toNat = 0x8000042c at hex
+  change Match (envB σ m) _ m' at hm'
+  change SameOutside (InWritable (envB σ m) SSpill) m m' at hfr
+  obtain ⟨hcm, -, hsp⟩ := ret_400 hA
+  obtain ⟨-, hm, -⟩ := spill_cut hcm hsp
+  have hmem := mem_same_nowrite hcm rfl hm' (by decide) (by decide) hfr
+  have hS : ∀ i : Fin 32, (run400_leaves[0]!).S.reg i.val = SSpill.reg i.val := by decide
+  have hregs : ∀ i : Fin 32, m'.reg i = m.reg i := fun i => by
+    rw [Match.reg_eq hm' i i.val rfl, hS i, ← Match.reg_eq hm i i.val rfl]
+  have h1 : SBool.eval (envB σ m) (SBool.eq (Sym.var 27) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; exact List.mem_singleton.mpr rfl)
+  have h27 : m.reg 27 = 0 := by simp only [SBool.eval, Sym.eval, beq_iff_eq] at h1; exact h1
+  obtain ⟨o, k, L, kp', p'', hAl, hec, hdone⟩ := ret400_empty hA h27
+  have hAl' : Allocated σ m' o k L kp' p'' := alloc_congr hAl hmem hregs
+  refine ExitGoal.at_cut rfl ⟨cut42c, by simp [TX.plan, vcPlan], hex,
+    .inl ⟨hex, o, k, L, kp', p'', ⟨hAl', by rw [hdone]; intro i hi; simp [entriesBytes] at hi⟩,
+      hec⟩, ?_⟩
+  show bTail m' 324 ≤ bTail m 377 - _
+  rw [hsteps]; unfold bTail afterEntry; rw [hregs 21, hregs 26]; omega
 
 end ZesuExec.Fn.TX
