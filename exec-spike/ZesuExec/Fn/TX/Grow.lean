@@ -1,4 +1,4 @@
-import ZesuExec.Fn.TX.Leaves2
+import ZesuExec.Fn.TX.Leaves3
 
 /-!
 # TX: growing the entries list (programme plan S6 step 6, third hand)
@@ -690,15 +690,6 @@ theorem fr_in {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {off n k n' : Nat} {a : Wor
   rw [toNat_add_ofNat (by omega)] at h
   rw [hk']; omega
 
-/-- Frame ranges `S-k` of `n` bytes and `S-k'` of `n'` bytes that do not meet. -/
-theorem fr_apart {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {k n k' n' : Nat} {a : Word} (hk : k ≤ 704)
-    (hk' : k' ≤ 704) (hd : k' + n ≤ k ∨ k + n' ≤ k') (h : InRange (σ.sl k) n a)
-    (h' : InRange (σ.sl k') n' a) : False := by
-  have h1 := sl_toNat hpre (k := k) hk
-  have h2 := sl_toNat hpre (k := k') hk'
-  have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
-  simp only [InRange, h1, h2] at h h'; omega
-
 /-- `rest`'s bytes survive a change of `Rcls` bytes only. -/
 theorem rest_bytes {σ : Sig} {mc m : Machine} (hpre : Pre σ.A σ.g σ.m) {R : Word → Prop}
     (hso : SameOutside R mc m) (hR : ∀ a, R a → Rcls σ a) :
@@ -789,7 +780,7 @@ theorem TX.leaf_8000042c_0 :
       have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
       rcases hkn with rfl | rfl <;>
-        exact fr_apart hpre (by decide) (by decide) (by decide)
+        exact sl_apart hpre (by decide) (by decide) (by decide)
           (in_self (by dsimp only at h3 ⊢; rw [h3]; omega) ht) hW')
     (fun b hb t ht => hso _ fun h => by
       have hP := (hlive.2.2 b (List.mem_append_left _ hb))
@@ -824,7 +815,7 @@ theorem TX.leaf_8000042c_0 :
   have hB' : BytesAt m' (σ.sl 0xa0) (itemPayload (ent σ o k) k.ah 20) := by
     have h3 := sl_toNat hpre (k := 0xa0) (by decide)
     have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
-    refine bytes_congr hB fun t ht => hso _ fun h => fr_apart hpre (k := 0xa0) (n := 20)
+    refine bytes_congr hB fun t ht => hso _ fun h => sl_apart hpre (k1 := 0xa0) (n1 := 20)
       (by decide) (by decide) (by decide) (in_self (by rw [h3]; omega) ?_) (hW _ h)
     simp only [itemPayload, List.length_take] at ht; omega
   refine ExitGoal.at_cut rfl ⟨cut460, by simp [TX.plan, vcPlan], hex, aes_of hex G'
@@ -846,11 +837,11 @@ theorem TX.leaf_8000042c_0 :
 theorem slots_free {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {k n : Nat} {a : Word} (hk : k ≤ 704)
     (hn : n ≤ k)
     (hd : ∀ kn ∈ ([(0x1f0, 8), (0x1c0, 24), (0x158, 20), (0xa0, 20)] : List (Nat × Nat)),
-      kn.1 + n ≤ k ∨ k + kn.2 ≤ kn.1) (h : InRange (σ.sl k) n a) :
+      k + kn.2 ≤ kn.1 ∨ kn.1 + n ≤ k) (h : InRange (σ.sl k) n a) :
     InRange (σ.sl stackBytes) stackBytes a ∧
       ∀ kn ∈ ([(0x1f0, 8), (0x1c0, 24), (0x158, 20), (0xa0, 20)] : List (Nat × Nat)),
         ¬ InRange (σ.sl kn.1) kn.2 a :=
-  ⟨sl_in_stack hpre hk hn h, fun kn hkn hin => fr_apart hpre hk (by
+  ⟨sl_in_stack hpre hk hn h, fun kn hkn hin => sl_apart hpre hk (by
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
     rcases hkn with rfl | rfl | rfl | rfl <;> decide) (hd kn hkn) h hin⟩
 
