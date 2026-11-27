@@ -121,12 +121,14 @@ def ShapeOk (σ : Sig) (sh : Shape) (m : Machine) : Prop :=
 /-- No arm before the dispatch. -/
 def ArmOk (σ : Sig) (arms : List Nat) : Prop := arms = [] ∨ σ.t ∈ arms
 
-/-- Bytes of the first `k` items of `b`, each a `decodeItem` success. -/
+/-- Bytes of the first `k` items of `b`, each a `decodeItem` success; an item consumes
+`(h + p) mod 2^64` bytes (`TX.itemConsumed`), as the binary adds it to `rest` and as the reference
+decoder's `item` drops it. -/
 def skip : Nat → List Byte → Option Nat
   | 0, _ => some 0
   | k + 1, b =>
     match F2.decode b with
-    | .success _ h p => (skip k (b.drop (h + p))).map (h + p + ·)
+    | .success _ h p => (skip k (b.drop (TX.itemConsumed h p))).map (TX.itemConsumed h p + ·)
     | .error => none
 
 def Loc.word (σ : Sig) (m : Machine) : Loc → Word
@@ -468,6 +470,9 @@ def mkCut (d : CutData) : Cut Sig where
   A := if d.pc = entry then AEntry else ACut d
   env := envOf d.shape
   budget := budgetOf d
+
+/-- The entry as a literal, so `if pc = entry` in a cut's assertion reduces (`leaf_auto`). -/
+@[zesu_simp] theorem entry_eq : entry = 0x8000050c := rfl
 
 def leavesTable : List (Nat × List Leaf) := [
   (0x8000050c, run_8000050c_leaves),
