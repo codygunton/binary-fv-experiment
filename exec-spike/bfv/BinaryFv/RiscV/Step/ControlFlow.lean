@@ -1,0 +1,758 @@
+import BinaryFv.RiscV.Step.Hart
+import BinaryFv.RiscV.Step.TryStep
+import BinaryFv.RiscV.Step.Postlude
+import BinaryFv.RiscV.Step.LandingPad
+import BinaryFv.RiscV.Platform.Fetch
+import BinaryFv.RiscV.Platform.FetchMemory
+import BinaryFv.RiscV.Logic.Framing
+import BinaryFv.RiscV.Instruction.Execute.ControlFlow
+import BinaryFv.RiscV.Model.SailEnumAux
+import BinaryFv.RiscV.Platform.StoreMemoryWrite
+import BinaryFv.RiscV.Step.TryStepStackAddi
+
+/-!
+# Normal-execution `try_step` rules for control-flow instructions
+
+This module packages the delivered control-flow execute contracts (`execute_BTYPE_taken_run`,
+`execute_BTYPE_notTaken_run`, `ret_run` from `ControlFlowStep`) through the authoritative generated
+`try_step`, exactly mirroring how the real-ELF store (`CoreStoreStepContract`) is packaged.
+
+These are the control-flow analogue of `tryStepCoreStoreRetires`: a conditional `BTYPE` (both taken
+and not-taken) and the `ret` pseudo-instruction (`jalr x0, 0(rs1)`), lifted through the generated
+`try_step` postlude.  They are the rules the `xor_block` loop's `bnez`/`beqz`/`ret` need.
+
+The one structural difference from the store/XOR packaging is that a *taken* branch (or `ret`)
+overwrites `nextPC` (set to `pc+4` by the generated base path) with the jump *target*, so the
+postlude `tick_pc` copies `PC := nextPC = target` rather than the fall-through `pc+4`.  The register
+bookkeeping is otherwise identical: the control-flow execute writes only `nextPC` (branch) or
+`nextPC` plus a discarded `x0` link (ret), so the increment/tick/retired framing carries over.  This
+is captured once by `tryStepControlFlowRetires`, whose only per-instruction inputs are the exact
+`nextPC` value in the post-execute state and the fact that every other register agrees with the
+pre-execute state.
+
+Unlike the store contract these lemmas are kept fully generic over `pc`/`word`: the fetch bytes and
+the `ext_decode` result are explicit premises, so the same rule applies at any control-flow site.
+-/
+
+namespace BinaryFv.RiscV
+
+open PreSail
+open LeanRV64DExecutable.Functions
+open Register
+
+/-! ## Post-states of the generated base path -/
+
+/-- The state after the base-instruction path writes the generated next PC (`pc+4`); shared by every
+control-flow instruction before its own execute overwrites `nextPC` on a taken jump. -/
+def coreControlFlowNextState (state : State) (pc : BitVec 64) : State :=
+  { state with regs := state.regs.insert nextPC (Sail.BitVec.addInt pc 4) }
+
+/-- The state after a taken branch (or `ret`) overwrites `nextPC` with the jump `target`. -/
+def controlFlowJumpState (state : State) (pc target : BitVec 64) : State :=
+  { coreControlFlowNextState state pc with
+    regs := (coreControlFlowNextState state pc).regs.insert nextPC target }
+
+/-! ## Lifting the control-flow execute contracts through the `execute` dispatcher -/
+
+/-- Taken conditional branch, lifted through the `execute` dispatcher. -/
+theorem executeBranchTakenDispatchRuns (s : State) (imm : BitVec 13) (rs2 rs1 : regidx) (op : bop)
+    (pcVal : BitVec 64)
+    (hcond : Runs (bTypeTaken rs2 rs1 op) s s true)
+    (hpc : Runs (readReg PC) s s pcVal)
+    (halign : Sail.BitVec.access (pcVal + sign_extend (m := 64) imm) 0 = 0#1)
+    (hbit1 : Sail.BitVec.access (pcVal + sign_extend (m := 64) imm) 1 = 0#1)
+    (zcaEnabled : Bool)
+    (hzca : Runs (currentlyEnabled extension.Ext_Zca) s s zcaEnabled) :
+    Runs (execute (.BTYPE (imm, rs2, rs1, op))) s
+      { s with regs := s.regs.insert nextPC (pcVal + sign_extend (m := 64) imm) }
+      (.Retire_Success ()) := by
+  change Runs (execute_BTYPE imm rs2 rs1 op) s _ _
+  exact execute_BTYPE_taken_run s imm rs2 rs1 op pcVal hcond hpc halign hbit1 zcaEnabled hzca
+
+/-- Not-taken conditional branch, lifted through the `execute` dispatcher (state unchanged). -/
+theorem executeBranchNotTakenDispatchRuns (s : State) (imm : BitVec 13) (rs2 rs1 : regidx)
+    (op : bop) (hcond : Runs (bTypeTaken rs2 rs1 op) s s false) :
+    Runs (execute (.BTYPE (imm, rs2, rs1, op))) s s (.Retire_Success ()) := by
+  change Runs (execute_BTYPE imm rs2 rs1 op) s _ _
+  exact execute_BTYPE_notTaken_run s imm rs2 rs1 op hcond
+
+/-- `ret` (`jalr x0, 0(rs1)`), lifted through the `execute` dispatcher. -/
+theorem executeRetDispatchRuns (s : State) (rs1 : regidx) (linkVal rs1Val : BitVec 64)
+    (helpElp : Runs (update_elp_state rs1) s s ())
+    (hlink : Runs (get_next_pc ()) s s linkVal)
+    (hrs1 : Runs (rX_bits rs1) s s rs1Val)
+    (hbit1 : Sail.BitVec.access rs1Val 1 = 0#1)
+    (zcaEnabled : Bool)
+    (hzca : Runs (currentlyEnabled extension.Ext_Zca) s s zcaEnabled) :
+    Runs (execute (.JALR (0#12, rs1, zreg))) s
+      { s with regs := s.regs.insert nextPC (Sail.BitVec.update rs1Val 0 0#1) }
+      (.Retire_Success ()) := by
+  change Runs (execute_JALR 0#12 rs1 zreg) s _ _
+  exact ret_run s rs1 linkVal rs1Val helpElp hlink hrs1 hbit1 zcaEnabled hzca
+
+/-! ## Shared active-hart retirement -/
+
+/-- Compose explicit base-fetch/decoder premises with an arbitrary control-flow execute contract.
+
+This is the control-flow analogue of the base retire packaging: the fetch,
+interrupt-dispatch, landing-pad and `nextPC`-write bookkeeping is identical; only the `execute`
+premise (and the decoded `instruction`/post-execute state it produces) is instruction-specific. -/
+theorem runHartActiveControlFlow (stepNo : Nat) (state afterExec : State) (pc : BitVec 64)
+    (byte0 byte1 byte2 byte3 : BitVec 8) (inst : instruction)
+    (platform : FetchBasePlatform state pc) (noMMIO : FetchMemoryNoMMIO state pc)
+    (bytes : FetchBytesAt state pc byte0 byte1 byte2 byte3)
+    (interrupts : InterruptDisabled state) (base : BaseInstructionEncoding byte0)
+    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3)) state state inst)
+    (notExpected : LandingPadNotExpected state)
+    (execute : Runs (execute inst) (coreControlFlowNextState state pc) afterExec
+      (.Retire_Success ())) :
+    Runs (run_hart_active stepNo) state afterExec
+      (.Step_Execute (.Retire_Success (),
+        zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3))) := by
+  have fetchBytes : FetchBytesBaseContract state pc byte0 byte1 byte2 byte3 :=
+    fetch_bytes_machine_instructionFetch_fetch_word_run state pc byte0 byte1 byte2 byte3 platform
+      noMMIO bytes
+  have fetch : Runs (fetch ()) state state (.F_Base (fetchWord byte0 byte1 byte2 byte3)) :=
+    fetch_base_of_fetchBytes state pc byte0 byte1 byte2 byte3 platform base fetchBytes
+  rcases platform with ⟨misaBits, mstatusBits, pcRead, misaRead, mstatusRead, privilegeRead,
+    pcLow0, pcLow1, alignedVaddr, alignedPaddr, pmpDisabled, pmaAllows⟩
+  have dispatch : Runs (dispatchInterrupt Privilege.Machine) state state none := by
+    unfold Runs
+    exact dispatchInterrupt_disabled state Privilege.Machine interrupts
+  have landingPad : Runs (is_landing_pad_expected ()) state state false :=
+    landingPad_notExpected state notExpected
+  have nextPc : Runs (Sail.writeReg nextPC (Sail.BitVec.addInt pc 4)) state
+      (coreControlFlowNextState state pc) PUnit.unit := by
+    simpa [coreControlFlowNextState] using writeNextPc_run state pc
+  exact runHartActiveBaseRetires stepNo state state (coreControlFlowNextState state pc) afterExec
+    Privilege.Machine (fetchWord byte0 byte1 byte2 byte3) inst pc privilegeRead dispatch fetch decode
+    landingPad pcRead nextPc execute
+
+/-! ## `try_step` packaging -/
+
+/-- The state after the generated `try_step` counter-increment write. -/
+def tryStepControlFlowAfterIncrement (state : State) : State :=
+  { state with regs := state.regs.insert minstret_increment true }
+
+/-- The state after the generated `try_step` PC-tick postlude copies `PC := nextPC = targetPC`. -/
+def tryStepControlFlowAfterTick (afterExec : State) (targetPC : BitVec 64) : State :=
+  { afterExec with regs := afterExec.regs.insert PC targetPC }
+
+/-- The state after the generated `try_step` retired-counter write. -/
+def tryStepControlFlowAfterRetired (afterExec : State) (targetPC retired : BitVec 64) : State :=
+  { tryStepControlFlowAfterTick afterExec targetPC with
+    regs := (tryStepControlFlowAfterTick afterExec targetPC).regs.insert minstret
+      (Sail.BitVec.addInt retired 1) }
+
+/-! ### Memory frames of the `try_step` bookkeeping
+
+Each bookkeeping post-state above is a register update, so its memory is the memory it was handed.
+Registering these as `@[grind =]` is what lets a caller transport a memory-shaped fact across a
+step with a bare `grind`, instead of naming the step definitions in a `simp` set and paying the
+step-unfolding penalty to rediscover an equation that is `rfl`. -/
+
+/-- The counter-increment write leaves memory alone. -/
+@[grind =] theorem tryStepControlFlowAfterIncrement_mem (state : State) :
+    (tryStepControlFlowAfterIncrement state).mem = state.mem := rfl
+
+/-- The PC tick leaves memory alone. -/
+@[grind =] theorem tryStepControlFlowAfterTick_mem (afterExec : State) (targetPC : BitVec 64) :
+    (tryStepControlFlowAfterTick afterExec targetPC).mem = afterExec.mem := rfl
+
+/-- The retired-counter write leaves memory alone; whatever the execute step did to memory is
+carried in `afterExec`. -/
+@[grind =] theorem tryStepControlFlowAfterRetired_mem (afterExec : State)
+    (targetPC retired : BitVec 64) :
+    (tryStepControlFlowAfterRetired afterExec targetPC retired).mem = afterExec.mem := rfl
+
+/-- The generated next-PC write leaves memory alone. -/
+@[grind =] theorem coreControlFlowNextState_mem (state : State) (pc : BitVec 64) :
+    (coreControlFlowNextState state pc).mem = state.mem := rfl
+
+/-- A taken jump's `nextPC` overwrite leaves memory alone. -/
+@[grind =] theorem controlFlowJumpState_mem (state : State) (pc target : BitVec 64) :
+    (controlFlowJumpState state pc target).mem = state.mem := rfl
+
+/-! ## Write sets of the generated post-states
+
+Each definition above writes a fixed, small set of registers. Naming that set once lets any later
+proof read any register outside it by membership check, instead of unfolding the definition and
+projecting `Std.ExtDHashMap.get?_insert` by hand. See `BinaryFv.RiscV.WritesOnlyRegs`.
+-/
+
+/-- The four registers the generated `try_step` bookkeeping writes across a full retirement:
+the counter enable, the base-path next PC, the ticked PC, and the retired counter. Every post-state
+below writes a subset of this, plus at most one instruction-specific register. -/
+@[reducible] def stepBookkeeping : RegSet := fun r =>
+  r = PC ∨ r = nextPC ∨ r = minstret ∨ r = minstret_increment
+
+/-- What the retirement postlude writes relative to the post-execute state. -/
+@[reducible] def retirementWrites : RegSet := fun r => r = PC ∨ r = minstret
+
+theorem coreControlFlowNextState_writes (state : State) (pc : BitVec 64) :
+    WritesOnlyRegs (RegSet.only nextPC) state (coreControlFlowNextState state pc) :=
+  fun r hr => by
+    simpa [coreControlFlowNextState] using
+      writeReg_read_unchanged state nextPC r (Sail.BitVec.addInt pc 4) hr
+
+/-- `controlFlowJumpState` writes `nextPC` twice — once on the base path, once with the jump target
+— so its write set is still the singleton. This is why `WritesOnlyRegs.trans` must not require its
+two sets to be disjoint. -/
+theorem controlFlowJumpState_writes (state : State) (pc target : BitVec 64) :
+    WritesOnlyRegs (RegSet.only nextPC) state (controlFlowJumpState state pc target) :=
+  fun r hr => by
+    calc (controlFlowJumpState state pc target).regs.get? r
+        = (coreControlFlowNextState state pc).regs.get? r := by
+          simpa [controlFlowJumpState] using
+            writeReg_read_unchanged (coreControlFlowNextState state pc) nextPC r target hr
+      _ = state.regs.get? r := coreControlFlowNextState_writes state pc r hr
+
+theorem tryStepControlFlowAfterIncrement_writes (state : State) :
+    WritesOnlyRegs (RegSet.only minstret_increment) state
+      (tryStepControlFlowAfterIncrement state) :=
+  fun r hr => by
+    simpa [tryStepControlFlowAfterIncrement] using
+      writeReg_read_unchanged state minstret_increment r true hr
+
+theorem tryStepControlFlowAfterTick_writes (afterExec : State) (targetPC : BitVec 64) :
+    WritesOnlyRegs (RegSet.only PC) afterExec (tryStepControlFlowAfterTick afterExec targetPC) :=
+  fun r hr => by
+    simpa [tryStepControlFlowAfterTick] using
+      writeReg_read_unchanged afterExec PC r targetPC hr
+
+theorem tryStepControlFlowAfterRetired_writes (afterExec : State) (targetPC retired : BitVec 64) :
+    WritesOnlyRegs retirementWrites afterExec
+      (tryStepControlFlowAfterRetired afterExec targetPC retired) :=
+  fun r hr => by
+    calc (tryStepControlFlowAfterRetired afterExec targetPC retired).regs.get? r
+        = (tryStepControlFlowAfterTick afterExec targetPC).regs.get? r := by
+          simpa [tryStepControlFlowAfterRetired] using
+            writeReg_read_unchanged (tryStepControlFlowAfterTick afterExec targetPC) minstret r
+              (Sail.BitVec.addInt retired 1) (fun h => hr (Or.inr h))
+      _ = afterExec.regs.get? r :=
+          tryStepControlFlowAfterTick_writes afterExec targetPC r (fun h => hr (Or.inl h))
+
+/-- The state every execute contract states its premises at, and its write set.
+
+This composition — increment then base-path next PC — is the one re-derived inline 465 times across
+24 files, more than any other. Through this lemma each observation of a register it does not write
+is `(stepPremiseState_writes state pc).get x2 (by decide)`. -/
+theorem stepPremiseState_writes (state : State) (pc : BitVec 64) :
+    WritesOnlyRegs stepBookkeeping state
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) :=
+  ((tryStepControlFlowAfterIncrement_writes state).mono
+      (fun _ h => Or.inr (Or.inr (Or.inr h)))).trans_same
+    ((coreControlFlowNextState_writes _ pc).mono (fun _ h => Or.inr (Or.inl h)))
+
+/-- The write set of a complete fall-through retirement that writes no destination register:
+increment, base-path next PC, tick, retired counter.
+
+Like `jumpRetirement_writes`, the set is exactly `stepBookkeeping`. A comparison or branch-not-taken
+step has this shape, and `afterRegisterWrite` is this shape plus one destination. -/
+theorem fallThroughRetirement_writes (state : State) (pc target retired : BitVec 64) :
+    WritesOnlyRegs stepBookkeeping state
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) target retired) :=
+  (stepPremiseState_writes state pc).trans_same
+    ((tryStepControlFlowAfterRetired_writes _ target retired).mono
+      (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h)))))
+
+/-- The write set of a complete jump retirement: increment, jump, tick, retired counter.
+
+Its write set is exactly `stepBookkeeping` — a jump writes no architectural register beyond the
+bookkeeping, because the target goes to `nextPC`, which the bookkeeping already contains. So every
+jump composite in the tree (`wrapperDispatchTag1BranchAfter`, `wrapperDispatchTag3BranchAfter`, the
+retry branch post-states) is an instance of this one lemma rather than needing its own row. -/
+theorem jumpRetirement_writes (state : State) (pc target retired : BitVec 64) :
+    WritesOnlyRegs stepBookkeeping state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target) target retired) :=
+  ((tryStepControlFlowAfterIncrement_writes state).mono
+      (fun _ h => Or.inr (Or.inr (Or.inr h)))).trans_same
+    (((controlFlowJumpState_writes _ pc target).mono
+        (fun _ h => Or.inr (Or.inl h))).trans_same
+      ((tryStepControlFlowAfterRetired_writes _ target retired).mono
+        (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h))))))
+
+/-- The write set of a complete `addi sp, sp, imm` retirement: the `try_step` bookkeeping plus the
+stack pointer itself.
+
+This is the fourth retirement shape, alongside fall-through, jump and store. It was the gap that
+left `Level2Epilogue`'s prologue and epilogue stack restores — `wrapperAfterFirstStackRestore` and
+`wrapperAfterFinalStackRestore` — with no frame lemma to reduce to, so their register reads and
+`Agree` blocks stayed hand-written while every other shape collapsed.
+
+`x2` is kept as a separate `RegSet.only` rather than folded into a closed set for the same reason
+`afterRegisterWrite`'s destination is: `RegSet.Disjoint.union` then splits a later obligation into
+the bookkeeping fact, proved once per preserved predicate, and the single disequality about `x2`. -/
+theorem stackAddiRetirement_writes (state : State) (pc : BitVec 64) (immediate : BitVec 12)
+    (stackValue retired : BitVec 64) :
+    WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only x2)) state
+      (tryStepStackAddiAfterRetired state pc immediate stackValue retired) :=
+  fun r hr => by
+    have hx2 : x2 ≠ r := fun h => hr (Or.inr h.symm)
+    have hpc : PC ≠ r := fun h => hr (Or.inl (Or.inl h.symm))
+    have hnpc : nextPC ≠ r := fun h => hr (Or.inl (Or.inr (Or.inl h.symm)))
+    have hmr : minstret ≠ r := fun h => hr (Or.inl (Or.inr (Or.inr (Or.inl h.symm))))
+    have hmi : minstret_increment ≠ r := fun h => hr (Or.inl (Or.inr (Or.inr (Or.inr h.symm))))
+    simp [tryStepStackAddiAfterRetired, tryStepStackAddiAfterTick, tryStepStackAddiAfterActive,
+      tryStepStackAddiAfterIncrement, stackAddiRetiredState, stackAddiNextState,
+      Std.ExtDHashMap.get?_insert, hx2, hpc, hnpc, hmr, hmi]
+
+/-- No register the platform preserves is one the `try_step` bookkeeping writes.
+
+Proved once for the whole repository. The case split is on `platformPreserved`'s eighteen disjuncts,
+never on `Register`'s 176 constructors; each branch closes by `decide` against the `@[reducible]`
+write set. `platformPreserved` is itself a plain `def`, so `¬ platformPreserved r` is not
+`Decidable` and this cannot be done the other way round. -/
+theorem platformPreserved_disjoint : RegSet.Disjoint platformPreserved stepBookkeeping := by
+  rintro r (rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl) <;> decide
+
+theorem platformPreserved_disjoint_retirement :
+    RegSet.Disjoint platformPreserved retirementWrites :=
+  platformPreserved_disjoint.subset (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h))))
+
+/--
+Shared `try_step` postlude for a control-flow instruction.
+
+The post-execute state `afterExec` is abstracted by two facts: its `nextPC` holds `targetPC` (the
+value `tick_pc` copies into `PC`), and every register other than `nextPC` agrees with the
+pre-execute (`tryStepControlFlowAfterIncrement`) state.  Both hold for a fall-through (`nextPC`
+untouched at `pc+4`) and a jump (`nextPC` overwritten with the target); the control-flow execute
+touches no other register (branch) or only the discarded `x0` link (ret).
+-/
+theorem tryStepControlFlowRetires (stepNo : Nat) (state afterExec : State)
+    (targetPC retired : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64) (instbits : BitVec 32)
+    (privilegeAfterInc :
+      (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege = some Privilege.Machine)
+    (active : Runs (run_hart_active stepNo) (tryStepControlFlowAfterIncrement state) afterExec
+      (.Step_Execute (.Retire_Success (), instbits)))
+    (nextPcAfterExec : afterExec.regs.get? nextPC = some targetPC)
+    (agree : ∀ r : Register, r ≠ nextPC →
+      afterExec.regs.get? r = (tryStepControlFlowAfterIncrement state).regs.get? r)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired afterExec targetPC retired) false := by
+  have privilege : state.regs.get? cur_privilege = some Privilege.Machine := by
+    calc
+      state.regs.get? cur_privilege =
+          (tryStepControlFlowAfterIncrement state).regs.get? cur_privilege := by
+            symm
+            simpa [tryStepControlFlowAfterIncrement] using
+              writeReg_read_unchanged state minstret_increment cur_privilege true (by decide)
+      _ = some Privilege.Machine := privilegeAfterInc
+  have shouldIncrement : Runs (should_inc_minstret Privilege.Machine) state state true :=
+    shouldIncMinstretMachine state inhibit config inhibitRead configRead notInhibited machineEnabled
+  have increment : Runs (Sail.writeReg minstret_increment true) state
+      (tryStepControlFlowAfterIncrement state) PUnit.unit := by
+    simpa [tryStepControlFlowAfterIncrement] using writeReg_run state minstret_increment true
+  have hartAfterIncrement :
+      (tryStepControlFlowAfterIncrement state).regs.get? hart_state = some (.HART_ACTIVE ()) := by
+    calc
+      (tryStepControlFlowAfterIncrement state).regs.get? hart_state =
+          state.regs.get? hart_state := by
+            simpa [tryStepControlFlowAfterIncrement] using
+              writeReg_read_unchanged state minstret_increment hart_state true (by decide)
+      _ = some (.HART_ACTIVE ()) := hartRead
+  have hartAfterActive : afterExec.regs.get? hart_state = some (.HART_ACTIVE ()) := by
+    rw [agree hart_state (by decide)]; exact hartAfterIncrement
+  have tick : Runs (tick_pc ()) afterExec (tryStepControlFlowAfterTick afterExec targetPC) () := by
+    simpa [tryStepControlFlowAfterTick] using tickPc_run afterExec targetPC nextPcAfterExec
+  have incrementAfterInc :
+      (tryStepControlFlowAfterIncrement state).regs.get? minstret_increment = some true := by
+    change (state.regs.insert minstret_increment true).get? minstret_increment = some true
+    rw [Std.ExtDHashMap.get?_insert]
+    simp
+  have incrementAfterTick :
+      (tryStepControlFlowAfterTick afterExec targetPC).regs.get? minstret_increment = some true := by
+    calc
+      (tryStepControlFlowAfterTick afterExec targetPC).regs.get? minstret_increment =
+          afterExec.regs.get? minstret_increment := by
+            simpa [tryStepControlFlowAfterTick] using
+              writeReg_read_unchanged afterExec PC minstret_increment targetPC (by decide)
+      _ = (tryStepControlFlowAfterIncrement state).regs.get? minstret_increment :=
+          agree minstret_increment (by decide)
+      _ = some true := incrementAfterInc
+  have retiredAfterTick :
+      (tryStepControlFlowAfterTick afterExec targetPC).regs.get? minstret = some retired := by
+    calc
+      (tryStepControlFlowAfterTick afterExec targetPC).regs.get? minstret =
+          afterExec.regs.get? minstret := by
+            simpa [tryStepControlFlowAfterTick] using
+              writeReg_read_unchanged afterExec PC minstret targetPC (by decide)
+      _ = (tryStepControlFlowAfterIncrement state).regs.get? minstret :=
+          agree minstret (by decide)
+      _ = state.regs.get? minstret := by
+            simpa [tryStepControlFlowAfterIncrement] using
+              writeReg_read_unchanged state minstret_increment minstret true (by decide)
+      _ = some retired := retiredRead
+  have writeRetired : Runs (Sail.writeReg minstret (Sail.BitVec.addInt retired 1))
+      (tryStepControlFlowAfterTick afterExec targetPC)
+      (tryStepControlFlowAfterRetired afterExec targetPC retired) PUnit.unit := by
+    simpa [tryStepControlFlowAfterRetired] using
+      writeReg_run (tryStepControlFlowAfterTick afterExec targetPC) minstret
+        (Sail.BitVec.addInt retired 1)
+  exact tryStepRetires stepNo state (tryStepControlFlowAfterIncrement state) afterExec
+    (tryStepControlFlowAfterTick afterExec targetPC)
+    (tryStepControlFlowAfterRetired afterExec targetPC retired) Privilege.Machine retired instbits
+    privilege shouldIncrement increment hartAfterIncrement active hartAfterActive tick
+    incrementAfterTick retiredAfterTick writeRetired
+
+/-! ### Taken conditional branch -/
+
+/--
+Lift a taken conditional `BTYPE` branch through the authoritative generated `try_step`.
+
+The decoded `.BTYPE (imm, rs2, rs1, op)`, the branch condition (`bTypeTaken … true`), the read of
+`PC`, the target alignment and the `Ext_Zca` read are all explicit premises about the post-increment
+/ post-`nextPC` state, so they can be discharged at the `Triple` layer.  The final state has
+`nextPC = PC = pc + sext imm`, `minstret = retired+1`, `minstret_increment = true`, all other
+registers preserved.
+-/
+theorem tryStepBranchTakenRetires (stepNo : Nat) (state : State)
+    (pc pcVal retired : BitVec 64) (imm : BitVec 13) (rs2 rs1 : regidx) (op : bop)
+    (inhibit : BitVec 32) (config : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
+    (zcaEnabled : Bool)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
+    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
+    (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (base : BaseInstructionEncoding byte0)
+    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.BTYPE (imm, rs2, rs1, op)))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (hcond : Runs (bTypeTaken rs2 rs1 op)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) true)
+    (hpc : Runs (readReg PC)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) pcVal)
+    (halign : Sail.BitVec.access (pcVal + sign_extend (m := 64) imm) 0 = 0#1)
+    (hbit1 : Sail.BitVec.access (pcVal + sign_extend (m := 64) imm) 1 = 0#1)
+    (hzca : Runs (currentlyEnabled extension.Ext_Zca)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) zcaEnabled)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+          (pcVal + sign_extend (m := 64) imm))
+        (pcVal + sign_extend (m := 64) imm) retired) false := by
+  have exec : Runs (execute (.BTYPE (imm, rs2, rs1, op)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+        (pcVal + sign_extend (m := 64) imm)) (.Retire_Success ()) := by
+    unfold controlFlowJumpState
+    exact executeBranchTakenDispatchRuns
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) imm rs2 rs1 op pcVal
+      hcond hpc halign hbit1 zcaEnabled hzca
+  have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state)
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+      (pcVal + sign_extend (m := 64) imm)) pc byte0 byte1 byte2 byte3 (.BTYPE (imm, rs2, rs1, op))
+    platform noMMIO bytes interrupts base decode notExpected exec
+  have nextPcAfterExec :
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+        (pcVal + sign_extend (m := 64) imm)).regs.get? nextPC =
+        some (pcVal + sign_extend (m := 64) imm) := by
+    change ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert nextPC
+      (pcVal + sign_extend (m := 64) imm)).get? nextPC = some (pcVal + sign_extend (m := 64) imm)
+    rw [Std.ExtDHashMap.get?_insert]
+    simp
+  have agree : ∀ r : Register, r ≠ nextPC →
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+        (pcVal + sign_extend (m := 64) imm)).regs.get? r =
+        (tryStepControlFlowAfterIncrement state).regs.get? r := by
+    intro r hr
+    calc
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+          (pcVal + sign_extend (m := 64) imm)).regs.get? r =
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get? r := by
+            simpa [controlFlowJumpState] using
+              writeReg_read_unchanged
+                (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) nextPC r
+                (pcVal + sign_extend (m := 64) imm) hr
+      _ = (tryStepControlFlowAfterIncrement state).regs.get? r := by
+            simpa [coreControlFlowNextState] using
+              writeReg_read_unchanged (tryStepControlFlowAfterIncrement state) nextPC r
+                (Sail.BitVec.addInt pc 4) hr
+  rcases platform with ⟨_, _, _, _, _, privilegeAfterInc, _⟩
+  exact tryStepControlFlowRetires stepNo state
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+      (pcVal + sign_extend (m := 64) imm)) (pcVal + sign_extend (m := 64) imm) retired inhibit config
+    (zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3)) privilegeAfterInc active
+    nextPcAfterExec agree hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+
+/-! ### Not-taken conditional branch -/
+
+/--
+Lift a not-taken conditional `BTYPE` branch through the authoritative generated `try_step`.
+
+Identical bookkeeping to the store/XOR fall-through: the branch retires without touching `nextPC`
+(still `pc+4`), so the final state has `nextPC = PC = pc+4`, `minstret = retired+1`,
+`minstret_increment = true`, all other registers preserved.
+-/
+theorem tryStepBranchNotTakenRetires (stepNo : Nat) (state : State)
+    (pc retired : BitVec 64) (imm : BitVec 13) (rs2 rs1 : regidx) (op : bop)
+    (inhibit : BitVec 32) (config : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
+    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
+    (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (base : BaseInstructionEncoding byte0)
+    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.BTYPE (imm, rs2, rs1, op)))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (hcond : Runs (bTypeTaken rs2 rs1 op)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) false)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+        (Sail.BitVec.addInt pc 4) retired) false := by
+  have exec : Runs (execute (.BTYPE (imm, rs2, rs1, op)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) (.Retire_Success ()) :=
+    executeBranchNotTakenDispatchRuns
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) imm rs2 rs1 op hcond
+  have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state)
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) pc byte0 byte1 byte2 byte3
+    (.BTYPE (imm, rs2, rs1, op)) platform noMMIO bytes interrupts base decode notExpected exec
+  have nextPcAfterExec :
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get? nextPC =
+        some (Sail.BitVec.addInt pc 4) := by
+    change ((tryStepControlFlowAfterIncrement state).regs.insert nextPC
+      (Sail.BitVec.addInt pc 4)).get? nextPC = some (Sail.BitVec.addInt pc 4)
+    rw [Std.ExtDHashMap.get?_insert]
+    simp
+  have agree : ∀ r : Register, r ≠ nextPC →
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get? r =
+        (tryStepControlFlowAfterIncrement state).regs.get? r := by
+    intro r hr
+    simpa [coreControlFlowNextState] using
+      writeReg_read_unchanged (tryStepControlFlowAfterIncrement state) nextPC r
+        (Sail.BitVec.addInt pc 4) hr
+  rcases platform with ⟨_, _, _, _, _, privilegeAfterInc, _⟩
+  exact tryStepControlFlowRetires stepNo state
+    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) (Sail.BitVec.addInt pc 4)
+    retired inhibit config (zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3))
+    privilegeAfterInc active nextPcAfterExec agree hartRead inhibitRead configRead notInhibited
+    machineEnabled retiredRead
+
+/-! ### `ret` -/
+
+/--
+Lift `ret` (`jalr x0, 0(rs1)`) through the authoritative generated `try_step`.
+
+The decoded `.JALR (0, rs1, x0)`, the ELP update, the link read, the `rs1` read, the target
+alignment and the `Ext_Zca` read are explicit premises about the post-increment / post-`nextPC`
+state.  The final state has `nextPC = PC = rs1 with bit 0 cleared`, `minstret = retired+1`,
+`minstret_increment = true`, all other registers preserved (the `x0` link write is discarded).
+-/
+theorem tryStepRetRetires (stepNo : Nat) (state : State)
+    (pc retired : BitVec 64) (rs1 : regidx) (linkVal rs1Val : BitVec 64)
+    (inhibit : BitVec 32) (config : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
+    (zcaEnabled : Bool)
+    (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
+    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
+    (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
+    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
+    (base : BaseInstructionEncoding byte0)
+    (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
+      (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
+      (.JALR (0#12, rs1, zreg)))
+    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
+    (helpElp : Runs (update_elp_state rs1)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) ())
+    (hlink : Runs (get_next_pc ())
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) linkVal)
+    (hrs1 : Runs (rX_bits rs1)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) rs1Val)
+    (hbit1 : Sail.BitVec.access rs1Val 1 = 0#1)
+    (hzca : Runs (currentlyEnabled extension.Ext_Zca)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) zcaEnabled)
+    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
+    (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
+    (configRead : state.regs.get? minstretcfg = some config)
+    (notInhibited : _get_Counterin_IR inhibit = 0#1)
+    (machineEnabled : _get_CountSmcntrpmf_MINH config = 0#1)
+    (retiredRead : state.regs.get? minstret = some retired) :
+    Runs (try_step stepNo false) state
+      (tryStepControlFlowAfterRetired
+        (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+          (Sail.BitVec.update rs1Val 0 0#1))
+        (Sail.BitVec.update rs1Val 0 0#1) retired) false := by
+  have exec : Runs (execute (.JALR (0#12, rs1, zreg)))
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+        (Sail.BitVec.update rs1Val 0 0#1)) (.Retire_Success ()) := by
+    unfold controlFlowJumpState
+    exact executeRetDispatchRuns
+      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) rs1 linkVal rs1Val
+      helpElp hlink hrs1 hbit1 zcaEnabled hzca
+  have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state)
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+      (Sail.BitVec.update rs1Val 0 0#1)) pc byte0 byte1 byte2 byte3 (.JALR (0#12, rs1, zreg))
+    platform noMMIO bytes interrupts base decode notExpected exec
+  have nextPcAfterExec :
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+        (Sail.BitVec.update rs1Val 0 0#1)).regs.get? nextPC =
+        some (Sail.BitVec.update rs1Val 0 0#1) := by
+    change ((coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.insert nextPC
+      (Sail.BitVec.update rs1Val 0 0#1)).get? nextPC = some (Sail.BitVec.update rs1Val 0 0#1)
+    rw [Std.ExtDHashMap.get?_insert]
+    simp
+  have agree : ∀ r : Register, r ≠ nextPC →
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+        (Sail.BitVec.update rs1Val 0 0#1)).regs.get? r =
+        (tryStepControlFlowAfterIncrement state).regs.get? r := by
+    intro r hr
+    calc
+      (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+          (Sail.BitVec.update rs1Val 0 0#1)).regs.get? r =
+          (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get? r := by
+            simpa [controlFlowJumpState] using
+              writeReg_read_unchanged
+                (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) nextPC r
+                (Sail.BitVec.update rs1Val 0 0#1) hr
+      _ = (tryStepControlFlowAfterIncrement state).regs.get? r := by
+            simpa [coreControlFlowNextState] using
+              writeReg_read_unchanged (tryStepControlFlowAfterIncrement state) nextPC r
+                (Sail.BitVec.addInt pc 4) hr
+  rcases platform with ⟨_, _, _, _, _, privilegeAfterInc, _⟩
+  exact tryStepControlFlowRetires stepNo state
+    (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
+      (Sail.BitVec.update rs1Val 0 0#1)) (Sail.BitVec.update rs1Val 0 0#1) retired inhibit config
+    (zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3)) privilegeAfterInc active
+    nextPcAfterExec agree hartRead inhibitRead configRead notInhibited machineEnabled retiredRead
+
+/-! ## Observations every retirement shares
+
+Whatever an instruction did, `tryStepControlFlowAfterRetired` is the last thing that runs, so the
+facts every successor-state family states about its own post-state -- where `PC` landed, and that
+`minstret` is still readable -- are properties of this one transformer, not of the instruction.
+Stating them once is what lets a successor state's `_pc` and `_retired_present` be a citation
+rather than a `simp` over four unfolded definitions.
+
+The `PC` half already exists as `Elfling.tryStepControlFlowAfterRetired_pc` in
+`RiscV/Elfling/SentinelBridge.lean`; restating it here would make the name ambiguous in every file
+that opens both namespaces, so cite that one. Only the counter half is new.
+-/
+
+/-- A retirement writes `minstret`, so the retired counter is present after it. -/
+theorem tryStepControlFlowAfterRetired_retired_present (afterExec : State)
+    (targetPC retired : BitVec 64) :
+    RetiredCounterPresent (tryStepControlFlowAfterRetired afterExec targetPC retired) := by
+  refine ⟨Sail.BitVec.addInt retired 1, ?_⟩
+  change ((tryStepControlFlowAfterTick afterExec targetPC).regs.insert minstret
+    (Sail.BitVec.addInt retired 1)).get? minstret = some (Sail.BitVec.addInt retired 1)
+  rw [Std.ExtDHashMap.get?_insert]
+  simp
+
+/-! ## The two remaining retirement shapes
+
+`stepPremiseState_writes`, `fallThroughRetirement_writes` and `jumpRetirement_writes` above cover
+the instructions that write no register beyond the bookkeeping, and `afterRegisterWrite_writes`
+covers the one that writes a destination. Two shapes are left, and between them they account for
+every remaining hand-rolled successor-state family: a *store*, which writes memory instead of a
+register, and a *call*, which writes a link register on top of a jump.
+-/
+
+/-- One register write, named as a write set. The building block of the call shape below and of
+`afterRegisterWrite_writes`; `RegSet.only` keeps the *parameter* `written` separate so
+`RegSet.Disjoint.union` can split a later obligation along it. -/
+theorem afterOneRegisterWrite_writes (state : State) (written : Register)
+    (value : RegisterType written) :
+    WritesOnlyRegs (RegSet.only written) state
+      { state with regs := state.regs.insert written value } :=
+  fun r hr => writeReg_read_unchanged state written r value hr
+
+/-- **The store shape, register side.** A store's execute stage writes memory and nothing else, so
+its whole retirement writes exactly the bookkeeping -- the same set as a fall-through.
+
+`congr_regs` is what makes this a two-line composition: `afterWriteBytes_regs` says the memory write
+leaves `regs` alone, so the register-side reasoning never has to look inside the byte list. Every
+`*AfterDwordStore` / `*AfterStatusStore` / `*AfterContextStore` successor state is an instance. -/
+theorem storeRetirement_writes (state : State) (pc targetPC retired : BitVec 64) (address : Nat)
+    {width : Nat} (value : BitVec (8 * width)) :
+    WritesOnlyRegs stepBookkeeping state
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+          address value) targetPC retired) :=
+  ((stepPremiseState_writes state pc).congr_regs
+      (afterWriteBytes_regs _ address value)).trans_same
+    ((tryStepControlFlowAfterRetired_writes _ targetPC retired).mono
+      (fun _ h => h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h)))))
+
+/-- **The store shape, memory side.** Everything outside the `width` bytes at `address` reads
+through the whole retirement, because the three register writes around the store do not touch
+memory at all.
+
+The conclusion is stated in the exact shape of `Zesu.Contracts.WritesOnlyWithin` at the region
+`Contracts.range address width`, so a caller above the contract layer can use it at that type
+directly; it is spelled out rather than named because `Contracts` sits far above this module in the
+import order. -/
+theorem storeRetirement_mem_writes (state : State) (pc targetPC retired : BitVec 64) (address : Nat)
+    {width : Nat} (value : BitVec (8 * width)) :
+    ∀ other : Nat, ¬ (address ≤ other ∧ other < address + width) →
+      (tryStepControlFlowAfterRetired
+        (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+          address value) targetPC retired).mem.get? other = state.mem.get? other := by
+  intro other outside
+  have missed : ∀ index : Fin width, address + index.val ≠ other := by
+    intro index equal
+    have bound := index.isLt
+    exact outside (by omega)
+  change (afterWriteBytes (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
+    address value).mem.get? other = state.mem.get? other
+  rw [afterWriteBytes_mem_get?_of_outside _ address value other missed]
+  rfl
+
+/-- **The call shape.** A link-writing call is a jump plus one register write, so its write set is
+the bookkeeping plus the link register -- the same shape as `afterRegisterWrite_writes`, with the
+destination replaced by the link.
+
+`Step/Call.lean`'s `callLinkState` is *definitionally* the post-execute state written out here; it
+cannot be named because that module imports this one. `callRetirement_writes_callLinkState` in
+`Zesu/MachineExecution/Level2OutcomeDispatch.lean` pins that, from a file that sees both. -/
+theorem callRetirement_writes (state : State) (pc target retired : BitVec 64) (linkReg : Register)
+    (linkVal : RegisterType linkReg) :
+    WritesOnlyRegs (RegSet.union stepBookkeeping (RegSet.only linkReg)) state
+      (tryStepControlFlowAfterRetired
+        { controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target with
+          regs :=
+            (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc target).regs.insert
+              linkReg linkVal }
+        target retired) :=
+  ((tryStepControlFlowAfterIncrement_writes state).mono
+      (fun _ h => Or.inl (Or.inr (Or.inr (Or.inr h))))).trans_same
+    (((controlFlowJumpState_writes _ pc target).mono
+        (fun _ h => Or.inl (Or.inr (Or.inl h)))).trans_same
+      (((afterOneRegisterWrite_writes _ linkReg linkVal).mono
+          (fun _ h => Or.inr h)).trans_same
+        ((tryStepControlFlowAfterRetired_writes _ target retired).mono
+          (fun _ h => Or.inl (h.elim Or.inl (fun h => Or.inr (Or.inr (Or.inl h))))))))
+
+end BinaryFv.RiscV

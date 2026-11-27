@@ -83,3 +83,11 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
 - Gate S1: passed on the top rung (both patches). `sail/PROVENANCE.md`, `sail/SPECIALISATION.md`.
 - Next: S3 step 1-2 (`tools/closure.py` copied 55 modules, no `BinaryFv.Zesu` import, no
   `native_decide`); repair against the specialised tree.
+- 2026-11-27: `Test/Sym.lean` builds: 32 forms (all 33 constructors except one duplicate class
+  counted separately: `jalr` literal and symbolic) agree between `stepI` and `exec`; refusals of
+  `csrrs`, store past end, odd halfword load hold (`decide +kernel`). Gate S4 met.
+
+## S5 — functions (coordinator)
+- 2026-11-27: `Fn/Common.lean` (entry state/env, `entry_match`, `entry_wf`, `inWritable_entry`).
+  F0 `f0_spec : Spec zesuImage 0x8004218c 9 Pre Post` proved; axioms standard; `Fn/F0/Proof`
+  builds in ~1 s.

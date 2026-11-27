@@ -1,0 +1,152 @@
+import BinaryFv.RiscV.Platform.Pmp
+
+namespace BinaryFv.RiscV
+
+open PreSail
+open LeanRV64DExecutable.Functions
+open MemoryAccessType
+open page_based_mem_type
+
+/-- The two ordinary data-access permissions selected by generated `pmaCheck`. -/
+inductive DataPmaAccess where
+  | load | store
+
+def DataPmaAccess.memoryAccess : DataPmaAccess → MemoryAccessType mem_payload
+  | .load => Load mem_payload.Data
+  | .store => Store mem_payload.Data
+
+def DataPmaAccess.permitted : DataPmaAccess → PMA → Bool
+  | .load => PMA.readable
+  | .store => PMA.writable
+
+/-- A PMA region containing the complete range grants the selected ordinary data access. -/
+def DataPmaAllows (access : DataPmaAccess) (state : State) (address : BitVec 64)
+    (width : Nat) : Prop :=
+  ∃ (regions : List PMA_Region) (region : PMA_Region),
+    state.regs.get? Register.pma_regions = some regions ∧
+      matching_pma_region regions (physaddr.Physaddr address) width = some region ∧
+        access.permitted region.attributes = true
+
+/-- Compatibility name for ordinary data reads. -/
+abbrev LoadPmaAllows := DataPmaAllows .load
+
+/-- Compatibility name for ordinary data writes. -/
+abbrev StorePmaAllows := DataPmaAllows .store
+
+theorem dataPmaAllows_of_agree {access : DataPmaAccess} {before after : State}
+    {address : BitVec 64} {width : Nat} (agree : Agree platformPreserved before after)
+    (allowed : DataPmaAllows access before address width) :
+    DataPmaAllows access after address width := by
+  rcases allowed with ⟨regions, region, regionsRead, matching, permitted⟩
+  exact ⟨regions, region, (platformPreserved_pmaRegions agree).trans regionsRead,
+    matching, permitted⟩
+
+/-- Data PMA permission depends only on the `pma_regions` register. -/
+theorem dataPmaAllows_of_pma_regions_eq {access : DataPmaAccess} {before after : State}
+    {address : BitVec 64} {width : Nat}
+    (regions : after.regs.get? Register.pma_regions = before.regs.get? Register.pma_regions)
+    (allowed : DataPmaAllows access before address width) :
+    DataPmaAllows access after address width := by
+  rcases allowed with ⟨configuredRegions, region, regionsRead, matching, permitted⟩
+  exact ⟨configuredRegions, region, regions.trans regionsRead, matching, permitted⟩
+
+theorem loadPmaAllows_of_agree {before after : State} {address : BitVec 64} {width : Nat}
+    (agree : Agree platformPreserved before after)
+    (allowed : LoadPmaAllows before address width) :
+    LoadPmaAllows after address width :=
+  dataPmaAllows_of_agree agree allowed
+
+theorem storePmaAllows_of_agree {before after : State} {address : BitVec 64} {width : Nat}
+    (agree : Agree platformPreserved before after)
+    (allowed : StorePmaAllows before address width) :
+    StorePmaAllows after address width :=
+  dataPmaAllows_of_agree agree allowed
+
+theorem pmaCheck_data_allowed (access : DataPmaAccess) (state : State)
+    (address : BitVec 64) (width : Nat) (allowed : DataPmaAllows access state address width)
+    (aligned : is_aligned_paddr (physaddr.Physaddr address) width = true) :
+    Runs (pmaCheck (physaddr.Physaddr address) width access.memoryAccess PBMT_PMA false)
+      state state none := by
+  cases access with
+  | load =>
+    rcases allowed with ⟨regions, region, regionsRead, matching, permitted⟩
+    change region.attributes.readable = true at permitted
+    unfold Runs
+    simp [DataPmaAccess.memoryAccess, pmaCheck, PreSail.readReg, EStateM.run,
+      Bind.bind, Pure.pure, Functor.map, MonadState.get, MonadStateOf.get, EStateM.bind,
+      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
+      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+      LeanRV64DExecutable.Functions.not, override_PMA, Sail.assert, PreSail.assert,
+      regionsRead, matching, permitted, aligned]
+  | store =>
+    rcases allowed with ⟨regions, region, regionsRead, matching, permitted⟩
+    change region.attributes.writable = true at permitted
+    unfold Runs
+    simp [DataPmaAccess.memoryAccess, pmaCheck, PreSail.readReg, EStateM.run,
+      Bind.bind, Pure.pure, Functor.map, MonadState.get, MonadStateOf.get, EStateM.bind,
+      EStateM.get, EStateM.pure, EStateM.instMonad, EStateM.instMonadStateOf,
+      instMonadStateOfMonadStateOf, EStateM.instMonadExceptOfOfBacktrackable, getThe,
+      LeanRV64DExecutable.Functions.not, override_PMA, Sail.assert, PreSail.assert,
+      regionsRead, matching, permitted, aligned]
+
+theorem pmaCheck_load_allowed (state : State) (address : BitVec 64) (width : Nat)
+    (allowed : LoadPmaAllows state address width)
+    (aligned : is_aligned_paddr (physaddr.Physaddr address) width = true) :
+    Runs (pmaCheck (physaddr.Physaddr address) width (Load mem_payload.Data) PBMT_PMA false)
+      state state none :=
+  pmaCheck_data_allowed .load state address width allowed aligned
+
+theorem pmaCheck_store_allowed (state : State) (address : BitVec 64) (width : Nat)
+    (allowed : StorePmaAllows state address width)
+    (aligned : is_aligned_paddr (physaddr.Physaddr address) width = true) :
+    Runs (pmaCheck (physaddr.Physaddr address) width (Store mem_payload.Data) PBMT_PMA false)
+      state state none :=
+  pmaCheck_data_allowed .store state address width allowed aligned
+
+/-- exec-spike repair: the `FetchPmpDisabled` premise was removed (`pmpCheck` is pure `none`). -/
+theorem phys_access_check_machine_data_allowed (access : DataPmaAccess)
+    (state : State) (address : BitVec 64)
+    (width : Nat)
+    (pmaAllowed : DataPmaAllows access state address width)
+    (aligned : is_aligned_paddr (physaddr.Physaddr address) width = true) :
+    Runs (phys_access_check access.memoryAccess .PBMT_PMA .Machine
+      (physaddr.Physaddr address) width false) state state none := by
+  have hPma := pmaCheck_data_allowed access state address width pmaAllowed aligned
+  unfold phys_access_check
+  simp only [pmpCheck_machine_of_disabled]
+  exact Runs.bind hPma rfl
+
+/-- exec-spike repair: the `FetchPmpDisabled` premise was removed. -/
+theorem phys_access_check_machine_load_allowed (state : State) (address : BitVec 64)
+    (width : Nat)
+    (pmaAllowed : LoadPmaAllows state address width)
+    (aligned : is_aligned_paddr (physaddr.Physaddr address) width = true) :
+    Runs (phys_access_check (Load mem_payload.Data) .PBMT_PMA .Machine
+      (physaddr.Physaddr address) width false) state state none :=
+  phys_access_check_machine_data_allowed .load state address width pmaAllowed aligned
+
+/-- exec-spike repair: the `FetchPmpDisabled` premise was removed. -/
+theorem phys_access_check_machine_store_allowed (state : State) (address : BitVec 64)
+    (width : Nat)
+    (pmaAllowed : StorePmaAllows state address width)
+    (aligned : is_aligned_paddr (physaddr.Physaddr address) width = true) :
+    Runs (phys_access_check (Store mem_payload.Data) .PBMT_PMA .Machine
+      (physaddr.Physaddr address) width false) state state none :=
+  phys_access_check_machine_data_allowed .store state address width pmaAllowed aligned
+
+/-- exec-spike repair: the `FetchPmpDisabled` premise was removed (`pmpCheck` is pure `none`).
+Executable PMA admits a generated four-byte Machine-mode fetch access. -/
+theorem phys_access_check_machine_instructionFetch_allowed (state : State) (pc : BitVec 64)
+    (pmaAllowed : FetchPmaAllows state pc)
+    (aligned : is_aligned_paddr (physaddr.Physaddr pc) 4 = true) :
+    Runs (phys_access_check (InstructionFetch ()) .PBMT_PMA .Machine (physaddr.Physaddr pc) 4 false)
+      state state none := by
+  have hPma : Runs (pmaCheck (physaddr.Physaddr pc) 4 (InstructionFetch ()) .PBMT_PMA false)
+      state state none :=
+    pmaCheck_fetch_allowed state pc pmaAllowed aligned
+  unfold phys_access_check
+  simp only [pmpCheck_machine_of_disabled]
+  apply Runs.bind hPma
+  rfl
+
+end BinaryFv.RiscV
