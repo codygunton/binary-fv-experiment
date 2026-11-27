@@ -103,3 +103,43 @@ table in LOG.md S1: stock 474 reachable defs / 87 registers on the `addi` path; 
 - Item 4: `ZesuExec/Axioms.lean` guards build. Items 5, 6, 10: `Test/Sym.lean`, `Test/Budget.lean`, non-vacuity examples build.
 - Item 7: three-way difftest agrees on 45/45 F1/F2 snapshots (TrackT2, after the config fix).
 - Item 8: `zesuSailRiscvLeanRegenerationCheck` passes (TrackT2).
+
+## Programme status (ZESU_VERIFICATION_PROGRAMME_PLAN.md, 2026-11-27)
+
+Links: map `map/map.json` (page: `make -C tools/zmap map`, then open `map/site/map.html` from the
+file system), queue `map/QUEUE.md` / `map/queue.json`, cost model `map/COSTMODEL.md`, ledger
+`map/ledger.jsonl`, contract notes `STATEMENTS.md`, per-stage log `LOG.md`, open goals `OPEN/`.
+
+Function states (`zesu-status` + map):
+
+|function|state|items (auto/manual/open)|
+|---|---|---|
+|F0 `remap`|closed+sail (legacy)|-|
+|F1 `ensureTotalCapacity`|closed+sail, `F1.reach`; new `f1_spec_keep`|20 (10/10/0)|
+|F2 `decodeItem`|closed+compliance, `F2.reach`|20 (0/20/0)|
+|F3 `nextUint64`|closed+compliance (legacy, runWith for decodeItem)|-|
+|F4, F5 `toOwnedSlice`|closed+sail (legacy)|-|
+|F6 `decodeParentHeader`|closed+compliance, `F6.reach`|98 (0/98/0)|
+|TX `txAccessList`|closed+compliance: `tx_spec`, `tx_sail`, `tx_compliance(_sail)`|68 (10/58/0)|
+|DTF `decodeTxFields`|conditional: `DTF.reach_from` (only on `DTF.Open`)|647 (0/580/67)|
+
+Stage gates: S0-S5 passed; probes 1 (joins), 2 (summaries), 3 (unaligned) passed; S6 passed
+(`tx_spec`); S7 passed (`DTF.reach_from`), DTF leaves still being closed; S8 tool and this section.
+
+Fallbacks and decisions taken (details in `LOG.md`):
+- S4 F1: conditional first, closed after probe 1. F2 converted with more lines (736 -> 870); F6
+  converted with more lines (3064 -> 3585); F1 fewer (1898 -> 1707).
+- Probe 2: `alloc` cannot be summarised (new region); summaries limited to non-allocating callees.
+  F6 and DTF decodeItem summaries rejected (reused outcome slots, `CallRec.okB`); return cuts kept.
+- S4d: exit-goal automation stopped; remaining goals are per-function semantics.
+- Framework additions found during conversion: tail calls (`Plan.tail`), indexed callees
+  (`Callee.X`), run theorems in assembly (`F.run_<pc>`; DTF assembly 328 s / 41.8 GB timeout ->
+  11 s / 2.4 GB).
+- Soundness: `AllocAssumptions` was vacuous for non-empty live lists (found by an agent);
+  `heap_frame` now requires live blocks present; `Test/AllocModel.lean` builds a non-empty model.
+  New assumption field `Arena`/`arena_split` (STATEMENTS.md, Trust view).
+- `f1_spec_keep` added instead of changing `f1_spec` (rule 7); TX `bound := 32·2^30 + 424`.
+- DTF draft `Pre` gained a header-fit condition (`Fits`); contract stays draft/unreviewed.
+
+Unreviewed contracts (Trust view): F0 draft; F1-F6, TX transcribed; DTF draft.
+Cost (ledger, all kinds): leaf median 0 min, 2.1 min per manual leaf; auto share of plan leaves 3%.
