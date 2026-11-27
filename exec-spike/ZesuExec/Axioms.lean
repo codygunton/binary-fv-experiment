@@ -17,6 +17,7 @@ import ZesuExec.Fn.F5.Sail
 import ZesuExec.Sail.Run
 import ZesuExec.Sail.Step
 import ZesuExec.Sym.Sound
+import ZesuExec.Sym.Summary
 import ZesuExec.Vc.Sound
 import ZesuExec.Fn.F1.Vc
 
@@ -189,3 +190,9 @@ info: 'ZesuExec.Sym.Match.generalise_to' depends on axioms: [propext, Classical.
 -/
 #guard_msgs in
 #print axioms ZesuExec.Sym.Match.generalise_to
+
+/--
+info: 'ZesuExec.Sym.runWith_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Sym.runWith_sound
