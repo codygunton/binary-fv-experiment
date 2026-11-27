@@ -103,5 +103,6 @@ import ZesuExec.Vc.AssembleW
 import ZesuExec.Fn.F1.Vc
 import ZesuExec.Fn.F2.Vc
 import ZesuExec.Fn.TX.Proof
+import ZesuExec.Fn.TX.Sail
 import ZesuExec.Fn.F6.Vc
 import ZesuExec.Test.Auto
