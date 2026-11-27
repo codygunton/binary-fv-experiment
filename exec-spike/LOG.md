@@ -837,3 +837,60 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     `budget` (the budget lookup is behind `budgetAt`), `oblig`.
   - `lake build` 283 jobs OK (268 s from cold DTF modules, peak 2.6 GB); `tools/verify.sh` all
     PASS after `make -C tools/zmap map`; ledger +978 S7 items (980 DTF items in all).
+- S6 TX second hand (P2Summaries, 2026-11-27): (1) Cuts.lean assertion fix (Main-approved, S6.6
+  wrong-assertion rule): `OuterWalked`/`KeysWalked` carry `WalkFits`/`KeysFits` (HeaderFits of
+  every call the rest of the walk reaches; from `Domain` at 068_3), since `EntryOk`/`AKeyStore`
+  length facts need no-wrap and only `Domain` gives it; lemmas `fits_bounds`, `fits_rest`,
+  `keysWalk_fuel`, `entriesWalk_fuel`, `walkFits_head/entry/tail`, `keysFits_head/tail`.
+  (2) `Leaves2.lean`: `oom_err`, `rest_keep2`, `ed_congr` + `edsame_of` (EntryDone across a callee
+  whose footprint is free stack / scratch / `Priv L` / other live blocks), `growing_keep`,
+  `common_congr`, `alloc_congr`; leaves 1f8_0, 25c_0, 3d4_1, 340_0 (dead), 4a0_1, 400_0.
+  Counts: 68 items, 10 auto, 38 manual, 20 open. Found: `Site428` requires `Copied` hence
+  `Growing`'s `s11 = ec`, but leaf 400_1 sets `s11 := ec << 5` before the `free` call, so
+  400_1 is unprovable until `Site428` drops that register fact (fix in Cuts.lean: move
+  `m.reg 27 = o.ec` out of `Growing` into `Allocated`/`Site33c`/`Site3d0`, give `Site428` a
+  copy of `Copied` without it; adjust `ret_340`/`ret_400`/`ret_42c` indices).
+- S6 TX third hand (TXLeavesB, 2026-11-27): `Fn/TX/Leaves3.lean` (imports Leaves2, imported by
+  Proof.lean and Grow.lean) closes leaves 068_2, 068_3, 0d8_2, 10c_3, 15c_2, 15c_3, 1a0_3,
+  230_0, 230_1. Reusable: `towned_pre`/`f1_pre_tx` (callee preconditions at TX call sites),
+  `after068`, `after15c`, `after230` (`slot_same`, `slot_bytes`), `frame_only`, `sl_apart`,
+  `outer_frame_keep`, `ie_keep`, `ret10c'`/`ret1a0'`, input copies (`leaf_bytes`,
+  `byteOf_byteList`, `byteOf_sext32`, `input_byte`, `slot_word`), `dec_ptr_str`, `dec_hpos`.
+  The generic write-leaf helpers moved to Leaves2 (TXLeavesC). Proof build at 00fdea01 had 14 open;
+  1f8_1 and 4a0_0 went back to TXLeavesC unstarted.
+- S6 TX third hand (TXLeavesC, 2026-11-27): Cuts.lean: `s11 = ec` moved out of `Growing` into
+  `Site33c`/`Site3d0`/`Site3fc` (the `free` leaf overwrites `s11`; `Copied`/`Allocated`
+  unchanged). `Fn/TX/Grow.lean` closes 3d4_0, 400_1, 42c_0, 25c_1, 25c_4, 25c_5, 340_2;
+  `Fn/TX/Finish.lean` closes 460_0, 460_1. Reusable: `live_of_heap` (new blocks are in
+  `Priv g.L` via `arena_split`), `erase_perm`, `live_perm`, `Grown`/`ELNoHdr`/`grown_keep`
+  (EntryDone without header/copy B), `ret25c`, `grow25c` (+`growS_eval`), `ret400_copied`,
+  `at42c`, `after460`, `walked_step`, `frame_leaf_so`, `fr_in`, `wr_miss`, `edsame_frame`,
+  `leaf_copy`, `fw_same`, `cframe_keep`, `callee_frame`, `memcpy_pre`, `ctx_eval`, `shl5/3/40`.
+  Still open: 4a0_0 (success exit; needs an `ok_post` analogue of `error_post` with the
+  `OutcomeImage .ok` heap `L.erase (ep,40ec) ++ [(p',40n)] ~ g.L ++ returnedBlocks`) and
+  1f8_1, which is BLOCKED by F1's contract: `F1.Post`'s no-growth branch (`req ≤ c`) does not
+  state `BytesAt m' p items`, while its `SameOutside` lets F1 write the list buffer, so the keys
+  stored so far are not known after `ensureTotalCapacity` returns. Fix: add `BytesAt m' p items`
+  to that branch of `F1.Post` (Fn/F1/Spec.lean) and reprove it in F1 (the early-exit path writes
+  only its frame). TX.reach / tx_spec / tx_sail / compliance not assembled.
+- S6 TX finish (TXFinish, 2026-11-27): F1's contract is not changed (rule 7); its plan's Post is
+  `PostKeep := Post ∧ (req ≤ capacity → BytesAt m' p items)` (`Fn/F1/Vc.lean`): leaf 0 (no
+  growth) writes only F1's frame and the header (its `InWritable` is frame ∪ header, the buffer
+  is apart by `oldNotOwn`), the other exits grow or fail and take the conjunct vacuously.
+  `f1_spec_keep` (new) is `F1.reach`; `f1_spec` is derived by dropping the conjunct
+  (`git diff 7a9e7da8 -- Fn/F1/Spec.lean`: no statement change). TX's `f1C` uses
+  `f1_spec_keep`. `Fn/TX/Room.lean`: `after1f8` (the keys loop state after F1 returned 0, both
+  branches; grown buffer `{p', grown(n+1)}` via `live_of_heap`/`erase_perm`, footprint through
+  `edsame_of`), `ie_same`, leaf 1f8_1. `Fn/TX/Vc.lean`: `error_post` refactored onto
+  `exit_post` (epilogue, registers, `rest`), `ok_post` (`OutcomeImage .ok` from `okWrites` and a
+  live list `L ~ g.L ++ returnedBlocks`). `Fn/TX/Done.lean`: `accepted_of` (walked payload →
+  `candidate = accepted done (itemConsumed h p)`), leaf 4a0_0 (F5's empty and success branches;
+  keys slices survive F5 by `live_apart`). `zesu_assemble TX`: 68 items, 10 auto, 58 manual,
+  0 open → `TX.reach`. `tx_spec : Spec zesuImage 0x80000000 bound (Pre A g) (Post A g)` with
+  `bound := 32·2^30 + 424` (`len_le`: the input is in the input buffer or RAM); `tx_sail`
+  (`Fn/TX/Sail.lean`). Compliance: `Compliance/TX.lean`, `TXSail.lean` taken from exec-spike
+  (258a3dba, unchanged since), `tx_compliance`/`tx_compliance_sail` specialise the `_of` forms
+  to `tx_spec`; `zesu-status` finds compliance theorems under `ZesuExec.Compliance.<F>`
+  (`complianceName`). Axioms guards for `f1_spec_keep`, `TX.reach`, `tx_spec`, `tx_sail` and the
+  five compliance theorems. `lake build` OK; `make -C tools/zmap map`; `tools/verify.sh` all PASS;
+  `zmap show f_80000000`: closed+compliance.

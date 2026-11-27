@@ -162,6 +162,13 @@ Not in zesislar (warm-up; replaces `altFlRemapCallSpec`, `AltFlAllocPremises.v:2
   `(L minus the old buffer) ++ [(p', grown·32)]`, scratch = the copied byte count; or code 2 with
   everything unchanged. Frame: header, 128 stack bytes, scratch, `Priv L`, old buffer.
 - `f1_spec (A) (L) (items) : Spec zesuImage 0x800cb40c 197 (Pre A L items) (Post A L items)`.
+- `f1_spec_keep (A) (L) (items) : Spec zesuImage 0x800cb40c 197 (Pre A L items) (PostKeep A L items)`
+  (new, S6 TX; `Fn/F1/Proof.lean`, `PostKeep` in `Fn/F1/Vc.lean`): `PostKeep := Post ∧ (req ≤
+  capacity → BytesAt m' p items)` — on the no-growth branch the items stay at `p` (the early
+  return writes only F1's frame and the header). It is `F1.reach` at the entry cut; `f1_spec` is
+  derived from it by dropping the conjunct, its statement unchanged. TX's callee family for F1
+  (`f1C`) uses `f1_spec_keep`, since the keys stored so far must survive a call that does not grow
+  the keys list.
 - Differences: the list state is read from memory (no ghost `ArrayListState`); the Rocq
   `arrayListWellFormed` after the call is implied by the stated header and range facts but not
   restated as one predicate; `zisk_input_end` not modelled.
@@ -519,7 +526,13 @@ Differences:
   allocator memory `Priv []` above `0xa0003000` and away from the scratch word, a machine with
   `Pre A ⟨[0xc0], []⟩ m` exists. The decoder is checked by `decide` on four inputs (empty list,
   byte string, one entry with one key, a 19-byte address).
-- No end theorem yet: `tx_spec` comes in S6 step 7. Cut design: `OPEN/TX/CUTS.md`.
+- `bound := 32 · 2^30 + 424` (new def): the entry cut's budget `32 · len + 424` for an input of at
+  most `2^30` bytes (input buffer or RAM, `len_le`).
+- `tx_spec (A) (g) : Spec zesuImage 0x80000000 bound (Pre A g) (Post A g)` (`Fn/TX/Proof.lean`,
+  from `TX.reach`); `tx_sail` by `sail_reaches` (`Fn/TX/Sail.lean`). Cut design: `OPEN/TX/CUTS.md`.
+- Compliance (`ZesuExec/Compliance/TX.lean`): `tx_compliance (A) (g) (m) (hpc) (hpre) :
+  Reaches zesuImage bound (Compliant A g m) m` and `tx_compliance_sail`, the `_of` forms
+  specialised to `tx_spec`; `Compliant := Post ∧ TxAccessListMeaningModuloKnownBugs g.input`.
 
 ## DTF `rlp_decode.decodeTxFields` (`Fn/DTF/Spec.lean`) — draft
 

@@ -203,7 +203,7 @@ theorem key_err {σ : Sig} {m : Machine} {o : Obs} {k : Kobs} {L : List (Word ×
     omega
   have hkn := keys_none_head hne hrej
   have hkp : (keysWalk (kpl σ o k).length (kpl σ o k)).2 = none := by
-    rw [hkw.2]; simp only [kwin] at hkn; rw [hkn]; rfl
+    rw [hkw.2.1]; simp only [kwin] at hkn; rw [hkn]; rfl
   exact outer_err hcm hok hlive (entries_none_entry (win_ne hok hi hpre) he.1
     (entry_none_kw had hkl.1 hkp))
 
