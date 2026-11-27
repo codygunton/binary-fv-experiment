@@ -729,4 +729,177 @@ theorem TX.leaf_800000d8_2 :
       ((run0d8_leaves[2]!).S.steps - SBody.steps)
     rw [hsteps]; unfold outerLeft; rw [h21]; unfold F2.bound; omega
 
+/-! ## `0x8000015c`: the keys list -/
+
+/-- Two frame ranges that do not meet. -/
+theorem sl_apart {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {k1 n1 k2 n2 : Nat} {a : Word}
+    (hk1 : k1 ≤ stackBytes) (hk2 : k2 ≤ stackBytes) (hd : k1 + n2 ≤ k2 ∨ k2 + n1 ≤ k1)
+    (h1 : InRange (σ.sl k1) n1 a) (h2 : InRange (σ.sl k2) n2 a) : False := by
+  have e1 := sl_toNat hpre hk1
+  have e2 := sl_toNat hpre hk2
+  have := (entry_nums hpre).1; unfold Layout.ramLo stackBytes at *
+  simp only [InRange] at h1 h2; omega
+
+/-- A leaf over the base regions whose writes lie in the frame bytes `[lo, lo + n)` changes no
+other byte. -/
+theorem frame_only {σ : Sig} {m m' : Machine} {env : Env} {S S' : SState} (hc : Common σ m)
+    (he : BaseEnv σ m env) (hS : S.regions = baseRegions) (hm' : Match env S' m')
+    (hS' : S'.regions = baseRegions) (hfr : SameOutside (InWritable env S) m m') {lo n : Nat}
+    (hlo : lo + n ≤ 576)
+    (hno : S'.mem.all (fun w => w.r == 0 && decide (lo ≤ w.off) &&
+      decide (w.off + w.n ≤ lo + n)) = true) :
+    SameOutside (InRange (σ.sl (576 - lo)) n) m m' := by
+  intro a ha
+  by_cases hw : InWritable env S a
+  · obtain ⟨r, R, j, hR, -, hj, rfl⟩ := hw
+    have hpre := hc.2.1
+    have hr5 : r < 5 := by
+      have := (List.getElem?_eq_some_iff.mp hR).1; rw [hS] at this
+      simpa [baseRegions] using this
+    have hj' : j < (envB σ m).size r := by rwa [← he.size]
+    refine byte_keep hm' (by rw [hS']; simpa [baseRegions] using hr5) hj (fun w hw => ?_) ?_
+    · have := List.all_eq_true.mp hno w hw
+      simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at this
+      obtain ⟨⟨hw0, hl1⟩, hl2⟩ := this
+      by_cases h0 : r = 0
+      · subst h0
+        have hin : ¬ (lo ≤ j ∧ j < lo + n) := fun hjn => ha (by
+          have hb : env.base 0 = σ.sl 576 := by rw [he.base]; rfl
+          have h1 := sl_toNat hpre (k := 576) (by decide)
+          have h2 := sl_toNat hpre (k := 576 - lo) (by unfold stackBytes; omega)
+          have hlo' := (entry_nums hpre).1; unfold Layout.ramLo at hlo'
+          rw [hb]; simp only [InRange]
+          rw [toNat_add_ofNat (by rw [h1]; omega), h1, h2]; omega)
+        simp only [Write.covers, hw0, beq_self_eq_true, Bool.true_and, Bool.and_eq_false_iff,
+          decide_eq_false_iff_not, Nat.not_le, Nat.not_lt]
+        omega
+      · have : (w.r == r) = false := by rw [hw0]; simpa using Ne.symm h0
+        simp [Write.covers, this]
+    · rw [he.mem0, he.base]
+      exact mem0_entry (common_present hc r j hr5 hj')
+  · exact hfr a hw
+
+/-- A list item, or an item that is not a one-byte string, has a header. -/
+theorem dec_hpos {xs : List Byte} {b : Bool} {h q : Nat} (hd : F2.decode xs = .success b h q)
+    (hb : b = true ∨ q ≠ 1) : 0 < h := by
+  cases xs with
+  | nil => simp [F2.decode] at hd
+  | cons x rest =>
+    simp only [F2.decode, F2.checkedPayload] at hd
+    repeat' (split at hd)
+    all_goals first
+      | (simp at hd; done)
+      | (simp only [F2.Item.success.injEq] at hd
+         obtain ⟨rfl, rfl, rfl⟩ := hd
+         first | omega | simp at hb)
+
+/-- The state after a leaf of `0x8000015c` that accepted the keys list and wrote the empty keys
+list header `{1, 0, 0}` at `S-0x118`. -/
+theorem after15c {σ : Sig} {m m' : Machine} {S' : SState} (hA : ARet f2C (unit Site158) σ m)
+    (h1 : SBool.eval (envB σ m) (SBool.eq (Sym.init 0 288 2) (Sym.lit 0)) = true)
+    (h2 : SBool.eval (envB σ m)
+      (SBool.ne (Sym.bin BinOp.and (Sym.init 0 272 1) (Sym.lit 1)) (Sym.lit 0)) = true)
+    (hm' : Match (envB σ m) S' m') (hS' : S'.regions = baseRegions)
+    (hfr : SameOutside (InWritable (envB σ m) SBody) m m')
+    (hno : S'.mem.all (fun w => w.r == 0 && decide (296 ≤ w.off) &&
+      decide (w.off + w.n ≤ 296 + 24)) = true)
+    (hsave : S'.mem.all (fun w => w.r != 0 || decide (w.off + w.n ≤ 472)) = true)
+    (hr : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 25, 26, 27] : List (Fin 32)),
+      S'.reg i.val = SBody.reg i.val)
+    (hw0 : readConst S' 0 296 8 = .var 25) (hw8 : readConst S' 0 304 8 = .lit 0)
+    (hw16 : readConst S' 0 312 8 = .lit 0) :
+    ∃ o k L, InEntry σ m' o k L ∧ KeysWalked (kpl σ o k) 0 [] ∧ KList σ m' k 0 ∧
+      k.j = 0 ∧ k.keys = [] ∧ k.kq = 1 ∧ k.kc = 0 ∧
+      (Sym.init 0 256 8).eval (envB σ m) = keyPtr σ o k ∧
+      (Sym.init 0 264 8).eval (envB σ m) = w k.kl ∧ k.kl ≤ σ.len ∧
+      23 + k.kl ≤ k.eh + k.el ∧ k.eh + k.el ≤ o.p - o.i ∧ o.p ≤ σ.len ∧
+      m.reg 21 = w (o.p - o.i) ∧ m.reg 26 = w (k.eh + k.el) ∧
+      (∀ i ∈ ([21, 26] : List (Fin 32)), m'.reg i = m.reg i) := by
+  obtain ⟨hcm, o, k, L, ⟨hs, hd, hle, r26⟩, ⟨had, hal, hab⟩, before, hb⟩ := ret15c hA
+  have hpre := hcm.2.1
+  simp only [SBool.eval] at h1 h2
+  replace h2 : ((Sym.init 0 272 1).eval (envB σ m) &&& 1#64 != 0#64) = true := h2
+  rw [show (288 : Nat) = frameBytes - 0x140 + 32 from rfl,
+    slot_val (BaseEnv.ofB σ m) hpre (by decide) (by decide) hb (by decide)] at h1
+  rw [show (272 : Nat) = frameBytes - 0x140 + 16 from rfl,
+    slot_val (BaseEnv.ofB σ m) hpre (by decide) (by decide) hb (by decide)] at h2
+  obtain ⟨b, kh, kl, hdk, hl⟩ := dec_ok (by simpa [Sym.eval] using h1)
+  rw [hl] at h2
+  cases b
+  · simp at h2
+  have e256 : (Sym.init 0 256 8).eval (envB σ m) = aftPtr σ o k + w kh := by
+    rw [show (256 : Nat) = frameBytes - 0x140 + 0 from rfl,
+      slot_val (BaseEnv.ofB σ m) hpre (by decide) (by decide) hb (by decide), dec_ptr hdk]
+  have e264 : (Sym.init 0 264 8).eval (envB σ m) = w kl := by
+    rw [show (264 : Nat) = frameBytes - 0x140 + 8 from rfl,
+      slot_val (BaseEnv.ofB σ m) hpre (by decide) (by decide) hb (by decide), dec_len hdk]
+  -- the entry's calls fit
+  have hok := hs.2.1
+  have hi := hs.2.2.1.2.2.1
+  have hne := win_ne hok hi hpre
+  have hwf0 : WalkFits (win σ o) := hok.2.2.2.2.2.2
+  have hef : ∀ c ∈ (entryWalk (ent σ o k)).1, HeaderFits c.2 := walkFits_entry hwf0 hne hd
+  have hdk' : F2.decode (itemRest (ent σ o k) k.ah 20) = .success true kh kl := hdk
+  have hkf : HeaderFits (aft σ o k) := hef _ (by
+    simp only [entryWalk, had, hdk', if_true, List.mem_cons]; exact .inr (.inl rfl))
+  have hkp : ∀ c ∈ (keysWalk (itemPayload (aft σ o k) kh kl).length
+      (itemPayload (aft σ o k) kh kl)).1, HeaderFits c.2 := fun c hc => hef c (by
+    simp only [entryWalk, had, hdk', if_true, List.mem_cons]; exact .inr (.inr hc))
+  obtain ⟨-, hkb, -⟩ := fits_bounds hkf hdk
+  have hl64 : σ.len < 2 ^ 64 := (wordAt σ.m (σ.rest + 8)).isLt
+  have hpl := hok.2.1
+  rw [aft_eq σ o k hle hal (by omega)] at hkb
+  simp only [List.length_take, List.length_drop] at hkb
+  have hil : σ.input.length = σ.len := hpre.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+  have heh := dec_hpos hd (.inl rfl)
+  have hah := dec_hpos had (.inr (by decide))
+  have hkh := dec_hpos hdk (.inl rfl)
+  -- the machine after the leaf: only the keys list header changed
+  obtain ⟨hwf, hm, -⟩ := body_cut hcm
+  have hso := frame_only hcm (BaseEnv.ofB σ m) rfl hm' hS' hfr (lo := 296) (n := 24) (by decide) hno
+  have hreg := regs_keep hm hm' _ hr
+  obtain ⟨hc', hlive', -⟩ := base_leaf hcm hs.2.2.2.2.2 (BaseEnv.ofB σ m) hwf rfl hm' hS' hfr
+    hsave (fun i hi => hreg i (by
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hi ⊢; omega))
+  have hRst : ∀ a, InRange (σ.sl (576 - 296)) 24 a → InRange (σ.sl stackBytes) stackBytes a :=
+    fun a h => sl_in_stack hpre (by decide) (by decide) h
+  have hwf' : Env.WF (envB σ m) S' := hwf.congr (by rw [hS']; rfl)
+  have fw := fun kk hk hk' => frame_word (BaseEnv.ofB σ m) hwf' hm' hS' (k := kk) hk hk'
+  have f0 := fw 0x118 (by decide) (by decide)
+  have f8 := fw 0x110 (by decide) (by decide)
+  have f16 := fw 0x108 (by decide) (by decide)
+  rw [show 576 - 0x118 = 296 from rfl, hw0] at f0
+  rw [show 576 - 0x110 = 304 from rfl, hw8] at f8
+  rw [show 576 - 0x108 = 312 from rfl, hw16] at f16
+  have r25 : m.reg 25 = 1 := hs.2.2.2.1.2.1
+  let k' : Kobs := { k with kh := kh, kl := kl, j := 0, keys := [], kq := 1, kc := 0 }
+  refine ⟨o, k', L, ⟨hc', outerOk_keep hpre hso (fun a h => .inl (hRst a h)) hok,
+      ⟨(hreg 20 (by decide)).trans hs.2.2.1.1, (hreg 21 (by decide)).trans hs.2.2.1.2.1, hi,
+        frame_keep hpre hso (k := 0x1f0) (by decide) (by decide)
+          (fun a h hin => sl_apart hpre (by decide) (by decide) (by decide) h hin)
+          hs.2.2.1.2.2.2⟩,
+      elist_keep hpre hs.2.2.2.2.1 hs.2.2.2.2.2 (fun b hb => hb) hso hRst
+        (fun x h hin => sl_apart hpre (by decide) (by decide) (by decide) h hin),
+      by simpa [KX, k'] using hlive', ⟨hd, hle, (hreg 26 (by decide)).trans r26⟩,
+      ⟨had, hal, bytes_congr hab fun t ht => hso _ fun hin => sl_apart hpre (k1 := 576 - 296)
+        (n1 := 24) (k2 := 0x158) (n2 := 20) (by decide) (by decide) (by decide) hin
+        (in_self (by have := sl_toNat hpre (k := 0x158) (by decide)
+                     have := (entry_nums hpre).2.1; unfold Layout.ramHi at this; omega)
+          (by simp only [itemPayload, List.length_take] at ht; omega))⟩,
+      ⟨hdk, show k.ah + 20 + kh + kl ≤ k.el by omega⟩, (hreg 27 (by decide)).trans hs.2.2.2.1.2.2⟩,
+    ⟨Nat.zero_le _, by simp, hkp⟩,
+    ⟨⟨f0.trans (by rw [show (Sym.var 25).eval (envB σ m) = m.reg 25 from rfl, r25]),
+      by rw [show σ.sl 0x118 + 8 = σ.sl 0x110 by simp only [Sig.sl, w]; bv_omega, f8]; rfl,
+      by rw [show σ.sl 0x118 + 16 = σ.sl 0x108 by simp only [Sig.sl, w]; bv_omega, f16]; rfl⟩,
+      Nat.zero_le _, by show 0 < (1 : Word).toNat; decide, fun _ => rfl,
+      by show (0 : Word).toNat < 2 ^ 32; decide,
+      fun h => absurd h (by show ¬ 0 < (0 : Word).toNat; decide),
+      fun y hy => absurd hy List.not_mem_nil,
+      fun i hi => absurd hi (by show ¬ i < ([] : List (List Byte)).flatten.length; simp)⟩,
+    rfl, rfl, rfl, rfl,
+    by rw [e256]; show aftPtr σ o k + w kh = aftPtr σ o k + w kh + w 0; simp [w], e264,
+    show kl ≤ σ.len by omega, show 23 + kl ≤ k.eh + k.el by omega,
+    hle, by omega, hs.2.2.1.2.1, r26,
+    fun i hi => hreg i (by simp only [List.mem_cons, List.not_mem_nil, or_false] at hi ⊢; omega)⟩
+
 end ZesuExec.Fn.TX
