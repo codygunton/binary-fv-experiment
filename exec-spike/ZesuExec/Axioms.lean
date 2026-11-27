@@ -189,3 +189,9 @@ info: 'ZesuExec.Sym.Match.generalise_to' depends on axioms: [propext, Classical.
 -/
 #guard_msgs in
 #print axioms ZesuExec.Sym.Match.generalise_to
+
+/--
+info: 'ZesuExec.Fn.F6.F6.reach' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.F6.F6.reach
