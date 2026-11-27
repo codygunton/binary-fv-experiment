@@ -10,7 +10,7 @@ No nested or mutual inductives: Lean 4.29 cannot derive `DecidableEq` for them.
 namespace ZesuExec.Sym
 
 inductive BinOp | add | sub | and | or | xor | sll | srl | sltu | mul | mulhu
-  deriving DecidableEq, Repr, Lean.ToExpr
+  deriving DecidableEq, Repr, Lean.ToExpr, Inhabited
 
 inductive Sym
   /-- `n mod 2^64` -/
@@ -35,7 +35,7 @@ inductive Sym
 inductive SBool
   | eq (a b : Sym) | ne (a b : Sym) | ltu (a b : Sym) | geu (a b : Sym) | lts (a b : Sym)
   | ges (a b : Sym)
-  deriving DecidableEq, Repr, Lean.ToExpr
+  deriving DecidableEq, Repr, Lean.ToExpr, Inhabited
 
 /-- `n ≤ 8` bytes of `v` at a constant offset `off` of region `r`. -/
 structure Write where
@@ -43,13 +43,13 @@ structure Write where
   off : Nat
   n : Nat
   v : Sym
-  deriving DecidableEq, Repr, Lean.ToExpr
+  deriving DecidableEq, Repr, Lean.ToExpr, Inhabited
 
 structure Region where
   size : Option Nat
   align : Nat
   writable : Bool
-  deriving DecidableEq, Repr, Lean.ToExpr
+  deriving DecidableEq, Repr, Lean.ToExpr, Inhabited
 
 structure SState where
   /-- 32 entries; entry 0 is read as `lit 0` -/
@@ -60,14 +60,14 @@ structure SState where
   known : List Write
   regions : List Region
   steps : Nat
-  deriving DecidableEq, Repr, Lean.ToExpr
+  deriving DecidableEq, Repr, Lean.ToExpr, Inhabited
 
 inductive Oblig
   /-- `off + scale * idx + n ≤ size of region r` -/
   | inBounds (r off : Nat) (idx : Sym) (scale n : Nat)
   /-- `x mod n = 0` -/
   | aligned (x : Sym) (n : Nat)
-  deriving DecidableEq, Repr, Lean.ToExpr
+  deriving DecidableEq, Repr, Lean.ToExpr, Inhabited
 
 inductive Exit
   | at (pc : Nat)
@@ -75,14 +75,14 @@ inductive Exit
   | callInd (target : Sym) (ret : Nat)
   | ret (target : Sym)
   | jumpInd (target : Sym)
-  deriving DecidableEq, Repr, Lean.ToExpr
+  deriving DecidableEq, Repr, Lean.ToExpr, Inhabited
 
 structure Leaf where
   S : SState
   exit : Exit
   conds : List SBool
   obligs : List Oblig
-  deriving DecidableEq, Repr, Lean.ToExpr
+  deriving DecidableEq, Repr, Lean.ToExpr, Inhabited
 
 /-- How control leaves one symbolic instruction. -/
 inductive StepExit
