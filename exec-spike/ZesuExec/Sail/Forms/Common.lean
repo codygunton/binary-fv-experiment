@@ -364,4 +364,7 @@ theorem sim_wreg {img : Image} {m : Machine} {s : State} {w : Nat} {i : Instr}
     rw [this] at hb; exact hR.mem x b hb
   · intro seg hseg k w hk h1 h2; unfold CodeAt; rw [hmem]; exact hR.code seg hseg k w hk h1 h2
 
+theorem sign_extend_eq {k : Nat} (x : BitVec k) : sign_extend (m := 64) x = x.signExtend 64 := by
+  simp [sign_extend, Sail.BitVec.signExtend]
+
 end ZesuExec.SailLink

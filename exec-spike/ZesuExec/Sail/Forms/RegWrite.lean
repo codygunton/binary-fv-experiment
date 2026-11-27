@@ -17,9 +17,6 @@ open Register
 
 variable {img : Image} {m m' : Machine} {s : State} {w : Nat}
 
-theorem sign_extend_eq {k : Nat} (x : BitVec k) : sign_extend (m := 64) x = x.signExtend 64 := by
-  simp [sign_extend, Sail.BitVec.signExtend]
-
 theorem sim_addi {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
     (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.addi rd rs1 imm))
     (hs : step img m = some m') :

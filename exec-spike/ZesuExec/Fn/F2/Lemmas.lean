@@ -292,6 +292,21 @@ theorem input_head (m : Machine) (h : 0 < (m.reg 12).toNat) :
     (bytesOf m (m.reg 11) (m.reg 12).toNat).head? = some (firstByte m) := by
   rw [input_cons m h]; rfl
 
+/-- `decode` of a long string (`pre = 183`) or long list (`pre = 247`) prefix with `w` length
+bytes. -/
+theorem decode_long {b : Byte} {rest : List Byte} {w pre : Nat} {lst : Bool}
+    (hpl : (pre = 183 ∧ lst = false) ∨ (pre = 247 ∧ lst = true)) (hb : b.toNat = pre + w)
+    (hw1 : 1 ≤ w) (hw8 : w ≤ 8) (hlen : w < rest.length + 1) :
+    decode (b :: rest) = checkedPayload (rest.length + 1) (1 + w) (bigEndian (rest.take w)) lst := by
+  have hbl := b.isLt
+  rcases hpl with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+  · simp only [decode, hb]
+    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos (by omega),
+      Nat.add_sub_cancel_left, if_pos (by omega)]
+  · simp only [decode, hb]
+    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega),
+      if_neg (by omega), Nat.add_sub_cancel_left, if_pos (by omega)]
+
 /-! ## Assembling `Post` -/
 
 theorem notOne : BitVec.ofNat 64 18446744073709551614 = ~~~(1 : Word) := by decide
