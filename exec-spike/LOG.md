@@ -177,3 +177,24 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   = unicorn … configuredB` on all 19 F1 and 26 F2 snapshots (45/45; ≤ 0.95 s, 82 MB each).
   `OPEN/S3/decode_immediates.goals.txt` removed (resolved).
 - Gate S3: PASS. Next: S6 (`Fn/<Id>/Sail.lean`) uses `sail_reaches` unrestricted.
+
+## S6
+
+- S6: step 2. `vendor/evm-sail-lean` (already tracked since e9fd6eea) is byte-identical to
+  `W/generated/evm-sail-lean` (EVM-Sail d0e4aabd, `diff -r` empty). Its modules already
+  `import Sail`; `nix/evm-sail.nix` only installs lean-sail 79b4d085 as the `Sail` package, and
+  the package's `sail-riscv-lean/Sail{,/*}.lean` is byte-identical to that lean-sail source
+  (`diff -q` per file), so no import rewrite is needed. `lake build Evm.Lib.Rlp.Decoding`
+  (`rlp_decode_item`; Sail lib cached, 14 Evm modules): 16.7 s wall, 21.2 s user, 1.88 GB peak.
+  `lake build Evm.Lib.Ssz.StatelessInput` (`decode_parent_header_fields`, 21 more modules):
+  21.0 s wall, 30.7 s user, 3.24 GB peak. No fallback.
+- S6: step 3, F2. `ZesuExec/Compliance/`: `SailRun.lean` (`SailRegs`, `hostOf`, run lemmas for
+  `pure`/`throw`/`<$>`/`>>=` through `StateT HostState (EStateM …)`), `RlpItem.lean`
+  (`uint64_width_eval`, `ref_hdr_eval`, `decode_item_eval`: `rlp_decode_item` in closed form
+  `sailItem`), `KnownBugs.lean` (the 13 Rocq classes), `F2.lean` (`f2_candidate_agrees`,
+  `f2_compliance`, `f2_compliance_sail`; `#guard_msgs` axioms standard three for all three).
+  Candidate reused: `Fn.F2.decode`/`result40`. `lake build ZesuExec.Compliance.F2` passes;
+  per-module `lake env lean`: SailRun 0.8 s, RlpItem 1.3 s, KnownBugs 0.4 s, F2 1.4 s, ≤ 1.6 GB.
+  Lines: 52 + 148 + 58 + 265.
+- S6: F3 not started: `Fn/F3/Proof.lean` has no `f3_spec` yet (`OPEN/S6/README.md`). F6 not
+  attempted. `ZesuExec/Axioms.lean` not edited (not mine): guards live in `Compliance/F2.lean`.

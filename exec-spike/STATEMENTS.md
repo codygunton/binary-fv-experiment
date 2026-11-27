@@ -127,3 +127,48 @@ Not in zesislar (warm-up; replaces `altFlRemapCallSpec`, `AltFlAllocPremises.v:2
 - Non-vacuity: `pre_nonvacuous` — for any `A`, any machine `m0` with `A.Heap [] m0` and an
   allocator memory `Priv []` above `0xa0003000` and away from the scratch word, a machine with
   `Pre A [] [] m` exists (built from `m0` by overriding bytes outside `Priv []`).
+
+## S6 compliance
+
+### F2 (`ZesuExec/Compliance/F2.lean`)
+
+Rocq: `DecodeMeaningModuloKnownBugs` (`RlpDecodeItemContract.v:105-109`), `decodeItemBugApplies`
+(`:79-102`), `decodeItemSailResult` (`:72-77`), `relateItem` (`RlpDecodeItemSchema.v:51-62`),
+`runRlpDecodeItem` (`ZesuSsz/Compliance/SailRun.v:113-115`), `KnownBug`/`knownBugs`
+(`ZesuSsz/Compliance/KnownBugs.v`). Sail function: `Evm.Functions.rlp_decode_item`
+(`vendor/evm-sail-lean/Evm/Lib/Rlp/Decoding.lean:171`, EVM-Sail d0e4aabd).
+
+```lean
+def sailRun (input : List Byte) (σ : SailRegs) : SailItemResult :=
+  ((Evm.Functions.rlp_decode_item (k_source_off := 0) (k_source_len := input.length) {}).run
+    (hostOf input)).run σ
+theorem sailRun_eq : sailRun input σ = match sailItem input with
+  | some (l, off, len) => .ok (⟨len, ⟨off + len, ⟨{}, l⟩⟩⟩, hostOf input) σ
+  | none => .error .Exit σ
+theorem f2_candidate_agrees (input : List Byte) (σ : SailRegs) :
+    SailRelates (sailRun input σ) (decode input) ∨ ∃ bug ∈ knownBugs, bugApplies bug input σ
+theorem f2_compliance (m : Machine) (hpc : m.pc.toNat = entry) (hpre : Pre m) :
+    Reaches zesuImage bound (Compliant m) m
+theorem f2_compliance_sail (h : SailLink.Rel zesuImage m s) (hpc) (hpre : Pre m) :
+    SailLink.SailReaches zesuImage bound
+      (fun s' => ∃ m', SailLink.Rel zesuImage m' s' ∧ Compliant m m') s
+```
+
+Axioms of all three: `propext`, `Classical.choice`, `Quot.sound` (`#guard_msgs` in the file).
+
+| Lean | Rocq | Note |
+|---|---|---|
+| `hostOf input`, cursor `{} : StatelessInputSliceFields 0 input.length` | `initializedInput bytes`, `decodeItemSailCursor` | Lean's host holds the input as `inputBytes`; any Sail register state `σ` |
+| `sailRun` | `runRlpDecodeItem` | no `validInputSlice` bound: the Lean host reads `inputBytes.getD` |
+| `SailRelates` | `relateItem` on items | field → `.success is_list (full - content) content`; `Error.Exit` → `.error`; other failures → `False` |
+| `sailItem`, `sailHeader` | `rlp_decode_item`, `rlp_ref_hdr` | closed forms, proved equal to the Sail run (`decode_item_eval`, `ref_hdr_eval`) |
+| `bugApplies .rlpLongLengthWrap` | `decodeItemBugApplies RlpLongLengthWrap` | candidate success with `2^64 ≤ header + payload` (`binaryWrapCase`) and Sail exits; other classes `False` |
+| `encode40` | `encodeResult` | `result40 = encode40 · · · (decode input)` (`result40_eq`) |
+| `DecodeMeaningModuloKnownBugs` | same name | `after = result40 …` (`decodeItemAllowsC1B`) and, for every `σ`, `after = encode40 … it` with `SailRelates (sailRun input σ) it`, or a listed bug applies |
+| `Compliant m m'` | `decodeItemExitResources` + `DecodeMeaningModuloKnownBugs` | `Post m m'` and, for every `input`/`before` as in `Post`, the outcome bytes satisfy the meaning |
+
+Differences: the meaning is stated over items and the 40 outcome bytes, not over Iris resources;
+the wrap clause states the candidate success instead of `candidateResult40 … after` (the first
+conjunct of `DecodeMeaningModuloKnownBugs` already fixes `after = result40`). Witnesses:
+`wrapWitness` (`decodeItemWrapWitnessInput`) inhabits the wrap class; Sail and the candidate agree
+on `[0]`.
