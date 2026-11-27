@@ -1,5 +1,6 @@
 import ZesuExec.Vc.Assemble
 import ZesuExec.Vc.SoundW
+import ZesuExec.Vc.Tactics
 
 /-!
 # Obligation framework commands for plans with callee summaries
@@ -216,5 +217,33 @@ unsafe def elabZesuAssembleW : CommandElab := fun stx => do
   modifyEnv (zesuExt.addEntry · (.assembled fn manual opens))
   logInfo s!"{fn}: {items.size} items, {items.size - manual.size - opens.size} auto, \
     {manual.size} manual, {opens.size} open"
+
+open Lean.Elab.Tactic in
+/-- `leafc_intro`: `LeafGoalC σ img P c l` with the cut unfolded and the leaf evaluated. -/
+syntax (name := leafcIntroCmd) "leafc_intro" : tactic
+
+open Lean.Elab.Tactic in
+/-- `call_intro`: `CallGoal σ img P c call` with the cut unfolded and the call evaluated. -/
+syntax (name := callIntroCmd) "call_intro" : tactic
+
+open Lean.Elab.Tactic in
+@[tactic leafcIntroCmd] unsafe def evalLeafCIntro : Tactic := fun _ => withMainContext do
+  let g ← getMainGoal
+  let t ← whnfR (← instantiateMVars (← g.getType))
+  unless t.isAppOfArity ``LeafGoalC 5 do throwError "leafc_intro: goal is not `LeafGoalC`"
+  let a := t.getAppArgs
+  let c ← unfoldCut a[3]!
+  let l ← evalClosed LeafW (mkConst ``LeafW) a[4]!
+  replaceMainGoal [← g.replaceTargetDefEq (mkAppN (mkConst ``LeafGoalC) #[a[0]!, a[1]!, a[2]!, c, l])]
+
+open Lean.Elab.Tactic in
+@[tactic callIntroCmd] unsafe def evalCallIntro : Tactic := fun _ => withMainContext do
+  let g ← getMainGoal
+  let t ← whnfR (← instantiateMVars (← g.getType))
+  unless t.isAppOfArity ``CallGoal 5 do throwError "call_intro: goal is not `CallGoal`"
+  let a := t.getAppArgs
+  let c ← unfoldCut a[3]!
+  let k ← evalClosed CallRec (mkConst ``CallRec) a[4]!
+  replaceMainGoal [← g.replaceTargetDefEq (mkAppN (mkConst ``CallGoal) #[a[0]!, a[1]!, a[2]!, c, k])]
 
 end ZesuExec.Vc

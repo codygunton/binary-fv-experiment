@@ -44,7 +44,7 @@ def LeafGoalC (P : PlanW σ img) (c : Cut σ) (l : LeafW) : Prop :=
     (∀ b ∈ l.leaf.conds, b.eval env' = true) →
     (∀ o ∈ l.leaf.obligs, o.holds env') ∧ l.leaf.S.steps - c.S.steps ≤ c.budget g m ∧
     ((∀ call ∈ l.calls, CallFact img (P.X g m) (P.Qc g m) (c.env g m) P.F0 env' l.wr call) →
-      ∀ m', Match env' l.leaf.S m' → ExitOk env' l.leaf.exit m' →
+      ∀ k m', RunsIn img k m m' → Match env' l.leaf.S m' → ExitOk env' l.leaf.exit m' →
         SameOutside (FootW (c.env g m) c.S (P.X g m)) m m' →
         ExitGoal P.toPlan g m' (c.budget g m - (l.leaf.S.steps - c.S.steps)) l.leaf.exit)
 
@@ -96,7 +96,7 @@ theorem vc_soundW (P : PlanW σ img)
     · obtain ⟨hob, hbud, hexit⟩ := hlw g m hA env' hag hconds
       obtain ⟨hf, k, m', hk, hr, hm', hex, hfo, -⟩ := hrun hob
       exact ⟨l.leaf.S.steps - c.S.steps, by omega, by omega, m', k, hk, hr, by
-        rw [← hb]; exact hexit hf m' hm' hex hfo⟩
+        rw [← hb]; exact hexit hf k m' hr hm' hex hfo⟩
   have done : ∀ k₂ m₂, RunsIn img k₂ m' m₂ → k₂ ≤ n - s → P.Post g m₂ →
       Reaches img n (P.Post g) m :=
     fun k₂ m₂ hk₂ hle hQ => ⟨k + k₂, m₂, by omega, hr.trans hk₂, hQ⟩
