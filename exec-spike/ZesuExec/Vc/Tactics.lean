@@ -197,11 +197,16 @@ Leaves the cut's fields as goals. -/
   match e.getAppFn.constName?, e.getAppArgs with
   | some ``Exit.at, #[pcE] =>
     let pc ← evalExpr Nat (mkConst ``Nat) pcE
+    let isTail ← evalExpr Bool (mkConst ``Bool)
+      (← mkAppM ``Option.isSome #[mkApp2 (mkAppN (mkConst ``Plan.tail) #[σ, img]) P pcE])
+    if isTail then
+      evalTactic (← `(tactic| refine ExitGoal.at_tail (by rfl) ⟨?_, ?_, ?_, fun m'' hpost => ?_⟩))
+    else
     let some i := pcs.idxOf? pc | throwError "exit_intro: no cut at {pc}"
     let c ← cutStx i
     evalTactic (← `(tactic| (
-      simp only [ExitGoal]
-      refine ⟨$c, (Plan.getElem!_mem _ (i := $(quote i)) (by decide) : $c ∈ _), ?_, ?_, ?_⟩)))
+      refine ExitGoal.at_cut (by rfl)
+        ⟨$c, (Plan.getElem!_mem _ (i := $(quote i)) (by decide) : $c ∈ _), ?_, ?_, ?_⟩)))
   | some ``Exit.ret, _ =>
     -- `P.Post g m'` with `P.Post` unfolded to its definition
     let post ← whnf (mkApp3 (mkConst ``Plan.Post) σ img P)
