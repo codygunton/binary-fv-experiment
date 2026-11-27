@@ -1027,4 +1027,71 @@ theorem TX.leaf_8000015c_2 :
     rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
     omega
 
+/-! ## Bytes copied from the input into the frame -/
+
+theorem byteList_getElem (f : Nat → Byte) : ∀ (k n u : Nat) (h : u < (byteList f k n).length),
+    (byteList f k n)[u] = f (k + u)
+  | k, 0, u, h => by simp [byteList] at h
+  | k, n + 1, 0, _ => by simp [byteList]
+  | k, n + 1, u + 1, h => by
+    simp only [byteList, List.getElem_cons_succ]
+    rw [byteList_getElem f (k + 1) n u (by simp only [byteList, List.length_cons] at h; omega)]
+    congr 1; omega
+
+theorem byteOf_byteList {f : Nat → Byte} {k n u : Nat} (hn : n ≤ 8) (hu : u < n) :
+    byteOf (ofBytesLE (byteList f k n)) u = f (k + u) := by
+  rw [byteOf_ofBytesLE _ (by rw [byteList_length]; exact hn) u (by rw [byteList_length]; exact hu),
+    byteList_getElem]
+
+theorem byteOf_sext32 (x : Word) {u : Nat} (hu : u < 4) :
+    byteOf ((x.setWidth 32).signExtend 64) u = byteOf x u := by
+  apply BitVec.eq_of_getLsbD_eq; intro b hb
+  simp only [byteOf, BitVec.getLsbD_extractLsb', hb, decide_true, Bool.true_and,
+    BitVec.getLsbD_signExtend, BitVec.getLsbD_setWidth]
+  have h1 : 8 * u + b < 32 := by omega
+  simp [h1, show 8 * u + b < 64 by omega]
+
+/-- A byte of a frame word the leaf wrote. -/
+theorem leaf_bytes {σ : Sig} {m m' : Machine} {env : Env} {S' : SState} (he : BaseEnv σ m env)
+    (hwf : Env.WF env S') (hm' : Match env S' m') (hS' : S'.regions = baseRegions) {off n : Nat}
+    (hn : n ≤ 8) (hoff : off + n ≤ 576) :
+    ∀ u < n, m'.mem (σ.sl (576 - off) + BitVec.ofNat 64 u) =
+      some (byteOf ((readConst S' 0 off n).eval env) u) := by
+  intro u hu
+  have l := load_cst hwf hm' (r := 0) (R := frameR) (off := off) (n := n) (by rw [hS']; rfl)
+    (by rw [he.size]; simp [envB, entryEnv, Env.size, shapeOf, frameBytes]; omega)
+  have b := load_bytes l hn u hu
+  rwa [he.base, show (envB σ m).base 0 + BitVec.ofNat 64 off + BitVec.ofNat 64 u =
+      σ.sl (576 - off) + BitVec.ofNat 64 u by
+    simp only [envB, entryEnv, Env.base, shapeOf, List.getD_cons_zero, Sig.sl, w, frameBytes]
+    bv_omega] at b
+
+/-- An input byte as the base env reads it. -/
+theorem input_byte {σ : Sig} {m : Machine} (hc : Common σ m) {j : Nat} (hj : j < σ.len)
+    (hj' : j < σ.input.length) : some ((envB σ m).byte0 4 j) = some σ.input[j] := by
+  have hpre := hc.2.1
+  have hinB := hpre.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+  have e := input_same hc hj
+  simp only [Env.byte0, envB, entryEnv, shapeOf, List.getD_cons_succ, List.getD_cons_zero]
+  rw [e, hinB j hj']; rfl
+
+/-- The payload pointer of a nonempty string outcome. -/
+theorem dec_ptr_str {p : Word} {input before : List Byte} {hh q : Nat}
+    (hd : F2.decode input = .success false hh q) (hq : q ≠ 0) :
+    ofBytesLE (((F2.result40 p input before).drop 0).take 8) = p + BitVec.ofNat 64 hh := by
+  have hne : input.head? ≠ some 128 := by
+    cases input with
+    | nil => simp
+    | cons x rest =>
+      intro hx
+      simp only [List.head?_cons, Option.some.injEq] at hx
+      subst hx
+      simp [F2.decode] at hd; omega
+  show ofBytesLE [F2.resultByte p input before 0, F2.resultByte p input before 1,
+    F2.resultByte p input before 2, F2.resultByte p input before 3,
+    F2.resultByte p input before 4, F2.resultByte p input before 5,
+    F2.resultByte p input before 6, F2.resultByte p input before 7] = _
+  simp only [F2.resultByte, hd, F2.successByte, if_neg hne]
+  exact ofBytesLE_bytes8 _
+
 end ZesuExec.Fn.TX
