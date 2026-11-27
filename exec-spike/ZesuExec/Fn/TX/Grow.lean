@@ -476,6 +476,40 @@ theorem live_perm {σ : Sig} {m : Machine} {L X X' : List (Word × Nat)} (h : Li
     (hp : X.Perm X') : Live σ m L X' :=
   ⟨h.1, h.2.1.trans (List.Perm.append_left _ hp), fun b hb => h.2.2 b (hp.symm.subset hb)⟩
 
+/-- `OuterOk` on a machine that keeps `rest`'s bytes. -/
+theorem outer_bytes {σ : Sig} {mc m : Machine} {o : Obs} (hok : OuterOk σ mc o)
+    (hrest : ∀ t < 16, m.mem (σ.rest + BitVec.ofNat 64 t) = mc.mem (σ.rest + BitVec.ofNat 64 t)) :
+    OuterOk σ m o := by
+  refine ⟨hok.1, hok.2.1, ?_, ?_, hok.2.2.2.2⟩
+  · rw [load_congr fun t ht => hrest t (by omega)]; exact hok.2.2.1
+  · rw [load_congr (m := mc) fun t ht => by
+      rw [show σ.rest + 8 + BitVec.ofNat 64 t = σ.rest + BitVec.ofNat 64 (8 + t) by bv_omega]
+      exact hrest _ (by omega)]
+    exact hok.2.2.2.1
+
+/-- `ELNoHdr` on a machine that keeps the bytes of TX's blocks. -/
+theorem elnohdr_keep {σ : Sig} {mc m : Machine} {o : Obs} (h : ELNoHdr σ mc o)
+    (hblk : ∀ b ∈ EX o, ∀ t < b.2,
+      m.mem (b.1 + BitVec.ofNat 64 t) = mc.mem (b.1 + BitVec.ofNat 64 t)) : ELNoHdr σ m o := by
+  obtain ⟨hle', hp0, hc0, hc32, hram', hil, hbytes, hz⟩ := h
+  refine ⟨hle', hp0, hc0, hc32, hram', hil, ?_, fun x hx => ?_⟩
+  · rcases Nat.eq_zero_or_pos o.ec.toNat with he | he
+    · have : o.done = [] := List.eq_nil_of_length_eq_zero (by omega)
+      have : o.is = [] := List.eq_nil_of_length_eq_zero (by rw [hil, this]; rfl)
+      intro i hi; simp [entriesBytes, *] at hi
+    · have hlen := entriesBytes_length o.done o.is hil fun x hx => ⟨(hz x hx).1, (hz x hx).2.1⟩
+      refine bytes_congr hbytes fun t ht => hblk (o.ep, entrySize * o.ec.toNat)
+        (by simp [EX, he]) t ?_
+      rw [hlen] at ht
+      exact Nat.lt_of_lt_of_le ht (Nat.mul_le_mul_left _ hle')
+  · obtain ⟨hpad, haddr, hkl', hkram, hkb'⟩ := hz x hx
+    refine ⟨hpad, haddr, hkl', hkram, ?_⟩
+    by_cases hk : x.1.keys = []
+    · rw [hk]; intro i hi; simp at hi
+    · exact bytes_congr hkb' fun t ht => hblk _ (by
+        simp only [EX, List.mem_append]; exact .inr (mem_keysBlocks hx hk)) t
+        (by rw [flatten_length _ hkl'] at ht; exact ht)
+
 /-- `Grown` carries over to a machine that keeps its bytes and registers. -/
 theorem grown_keep {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs}
     {L X L' X' : List (Word × Nat)} {kp' : Word} (h : Grown σ mc o k L kp' X) (hcm : Common σ m)
@@ -491,40 +525,18 @@ theorem grown_keep {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs}
     hram, hkb, hkeys⟩ := h
   have l0 := hslot (0x1f0, 8) (by simp)
   have l2 := hslot (0x158, 20) (by simp)
-  obtain ⟨hle', hp0, hc0, hc32, hram', hil, hbytes, hz⟩ := hEL
   have h20 : ∀ t < (itemPayload (ent σ o k) k.ah 20).length, t < 20 := fun t ht => by
     simp only [itemPayload, List.length_take] at ht; omega
-  refine ⟨hcm, ⟨hok.1, hok.2.1, ?_, ?_, hok.2.2.2.2⟩,
+  refine ⟨hcm, outer_bytes hok hrest,
     ⟨(hr 20 (by decide)).trans r20, (hr 21 (by decide)).trans r21, hi,
       (load_congr fun t ht => l0 t ht).trans hmag⟩,
-    ⟨hle', hp0, hc0, hc32, hram', hil, ?_, fun x hx => ?_⟩,
+    elnohdr_keep hEL fun b hb => hblk b (List.mem_append_left _ hb),
     hl, ⟨hd, hle, (hr 26 (by decide)).trans r26⟩,
     ⟨had, hal, bytes_congr hA fun t ht => l2 t (h20 t ht)⟩, hkl, hkw, hram, ?_, hkeys⟩
-  · rw [load_congr fun t ht => hrest t (by omega)]; exact hok.2.2.1
-  · rw [load_congr (m := mc) fun t ht => by
-      rw [show σ.rest + 8 + BitVec.ofNat 64 t = σ.rest + BitVec.ofNat 64 (8 + t) by bv_omega]
-      exact hrest _ (by omega)]
-    exact hok.2.2.2.1
-  · rcases Nat.eq_zero_or_pos o.ec.toNat with he | he
-    · have : o.done = [] := List.eq_nil_of_length_eq_zero (by omega)
-      have : o.is = [] := List.eq_nil_of_length_eq_zero (by rw [hil, this]; rfl)
-      intro i hi; simp [entriesBytes, *] at hi
-    · have hlen := entriesBytes_length o.done o.is hil fun x hx => ⟨(hz x hx).1, (hz x hx).2.1⟩
-      refine bytes_congr hbytes fun t ht => hblk (o.ep, entrySize * o.ec.toNat)
-        (by simp [EX, he]) t ?_
-      rw [hlen] at ht
-      exact Nat.lt_of_lt_of_le ht (Nat.mul_le_mul_left _ hle')
-  · obtain ⟨hpad, haddr, hkl', hkram, hkb'⟩ := hz x hx
-    refine ⟨hpad, haddr, hkl', hkram, ?_⟩
-    by_cases hk : x.1.keys = []
-    · rw [hk]; intro i hi; simp at hi
-    · exact bytes_congr hkb' fun t ht => hblk _ (by
-        simp only [EX, List.mem_append]; exact .inl (.inr (mem_keysBlocks hx hk))) t
-        (by rw [flatten_length _ hkl'] at ht; exact ht)
-  · by_cases hk : k.keys = []
-    · rw [hk]; intro i hi; simp at hi
-    · exact bytes_congr hkb fun t ht => hblk (kp', keySize * k.keys.length)
-        (by simp [KD, hk]) t (by rw [flatten_length _ hkeys] at ht; exact ht)
+  by_cases hk : k.keys = []
+  · rw [hk]; intro i hi; simp at hi
+  · exact bytes_congr hkb fun t ht => hblk (kp', keySize * k.keys.length)
+      (by simp [KD, hk]) t (by rw [flatten_length _ hkeys] at ht; exact ht)
 
 /-- The grown list `{p'', c'}` once the old entries are copied; the old buffer (if any) is
 still live. -/
@@ -827,5 +839,123 @@ theorem TX.leaf_8000042c_0 :
     rw [e64, e72, w_40, r24]
   · show bTail m' 311 ≤ bTail m 324 - _
     rw [hsteps]; unfold bTail afterEntry; rw [hr 21 (by simp), hr 26 (by simp)]; omega
+
+/-! ## `0x8000025c`: after `toOwnedSlice` of the keys -/
+
+/-- A stack range of `n` bytes at `S - k` that misses `EntryDone`'s slots. -/
+theorem slots_free {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {k n : Nat} {a : Word} (hk : k ≤ 704)
+    (hn : n ≤ k)
+    (hd : ∀ kn ∈ ([(0x1f0, 8), (0x1c0, 24), (0x158, 20), (0xa0, 20)] : List (Nat × Nat)),
+      kn.1 + n ≤ k ∨ k + kn.2 ≤ kn.1) (h : InRange (σ.sl k) n a) :
+    InRange (σ.sl stackBytes) stackBytes a ∧
+      ∀ kn ∈ ([(0x1f0, 8), (0x1c0, 24), (0x158, 20), (0xa0, 20)] : List (Nat × Nat)),
+        ¬ InRange (σ.sl kn.1) kn.2 a :=
+  ⟨sl_in_stack hpre hk hn h, fun kn hkn hin => fr_apart hpre hk (by
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
+    rcases hkn with rfl | rfl | rfl | rfl <;> decide) (hd kn hkn) h hin⟩
+
+/-- After `toOwnedSlice` of the keys without error: the finished entry's keys slice
+`{kp', |keys|}` in the result slot `S-0xb8`, the entries list as before. -/
+theorem ret25c {σ : Sig} {m : Machine} (h : ARet f4C Site258 σ m)
+    (he : (Sym.init 0 408 2).eval (envB σ m) = 0) :
+    ∃ o k L kp', Grown σ m o k L kp' [] ∧
+      F1.HeaderIs m (σ.sl 0x1c0) o.ep (w o.done.length) o.ec ∧
+      m.load (σ.sl 0xb8) 8 = some kp' ∧ m.load (σ.sl 0xb0) 8 = some (w k.keys.length) ∧
+      m.reg 27 = 32 := by
+  have hcm := (ret_25c h).1
+  have hpre := hcm.2.1
+  obtain ⟨mc, x, ⟨o, k, hIE, hx, hkw, hKL, ha⟩, hpost, -⟩ := h
+  rcases x with ⟨L, items⟩
+  have hx' : items = k.keys.flatten := hx
+  subst hx'
+  have hIE : InEntry σ mc o k L := hIE
+  obtain ⟨hret, hso, hcase⟩ : ToOwned.Post F4.elemBytes σ.A L k.keys.flatten F4.emptyPtr mc m :=
+    hpost
+  obtain ⟨hc0, hok, ⟨r20, r21, hi, hmag⟩, hEL, hlive, ⟨hd, hle, r26⟩, hAO, hKLO, r27⟩ := hIE
+  obtain ⟨⟨hH0, hH8, hH16⟩, hkle, -, -, hkc32, -, hlens, -⟩ := hKL
+  have hres : mc.reg 10 = σ.sl 0xb8 := ha.arg 0 (by simp)
+  have hhdr : mc.reg 11 = σ.sl 0x118 := ha.arg 1 (by simp)
+  simp only [ToOwned.listPtr, ToOwned.listLen, ToOwned.listCap, hhdr, hres, f4w hH0, f4w hH8,
+    f4w hH16, show mc.reg 2 - 112 = σ.sl 688 from sp_sub hc0 112] at hso hcase
+  have hn : (w k.keys.length).toNat = k.keys.length := by
+    simp only [w, BitVec.toNat_ofNat]; omega
+  have e32 : k.kc.toNat * F4.elemBytes = keySize * k.kc.toNat := by
+    simp only [F4.elemBytes, keySize]; omega
+  rw [hn, e32] at hcase
+  have hs := edsame_of (k := { k with keys := [] }) (kp' := 0) (Y := KX k) hpre
+    (by simpa [KD] using hlive) hso fun a h => by
+      rcases h with h | h | h | h | h | ⟨hc1, h⟩
+      · exact .inl (slots_free hpre (by decide) (by decide) (by decide) h)
+      · exact .inl (slots_free hpre (by decide) (by decide) (by decide) h)
+      · exact .inl (slots_free hpre (by decide) (by decide) (by decide) h)
+      · exact .inr (.inl h)
+      · exact .inr (.inr (.inl h))
+      · refine .inr (.inr (.inr ⟨(k.kq, keySize * k.kc.toNat), by simp [KX, hc1], ?_⟩))
+        rw [e32] at h; exact h
+  have hrk : ∀ i ∈ ([20, 21, 26, 27] : List (Fin 32)), m.reg i = mc.reg i :=
+    fun i hi => hret.2 i (by simp only [calleeSaved]; simp at hi ⊢; omega)
+  have hOK := outer_bytes hok hs.rest
+  have hOR : OuterRegs σ m o := ⟨(hrk 20 (by simp)).trans r20, (hrk 21 (by simp)).trans r21, hi,
+    (load_congr fun t ht => hs.slot (0x1f0, 8) (by simp) t ht).trans hmag⟩
+  have hNH : ELNoHdr σ m o := elnohdr_keep (hEL.2 : ELNoHdr σ mc o) fun b hb =>
+    hs.blk b (by simpa [KD] using hb)
+  have hEO : EntryOk σ m o k := ⟨hd, hle, (hrk 26 (by simp)).trans r26⟩
+  have hAO' : AddrOk σ m o k := ⟨hAO.1, hAO.2.1, bytes_congr hAO.2.2 fun t ht =>
+    hs.slot (0x158, 20) (by simp) t (by simp only [itemPayload, List.length_take] at ht; omega)⟩
+  have hH := hdr_congr hEL.1 fun t ht => hs.slot (0x1c0, 24) (by simp) t ht
+  have h27 : m.reg 27 = 32 := (hrk 27 (by simp)).trans r27
+  have hb0 : σ.sl 0xb0 = σ.sl 0xb8 + 8 := by simp only [Sig.sl, w]; bv_omega
+  split at hcase
+  · rename_i h0
+    have hk0 : k.keys = [] := List.eq_nil_of_length_eq_zero h0
+    obtain ⟨-, ⟨hr0, hr8, -, -⟩, hheap, -⟩ := hcase
+    have hKD : KD k k.kq = [] := by simp [KD, hk0]
+    have hl : Live σ m (if 0 < k.kc.toNat then L.erase (k.kq, keySize * k.kc.toNat) else L)
+        (EX o ++ KD k k.kq ++ []) := by
+      rw [hKD]
+      by_cases hc : 0 < k.kc.toNat
+      · rw [if_pos hc] at hheap ⊢
+        have hKX : KX k = [(k.kq, keySize * k.kc.toNat)] := by simp [KX, hc]
+        rw [hKX] at hlive
+        exact live_of_heap hpre hheap (by simpa using erase_perm hlive (by
+          simp only [keySize]; omega)) fun b hb =>
+            (hlive.2.2 b (List.mem_append_left _ (by simpa using hb))).1
+      · rw [if_neg hc] at hheap ⊢
+        have hKX : KX k = [] := by simp [KX, hc]
+        rw [hKX] at hlive
+        exact ⟨hheap, by simpa using hlive.2.1, fun b hb => hlive.2.2 b (by simpa using hb)⟩
+    refine ⟨o, k, _, k.kq, ⟨hcm, hOK, hOR, hNH, hl, hEO, hAO', hKLO, hkw,
+      fun h => absurd hk0 h, by rw [hk0]; intro i hi; simp at hi, hlens⟩, hH, hr0, ?_, h27⟩
+    rw [hb0, hr8, hk0]; rfl
+  · rename_i h0
+    rcases hcase with ⟨p', -, hram', hbytes', -, ⟨hr0, hr8, -, -⟩, hheap, -⟩ |
+      ⟨-, ⟨-, herr, -⟩, -, -⟩
+    · have hc : 0 < k.kc.toNat := by omega
+      have hKX : KX k = [(k.kq, keySize * k.kc.toNat)] := by simp [KX, hc]
+      rw [hKX] at hlive
+      have hk0 : k.keys ≠ [] := fun h => h0 (by rw [h]; rfl)
+      have e32' : k.keys.length * F4.elemBytes = keySize * k.keys.length := by
+        simp only [F4.elemBytes, keySize]; omega
+      rw [e32'] at hheap hram'
+      have hKD : KD k p' = [(p', keySize * k.keys.length)] := by simp [KD, hk0]
+      have hl : Live σ m (L.erase (k.kq, keySize * k.kc.toNat) ++ [(p', keySize * k.keys.length)])
+          (EX o ++ KD k p' ++ []) := by
+        rw [hKD]
+        refine live_of_heap hpre hheap (by
+          simpa using (erase_perm hlive (by simp only [keySize]; omega)).append_right
+            [(p', keySize * k.keys.length)]) fun b hb => ?_
+        simp only [List.append_nil, List.mem_append, List.mem_singleton] at hb
+        rcases hb with hb | rfl
+        · exact (hlive.2.2 b (List.mem_append_left _ hb)).1
+        · show 0 < keySize * k.keys.length
+          have : 0 < k.keys.length := List.length_pos_iff.mpr hk0
+          simp only [keySize]; omega
+      exact ⟨o, k, _, p', ⟨hcm, hOK, hOR, hNH, hl, hEO, hAO', hKLO, hkw, fun _ => hram',
+        hbytes', hlens⟩, hH, hr0, by rw [hb0]; exact hr8, h27⟩
+    · exfalso
+      have := frame_init_n hpre (k := 0xb8) (off := 16) (n := 2) (by decide) (by decide)
+        (v := 2) herr
+      rw [show 576 - 0xb8 + 16 = 408 from rfl, he] at this
+      exact absurd this (by decide)
 
 end ZesuExec.Fn.TX
