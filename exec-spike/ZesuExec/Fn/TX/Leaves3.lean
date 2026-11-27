@@ -1486,4 +1486,191 @@ theorem f1_pre_tx {σ : Sig} {m : Machine} {L X : List (Word × Nat)} {items : L
                    | omega)
   all_goals try (simpa only [hsp128] using h)
 
+theorem TX.leaf_800001a0_3 :
+    LeafGoal TX.plan TX.plan.cuts[7]! ((TX.plan.leaves 0x800001a0)[3]!) := by
+  show LeafGoal TX.plan cut1a0 (run1a0_leaves[3]!)
+  have hcs : (run1a0_leaves[3]!).conds = [SBool.eq (Sym.init 0 352 2) (Sym.lit 0),
+      SBool.eq (Sym.bin BinOp.and (Sym.init 0 336 1) (Sym.lit 1)) (Sym.lit 0),
+      SBool.eq (Sym.init 0 328 8) (Sym.var 27)] := by decide
+  have hob : (run1a0_leaves[3]!).obligs = [.inBounds 4 0 (.var 40) 1 8,
+      .inBounds 4 8 (.var 40) 1 8, .inBounds 4 16 (.var 40) 1 8,
+      .inBounds 4 24 (.var 40) 1 8] := by decide
+  have hsteps : (run1a0_leaves[3]!).S.steps - S1a0.steps = 22 := by decide
+  intro σ m hA hc
+  have hA' : ARet f2C (unit Site19c) σ m := hA
+  obtain ⟨hcm, o, k, L, hie, hko, hkl, hj, before, hb⟩ := ret1a0' hA'
+  have hpre := hcm.2.1
+  have he := BaseEnv.ofP 0x100 σ m
+  have h1 : SBool.eval (envP 0x100 σ m) (SBool.eq (Sym.init 0 352 2) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have h2 : SBool.eval (envP 0x100 σ m)
+      (SBool.eq (Sym.bin BinOp.and (Sym.init 0 336 1) (Sym.lit 1)) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have h3 : SBool.eval (envP 0x100 σ m) (SBool.eq (Sym.init 0 328 8) (Sym.var 27)) = true :=
+    hc _ (by rw [hcs]; simp)
+  simp only [SBool.eval] at h1 h2 h3
+  replace h2 : ((Sym.init 0 336 1).eval (envP 0x100 σ m) &&& 1#64 == 0#64) = true := h2
+  rw [show (352 : Nat) = frameBytes - 0x100 + 32 from rfl,
+    slot_val he hpre (by decide) (by decide) hb (by decide)] at h1
+  rw [show (336 : Nat) = frameBytes - 0x100 + 16 from rfl,
+    slot_val he hpre (by decide) (by decide) hb (by decide)] at h2
+  rw [show (328 : Nat) = frameBytes - 0x100 + 8 from rfl,
+    slot_val he hpre (by decide) (by decide) hb (by decide)] at h3
+  obtain ⟨b, kh', q, hdk, hl⟩ := dec_ok (by simpa [Sym.eval] using h1)
+  rw [hl] at h2
+  cases b
+  rotate_left
+  · simp at h2
+  have r27 : m.reg 27 = 32 := hie.2.2.2.2.2.2.2.2
+  rw [dec_len hdk, show (Sym.var 27).eval (envP 0x100 σ m) = m.reg 27 from rfl, r27] at h3
+  -- the key fits the keys window
+  have hl64 : σ.len < 2 ^ 64 := (wordAt σ.m (σ.rest + 8)).isLt
+  have hok := hie.2.1
+  have hpl := hok.2.1
+  have hle := hie.2.2.2.2.2.1.2.1
+  have hkb := hie.2.2.2.2.2.2.2.1.2
+  have hil : σ.input.length = σ.len := hpre.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+  have hfit : KeysFits (kwin σ o k) := hko.1.2.2
+  have hne : kwin σ o k ≠ [] := by intro h; rw [h] at hdk; simp [F2.decode] at hdk
+  obtain ⟨-, hkb2, -⟩ := fits_bounds (keysFits_head hfit hne) hdk
+  have hkwl : (kwin σ o k).length = k.kl - k.j := by
+    rw [kwin_eq σ o k hle hkb (by omega)]; simp only [List.length_take, List.length_drop]; omega
+  rw [hkwl] at hkb2
+  have hq : q = 32 := by
+    have := congrArg BitVec.toNat (beq_iff_eq.mp h3)
+    rw [BitVec.toNat_ofNat, show (32 : Word).toNat = 32 from rfl] at this
+    omega
+  subst hq
+  -- the outcome's words
+  have e320 : (Sym.init 0 320 8).eval (envP 0x100 σ m) = keyPtr σ o k + w kh' := by
+    rw [show (320 : Nat) = frameBytes - 0x100 + 0 from rfl,
+      slot_val he hpre (by decide) (by decide) hb (by decide), dec_ptr_str hdk (by decide)]
+  have e344 : (Sym.init 0 344 8).eval (envP 0x100 σ m) = w (kh' + 32) := by
+    rw [show (344 : Nat) = frameBytes - 0x100 + 24 from rfl,
+      slot_val he hpre (by decide) (by decide) hb (by decide), dec_cons hdk]
+  have hv : (Sym.var 40).eval (envP 0x100 σ m) = wordAt m (σ.sl 0x100) - σ.inp := by
+    simp [Sym.eval, envP, Env.setVars]
+  have v40 : (Sym.var 40).eval (envP 0x100 σ m) =
+      w (o.h + o.i + k.eh + (k.ah + 20) + k.kh + k.j + kh') := by
+    rw [hv, ← slot_word hcm (k := 0x100) (by decide) (by decide), show 576 - 0x100 = 320 from rfl,
+      ← he.init, e320]
+    simp only [keyPtr, kplPtr, aftPtr, entPtr, curPtr, w, BitVec.ofNat_add, BitVec.add_assoc]
+    rw [BitVec.add_comm σ.inp, BitVec.add_sub_cancel]
+  have v40n : ((Sym.var 40).eval (envP 0x100 σ m)).toNat =
+      o.h + o.i + k.eh + (k.ah + 20) + k.kh + k.j + kh' := by
+    rw [v40]; simp only [w, BitVec.toNat_ofNat]; omega
+  have hsz4 : (envP 0x100 σ m).size 4 = σ.len := by rw [he.size]; rfl
+  refine ⟨?_, ?_, ?_⟩
+  · rw [hob]; intro ob hob'
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hob'
+    rcases hob' with rfl | rfl | rfl | rfl <;>
+      (change _ + 1 * ((Sym.var 40).eval (envP 0x100 σ m)).toNat + _ ≤ (envP 0x100 σ m).size 4
+       rw [v40n, hsz4]; omega)
+  · show (run1a0_leaves[3]!).S.steps - S1a0.steps ≤ 32 * (afterEntry m + keysLeft m) + 658
+    rw [hsteps]; omega
+  intro m' hm' hex hfr
+  have hx : (run1a0_leaves[3]!).exit = .call 0x800cb40c 0x800001f8 := by decide
+  rw [hx] at hex ⊢
+  change m'.pc.toNat = 0x800cb40c at hex
+  change Match (envP 0x100 σ m) _ m' at hm'
+  change SameOutside (InWritable (envP 0x100 σ m) S1a0) m m' at hfr
+  obtain ⟨hwf, hm, -⟩ := payload_ok hcm (k := 0x100) (by decide) (by decide)
+  have hwf' : Env.WF (envP 0x100 σ m) (run1a0_leaves[3]!).S := hwf.congr (by decide)
+  have reg : ∀ (i : Fin 32) (s : Sym), (run1a0_leaves[3]!).S.reg i.val = s →
+      m'.reg i = s.eval (envP 0x100 σ m) := fun i s h => by rw [Match.reg_eq hm' i i.val rfl, h]
+  have hreg : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 22, 23, 24, 26, 27] : List (Fin 32)),
+      m'.reg i = m.reg i := fun i hi => by
+    rw [Match.reg_eq hm' i i.val rfl, show (run1a0_leaves[3]!).S.reg i.val = S1a0.reg i.val by
+      revert i; decide]
+    exact (Match.reg_eq hm i i.val rfl).symm
+  obtain ⟨hc', -, hp⟩ := base_leaf hcm hie.2.2.2.2.1 he hwf rfl hm' (by decide) hfr
+    (by decide) (fun i hi => hreg i (by revert hi; revert i; decide))
+  have hso := frame_only hcm he rfl hm' (by decide) hfr (lo := 360) (n := 32) (by decide)
+    (by decide)
+  have hRst : ∀ a, InRange (σ.sl (576 - 360)) 32 a → InRange (σ.sl stackBytes) stackBytes a :=
+    fun a h => sl_in_stack hpre (by decide) (by decide) h
+  have hap : ∀ {kk nn : Nat}, kk ≤ 576 → (216 + nn ≤ kk ∨ kk + 32 ≤ 216) →
+      ∀ a, InRange (σ.sl (576 - 360)) 32 a → ¬ InRange (σ.sl kk) nn a :=
+    fun hkk hd a h hin => sl_apart hpre (by decide) (by unfold stackBytes; omega) hd h hin
+  obtain ⟨hie', hko', hkl'⟩ := ie_keep hie hko hkl hc' hp hso hRst (hap (by decide) (by decide))
+    (hap (by decide) (by decide)) (hap (by decide) (by decide)) (hap (by decide) (by decide))
+    (fun i hi => hreg i (by revert hi; revert i; decide))
+  have r1 := reg 1 _ (by decide : (run1a0_leaves[3]!).S.reg 1 = .lit 0x800001f8)
+  have r10 := reg 10 _ (by decide : (run1a0_leaves[3]!).S.reg 10 = .ptr 0 296)
+  have r11 := reg 11 _ (by decide : (run1a0_leaves[3]!).S.reg 11 = .ptr 3 0)
+  have r12 := reg 12 _ (by decide : (run1a0_leaves[3]!).S.reg 12 = .bin .add (.var 24) (.lit 1))
+  have r25 := (reg 25 _ (by decide : (run1a0_leaves[3]!).S.reg 25 = .init 0 344 8)).trans e344
+  simp only [Sym.eval_bin, BinOp.eval] at r12
+  rw [show (Sym.var 24).eval (envP 0x100 σ m) = m.reg 24 from rfl, hko.2.2.2] at r12
+  simp only [Sym.eval, Env.base, envP, Env.setVars, envB, entryEnv, shapeOf, List.getD_cons_zero,
+    List.getD_cons_succ, Sig.sl, w, frameBytes] at r1 r10 r11 r12
+  rw [show σ.S - 576#64 + BitVec.ofInt 64 296 = σ.sl 0x118 by simp only [Sig.sl, w]; bv_omega]
+    at r10
+  rw [BitVec.ofInt_ofNat, BitVec.add_zero] at r11
+  rw [← BitVec.ofNat_add] at r12
+  -- the key bytes copied to `S-0xd8`
+  have hvb : o.h + o.i + k.eh + (k.ah + 20) + k.kh + k.j + kh' + 32 ≤ σ.len := by omega
+  have hin : ∀ j (hj : j < 32) (hj' : j < (itemPayload (kwin σ o k) kh' 32).length),
+      some ((envP 0x100 σ m).byte0 4 (o.h + o.i + k.eh + (k.ah + 20) + k.kh + k.j + kh' + j)) =
+      some (itemPayload (kwin σ o k) kh' 32)[j] := fun j hj hj' => by
+    rw [show (envP 0x100 σ m).byte0 4 = (envB σ m).byte0 4 from rfl,
+      input_byte hcm (j := o.h + o.i + k.eh + (k.ah + 20) + k.kh + k.j + kh' + j) (by omega)
+        (by omega)]
+    congr 1
+    simp only [itemPayload, kwin_eq σ o k hle hkb (by omega), List.getElem_take,
+      List.getElem_drop]
+    congr 1; omega
+  have hwr : ∀ u < 4, readConst (run1a0_leaves[3]!).S 0 (360 + 8 * u) 8 =
+      .initx 4 (8 * u) (.var 40) 1 8 := by decide
+  have hbytes : BytesAt m' (σ.sl 0xd8) (itemPayload (kwin σ o k) kh' 32) := by
+    intro t ht
+    have ht32 : t < 32 := by simp only [itemPayload, List.length_take] at ht; omega
+    obtain ⟨u, r, hr8, rfl⟩ : ∃ u r, r < 8 ∧ t = 8 * u + r :=
+      ⟨t / 8, t % 8, Nat.mod_lt _ (by decide), (Nat.div_add_mod t 8).symm⟩
+    have hu : u < 4 := by omega
+    have lb := leaf_bytes he hwf' hm' (by decide) (off := 360 + 8 * u) (n := 8) (by decide)
+      (by omega) r hr8
+    rw [hwr u hu] at lb
+    change m'.mem _ = some (byteOf (ofBytesLE (byteList ((envP 0x100 σ m).byte0 4)
+      (8 * u + 1 * ((Sym.var 40).eval (envP 0x100 σ m)).toNat) 8)) r) at lb
+    rw [byteOf_byteList (by decide) hr8, v40n] at lb
+    rw [show σ.sl 0xd8 + BitVec.ofNat 64 (8 * u + r) =
+        σ.sl (576 - (360 + 8 * u)) + BitVec.ofNat 64 r by simp only [Sig.sl, w]; bv_omega,
+      lb, ← hin (8 * u + r) ht32 ht]
+    congr 2; omega
+  have hsite : Site1f4 σ (L, k.keys.flatten) m' := ⟨o, k, kh', hie', rfl, hko', hkl', hj,
+    ⟨hdk, by unfold keySize; omega, hbytes, r25⟩, r1, fun t ht => by
+      simp only [List.length_cons, List.length_nil] at ht
+      obtain rfl | rfl | rfl : t = 0 ∨ t = 1 ∨ t = 2 := by omega
+      · exact r10
+      · exact r11
+      · exact r12⟩
+  obtain ⟨hH, hn, hq0, -, hc32, hram, hyl, hkb'⟩ := hkl'
+  have hlen32 : k.keys.length + 1 < 2 ^ 32 := by
+    rcases Nat.eq_zero_or_pos k.kc.toNat with h0 | h0
+    · omega
+    · have := hram h0; unfold RamRange Layout.ramLo Layout.ramHi at this; unfold keySize at this
+      omega
+  have hn' : (w k.keys.length).toNat = k.keys.length := by
+    simp only [w, BitVec.toNat_ofNat]; omega
+  have hpre1 : F1.Pre σ.A L k.keys.flatten m' := f1_pre_tx hc' hie'.2.2.2.2.1 r10 r11
+    (by rw [r12]; simp only [BitVec.toNat_ofNat]; omega)
+    (by unfold RetAligned; rw [r1]; decide) (by decide) (by decide) (by decide) hH
+    (by rw [hn']; exact hn) (by rw [hn', flatten_length _ hyl, Nat.mul_comm]; rfl) hq0
+    (fun h0 => ⟨by rw [Nat.mul_comm]; exact hram h0, by
+      rw [Nat.mul_comm]; exact List.mem_append_right _ (by simp [KX, h0, keySize, F1.elemBytes])⟩)
+    hkb'
+  refine ⟨f1C, (L, k.keys.flatten), rfl, hex, hpre1, fun m'' hpost => ⟨cut1f8,
+    by simp [TX.plan, vcPlan], rfl, ?_, ⟨m', (L, k.keys.flatten), hsite, hpost⟩, ?_⟩⟩
+  · rw [hpost.1.1.1, r1]; decide
+  · have h21 : m''.reg 21 = m.reg 21 :=
+      (hpost.1.1.2 21 (by decide)).trans (hreg 21 (by decide))
+    have h22 : m''.reg 22 = m.reg 22 :=
+      (hpost.1.1.2 22 (by decide)).trans (hreg 22 (by decide))
+    have h26 : m''.reg 26 = m.reg 26 :=
+      (hpost.1.1.2 26 (by decide)).trans (hreg 26 (by decide))
+    show F1.bound + (32 * (afterEntry m'' + keysLeft m'') + 439) ≤
+      32 * (afterEntry m + keysLeft m) + 658 - ((run1a0_leaves[3]!).S.steps - S1a0.steps)
+    rw [hsteps]; unfold afterEntry keysLeft F1.bound; rw [h21, h22, h26]; omega
+
 end ZesuExec.Fn.TX
