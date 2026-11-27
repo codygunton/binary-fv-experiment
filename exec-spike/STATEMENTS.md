@@ -487,3 +487,41 @@ Differences:
   `Pre A ⟨[0xc0], []⟩ m` exists. The decoder is checked by `decide` on four inputs (empty list,
   byte string, one entry with one key, a 19-byte address).
 - No end theorem yet: `tx_spec` comes in S6 step 7. Cut design: `OPEN/TX/CUTS.md`.
+
+## DTF `rlp_decode.decodeTxFields` (`Fn/DTF/Spec.lean`) — draft
+
+No zesislar contract exists. Drafted from zesu `b5483dda` `src/stateless/rlp_decode.zig:308-418`
+(`decodeTxFields`) and `:420-588` (`txBytesView`, `txU64`, `txNonce`, `txU128`, `txU256`,
+`txAddr`, `txAccessList`, `txHashList`, `txAuthList`), the binary (`OPEN/DTF/BLOCKERS.md`) and the
+debug object's layout of `input.Transaction` (0x120 bytes; error code at `+0x120`).
+`contract: draft`, `review: unreviewed`.
+
+- Decoder: `body t` / `decode t payload` (one parser per field helper over `F2.decode`; the access
+  list is TX's reference decoder `TX.candidate`); the bytes after the last field are not read, as in
+  the source. Legacy `v`: EIP-155 / pre-155 split of `v_raw` with the `@intCast`s truncated to 64
+  bits.
+- `Pre A g`: result 0x128 bytes in RAM; allocator object `{ctx, alt_fl_alloc.vtable}`;
+  **`tx_type ≤ 4`** (the binary's jump table has no range check; both callers ensure it); payload in
+  the input buffer or RAM with `Domain` (TX's domain on the access list's input, when reached);
+  scratch word, `A.Heap g.L`, separation and "avoids `Priv`" as for TX. Stack: frame 0x370 plus
+  TX's 704.
+- `Post A g`: `Returns`; frame (result, stack, scratch, `Priv`); the heap gains `fresh` blocks; and
+  either error code 0 with `TxAt` of the decoded transaction (every scalar field, optional tags,
+  the `data`, `access_list` (TX's `entriesBytes`), `blob_hashes` and `authorization_list` slices),
+  or error code 3.
+
+Open (to settle before review):
+1. The error disjunct is allowed on every input: allocation failure (mapped to
+   `error.InvalidBlock` by every `catch`) is not narrowed to inputs that reach a non-empty
+   allocation, and an error is not tied to `decode = none`. A reviewed `Post` should state
+   `decode = none → code 3` and restrict allocation failure (as TX's `OutcomeAllowed`).
+2. Bytes of the result not written by the decoded variant (the `gas_priority_fee` / `chain_id` /
+   `to` payloads when `null`, padding) are unconstrained.
+3. The legacy `@intCast` truncation and the `@intCast` of `v_raw - 27` are read from the source
+   for `ReleaseFast`; they are not yet checked against the disassembly.
+4. Heap shape: the returned slices are not tied to the `fresh` blocks (TX's `returnedBlocks`
+   form), and leaked blocks on error are not separated from returned ones.
+5. Sail agreement (EVM-Sail `decode_legacy_tx`, `decode_access_list_tx`, `decode_fee_market_tx`,
+   `decode_blob_tx`, `decode_set_code_tx` in `vendor/evm-sail-lean/Evm/Lib/Rlp/Codecs/Transactions.lean`)
+   and the known-bug classes belong to a later compliance statement.
+- Non-vacuity: not yet stated; `decide` checks the decoder on four inputs.

@@ -417,3 +417,24 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `tools/gen_image.{sh,py}` add `rlp_decode.txAccessList` as `Gen.TX` (323 words; Expected table
   1249 -> 1572), `zesu-difftest` knows `--fn TX`, snapshots in `test/snapshots/TX/` (16).
   `STATEMENTS.md` notes the new meaning of `Machine.load`/`store`. 25 min.
+- S7-prep (2026-11-27, branch `probe-unaligned`): DTF `rlp_decode.decodeTxFields`.
+  `OPEN/DTF/BLOCKERS.md`: jump table `0x80000584` = `0x80110050 + 8·(tx_type & 0xff)`, five targets
+  (types 0-4: `0x80000588 0x8000081c 0x8000069c 0x8000075c 0x800005dc`; the sixth word points
+  outside), **no range check** — both callers (`decodeSingleTx`, `decodeTxItem`) reject
+  `tx_type > 4`, so `Pre` carries `tx_type ≤ 4`; the 11 indirect calls are allocator vtable slots
+  (alloc ×7 slot 0, remap ×2 slot 2, free ×2 slot 3); 26 misaligned sites (`to` and blob-hash copies
+  from RLP payloads, odd result offsets `0x21 0xa9 0x109 0x111 0x119`), supported since probe 3.
+  `ZesuExec/Fn/DTF/Spec.lean` (draft/unreviewed): reference decoder over `F2.decode` and
+  `TX.candidate` (`StateT (List Byte) Option` parsers per field helper), `Pre`/`Post` with the
+  `input.Transaction` layout from the debug object; `decide` on four inputs; `lake build
+  ZesuExec.Fn.DTF.Spec` OK; open points in `STATEMENTS.md` § DTF (error disjunct unrestricted,
+  unwritten bytes, `@intCast` truncation unchecked, heap shape, Sail agreement).
+  `OPEN/DTF/CALLEES.md`: the only non-closed callee is TX (4 calls); all others closed or assumed.
+  Image: `rlp_decode.decodeTxFields` added as `Gen.DTF` (2,825 words) with rodata
+  `0x80110050:40` (jump table) and `0x8010fe00:8` (the `/144` multiplier); `zesu-difftest`
+  knows `--fn DTF`. `Test/Decode`'s single `decide` over a per-entry `word?` lookup became
+  quadratic (368 s, kernel recursion limit at 4,397 entries): replaced by two linear checks
+  (`table_pairs`: the table's `(pc, word)` pairs equal the image's segments in order; every word
+  decodes to its mnemonic), 3.4 s. No DTF snapshots: zesislar's runner has no `decodeTxFields`
+  profile or inputs. After the image change: `lake build` OK, difftest F1 19 + F2 26 + TX 16
+  agree, `tools/verify.sh` all PASS. 18 min (contract 7).

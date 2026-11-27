@@ -47,6 +47,7 @@ SHORT = {
     "array_list.Aligned(input.AccessListEntry,null).toOwnedSlice": "F5",
     "rlp_decode.decodeParentHeader": "F6",
     "rlp_decode.txAccessList": "TX",
+    "rlp_decode.decodeTxFields": "DTF",
     "alt_fl_alloc.alloc": "alloc",
     "alt_fl_alloc.free": "free",
     "memcpy": "memcpy",

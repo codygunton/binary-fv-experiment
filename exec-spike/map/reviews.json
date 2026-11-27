@@ -15,7 +15,9 @@
   "f_800d5cb8": {"contract": "transcribed", "review": "unreviewed", "reviewer": "",
                  "source": "F6: ZesuSsz/Contracts/ParentHeaderContract.v:108-143; STATEMENTS.md F6"},
   "f_80000000": {"contract": "transcribed", "review": "unreviewed", "reviewer": "",
-                 "source": "TX: ZesuSsz/Contracts/TxAccessListContract.v (txAccessListArgsWellFormed, txAccessListExitResources, txAccessListAllows), Candidates/AccessListCandidate.v, TxAccessListMeaning.v (domain); STATEMENTS.md TX"}
+                 "source": "TX: ZesuSsz/Contracts/TxAccessListContract.v (txAccessListArgsWellFormed, txAccessListExitResources, txAccessListAllows), Candidates/AccessListCandidate.v, TxAccessListMeaning.v (domain); STATEMENTS.md TX"},
+  "f_8000050c": {"contract": "draft", "review": "unreviewed", "reviewer": "",
+                 "source": "DTF: no zesislar contract; drafted from zesu b5483dda src/stateless/rlp_decode.zig:308-588 (decodeTxFields and field helpers), the binary (OPEN/DTF/BLOCKERS.md) and the input.Transaction layout of the debug object; STATEMENTS.md DTF"}
  },
  "assumed": ["f_80042494", "f_80041f38"],
  "services": ["f_800e06c0"]
