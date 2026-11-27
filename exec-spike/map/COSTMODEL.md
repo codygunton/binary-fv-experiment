@@ -11,7 +11,7 @@ Rates and counts only; no extrapolated total.
 | compliance | 2 | 45 | 90 | 0 | 0 |
 | contract | 3 | 7 | 41 | 0 | 0 |
 | cut_lemma | 253 | 0.5 | 249 | 0 | 0 |
-| infra | 24 | 13.5 | 803 | 0 | 0 |
+| infra | 30 | 18.5 | 1019 | 0 | 0 |
 | leaf | 940 | 0 | 1100.6 | 0 | 0 |
 | rule | 16 | 30 | 554 | 0 | 0 |
 | run | 162 | 0.0 | 13.2 | 0 | 0 |
