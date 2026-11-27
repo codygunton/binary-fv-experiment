@@ -78,3 +78,4 @@
 {"ts": "2026-11-27T20:30:40Z", "fn": "f_80000000", "item": "leaf_800000d8_2", "kind": "leaf", "agent": "TXLeavesB", "minutes": 25.0, "usd": null, "requests": null, "outcome": "closed", "note": "TX Leaves3"}
 {"ts": "2026-11-27T20:30:40Z", "fn": "f_80000000", "item": "leaf_8000015c_2", "kind": "leaf", "agent": "TXLeavesB", "minutes": 25.0, "usd": null, "requests": null, "outcome": "closed", "note": "TX Leaves3"}
 {"ts": "2026-11-27T20:30:40Z", "fn": "f_80000000", "item": "leaf_8000015c_3", "kind": "leaf", "agent": "TXLeavesB", "minutes": 25.0, "usd": null, "requests": null, "outcome": "closed", "note": "TX Leaves3"}
+{"ts": "2026-11-27T20:37:19Z", "fn": "f_80000000", "item": "leaf_8000010c_3", "kind": "leaf", "agent": "TXLeavesB", "minutes": 45.0, "usd": null, "requests": null, "outcome": "closed", "note": "TX Leaves3 input copy"}
