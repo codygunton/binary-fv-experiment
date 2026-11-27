@@ -949,4 +949,190 @@ theorem ret25c {σ : Sig} {m : Machine} (h : ARet f4C Site258 σ m)
       rw [show 576 - 0xb8 + 16 = 408 from rfl, he] at this
       exact absurd this (by decide)
 
+/-- An initial frame byte of an `envB` leaf. -/
+theorem frame_byte0 {σ : Sig} {m : Machine} (hc : Common σ m) {j : Nat} (hj : j < 576) :
+    some ((envB σ m).byte0 0 j) = m.mem (σ.sl 576 + BitVec.ofNat 64 j) :=
+  mem0_entry (common_present hc 0 j (by decide) hj)
+
+/-- A frame word the leaf copied from another frame word. -/
+theorem leaf_copy {σ : Sig} {m m' : Machine} {S' : SState} (hc : Common σ m)
+    (hwf : Env.WF (envB σ m) S') (hm' : Match (envB σ m) S' m') (hS' : S'.regions = baseRegions)
+    {d s n : Nat} (hn : n ≤ 8) (hd : d + n ≤ 576) (hs : s + n ≤ 576)
+    (hv : ∀ u < n, byteOf ((readConst S' 0 d n).eval (envB σ m)) u = (envB σ m).byte0 0 (s + u)) :
+    ∀ u < n, m'.mem (σ.sl (576 - d) + BitVec.ofNat 64 u) =
+      m.mem (σ.sl 576 + BitVec.ofNat 64 (s + u)) := fun u hu => by
+  rw [leaf_bytes (BaseEnv.ofB σ m) hwf hm' hS' hn hd u hu, hv u hu]
+  exact frame_byte0 hc (by omega)
+
+theorem TX.leaf_8000025c_1 :
+    LeafGoal TX.plan TX.plan.cuts[10]! ((TX.plan.leaves 0x8000025c)[1]!) := by
+  show LeafGoal TX.plan cut25c (run25c_leaves[1]!)
+  have hcs : (run25c_leaves[1]!).conds = [SBool.eq (Sym.init 0 408 2) (Sym.lit 0),
+      SBool.ltu (Sym.init 0 136 8) (Sym.init 0 144 8)] := by decide
+  have hsteps : (run25c_leaves[1]!).S.steps - cut25c.S.steps = 23 := by decide
+  intro σ m hA hc
+  have hcm := (ret_25c hA).1
+  have hpre := hcm.2.1
+  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 539; unfold bTail; omega, ?_⟩
+  intro m' hm' hex hfr
+  have hx : (run25c_leaves[1]!).exit = .at 0x80000460 := by decide
+  rw [hx] at hex ⊢
+  change m'.pc.toNat = 0x80000460 at hex
+  change Match (envB σ m) _ m' at hm'
+  change SameOutside (InWritable (envB σ m) SBody) m m' at hfr
+  have h1 : SBool.eval (envB σ m) (SBool.eq (Sym.init 0 408 2) (Sym.lit 0)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have h2 : SBool.eval (envB σ m) (SBool.ltu (Sym.init 0 136 8) (Sym.init 0 144 8)) = true :=
+    hc _ (by rw [hcs]; simp)
+  have he : (Sym.init 0 408 2).eval (envB σ m) = 0 := by
+    simpa [SBool.eval, Sym.eval] using h1
+  obtain ⟨o, k, L, kp', G, hH, hb8, hb0, -⟩ := ret25c hA he
+  obtain ⟨hwf, hm, -⟩ := body_cut hcm
+  have hS : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 26] : List (Fin 32)),
+      (run25c_leaves[1]!).S.reg i.val = SBody.reg i.val := by decide
+  have hr := regs_keep hm hm' _ hS
+  have reg : ∀ (i : Fin 32) (s : Sym), (run25c_leaves[1]!).S.reg i.val = s →
+      m'.reg i = s.eval (envB σ m) := fun i s h => by rw [Match.reg_eq hm' i i.val rfl, h]
+  have r10 := reg 10 _ (by decide : (run25c_leaves[1]!).S.reg 10 =
+    .bin .add (.init 0 128 8) (.bin .add (.bin .sll (.init 0 136 8) (.lit 5))
+      (.bin .sll (.init 0 136 8) (.lit 3))))
+  have r14 := reg 14 _ (by decide : (run25c_leaves[1]!).S.reg 14 = .init 0 392 8)
+  have r15 := reg 15 _ (by decide : (run25c_leaves[1]!).S.reg 15 = .init 0 400 8)
+  have c24 := reg 24 _ (by decide : (run25c_leaves[1]!).S.reg 24 = .lit 20)
+  have c25 := reg 25 _ (by decide : (run25c_leaves[1]!).S.reg 25 = .lit 1)
+  have c27 := reg 27 _ (by decide : (run25c_leaves[1]!).S.reg 27 = .lit 32)
+  -- the frame words the leaf reads
+  have e128 := frame_init hpre (m := m) (k := 0x1c0) (by decide) (by decide) hH.1
+  have e136 := frame_init hpre (m := m) (k := 0x1b8) (by decide) (by decide)
+    (by rw [show σ.sl 0x1b8 = σ.sl 0x1c0 + 8 by simp only [Sig.sl, w]; bv_omega]; exact hH.2.1)
+  have e144 := frame_init hpre (m := m) (k := 0x1b0) (by decide) (by decide)
+    (by rw [show σ.sl 0x1b0 = σ.sl 0x1c0 + 16 by simp only [Sig.sl, w]; bv_omega]; exact hH.2.2)
+  have e392 := frame_init hpre (m := m) (k := 0xb8) (by decide) (by decide) hb8
+  have e400 := frame_init hpre (m := m) (k := 0xb0) (by decide) (by decide) hb0
+  simp only [show 576 - 0x1c0 = 128 from rfl, show 576 - 0x1b8 = 136 from rfl,
+    show 576 - 0x1b0 = 144 from rfl, show 576 - 0xb8 = 392 from rfl,
+    show 576 - 0xb0 = 400 from rfl] at e128 e136 e144 e392 e400
+  have hNH := G.2.2.2.1
+  have hn32 : o.done.length < 2 ^ 32 := by have := hNH.1; have := hNH.2.2.2.1; omega
+  have hnn : (w o.done.length).toNat = o.done.length := by
+    simp only [w, BitVec.toNat_ofNat]; omega
+  have hroom : o.done.length + 1 ≤ o.ec.toNat := by
+    simp only [SBool.eval, e136, e144] at h2
+    simp only [BitVec.ult, decide_eq_true_eq, hnn] at h2; omega
+  -- what the leaf writes
+  have hlive := G.2.2.2.2.1
+  obtain ⟨hc', hlive', -⟩ := base_leaf hcm hlive (BaseEnv.ofB σ m) hwf rfl hm' (by decide) hfr
+    (by decide) fun i hi => hr i (by simp at hi ⊢; omega)
+  have hso := frame_leaf_so hcm rfl hm' (by decide) hfr (by decide)
+  have hmem : (run25c_leaves[1]!).S.mem =
+      [⟨0, 136, 8, .bin .add (.init 0 136 8) (.lit 1)⟩, ⟨0, 432, 4, .sext 32 (.init 0 248 4)⟩,
+        ⟨0, 424, 8, .init 0 240 8⟩, ⟨0, 416, 8, .init 0 232 8⟩] := by decide
+  have hW : ∀ a, (∃ wr ∈ (run25c_leaves[1]!).S.mem, InRange (σ.sl 576 + w wr.off) wr.n a) →
+      InRange (σ.sl 0x1b8) 8 a ∨ InRange (σ.sl 0xa0) 20 a := by
+    rintro a ⟨wr, hwr, hin⟩
+    rw [hmem] at hwr
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hwr
+    rcases hwr with rfl | rfl | rfl | rfl
+    · exact .inl (fr_in hpre (by decide) (by decide) (by decide) (by decide) hin)
+    all_goals exact .inr (fr_in hpre (by decide) (by decide) (by decide) (by decide) hin)
+  have hst : ∀ a, (InRange (σ.sl 0x1b8) 8 a ∨ InRange (σ.sl 0xa0) 20 a) →
+      InRange (σ.sl stackBytes) stackBytes a := fun a h => by
+    rcases h with h | h
+    · exact sl_in_stack hpre (by decide) (by decide) h
+    · exact sl_in_stack hpre (by decide) (by decide) h
+  have G' := grown_keep G hc' hlive' (fun i hi => hr i (by simp at hi ⊢; omega))
+    (rest_bytes hpre hso fun a h => .inl (hst a (hW a h)))
+    (fun kn hkn t ht => hso _ fun h => by
+      have h3 := sl_toNat hpre (k := kn.1) (by
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
+        rcases hkn with rfl | rfl <;> decide)
+      have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
+      have hin := in_self (a := σ.sl kn.1) (n := kn.2) (t := t) (by
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
+        rcases hkn with rfl | rfl <;> (dsimp only at h3 ⊢; rw [h3]; omega)) ht
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
+      rcases hW _ h with hw | hw <;> rcases hkn with rfl | rfl <;>
+        exact sl_apart hpre (by decide) (by decide) (by decide) hin hw)
+    (fun b hb t ht => hso _ fun h => by
+      have hP := (hlive.2.2 b (List.mem_append_left _ hb))
+      have hram := hP.2.1
+      unfold RamRange Layout.ramHi at hram
+      exact stack_not_priv hpre (hst _ (hW _ h)) (hP.2.2 _ (in_self (by omega) ht)))
+  -- the header with the new length
+  have hwf' : Env.WF (envB σ m) (run25c_leaves[1]!).S := hwf.congr (by decide)
+  have f8 := frame_word (BaseEnv.ofB σ m) hwf' hm' (by decide) (k := 0x1b8) (by decide) (by decide)
+  rw [show readConst (run25c_leaves[1]!).S 0 (576 - 0x1b8) 8 = .bin .add (.init 0 136 8) (.lit 1)
+    by decide] at f8
+  have hso8 : ∀ t < 24, t < 8 ∨ 16 ≤ t →
+      m'.mem (σ.sl 0x1c0 + BitVec.ofNat 64 t) = m.mem (σ.sl 0x1c0 + BitVec.ofNat 64 t) :=
+    fun t ht ht' => hso _ fun h => by
+      have h3 := sl_toNat hpre (k := 0x1c0) (by decide)
+      have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
+      have hin := in_self (a := σ.sl 0x1c0) (n := 24) (by rw [h3]; omega) ht
+      have h1b8 := sl_toNat hpre (k := 0x1b8) (by decide)
+      have h0a0 := sl_toNat hpre (k := 0xa0) (by decide)
+      rcases hW _ h with hw | hw
+      · simp only [InRange, h3, h1b8] at hw; rw [toNat_add_ofNat (by omega)] at hw; omega
+      · exact sl_apart hpre (by decide) (by decide) (by decide) hin hw
+  have hH' : F1.HeaderIs m' (σ.sl 0x1c0) o.ep (w (o.done.length + 1)) o.ec := by
+    refine ⟨(load_congr fun t ht => hso8 t (by omega) (.inl ht)).trans hH.1, ?_, ?_⟩
+    · rw [show σ.sl 0x1c0 + 8 = σ.sl 0x1b8 by simp only [Sig.sl, w]; bv_omega, f8]
+      show some ((Sym.init 0 136 8).eval (envB σ m) + 1#64) = _
+      rw [e136]; simp only [w, BitVec.ofNat_add]
+    · rw [load_congr (m := m) fun t ht => by
+        rw [show σ.sl 0x1c0 + 16 + BitVec.ofNat 64 t = σ.sl 0x1c0 + BitVec.ofNat 64 (16 + t) by
+          bv_omega]
+        exact hso8 _ (by omega) (.inr (by omega))]
+      exact hH.2.2
+  -- copy B from copy A
+  have hA := G.2.2.2.2.2.2.1.2.2
+  have cp := fun d s n hn hd hs hv => leaf_copy (S' := (run25c_leaves[1]!).S) hcm hwf' hm'
+    (by decide) (d := d) (s := s) (n := n) hn hd hs hv
+  have c0 := cp 416 232 8 (by decide) (by decide) (by decide) fun u hu => by
+    rw [show readConst (run25c_leaves[1]!).S 0 416 8 = .init 0 232 8 by decide]
+    exact byteOf_byteList (by decide) hu
+  have c1 := cp 424 240 8 (by decide) (by decide) (by decide) fun u hu => by
+    rw [show readConst (run25c_leaves[1]!).S 0 424 8 = .init 0 240 8 by decide]
+    exact byteOf_byteList (by decide) hu
+  have c2 := cp 432 248 4 (by decide) (by decide) (by decide) fun u hu => by
+    rw [show readConst (run25c_leaves[1]!).S 0 432 4 = .bytes (.sext 32 (.init 0 248 4)) 0 4 by
+      decide]
+    show byteOf (ofBytesLE (byteList (byteOf ((((Sym.init 0 248 4).eval (envB σ m)).setWidth 32
+      ).signExtend 64)) 0 4)) u = _
+    rw [byteOf_byteList (by decide) hu, Nat.zero_add, byteOf_sext32 _ hu]
+    exact byteOf_byteList (by decide) hu
+  have hB : BytesAt m' (σ.sl 0xa0) (itemPayload (ent σ o k) k.ah 20) := fun i hi => by
+    have hi20 : i < 20 := by simp only [itemPayload, List.length_take] at hi; omega
+    rw [← hA i hi]
+    rcases Nat.lt_or_ge i 8 with h8 | h8
+    · have := c0 i h8
+      rw [show σ.sl (576 - 416) = σ.sl 0xa0 from rfl,
+        show σ.sl 576 + BitVec.ofNat 64 (232 + i) = σ.sl 0x158 + BitVec.ofNat 64 i by
+          simp only [Sig.sl, w]; bv_omega] at this
+      exact this
+    rcases Nat.lt_or_ge i 16 with h16 | h16
+    · have := c1 (i - 8) (by omega)
+      rw [show σ.sl (576 - 424) + BitVec.ofNat 64 (i - 8) = σ.sl 0xa0 + BitVec.ofNat 64 i by
+          simp only [Sig.sl, w]; bv_omega,
+        show σ.sl 576 + BitVec.ofNat 64 (240 + (i - 8)) = σ.sl 0x158 + BitVec.ofNat 64 i by
+          simp only [Sig.sl, w]; bv_omega] at this
+      exact this
+    · have := c2 (i - 16) (by omega)
+      rw [show σ.sl (576 - 432) + BitVec.ofNat 64 (i - 16) = σ.sl 0xa0 + BitVec.ofNat 64 i by
+          simp only [Sig.sl, w]; bv_omega,
+        show σ.sl 576 + BitVec.ofNat 64 (248 + (i - 16)) = σ.sl 0x158 + BitVec.ofNat 64 i by
+          simp only [Sig.sl, w]; bv_omega] at this
+      exact this
+  refine ExitGoal.at_cut rfl ⟨cut460, by simp [TX.plan, vcPlan], hex, aes_of hex G'
+    ⟨by simp only [Sym.eval] at c24; exact c24, by simp only [Sym.eval] at c25; exact c25,
+      by simp only [Sym.eval] at c27; exact c27⟩
+    hH' hroom hB ?_ (r14.trans e392) (r15.trans e400), ?_⟩
+  · rw [r10]
+    show (Sym.init 0 128 8).eval (envB σ m) +
+      (((Sym.init 0 136 8).eval (envB σ m)) <<< ((5#64).toNat % 64) +
+        ((Sym.init 0 136 8).eval (envB σ m)) <<< ((3#64).toNat % 64)) = _
+    rw [e128, e136, shl40 (by rw [hnn]; exact hn32), hnn]
+  · show bTail m' 311 ≤ bTail m 539 - _
+    rw [hsteps]; unfold bTail afterEntry; rw [hr 21 (by simp), hr 26 (by simp)]; omega
+
 end ZesuExec.Fn.TX
