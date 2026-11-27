@@ -102,7 +102,7 @@ import ZesuExec.Vc.SoundW
 import ZesuExec.Vc.AssembleW
 import ZesuExec.Fn.F1.Vc
 import ZesuExec.Fn.F2.Vc
-import ZesuExec.Fn.TX.Vc
+import ZesuExec.Fn.TX.Proof
 import ZesuExec.Fn.F6.Vc
 import ZesuExec.Test.Auto
 import ZesuExec.Compliance.TXSail

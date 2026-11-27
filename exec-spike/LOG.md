@@ -672,6 +672,14 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `python3 -m unittest discover -s tools/zmap/tests` 22 OK. Residual classes are all `none` now:
   hand-written leaf theorems record no residual. `Test/Auto.lean` (Verification item 4, five
   `fail_if_success`) builds after S2-idx. `tools/verify.sh` all PASS.
+- S6 TX step 6 progress (S1StaticMap): merged exec-spike 5de908a3 and fb4071d9 (indexed callees,
+  tail, runWith, costmodel) at `68287580`; TX callees adapted to indexed `Callee` (`famCallee`
+  with `X`, `ARet k site` with the index). `Fn/TX/Vc.lean`: cut lemmas `0x80000000`, `0x68`,
+  `0xc4`, `0xd8`, `0x10c`, `0x15c`, `0x18c`, `0x1a0` (8 of 17); leaf `0x80000000_0`; generic
+  lemmas (`pre_wf`, `pre_match`, `f2_pre`, `common_ret`, `common_f2`, `body_ok`, `payload_ok`,
+  `priv_sub`, `error_post` for the 20 error-exit `ret` leaves). Open: 9 cut lemmas, 45 leaves.
+  WIP (not committed, does not build): `bytes_of_present`, `init_slot`, `f2_result` in
+  `/home/cody/.cache/zesu-tmp/zmap/p9/Vc_wip.lean`.
 - S4-F6 (2026-11-27): F6 (`decodeParentHeader`) converted to the obligation framework
   (assumption "Legacy proofs": F1's conversion reduced hand lines, so F6 next). Plan `F6` in
   `Fn/F6/Vc.lean`: the map's 24 cuts (entry, 20 call-return points, 3 loop heads), the runs of
@@ -773,3 +781,16 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   symbolic writes (new variables per call) in the written range instead of havocking `mem0`
   (generic: `Sym/Summary.lean`, `runWith_sound`). Prior evidence on the line count: F3's one
   summarised call took hand lines +277. Reported to DTFPipeline. ~25 min.
+- S6 TX step 6/7 (TXLeaves, 2026-11-27): merged exec-spike 8d760c3a (F6) and 9f7202ca (S4b
+  `zesu_fact`). Cut lemmas: all 17 closed (`Ret.lean`: `0x1f8 0x25c 0x340 0x3d4 0x400 0x42c 0x4a0`
+  via `ret_*` = `Common` + pc after each callee; `Store.lean`: `0x230 0x460`, a sixth region (slot in
+  a live block, `wf_snoc`, `slot_ok`)). S4b facts (`Facts.lean`: dead-344 `a0 = 0` after remap,
+  `40 c' ≠ 0`, growth `n < 2^32` with `grow_mulhu`/`grow_bytes`, `Common` at every cut, saved `ra`):
+  `zesu_auto TX` re-run in `Proof.lean`, auto 5 -> 10 of 68 (`25c_2 25c_3 25c_6 340_1 340_3`).
+  Hand leaves (mine, 17): `068_0..1` (`Err.lean`: `err_leaf`, `f2_result`, outcome bytes),
+  `0d8_0..1` (`Outer.lean`: `outer_err`, `OuterState` over `decodeItem`), `10c_0..2`
+  (`Entry.lean`), `15c_0..1`, `1a0_0..2` (`Keys.lean`), `0c4_0`, `18c_0` (`Calls.lean`); P2Summaries
+  adds 5 in `Leaves2.lean` (`1f8_0 25c_0 3d4_1 340_0 4a0_1`). Counts: 68 items, 10 auto, 37 manual
+  (17 cut lemmas + 20 leaves), 21 open. Gate S6 fallback: `TX.reach_from` assembled with the 21
+  open leaves as fields of `TX.Open`, listed in the map and saved one goal each in `OPEN/TX/`
+  (statement, residual class, `Leaf.pp`). `tx_spec`/`tx_sail` not added (needs `TX.reach`).
