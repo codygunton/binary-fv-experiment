@@ -73,3 +73,9 @@ import ZesuExec.Test.Budget
 import ZesuExec.Test.Decode
 import ZesuExec.Test.Sym
 import ZesuExec.Compliance.F3
+import ZesuExec.Fn.F6.Spec
+import ZesuExec.Fn.F6.Regions
+import ZesuExec.Fn.F6.Runs
+import ZesuExec.Fn.F6.Lemmas
+import ZesuExec.Fn.F6.Proof
+import ZesuExec.Fn.F6.Sail
