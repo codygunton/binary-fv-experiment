@@ -73,8 +73,9 @@ theorem live_keep {σ : Sig} {mc m : Machine} {L X : List (Word × Nat)} (hlive 
   ⟨σ.A.heap_frame' L mc m hlive.1 (fun a h => hso a fun hr => hR a hr h) hp, hlive.2.1,
     hlive.2.2⟩
 
-/-- `Common` survives a call whose writes `R` are `CallR`, given the live list after it. -/
-theorem common_ret {σ : Sig} {mc m : Machine} (hc : Common σ mc) (hret : Returns mc m)
+/-- `Common` survives a step (a call or a leaf) whose writes `R` are `CallR`, given the live list
+after it. -/
+theorem common_keep {σ : Sig} {mc m : Machine} (hc : Common σ mc)
     (hp : Preserved mc m) {R : Word → Prop} (hso : SameOutside R mc m)
     (hR : ∀ a, R a → CallR σ a) (hlive : ∃ L X, Live σ m L X) : Common σ m := by
   obtain ⟨hpc, hpre, hro, hsv, hst, hres, hscr, hfr, -⟩ := hc
@@ -198,7 +199,7 @@ theorem ret_f2 {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
       · rw [r2] at h
         exact stack_R hpre (by rw [e2]; unfold stackBytes TX.stackBytes; omega)
           (by rw [e2]; omega) h
-    refine ⟨hret, common_ret hc hret hp hso (fun a h => (hR a h).1)
+    refine ⟨hret, common_keep hc hp hso (fun a h => (hR a h).1)
       ⟨L, X, live_keep hlive hso hp fun a h hl => (hR a h).2 (priv_sub hpre hlive hl)⟩,
       fun o ho hko => ?_⟩
     simp only [Kind.Keeps, h10', decide_eq_true_eq] at hko
@@ -247,7 +248,7 @@ theorem ret_alloc {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
       · simp only [List.mem_singleton] at hb
         subst hb
         exact ⟨hapre.2.1, hram, fun a ha => priv_sub hpre hlive (hin a ha)⟩
-  refine ⟨hret, common_ret hc hret hp hso (fun a h => ?_) hlive', fun o ho _ => ?_⟩
+  refine ⟨hret, common_keep hc hp hso (fun a h => ?_) hlive', fun o ho _ => ?_⟩
   · rcases h with h | h
     · exact priv_R hpre (priv_sub hpre hlive h)
     · exact (hRs a h).1
@@ -275,7 +276,7 @@ theorem ret_remap {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
     have hsp := pre_sp hpre
     unfold frameBytes stackBytes TX.stackBytes Layout.ramLo at *
     exact stack_R hpre (by rw [e2]; unfold stackBytes TX.stackBytes; omega) (by rw [e2]; omega) h
-  refine ⟨hret, common_ret hc hret hp hso (fun a h => (hR a h).1)
+  refine ⟨hret, common_keep hc hp hso (fun a h => (hR a h).1)
     ⟨L, X, live_keep hlive hso hp fun a h hl => (hR a h).2 (priv_sub hpre hlive hl)⟩,
     fun o ho _ => frame_keep hpre hso ho fun a h => ?_⟩
   have hsp := pre_sp hpre
@@ -408,7 +409,7 @@ theorem ret_tx {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
       obtain ⟨-, -, -, lk, hlk, L', hperm, hheap⟩ := himg
       rw [hgL] at hperm
       exact ⟨L', X ++ lk, live_ext hpre hlive hlk hperm hheap⟩
-  refine ⟨hret, common_ret hc hret hp hso (fun a h => ?_) hlive', fun o ho hko => ?_⟩
+  refine ⟨hret, common_keep hc hp hso (fun a h => ?_) hlive', fun o ho hko => ?_⟩
   · rcases h with h | h | h | h | h
     · exact (hRs a (.inl h)).1
     · exact (hRs a (.inr (.inl h))).1

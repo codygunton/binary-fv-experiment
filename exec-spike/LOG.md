@@ -884,6 +884,18 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - `hTX` discharged: `Sig` has no `hTX` field; the TX callee is `TX.tx_spec σ.A x.2.2` (bound
     `TX.bound` = the former `txBound`), so `DTF.reach_from` depends only on `DTF.Open`.
   - `lake build ZesuExec.Fn.DTF.Reach` OK: 647 items, 0 auto, 150 manual, 497 open.
+  - Generic leaf theorem `leaf_keep` (`Keep.lean`): a leaf ending at a plain cut without `Extra`,
+    without obligations, writing only frame words below the save area (`writesLow`), whose
+    target shape holds syntactically in the leaf state (`shapeHolds`), whose target `rest`
+    locations hold the same symbolic values as source locations with the same item count
+    (`restKeep`, `lenKeep`, via `Loc.sym`/`loc_word_eval`), arms widening, no inner budget at the
+    target and `K' + steps ≤ K` (`budgetKeep`); the source's `Facts` from its assertion
+    (`facts_of_A`; return sites by `SrcOk`: `restRet`, `armsKeep`). `common_leaf` (save area
+    kept: `frame_byte_keep`; the rest by `common_keep`, the former `common_ret` without its
+    unused `Returns`). `LeavesKeep.lean`: 191 instances, generated from `KeepCheck` evaluated
+    over all 486 leaves (each a one-line `leaf_keep` with `decide`), mostly the error branches to
+    `0x800011f0`/`0x800013fc`. **Counts: manual 150 → 341, auto 0 → 0, open 497 → 306** (leaves
+    open 486 → 295). `LeavesKeep.lean` builds in 6 s.
 - S6 TX second hand (P2Summaries, 2026-11-27): (1) Cuts.lean assertion fix (Main-approved, S6.6
   wrong-assertion rule): `OuterWalked`/`KeysWalked` carry `WalkFits`/`KeysFits` (HeaderFits of
   every call the rest of the walk reaches; from `Domain` at 068_3), since `EntryOk`/`AKeyStore`
