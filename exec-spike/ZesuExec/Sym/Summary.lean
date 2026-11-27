@@ -525,6 +525,60 @@ theorem goW_follow {img : Image} {sums : Nat → Option Summary} {cuts : List Na
           | ret t => exact leaf1 _ h
           | jumpInd t => exact leaf1 _ h
 
+/-- Every leaf of a run extends the path's calls. -/
+theorem goW_calls {img : Image} {sums : Nat → Option Summary} {cuts : List Nat} {F0 : Nat} :
+    ∀ fuel started pc S cs os cl wr ls, goW img sums cuts F0 fuel started pc S cs os cl wr = some ls →
+      ∀ l ∈ ls, ∃ nc, l.calls = cl ++ nc
+  | 0, _, _, _, _, _, _, _, _, h => by simp [goW] at h
+  | fuel + 1, started, pc, S, cs, os, cl, wr, ls, h => by
+    unfold goW at h
+    split at h
+    · simp at h; subst h; intro l hl; simp at hl; subst hl; exact ⟨[], by simp⟩
+    · cases hf : fetchI img pc with
+      | none => simp [hf] at h
+      | some i =>
+        simp only [hf] at h
+        cases hs : stepI img pc i S with
+        | none => simp [hs] at h
+        | some res =>
+          obtain ⟨S', e, ob⟩ := res
+          simp only [hs] at h
+          have leaf1 : ∀ x, some [(⟨⟨S', x, cs, os ++ ob⟩, cl, wr⟩ : LeafW)] = some ls →
+              ∀ l ∈ ls, ∃ nc, l.calls = cl ++ nc := by
+            intro x hh l hl; simp at hh; subst hh; simp at hl; subst hl; exact ⟨[], by simp⟩
+          cases e with
+          | next pc' => exact goW_calls fuel true pc' S' cs (os ++ ob) cl wr ls h
+          | branch c t f =>
+            cases h₁ : goW img sums cuts F0 fuel true t S' (cs ++ [c]) (os ++ ob) cl wr with
+            | none => simp [h₁] at h
+            | some l₁ =>
+              cases h₂ : goW img sums cuts F0 fuel true f S' (cs ++ [c.neg]) (os ++ ob) cl wr with
+              | none => simp [h₁, h₂] at h
+              | some l₂ =>
+                simp [h₁, h₂] at h; subst h
+                intro l hl
+                rcases List.mem_append.mp hl with hl | hl
+                · exact goW_calls fuel true t S' _ _ cl wr l₁ h₁ l hl
+                · exact goW_calls fuel true f S' _ _ cl wr l₂ h₂ l hl
+          | call t r =>
+            cases hsm : sums t with
+            | none => simp only [hsm] at h; exact leaf1 _ h
+            | some sm =>
+              simp only [hsm] at h
+              cases hc : mkCall sm S' t r cs (F0 + 32 * cl.length) wr with
+              | none => simp [hc] at h
+              | some c =>
+                simp only [hc] at h
+                split at h
+                · intro l hl
+                  obtain ⟨nc, hn⟩ :=
+                    goW_calls fuel true r c.post cs (os ++ ob) (cl ++ [c]) (wr ++ c.wr) ls h l hl
+                  exact ⟨c :: nc, by simp [hn]⟩
+                · simp at h
+          | callInd t r => exact leaf1 _ h
+          | ret t => exact leaf1 _ h
+          | jumpInd t => exact leaf1 _ h
+
 /-! ## Soundness -/
 
 section Sound
@@ -537,11 +591,12 @@ variable (img X Qc env₀ S₀ m₀ F0) in
 ranges `wr` so far. -/
 def ConclW (env : Env) (cl : List CallRec) (wr : Ranges) (ls : List LeafW) : Prop :=
   ∃ l ∈ ls, ∃ env', (∃ rest, l.wr = wr ++ rest ∧ Env.Agree env env' (F0 + 32 * cl.length) rest) ∧
-    (∀ c ∈ l.leaf.conds, c.eval env' = true) ∧
+    (l.calls = cl → env' = env) ∧ (∀ c ∈ l.leaf.conds, c.eval env' = true) ∧
     ((∀ o ∈ l.leaf.obligs, o.holds env') →
       (∃ nc, l.calls = cl ++ nc ∧ ∀ c ∈ nc, CallFact img X Qc env₀ F0 env' l.wr c) ∧
       ∃ k m', S₀.steps + k ≤ l.leaf.S.steps ∧ RunsIn img k m₀ m' ∧ Match env' l.leaf.S m' ∧
-        ExitOk env' l.leaf.exit m' ∧ SameOutside (FootW env₀ S₀ X) m₀ m')
+        ExitOk env' l.leaf.exit m' ∧ SameOutside (FootW env₀ S₀ X) m₀ m' ∧
+        (l.calls = [] → SameOutside (InWritable env₀ S₀) m₀ m'))
 
 theorem ConclW.mono {env : Env} {cl : List CallRec} {wr : Ranges} {ls ls' : List LeafW}
     (h : ∀ l ∈ ls, l ∈ ls') (hc : ConclW img F0 X Qc env₀ S₀ m₀ env cl wr ls) :
@@ -553,9 +608,11 @@ theorem ConclW.here {env : Env} {cl : List CallRec} {wr : Ranges} {ls : List Lea
     (hl : l ∈ ls) (hcl : l.calls = cl) (hwr : l.wr = wr) (hc : ∀ c ∈ l.leaf.conds, c.eval env = true)
     {k : Nat} {m' : Machine} (hst : S₀.steps + k ≤ l.leaf.S.steps) (hr : RunsIn img k m₀ m')
     (hm : Match env l.leaf.S m') (he : ExitOk env l.leaf.exit m')
-    (hfo : SameOutside (FootW env₀ S₀ X) m₀ m') : ConclW img F0 X Qc env₀ S₀ m₀ env cl wr ls :=
-  ⟨l, hl, env, ⟨[], by simp [hwr], Env.Agree.refl _ _ _⟩, hc,
-    fun _ => ⟨⟨[], by simp [hcl], by simp⟩, k, m', hst, hr, hm, he, hfo⟩⟩
+    (hfo : SameOutside (FootW env₀ S₀ X) m₀ m')
+    (hpl : l.calls = [] → SameOutside (InWritable env₀ S₀) m₀ m') :
+    ConclW img F0 X Qc env₀ S₀ m₀ env cl wr ls :=
+  ⟨l, hl, env, ⟨[], by simp [hwr], Env.Agree.refl _ _ _⟩, fun _ => rfl, hc,
+    fun _ => ⟨⟨[], by simp [hcl], by simp⟩, k, m', hst, hr, hm, he, hfo, hpl⟩⟩
 
 /-- A failing obligation on the path: any leaf the conditions select will do. -/
 theorem ConclW.vac {env : Env} {cl : List CallRec} {wr : Ranges} {ls : List LeafW} {os ob : List Oblig}
@@ -564,7 +621,7 @@ theorem ConclW.vac {env : Env} {cl : List CallRec} {wr : Ranges} {ls : List Leaf
       (∃ nc, l.calls = cl ++ nc) ∧ (∃ rest, l.wr = wr ++ rest)) :
     ConclW img F0 X Qc env₀ S₀ m₀ env cl wr ls := by
   obtain ⟨l, hl, hc, ho, -, rest, hw⟩ := hf
-  refine ⟨l, hl, env, ⟨rest, hw, Env.Agree.refl _ _ _⟩, hc, fun hall => absurd ?_ hob⟩
+  refine ⟨l, hl, env, ⟨rest, hw, Env.Agree.refl _ _ _⟩, fun _ => rfl, hc, fun hall => absurd ?_ hob⟩
   exact fun o h' => hall o (ho o (by simp [h']))
 
 theorem goW_sound :
@@ -573,19 +630,25 @@ theorem goW_sound :
     ∀ env m k, Env.Agree env₀ env F0 wr → (∀ c ∈ cs, c.eval env = true) → Env.WF env S →
       Match env S m → m.pc.toNat = pc → RoLoaded img m → RunsIn img k m₀ m →
       S₀.steps + k ≤ S.steps → SameOutside (FootW env₀ S₀ X) m₀ m → S.regions = S₀.regions →
+      (cl = [] → SameOutside (InWritable env₀ S₀) m₀ m) →
       ConclW img F0 X Qc env₀ S₀ m₀ env cl wr ls
   | 0, _, _, _, _, _, _, _, _, h, _ => by simp [goW] at h
   | fuel + 1, started, pc, S, cs, os, cl, wr, ls, h, hcall => by
-    intro env m k hag hcs hwf hm hpc hro hrun hst hfoot hreg
+    intro env m k hag hcs hwf hm hpc hro hrun hst hfoot hreg hplain
     -- a step inside the caller's writable regions stays inside its footprint
     have footStep : ∀ {S' : SState} m₁, S'.regions = S₀.regions →
         SameOutside (InWritable env S') m m₁ → SameOutside (FootW env₀ S₀ X) m₀ m₁ :=
       fun m₁ hr h => SameOutside.trans hfoot fun a ha =>
         h a fun hw => ha (.inl (InWritable.of_regions hag.regions hr hw))
+    have plainStep : ∀ {S' : SState} m₁, S'.regions = S₀.regions →
+        SameOutside (InWritable env S') m m₁ → cl = [] → SameOutside (InWritable env₀ S₀) m₀ m₁ :=
+      fun m₁ hr h h0 => SameOutside.trans (hplain h0) fun a ha =>
+        h a fun hw => ha (InWritable.of_regions hag.regions hr hw)
     unfold goW at h
     split at h
     · simp at h; subst h
       exact ConclW.here (List.mem_singleton_self _) rfl rfl hcs (by omega) hrun hm hpc hfoot
+        fun h => hplain h
     · next hcut =>
       have hmc : pc ≠ Layout.memcpyEntry := by intro e; apply hcut; simp [e]
       cases hf : fetchI img pc with
@@ -607,7 +670,7 @@ theorem goW_sound :
             · obtain ⟨m₁, h1, hok, -, -⟩ := stepW hf hs hmc hwf hm hpc hro hob
               exact ConclW.here (List.mem_singleton_self _) rfl rfl hcs
                 (by show _ ≤ S'.steps; rw [hok.steps]; omega) (hrun.trans h1) hok.hmatch
-                (hx m₁ hok.exit) (footStep m₁ hreg hok.frame)
+                (hx m₁ hok.exit) (footStep m₁ hreg hok.frame) (fun h => plainStep m₁ hreg hok.frame h)
             · exact ConclW.vac hob ⟨_, List.mem_singleton_self _, hcs, fun o ho => ho, ⟨[], by simp⟩,
                 ⟨[], by simp⟩⟩
           cases e with
@@ -616,7 +679,7 @@ theorem goW_sound :
             · obtain ⟨m₁, h1, hok, hro₁, hwf₁⟩ := stepW hf hs hmc hwf hm hpc hro hob
               exact goW_sound fuel true pc' S' cs (os ++ ob) cl wr ls h hcall env m₁ (k + 1) hag hcs
                 hwf₁ hok.hmatch hok.exit hro₁ (hrun.trans h1) (by rw [hok.steps]; omega)
-                (footStep m₁ hreg hok.frame) (hok.regions.trans hreg)
+                (footStep m₁ hreg hok.frame) (hok.regions.trans hreg) (plainStep m₁ hreg hok.frame)
             · exact ConclW.vac hob (goW_follow env fuel true pc' S' cs (os ++ ob) cl wr ls h hcs)
           | branch c t f =>
             cases h₁ : goW img sums cuts F0 fuel true t S' (cs ++ [c]) (os ++ ob) cl wr with
@@ -643,12 +706,12 @@ theorem goW_sound :
                       (cs ++ [c.neg]) (os ++ ob) cl wr l₂ h₂ (fun l hl => hcall l (by simp [hl]))
                       env m₁ (k + 1) hag (hc₂ hce) hwf₁ hok.hmatch (by simpa [hce] using hpc₁) hro₁
                       (hrun.trans h1) (by rw [hok.steps]; omega)
-                      (footStep m₁ hreg hok.frame) (hok.regions.trans hreg))
+                      (footStep m₁ hreg hok.frame) (hok.regions.trans hreg) (plainStep m₁ hreg hok.frame))
                   · refine ConclW.mono (fun l hl => by simp [hl]) (goW_sound fuel true t S'
                       (cs ++ [c]) (os ++ ob) cl wr l₁ h₁ (fun l hl => hcall l (by simp [hl]))
                       env m₁ (k + 1) hag (hc₁ hce) hwf₁ hok.hmatch (by simpa [hce] using hpc₁) hro₁
                       (hrun.trans h1) (by rw [hok.steps]; omega)
-                      (footStep m₁ hreg hok.frame) (hok.regions.trans hreg))
+                      (footStep m₁ hreg hok.frame) (hok.regions.trans hreg) (plainStep m₁ hreg hok.frame))
                 · cases hce : c.eval env
                   · obtain ⟨l, hl, rest⟩ := goW_follow env fuel true f S' (cs ++ [c.neg]) (os ++ ob)
                       cl wr l₂ h₂ (hc₂ hce)
@@ -697,17 +760,24 @@ theorem goW_sound :
                       hcall (env.havoc c.F m₂ c.wr) m₂ (k + 1 + k₂)
                       (hag.trans hagh (by rw [hcF]; omega)) hcs₂ hwf₂ (Match.post hm₁c hokc hpost)
                       (by rw [hpost.pc, hcr]) hpost.ro ((hrun.trans h1).trans hr₂) hst₂ hfoot₂
-                      hreg₁
-                    obtain ⟨l, hl, env', ⟨rest, hw, hag'⟩, hcd, himp⟩ := IH
+                      hreg₁ (fun h => absurd h (by simp))
+                    obtain ⟨l, hl, env', ⟨rest, hw, hag'⟩, -, hcd, himp⟩ := IH
+                    obtain ⟨nc₁, hnc₁⟩ :=
+                      goW_calls fuel true r c.post cs (os ++ ob) (cl ++ [c]) (wr ++ c.wr) ls h l hl
                     have e32 : F0 + 32 * (cl ++ [c]).length = c.F + 32 := by
                       simp [hcF]; omega
                     rw [e32] at hag'
                     have hagF : Env.Agree env (env.havoc c.F m₂ c.wr) (F0 + 32 * cl.length) c.wr := by
                       rw [← hcF]; exact hagh
                     refine ⟨l, hl, env', ⟨c.wr ++ rest, by rw [hw, List.append_assoc],
-                      hagF.trans hag' (by omega)⟩, hcd, fun hob' => ?_⟩
-                    obtain ⟨⟨nc, hnc, hfacts⟩, rest2⟩ := himp hob'
-                    refine ⟨⟨c :: nc, by rw [hnc]; simp, fun c' hc' => ?_⟩, rest2⟩
+                      hagF.trans hag' (by omega)⟩, fun h' => ?_, hcd, fun hob' => ?_⟩
+                    · have := congrArg List.length (hnc₁.symm.trans h')
+                      simp at this <;> omega
+                    obtain ⟨⟨nc, hnc, hfacts⟩, k', m', a1, a2, a3, a4, a5, -⟩ := himp hob'
+                    refine ⟨⟨c :: nc, by rw [hnc]; simp, fun c' hc' => ?_⟩, k', m', a1, a2, a3, a4, a5,
+                      fun h0 => ?_⟩
+                    rotate_left
+                    · rw [hnc] at h0; simp at h0
                     rcases List.mem_cons.mp hc' with rfl | hc'
                     · exact ⟨env, m₁, m₂, by rw [hcp]; exact hag, hm₁c, hpost, hq, rest,
                         by rw [hw, hcp, List.append_assoc], hag'⟩
@@ -729,17 +799,19 @@ theorem runWith_sound {fuel pc : Nat} {S : SState} {ls : List LeafW} {env : Env}
     (h : runWith img sums cuts F0 fuel pc S = some ls)
     (hcall : ∀ l ∈ ls, ∀ c ∈ l.calls, CallHyp img X Qc env S m F0 c)
     (hwf : Env.WF env S) (hm : Match env S m) (hpc : m.pc.toNat = pc) (hro : RodataLoaded img m) :
-    ∃ l ∈ ls, ∃ env', Env.Agree env env' F0 l.wr ∧ (∀ c ∈ l.leaf.conds, c.eval env' = true) ∧
+    ∃ l ∈ ls, ∃ env', Env.Agree env env' F0 l.wr ∧ (l.calls = [] → env' = env) ∧
+      (∀ c ∈ l.leaf.conds, c.eval env' = true) ∧
       ((∀ o ∈ l.leaf.obligs, o.holds env') →
         (∀ c ∈ l.calls, CallFact img X Qc env F0 env' l.wr c) ∧
         ∃ k m', k ≤ l.leaf.S.steps - S.steps ∧ RunsIn img k m m' ∧ Match env' l.leaf.S m' ∧
-          ExitOk env' l.leaf.exit m' ∧ SameOutside (FootW env S X) m m') := by
-  obtain ⟨l, hl, env', ⟨rest, hw, hag⟩, hc, himp⟩ :=
+          ExitOk env' l.leaf.exit m' ∧ SameOutside (FootW env S X) m m' ∧
+          (l.calls = [] → SameOutside (InWritable env S) m m')) := by
+  obtain ⟨l, hl, env', ⟨rest, hw, hag⟩, henv, hc, himp⟩ :=
     goW_sound fuel false pc S [] [] [] [] ls h hcall env m 0 (Env.Agree.refl _ _ _) (by simp) hwf hm
-      hpc (fun a b _ _ hb => hro a b hb) .refl (by omega) (fun _ _ => rfl) rfl
-  refine ⟨l, hl, env', by simpa [hw] using hag, hc, fun ho => ?_⟩
-  obtain ⟨⟨nc, hnc, hf⟩, k, m', hk, hr, hm', he, hfo⟩ := himp ho
-  exact ⟨fun c hc' => hf c (by simpa [hnc] using hc'), k, m', by omega, hr, hm', he, hfo⟩
+      hpc (fun a b _ _ hb => hro a b hb) .refl (by omega) (fun _ _ => rfl) rfl (fun _ _ _ => rfl)
+  refine ⟨l, hl, env', by simpa [hw] using hag, henv, hc, fun ho => ?_⟩
+  obtain ⟨⟨nc, hnc, hf⟩, k, m', hk, hr, hm', he, hfo, hpl⟩ := himp ho
+  exact ⟨fun c hc' => hf c (by simpa [hnc] using hc'), k, m', by omega, hr, hm', he, hfo, hpl⟩
 
 /-- `runWith_sound` as a `Reaches` step: each leaf whose conditions hold meets its obligations
 and continues to `Q` within the remaining budget. -/
@@ -755,9 +827,9 @@ theorem runWith_reaches {fuel pc : Nat} {S : SState} {ls : List LeafW} {env : En
         ExitOk env' l.leaf.exit m' → SameOutside (FootW env S X) m m' →
         Reaches img (b - (l.leaf.S.steps - S.steps)) Q m')) :
     Reaches img b Q m := by
-  obtain ⟨l, hl, env', hag, hc, himp⟩ := runWith_sound h hcall hwf hm hpc hro
+  obtain ⟨l, hl, env', hag, -, hc, himp⟩ := runWith_sound h hcall hwf hm hpc hro
   obtain ⟨hob, hb, hk⟩ := hleaf l hl env' hag hc
-  obtain ⟨hf, k, m', hkle, hr, hm', he, hfo⟩ := himp hob
+  obtain ⟨hf, k, m', hkle, hr, hm', he, hfo, -⟩ := himp hob
   obtain ⟨k₂, m'', hk₂, hr₂, hQ⟩ := hk hf m' hm' he hfo
   exact ⟨k + k₂, m'', by omega, hr.trans hr₂, hQ⟩
 

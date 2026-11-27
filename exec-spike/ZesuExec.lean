@@ -98,6 +98,8 @@ import ZesuExec.Vc.SimpAttr
 import ZesuExec.Vc.Regions
 import ZesuExec.Vc.Tactics
 import ZesuExec.Vc.RunWith
+import ZesuExec.Vc.SoundW
+import ZesuExec.Vc.AssembleW
 import ZesuExec.Fn.F1.Vc
 import ZesuExec.Fn.F2.Vc
 import ZesuExec.Test.Auto
