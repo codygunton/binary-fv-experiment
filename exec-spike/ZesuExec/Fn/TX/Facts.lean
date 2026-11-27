@@ -37,7 +37,7 @@ theorem grownCap_lt {n : Nat} (h : n < 2 ^ 32) : grownCap n < 2 ^ 34 := by
 nonzero `40 c'`. -/
 @[zesu_fact] theorem A340_size {σ : Sig} {m : Machine} (h : ARet remapC (unit Site33c) σ m) :
     Sym.eval (envB σ m) (Sym.init 0 8 8) + Sym.eval (envB σ m) (Sym.init 0 16 8) ≠ 0#64 := by
-  obtain ⟨mc, _, ⟨o, k, L, kp', hED, -, -, -, -, h230, h238, -, -⟩, ⟨-, -, hso⟩, -⟩ := h
+  obtain ⟨mc, _, ⟨o, k, L, kp', hED, -, -, -, -, -, h230, h238, -, -⟩, ⟨-, -, hso⟩, -⟩ := h
   have hc := hED.1
   have hpre := hc.2.1
   have hR : ∀ {j : Nat}, 8 ≤ j → j ≤ 576 → ∀ a, InRange (mc.reg 2 - 16) 16 a →

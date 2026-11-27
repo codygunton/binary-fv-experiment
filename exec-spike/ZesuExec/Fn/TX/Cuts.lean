@@ -538,13 +538,13 @@ def EntryDone (σ : Sig) (m : Machine) (o : Obs) (k : Kobs) (L : List (Word × N
 /-- Zig's growth `n + 1 + (n + 1) / 2 + 1` for a full list of `n` entries. -/
 def grownCap (n : Nat) : Nat := n + 1 + (n + 1) / 2 + 1
 
-/-- Growth of a full entries list: registers `s7 = n + 1`, `s9 = c'`, `s11 = ec`, the spills
+/-- Growth of a full entries list: registers `s7 = n + 1`, `s9 = c'`, the spills
 `S-0x200 = 32 n`, `S-0x1f8 = 8 n`, `S-0x210 = |keys|`, `S-0x208 = kp'`, `S-0x218` = the
-allocator context, `S-0x220` = the vtable. -/
+allocator context, `S-0x220` = the vtable. (`s11 = ec` holds up to the `free` call, where the
+leaf overwrites it; the call sites before it say so.) -/
 def Growing (σ : Sig) (m : Machine) (o : Obs) (k : Kobs) (kp' : Word) : Prop :=
   o.done.length = o.ec.toNat ∧
   m.reg 23 = w (o.done.length + 1) ∧ m.reg 25 = w (grownCap o.done.length) ∧
-  m.reg 27 = o.ec ∧
   m.load (σ.sl 0x200) 8 = some (w (32 * o.done.length)) ∧
   m.load (σ.sl 0x1f8) 8 = some (w (8 * o.done.length)) ∧
   m.load (σ.sl 0x210) 8 = some (w k.keys.length) ∧ m.load (σ.sl 0x208) 8 = some kp' ∧
@@ -552,7 +552,8 @@ def Growing (σ : Sig) (m : Machine) (o : Obs) (k : Kobs) (kp' : Word) : Prop :=
 
 /-- `+0x33c`: `remap(ctx, ep, 40 ec, 3, 40 c', ra)` (vtable slot 2, F0). -/
 def Site33c (σ : Sig) (m : Machine) : Prop :=
-  ∃ o k L kp', EntryDone σ m o k L kp' [] ∧ Growing σ m o k kp' ∧ 0 < o.ec.toNat ∧
+  ∃ o k L kp', EntryDone σ m o k L kp' [] ∧ Growing σ m o k kp' ∧ m.reg 27 = o.ec ∧
+    0 < o.ec.toNat ∧
     m.reg 22 = 0 ∧
     m.load (σ.sl 0x228) 8 = some o.ep ∧
     m.load (σ.sl 0x230) 8 = some (w (8 * grownCap o.done.length)) ∧
@@ -563,7 +564,8 @@ def Site33c (σ : Sig) (m : Machine) : Prop :=
 
 /-- `+0x3d0`: `alloc(ctx, 40 c', 3, ra)` (vtable slot 0); `s6` = the old buffer. -/
 def Site3d0 (σ : Sig) (L : List (Word × Nat)) (m : Machine) : Prop :=
-  ∃ o k kp', EntryDone σ m o k L kp' [] ∧ Growing σ m o k kp' ∧ m.reg 22 = o.ep ∧
+  ∃ o k kp', EntryDone σ m o k L kp' [] ∧ Growing σ m o k kp' ∧ m.reg 27 = o.ec ∧
+    m.reg 22 = o.ep ∧
     Args m c3d4 [wordAt σ.m σ.ao, w (entrySize * grownCap o.done.length), 3, σ.m.reg 1]
 
 /-- After a successful `alloc`: the new block `(p'', 40 c')` is TX's, `s8 = p''`. -/
@@ -575,7 +577,7 @@ def Allocated (σ : Sig) (m : Machine) (o : Obs) (k : Kobs) (L : List (Word × N
 
 /-- `+0x3fc`: `memcpy(p'', ep, 40 n)`. -/
 def Site3fc (σ : Sig) (m : Machine) : Prop :=
-  ∃ o k L kp' p'', Allocated σ m o k L kp' p'' ∧
+  ∃ o k L kp' p'', Allocated σ m o k L kp' p'' ∧ m.reg 27 = o.ec ∧
     Args m c400 [p'', o.ep, w (entrySize * o.done.length)]
 
 /-- After `memcpy`: the new block starts with the finished entries. -/
