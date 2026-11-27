@@ -138,3 +138,13 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
 - Next: fix the append finisher in `dec_tac` (`simp` leaves the `+++` goal before `apply
   BitVec.eq_of_toNat_eq`; the standalone `simp only [toNat_append_add, toNat_ofNat]; omega`
   proof works), then `lake build ZesuExec.Sail.Decode`.
+- 2026-11-27 coordinator: F1 `f1_spec (A : AllocAssumptions zesuImage) L items : Spec zesuImage
+  0x800cb40c 197 (Pre A L items) (Post A L items)` proved (`#guard_msgs` axioms: standard).
+  Seven `sym_run`s (entry, after remap, after alloc ×2, after memcpy ×2, after free); paths
+  29 / 112 / 123 / 137 / 197 steps; bound 197 equals the plan's expected value. Infeasible leaves
+  closed from conditions (growth below 2^32 never overflows). Helper modules: `Fn/Assumed.lean`
+  (`AllocAssumptions`: abstract `Heap L m`, `Priv L`, `alloc_spec` 53, `free_spec` 42),
+  `Fn/Stage.lean` (`after_call_ov`, `run_reaches'`, memcpy byte lemmas, `returns_leaf`),
+  `Fn/Preserve.lean` (`Reaches.preserve`: presence and bytes below RAM survive every run).
+  `lake build ZesuExec.Fn.F1.Proof` (deps built): 5.0 s wall, 1.81 GB peak. Lines: Spec 95,
+  Regions 28, Runs 29, Proof 1310. Non-vacuity example for F1 still to add.

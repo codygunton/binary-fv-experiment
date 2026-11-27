@@ -2,9 +2,10 @@ import Lean.Data.Json
 import Std.Data.HashMap
 import ZesuExec.Service
 import ZesuExec.Image.Gen
+import ZesuExec.Test.DifftestSail
 
 /-!
-# `zesu-difftest`: the machine against Unicorn snapshots (engine B)
+# `zesu-difftest`: Sail model (engine A), machine (engine B) and Unicorn snapshots
 
 `zesu-difftest --fn <Id> --snap <file>` reads a `zesu-snap/1` snapshot written by
 `tools/snap.py`, builds a `Machine` whose memory holds exactly the entry bytes the snapshot lists
@@ -12,7 +13,9 @@ import ZesuExec.Image.Gen
 `stepCap` transitions), and compares `pc`, `x1..x31` and every listed byte with the return
 snapshot: a byte listed under `exit.changed` must hold that value, every other entry byte its
 entry value; the number of transitions must equal Unicorn's instruction count (both count the
-`memcpy` service as one). Prints `agree`, or the first difference and exits 1.
+`memcpy` service as one). Engine A (`ZesuExec.Test.DifftestSail`) then runs the specialised
+Sail model from its own initialisation on the same entry state (`configuredB` must hold) and must
+agree with the machine on all of the above. Prints `agree`, or the first difference and exits 1.
 -/
 
 namespace ZesuExec.Difftest
@@ -121,7 +124,12 @@ def check (fn file : String) : ExceptT String IO Unit := do
       let uv := want.get? a
       unless mv = uv do
         throw s!"byte {hex a}: machine {mv.map hex}, unicorn {uv.map hex} (entry {(mem.get? a).map hex})"
-    IO.println s!"agree ({fn} {file}: {k} transitions, cost {cost}, {addrs.size} bytes)"
+    -- Engine A: the specialised Sail model from its own initialisation (configuredB checked).
+    match DifftestSail.engineA zesuImage m0 bytes.toList stop stepCap with
+    | .error e => throw s!"sail: {e}"
+    | .ok (mA, kA) =>
+      if let some d := DifftestSail.diffAB mA m kA k addrs then throw s!"sail vs machine: {d}"
+    IO.println s!"agree ({fn} {file}: sail = machine = unicorn, {k} transitions, cost {cost}, {addrs.size} bytes, configuredB)"
 
 end ZesuExec.Difftest
 

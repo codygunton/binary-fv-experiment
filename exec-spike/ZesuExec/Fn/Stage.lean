@@ -161,6 +161,11 @@ theorem returns_leaf {env : Env} {S : SState} {m mf : Machine} (hm : Match env S
       simp only [beq_iff_eq] at this
       rw [← hm.regs i, this]; exact hvars i
 
+/-- A register's value from `Match`, with a numeral index. -/
+theorem Match.reg_eq {env : Env} {S : SState} {m : Machine} (hm : Match env S m) (i : Fin 32) (k : Nat)
+    (hk : i.val = k) : m.reg i = (S.reg k).eval env := by
+  rw [← hm.regs i, hk]
+
 /-! ## Loads as bytes -/
 
 theorem getLsbD_ofBytesLE : ∀ (bs : List Byte) (i : Nat), bs.length ≤ 8 → i < 64 →
