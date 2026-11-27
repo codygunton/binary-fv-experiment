@@ -59,87 +59,24 @@ def SailRelates : SailNextResult → Option (Word × Nat) → Prop
 
 /-! ## Closed form of the Sail run -/
 
-theorem bigEndian_foldl_lt (bs : List Byte) (a : Nat) :
-    bs.foldl (fun acc b => 256 * acc + b.toNat) a < (a + 1) * 256 ^ bs.length := by
-  induction bs generalizing a with
-  | nil => simp
-  | cons b bs ih =>
-    have hb := b.isLt
-    simp only [List.foldl_cons, List.length_cons]
-    have := ih (256 * a + b.toNat)
-    have h2 : (256 * a + b.toNat + 1) * 256 ^ bs.length ≤ (a + 1) * 256 ^ (bs.length + 1) := by
-      have h3 : 256 * a + b.toNat + 1 ≤ 256 * (a + 1) := by omega
-      calc (256 * a + b.toNat + 1) * 256 ^ bs.length ≤ 256 * (a + 1) * 256 ^ bs.length :=
-            Nat.mul_le_mul_right _ h3
-        _ = (a + 1) * 256 ^ (bs.length + 1) := by
-            rw [Nat.pow_succ, Nat.mul_comm 256 (a + 1), Nat.mul_assoc, Nat.mul_comm 256]
-    omega
-
-theorem bigEndian_take_lt (bs : List Byte) (w : Nat) (hw : w ≤ 8) :
-    bigEndian (bs.take w) < 2 ^ 64 := by
-  have h := bigEndian_foldl_lt (bs.take w) 0
-  have hl : (bs.take w).length ≤ 8 := by simp; omega
-  have : 256 ^ (bs.take w).length ≤ 256 ^ 8 := Nat.pow_le_pow_right (by decide) hl
-  simp only [bigEndian] at *
-  omega
-
-theorem sailItem_len_lt (input : List Byte) (l : Bool) (off len : Nat)
-    (h : sailItem input = some (l, off, len)) :
-    0 < off + len ∧ off + len ≤ input.length ∧ len < 2 ^ 64 := by
-  unfold sailItem at h
-  split at h
-  · cases h
-  · rename_i l' off' len' hh
-    split at h
-    · cases h
-      rename_i hc
-      refine ⟨hc.1, hc.2, ?_⟩
-      unfold sailHeader at hh
-      split at hh
-      · cases hh
-      · rename_i b rest
-        have hb := b.isLt
-        simp only at hh
-        by_cases c1 : b.toNat < 128
-        · rw [if_pos c1] at hh; cases hh; omega
-        rw [if_neg c1] at hh
-        by_cases c2 : b.toNat < 184
-        · rw [if_pos c2] at hh; cases hh; omega
-        rw [if_neg c2] at hh
-        by_cases c3 : b.toNat < 192
-        · rw [if_pos c3] at hh
-          split at hh
-          · simp only [Option.some.injEq, Prod.mk.injEq] at hh
-            rw [← hh.2.2]; exact bigEndian_take_lt _ _ (by omega)
-          · cases hh
-        rw [if_neg c3] at hh
-        by_cases c5 : b.toNat < 248
-        · rw [if_pos c5] at hh; cases hh; omega
-        rw [if_neg c5] at hh
-        split at hh
-        · simp only [Option.some.injEq, Prod.mk.injEq] at hh
-          rw [← hh.2.2]; exact bigEndian_take_lt _ _ (by omega)
-        · cases hh
-    · cases h
-
 /-- What Sail returns, in closed form. -/
 theorem sailRun_eq (input : List Byte) (σ : SailRegs) :
     sailRun input σ =
       match sailItem input with
       | none => .error .Exit σ
       | some (l, off, len) =>
-        if l = false ∧ len ≤ 8 ∧ uintCanon input.toArray off len = true then
+        if l = false ∧ len ≤ 8 ∧ uintCanon input off len = true then
           .ok ((bigEndian ((input.drop off).take len), off + len), hostOf input) σ
         else .error .Exit σ := by
   unfold sailRun sailNext
-  have hi := decode_item_eval input (hostOf input) rfl σ {}
+  have hi := decode_item_eval (hostOf input) 0 input (sliceAt_whole _ input rfl) σ {}
   rcases hs : sailItem input with _ | ⟨l, off, len⟩
   · rw [hs] at hi
     exact run_bind_error _ _ _ _ _ hi
   · rw [hs] at hi
     rw [run_bind_ok _ _ _ _ _ hi]
     obtain ⟨hpos, hfit, hlt⟩ := sailItem_len_lt input l off len hs
-    have hu := decode_uint64_eval input (hostOf input) rfl σ l off len hfit hpos
+    have hu := decode_uint64_eval (hostOf input) 0 input (sliceAt_whole _ input rfl) σ l off len hfit hpos
       (Nat.lt_trans hlt (by decide))
     simp only [hostOf] at hu ⊢
     split
@@ -159,7 +96,7 @@ classes belong to other functions. -/
 def bugApplies : KnownBug → List Byte → SailRegs → Prop
   | .rlpUintNonCanonical, input, σ =>
     ∃ h p, decode input = .success false h p ∧ p ≤ 8 ∧
-      uintCanon input.toArray h p = false ∧ ∃ σ', sailRun input σ = .error .Exit σ'
+      uintCanon input h p = false ∧ ∃ σ', sailRun input σ = .error .Exit σ'
   | _, _, _ => False
 
 /-- `decode`'s header length is at most 9. -/
@@ -210,7 +147,7 @@ theorem f3_candidate_agrees (input : List Byte) (σ : SailRegs) :
     · rw [hs] at hd
       simp only [ofSail] at hd
       obtain ⟨-, -, hlt⟩ := sailItem_len_lt input l off len hs
-      by_cases hc : l = false ∧ len ≤ 8 ∧ uintCanon input.toArray off len = true
+      by_cases hc : l = false ∧ len ≤ 8 ∧ uintCanon input off len = true
       · left
         dsimp only
         rw [if_pos hc]
@@ -274,7 +211,7 @@ example : nextUint64 [0x82, 0x00, 0x01] = some (1, 3) ∧
     ∀ σ, bugApplies .rlpUintNonCanonical [0x82, 0x00, 0x01] σ := by
   have hd : decode [0x82, 0x00, 0x01] = .success false 1 2 := by decide
   have hs : sailItem [0x82, 0x00, 0x01] = some (false, 1, 2) := by decide
-  have hc : uintCanon [0x82, 0x00, 0x01].toArray 1 2 = false := by decide
+  have hc : uintCanon [0x82, 0x00, 0x01] 1 2 = false := by decide
   refine ⟨by decide, fun σ => ⟨1, 2, hd, by decide, hc, σ, ?_⟩⟩
   rw [sailRun_eq, hs]
   dsimp only
@@ -283,7 +220,7 @@ example : nextUint64 [0x82, 0x00, 0x01] = some (1, 3) ∧
 /-- `82 01 00`: canonical; Sail and the binary both return 256 and advance 3. -/
 example (σ : SailRegs) : SailRelates (sailRun [0x82, 0x01, 0x00] σ) (nextUint64 [0x82, 0x01, 0x00]) := by
   have hs : sailItem [0x82, 0x01, 0x00] = some (false, 1, 2) := by decide
-  have hc : uintCanon [0x82, 0x01, 0x00].toArray 1 2 = true := by decide
+  have hc : uintCanon [0x82, 0x01, 0x00] 1 2 = true := by decide
   rw [sailRun_eq, hs]
   dsimp only
   rw [if_pos ⟨rfl, by decide, hc⟩]

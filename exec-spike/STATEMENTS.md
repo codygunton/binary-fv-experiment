@@ -295,7 +295,7 @@ def sailNext (input : List Byte) : Evm.SailM (Nat × Nat)       -- (value, full 
 def sailRun (input : List Byte) (σ : SailRegs) := ((sailNext input).run (hostOf input)).run σ
 theorem sailRun_eq : sailRun input σ = match sailItem input with
   | none => .error .Exit σ
-  | some (l, off, len) => if l = false ∧ len ≤ 8 ∧ uintCanon input.toArray off len = true
+  | some (l, off, len) => if l = false ∧ len ≤ 8 ∧ uintCanon input off len = true
       then .ok ((bigEndian ((input.drop off).take len), off + len), hostOf input) σ
       else .error .Exit σ
 theorem f3_candidate_agrees (input : List Byte) (σ : SailRegs) :
@@ -313,7 +313,7 @@ Axioms of all three: `propext`, `Classical.choice`, `Quot.sound`.
 |---|---|---|
 | `nextUint64` (`Fn/F3/Spec.lean`) | `nextUint64RootResult` | candidate, reused |
 | `SailRelates` | (none) | Sail `(v, c)` with `v < 2^64` ↔ `some (ofNat v, c)`; `Error.Exit` ↔ `none`; other failures `False` |
-| `uintCanon bs off len` | `sailShortUintCanonical` | `rlp_item_uint_canonical` for `len ≤ 55`, proved equal (`uint_canonical_short`) |
+| `uintCanon xs off len` | `sailShortUintCanonical` | `rlp_item_uint_canonical` for `len ≤ 55`, proved equal (`uint_canonical_short`) |
 | `bugApplies .rlpUintNonCanonical` | `uintNonCanonicalb` at one item | `decode = success false h p`, `p ≤ 8`, `uintCanon … h p = false`, Sail exits; other classes `False` |
 | `NextUint64MeaningModuloKnownBugs input` | part of `ParentHeaderMeaningModuloKnownBugs` | `∀ σ`, agreement or a listed bug |
 | `Compliant m m'` | `nextUint64ContractExit` + meaning | `Post m m'` and the meaning for every `input` read through the slice as in `Post` |
@@ -383,3 +383,56 @@ Differences:
 
 Non-vacuity: `example : ∃ m, Pre m` in `Spec.lean` (empty input at `0x40000000`, result at
 `0xa0002000`, `sp = 0xa0001000`).
+
+### F6 (`ZesuExec/Compliance/F6.lean`)
+
+Rocq: `ParentHeaderMeaningModuloKnownBugs` (`ParentHeaderRung2.v:32`), `parentHeaderSailAgrees`,
+`sailParentHeaderRun`, `ParentHeaderSharedFields` (`ProjectionParentHeader.v`),
+`parentHeaderBugTrigger` (`ParentHeaderBugTriggers.v`). Sail: `rlp_node_cursor`, then
+`decode_parent_header_fields cursor 0 EMPTY_PARENT_HEADER_FIELDS` (`StatelessInput.lean:968`), as
+`_rec_index_witness_header_cursor` decodes a header.
+
+```lean
+def sailRun (input : List Byte) (σ : SailRegs) := ((parentAction input).run (hostOf input)).run σ
+theorem parent_eval (hσ : σ.regs.get? .k_execution_profile = some prof) :
+    RunRel (hostOf input) σ (sailRun input σ) (sailParent (profMax prof) (profLimit prof) input)
+theorem f6_candidate_agrees (input) (σ) (prof) (hσ : σ.regs.get? .k_execution_profile = some prof) :
+    SailRelates (sailRun input σ) (walk input) ∨
+      ∃ bug ∈ knownBugs, trig (profMax prof) (profLimit prof) bug input
+theorem f6_compliance (m) (hpc) (hpre : Pre m) : Reaches zesuImage 2178 (Compliant m) m
+theorem f6_compliance_sail (h : SailLink.Rel zesuImage m s) (hpc) (hpre : Pre m) :
+    SailLink.SailReaches zesuImage 2178
+      (fun s' => ∃ m', SailLink.Rel zesuImage m' s' ∧ Compliant m m') s
+```
+
+Axioms of all three: `propext`, `Classical.choice`, `Quot.sound`.
+
+| Lean | Rocq | Note |
+|---|---|---|
+| `walk` (`Fn/F6/Spec.lean`) | `candidateParentHeader` | candidate, reused |
+| `sailRun`, `parentAction` | `sailParentHeaderRun` | Sail run on the whole input, any `σ` whose `k_execution_profile` is `prof` (Rocq: the default profile) |
+| `SailRelates` | `parentHeaderSailAgrees` + `ParentHeaderSharedFields` | both reject (`Error.Exit`), or Sail's base fee / blob gas / excess blob gas (with `have_` flags) = candidate values 3/4/5, all `< 2^64`; other failures `False` |
+| `sailParent`, `fieldsSpec`, `stepSpec`, `sailNode` | — | closed forms, proved equal to the Sail run (`parent_eval`) |
+| `trig maxB limit` | `parentHeaderBugTrigger` | per class, below |
+| `ParentHeaderMeaningModuloKnownBugs input` | Sail conjunct of the same | `∀ σ prof`, agreement or a trigger; domain/result conjuncts are `Pre`/`Post` |
+
+Triggers (`ParentHeaderAgree.lean`); "reached" = a field `(i, bytes left)` the candidate walk
+`scan` reaches inside the outer payload:
+
+- `rlpLongLengthWrap`: a reached item's header + payload ≥ `2^64`.
+- `parentHeaderMissingRequiredField`: the walk runs out before field 12 (includes `c0`).
+- `parentHeaderTrailingBytes`: outer header + payload < input length (as Rocq).
+- `parentHeaderSkippedFieldShape`: field 0 or 3 is a list or > 32 bytes.
+- `parentHeaderBlobGasUnaligned`: field 17 canonical ≤ 8 bytes, value not a whole number of
+  `2^17` blobs or more blobs than `prof`'s maximum.
+- `rlpUintNonCanonical`: field 15/17/18 a string ≤ 8 bytes with `uintCanon = false`.
+- `parentHeaderUintOver8`: field 15 canonical string of 9..32 bytes.
+- `parentHeaderUndecodedFieldRejected`: field 9/10/11, no wrap, list or > 8 bytes.
+- `parentHeaderExcessBlobGasAboveLimit`: field 18 canonical ≤ 8 bytes above `prof`'s limit.
+- `parentHeaderTrailingItemMalformed`: the walk passes field 18 and the rest is not a sequence of
+  items `rlp_decode_item` accepts (`ItemsOK`).
+
+Differences from Rocq: blob and excess triggers are per reached field rather than conditioned on
+the candidate's overall success (so they also fire where both reject later); the profile limits
+come from `σ` instead of the fixed default; no `2^31` input bound is needed (the Lean host reads
+`inputBytes.getD`); `headerFits` is not needed by the agreement.

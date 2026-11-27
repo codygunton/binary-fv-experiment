@@ -277,3 +277,13 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   standard three. Witnesses `82 00 01` (bug) and `82 01 00` (agree). `lake build
   ZesuExec.Compliance.F2 ZesuExec.Compliance.F3` passes; per module: RlpItem 1.4 s, RlpUint 1.7 s,
   F3 1.5 s, ≤ 1.6 GB. Lines: RlpUint 145, F3 310.
+- S6: F6. `Compliance/RlpItem.lean`/`RlpUint.lean` generalised to cursors at any offset
+  (`SliceAt hs o xs`; `uintCanon` now on the item's byte list). `Compliance/ParentHeaderSail.lean`:
+  `decode_word_eval`, `decode_u256_eval`, `run_readReg`, `fields_eval` (`_rec_decode_parent_header_fields`
+  = `fieldsSpec`, register `k_execution_profile` holding `prof`), `node_cursor_eval`, `parent_eval`
+  (`parentAction` = `sailParent`). `Compliance/ParentHeaderAgree.lean`: candidate trace `scan`, the
+  ten parent-header trigger classes, `stepOK`, `walk_agree`, `parent_agree`. `Compliance/F6.lean`:
+  `f6_candidate_agrees`, `f6_compliance`, `f6_compliance_sail`; `#guard_msgs` standard three.
+  Witness `c0` (missing field). `lake build ZesuExec.Compliance.F2 ZesuExec.Compliance.F3
+  ZesuExec.Compliance.F6` passes; per module ParentHeaderSail 1.8 s, ParentHeaderAgree 1.7 s,
+  F6 1.6 s, ≤ 1.7 GB. Lines: 395 + 566 + 163.

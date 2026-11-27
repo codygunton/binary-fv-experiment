@@ -54,7 +54,7 @@ theorem sailRun_eq (input : List Byte) (σ : SailRegs) :
       match sailItem input with
       | some (l, off, len) => .ok (⟨len, ⟨off + len, ⟨{}, l⟩⟩⟩, hostOf input) σ
       | none => .error .Exit σ :=
-  decode_item_eval input (hostOf input) rfl σ {}
+  decode_item_eval (hostOf input) 0 input (sliceAt_whole _ input rfl) σ {}
 
 /-! ## Known bugs -/
 
