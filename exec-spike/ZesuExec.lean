@@ -36,10 +36,6 @@ import ZesuExec.Fn.F5.Proof
 import ZesuExec.Fn.F5.Runs
 import ZesuExec.Fn.F5.Sail
 import ZesuExec.Fn.F5.Spec
-import ZesuExec.Fn.F6.Lemmas
-import ZesuExec.Fn.F6.Regions
-import ZesuExec.Fn.F6.Runs
-import ZesuExec.Fn.F6.Spec
 import ZesuExec.Fn.Preserve
 import ZesuExec.Fn.Stage
 import ZesuExec.Image
