@@ -575,4 +575,14 @@ Open (to settle before review):
 5. Sail agreement (EVM-Sail `decode_legacy_tx`, `decode_access_list_tx`, `decode_fee_market_tx`,
    `decode_blob_tx`, `decode_set_code_tx` in `vendor/evm-sail-lean/Evm/Lib/Rlp/Codecs/Transactions.lean`)
    and the known-bug classes belong to a later compliance statement.
+6. (Found in S7 step 4, DTFCursor.) `Pre` has no header-fit domain for the items DTF itself
+   decodes. `decodeItem` accepts an item whose `h + p` wraps (`(h + p) mod 2^64 ≤ len`, e.g. a
+   long string header `0xbf` with `p = 2^64 - 1`), and the `data` field then calls the allocator
+   with `n = p` (`0x800016e8`: only `n = 0` is tested) and `memcpy(block, ptr, p)`. The assumed
+   allocator contract needs `n < 2^63` (`allocPre`), so the 5 `data` `alloc` call leaves (from
+   `0x800013c8`, `0x80001748`, `0x800018a4`, `0x80001940`, `0x800019dc`) and the `memcpy` leaves
+   after them cannot be proved under the draft `Pre` on such inputs. Proposed
+   fix (not applied): a `Domain` conjunct like TX's — `HeaderFits` for every `decodeItem` call the
+   reference decoder reaches on the payload (`h + p < 2^64`), which also gives the reference
+   decoder's `item` its unwrapped consumption.
 - Non-vacuity: not yet stated; `decide` checks the decoder on four inputs.

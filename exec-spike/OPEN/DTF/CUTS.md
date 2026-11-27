@@ -57,8 +57,9 @@ buffer slot (RAM, present, from `Priv`), `0x800011f8` the written result (`Done`
    `txAuthList` buffer at `S-0x330`/`S-0x338`/`S-0x318` and the tuples so far; the inner cursors
    (`s7`/`s6`, `S-0x300`/`S-0x308`); the list bytes left (budget term) must be tied to the list
    payload.
-4. Byte loops: cursor/end inside the current item's payload and the accumulator so far (budget
-   term `20·(end - cur)` needs `end - cur ≤ 32`).
+4. Byte loops: (cursor part stated) `CurOk` at every `Inner.be` head: cursor/end are `inp + c`,
+   `inp + e`, `c < e ≤ len`, `e ≤ c + 32` (DTFCursor). Not stated: that `c..e` is the current
+   item's payload and the accumulator so far (needed with item 1).
 5. Callee indices beyond the heap: F1/F4's list bytes, TX's input. (`IdxOk` now states the
    callee's `Pre` and, for the allocator, F1, F4 and TX, `Live σ m x.1 X`.)
 6. (Settled.) `Live` after TX: the returned/leaked blocks are `Priv g.L` by `added_priv`

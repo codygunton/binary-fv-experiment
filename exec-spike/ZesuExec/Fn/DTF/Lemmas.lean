@@ -556,7 +556,7 @@ theorem cut_slot (d : CutData) (n : Nat) (hpc : d.pc ≠ entry) (hs : d.site = n
   intro σ m hA
   simp only [mkCut, if_neg hpc, ACut, hs, reduceCtorEq, false_and, exists_false,
     or_false] at hA
-  obtain ⟨-, hpcm, hc, hsh, -, -, hex⟩ := hA
+  obtain ⟨-, hpcm, hc, hsh, -, -, hex, -⟩ := hA
   have hslot : SlotOk σ m n := by
     rcases hext with ⟨he, rfl⟩ | ⟨he, rfl⟩ <;> simpa [Extra, he] using hex
   have hok : RegionOk ((m.reg 10, (some n : Option Nat).getD 0), ⟨some n, 1, true⟩) := by
@@ -578,7 +578,7 @@ theorem cut_table (d : CutData) (hpc : d.pc ≠ entry) (hs : d.site = none)
   intro σ m hA
   simp only [mkCut, if_neg hpc, ACut, hs, reduceCtorEq, false_and, exists_false,
     or_false] at hA
-  obtain ⟨-, hpcm, hc, hsh, -, -, hex⟩ := hA
+  obtain ⟨-, hpcm, hc, hsh, -, -, hex, -⟩ := hA
   have hpre := hc.2.1
   have h10 : m.reg 10 = w (0x80110050 + 8 * σ.t) := by simpa [Extra, hp] using hex
   have ht : σ.t ≤ 4 := hpre.2.2.2.2.2.2.2.2.2.1

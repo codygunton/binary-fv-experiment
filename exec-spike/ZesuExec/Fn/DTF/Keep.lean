@@ -16,12 +16,32 @@ open ZesuExec ZesuExec.Sym ZesuExec.Machine ZesuExec.Vc
 
 /-! ## Facts at a cut -/
 
+/-- A return site's `rest` location the call keeps: at the call site, and callee-saved or kept by
+the callee. -/
+def retKeep (s : Site) (r : RestLoc) : Bool :=
+  decide (r ∈ s.rest) && match r.loc with
+    | .reg i => decide (Fin.ofNat 32 i ∈ calleeSaved)
+    | .slot o => decide (o + 8 ≤ frameBytes) && s.kind.Keeps s o
+
+/-- The `rest` locations a cut's assertion gives: all of them at a cut reached by jumps, the kept
+ones at a return site (a callee such as TX moves `rest` on by an item it may not have parsed). -/
+def kRest (d : CutData) : List RestLoc :=
+  match d.site with
+  | none => d.rest
+  | some s => d.rest.filter (retKeep s)
+
+theorem kRest_sub {d : CutData} {r : RestLoc} (h : r ∈ kRest d) : r ∈ d.rest := by
+  unfold kRest at h
+  split at h
+  · exact h
+  · exact (List.mem_filter.mp h).1
+
 /-- What a cut other than the entry knows at its machine. -/
 structure Facts (d : CutData) (σ : Sig) (m : Machine) : Prop where
   common : Common σ m
   shape : ShapeOk σ d.shape m
   arms : ArmOk σ d.arms
-  rest : RestOk σ m d.rest
+  rest : RestOk σ m (kRest d)
 
 def Loc.fine : Loc → Bool
   | .reg i => decide (i < 32)
@@ -41,22 +61,19 @@ theorem armOk_keep {σ : Sig} {a a' : List Nat} (h : armsKeep a a' = true) (ha :
     · exact absurd ha hne
     · exact .inr (hsub _ ha)
 
-/-- A return site's `rest` locations: at the call site, and callee-saved or kept by the callee. -/
-def restRet (d : CutData) (s : Site) : Bool :=
-  d.rest.all fun r => decide (r ∈ s.rest) && match r.loc with
-    | .reg i => decide (Fin.ofNat 32 i ∈ calleeSaved)
-    | .slot o => decide (o + 8 ≤ frameBytes) && s.kind.Keeps s o
+/-- All of a return site's `rest` locations are kept by the call. -/
+def restRet (d : CutData) (s : Site) : Bool := d.rest.all (retKeep s)
 
 /-- The return-site branch of a cut's assertion gives its `Facts`. -/
 def SrcOk (d : CutData) : Bool :=
   match d.site with
   | none => true
-  | some s => RetCheck d && d.shape.Fine && armsKeep s.arms d.arms && restRet d s
+  | some s => RetCheck d && d.shape.Fine && armsKeep s.arms d.arms
 
 theorem facts_of_ret {d : CutData} {s : Site} {σ : Sig} {m : Machine} (hs : d.site = some s)
     (hck : SrcOk d = true) (hA : RetA s d.pc σ m) : Facts d σ m := by
   simp only [SrcOk, hs, RetCheck, Bool.and_eq_true] at hck
-  obtain ⟨⟨⟨⟨hk, hrf⟩, hfine⟩, harms⟩, hrr⟩ := hck
+  obtain ⟨⟨⟨hk, hrf⟩, hfine⟩, harms⟩ := hck
   obtain ⟨mc, x, hsite, hpost⟩ := hA
   obtain ⟨hret, hc, hkeep⟩ := ret_common hk hsite hpost
   simp only [Shape.Fine, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at hfine
@@ -72,8 +89,8 @@ theorem facts_of_ret {d : CutData} {s : Site} {σ : Sig} {m : Machine} (hs : d.s
     · rw [Val.isWord_of hv] at h; cases h
     · rw [hkeep p.1 (hfine.2 p hp).1.2 hke]
       exact hsite.2.2.1.2 p hmem v hv
-  · simp only [restRet, List.all_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hrr
-    obtain ⟨hmem, hloc⟩ := hrr r hr
+  · simp only [kRest, hs, List.mem_filter, retKeep, Bool.and_eq_true, decide_eq_true_eq] at hr
+    obtain ⟨-, hmem, hloc⟩ := hr
     obtain ⟨c, hskip, hw⟩ := hsite.2.2.2.2.1 r hmem
     refine ⟨c, hskip, ?_⟩
     rw [← hw]
@@ -94,7 +111,7 @@ theorem facts_of_A {d : CutData} {σ : Sig} {m : Machine} (hpc : d.pc ≠ entry)
     (hck : SrcOk d = true) (hA : (mkCut d).A σ m) : Facts d σ m := by
   simp only [mkCut, if_neg hpc, ACut] at hA
   rcases hA with ⟨-, -, hc, hs, ha, hr, -⟩ | ⟨s, hs, hret⟩
-  · exact ⟨hc, hs, ha, hr⟩
+  · exact ⟨hc, hs, ha, fun r h => hr r (kRest_sub h)⟩
   · exact facts_of_ret hs hck hret
 
 /-! ## Locations as symbolic values -/
@@ -143,9 +160,9 @@ theorem Val.sym_eval {sh : Shape} {σ : Sig} {m : Machine} {v : Val} {a : Word} 
 
 /-! ## The leaf's machine -/
 
-/-- Every write of `S` is a frame word below the save area. -/
+/-- Every write of `S` is a frame word below the save area or in the result. -/
 def writesLow (S : SState) : Bool :=
-  S.mem.all fun w => w.r == 0 && decide (w.off + w.n ≤ frameBytes - 104)
+  S.mem.all fun w => (w.r == 0 && decide (w.off + w.n ≤ frameBytes - 104)) || w.r == 1
 
 theorem baseRegs_shape {sh : Shape} (hx : sh.extra = []) : BaseRegs sh.S := by
   simp [BaseRegs, Shape.S, entryState, hx]
@@ -166,7 +183,8 @@ theorem writesLow_nocover {S : SState} (h : writesLow S = true) {j : Nat}
     (hj : frameBytes - 104 ≤ j) : S.mem.find? (·.covers 0 j) = none := by
   rw [List.find?_eq_none]
   intro w hw hcov
-  simp only [writesLow, List.all_eq_true, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h
+  simp only [writesLow, List.all_eq_true, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq,
+    decide_eq_true_eq] at h
   have := h w hw
   simp only [Write.covers, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hcov
   omega
