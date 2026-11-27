@@ -1,5 +1,6 @@
 import Lean
 import ZesuExec.Sym.Exec
+import ZesuExec.Sym.Pretty
 
 /-!
 # `sym_run`: evaluate `run` with compiled code, let the kernel re-check
@@ -43,7 +44,8 @@ unsafe def elabSymRun : CommandElab := fun stx => do
     let mut i := 0
     let mut msg := s!"{name}: {ls.length} leaves"
     for l in ls do
-      msg := msg ++ s!"\n  [{i}] {reprStr l.exit} steps {l.S.steps} conds {l.conds.length} obligs {l.obligs.length}"
+      let first := match l.conds with | c :: _ => s!" (first: {c.pp})" | [] => ""
+      msg := msg ++ s!"\n  [{i}] {l.exit.pp} steps {l.S.steps} conds {l.conds.length}{first} obligs {l.obligs.length}"
       i := i + 1
     logInfo msg
 

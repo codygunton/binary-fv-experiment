@@ -90,4 +90,9 @@ theorem forall_mem_of_idx {α : Type} [Inhabited α] {Q : α → Prop} (l : List
   have := AllL.forall h i (List.mem_range.mpr hi)
   simpa [idxQ, getElem!_pos l i hi] using this
 
+/-- For hand-written leaf theorems: the `i`-th leaf is a leaf of the run. -/
+theorem getElem!_mem {α : Type} [Inhabited α] (l : List α) (i : Nat) (h : i < l.length) :
+    l[i]! ∈ l := by
+  rw [getElem!_pos l i h]; exact List.getElem_mem h
+
 end ZesuExec.Vc
