@@ -44,7 +44,7 @@
   "i": 3,
   "exit": "call",
   "target": 2148362592,
-  "residual": "1 goal; head @LeafGoal; class oblig LE.le",
+  "residual": "1 goal; head @LeafGoal; class oblig ?",
   "rank": 4
  },
  {
@@ -80,7 +80,7 @@
   "i": 3,
   "exit": "call",
   "target": 2148316172,
-  "residual": "1 goal; head @LeafGoal; class oblig LE.le",
+  "residual": "1 goal; head @LeafGoal; class oblig ?",
   "rank": 7
  },
  {

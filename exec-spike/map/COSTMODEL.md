@@ -10,21 +10,21 @@ Rates and counts only; no extrapolated total.
 | assertion | 1 | 30 | 30 | 0 | 0 |
 | compliance | 1 | 75 | 75 | 0 | 0 |
 | contract | 2 | 5.5 | 11 | 0 | 0 |
-| cut_lemma | 3 | 15 | 63 | 0 | 0 |
+| cut_lemma | 12 | 4 | 99 | 0 | 0 |
 | infra | 17 | 12 | 615 | 0 | 0 |
-| leaf | 2 | 24.5 | 49 | 0 | 0 |
-| rule | 10 | 18.5 | 234 | 0 | 0 |
+| leaf | 27 | 10 | 330 | 0 | 0 |
+| rule | 11 | 20 | 274 | 0 | 0 |
 | run | 1 | 10 | 10 | 0 | 0 |
 
-Plan leaves: auto 12, manual 100, open 45 (auto share 8%). Ledger `leaf` minutes per manual leaf: 0.5.
+Plan leaves: auto 17, manual 119, open 21 (auto share 11%). Ledger `leaf` minutes per manual leaf: 2.8.
 
 | residual class (manual and open leaves) | leaves |
 |---|---:|
-| post | 36 |
-| oblig | 29 |
+| post | 37 |
 | callee-pre | 27 |
+| oblig | 26 |
 | tail | 24 |
-| budget | 16 |
+| budget | 13 |
 | cut | 12 |
 | @LeafGoalC | 1 |
 
@@ -32,7 +32,7 @@ Plan leaves: auto 12, manual 100, open 45 (auto share 8%). Ledger `leaf` minutes
 
 | function | state | cuts | loops | calls | joins | leaves_estimate | n_instr | leaves auto/manual/open | ledger items | minutes | $ |
 |---|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|
-| f_80000000 rlp_decode.txAccessList | in-proof | 21 | 2 | 12 | 11 | 50 | 323 | 5/1/45 | 7 | 149 | 0 |
+| f_80000000 rlp_decode.txAccessList | conditional | 21 | 2 | 12 | 11 | 50 | 323 | 10/20/21 | 42 | 506 | 0 |
 | f_8000050c rlp_decode.decodeTxFields | contract-draft | 153 | 50 | 87 | 75 | 478 | 2825 | 0/0/0 | 3 | 23 | 0 |
 | f_8004218c alt_fl_alloc.remap | closed+sail | 1 | 0 | 0 | 0 | 1 | 9 | 0/0/0 | 0 | 0 | 0 |
 | f_800cb40c array_list.Aligned([32]u8,null).ensureTotalCapacity | closed+sail | 9 | 0 | 4 | 7 | 18 | 107 | 7/8/0 | 9 | 142 | 0 |
@@ -64,7 +64,7 @@ Feature sums per state; `leaves_estimate` is the median (path counts grow expone
 | blocked | 132 | 9415 | 2408 | 2554 | 7426 | 190696 | 26.5 |
 | closed+compliance | 3 | 40 | 6 | 22 | 18 | 536 | 18 |
 | closed+sail | 4 | 30 | 0 | 16 | 25 | 375 | 20 |
+| conditional | 1 | 21 | 2 | 12 | 11 | 323 | 50 |
 | contract-draft | 1 | 153 | 50 | 87 | 75 | 2825 | 478 |
-| in-proof | 1 | 21 | 2 | 12 | 11 | 323 | 50 |
 | ready | 18 | 156 | 31 | 11 | 129 | 2450 | 20 |
 | waiting | 44 | 371 | 15 | 195 | 242 | 6063 | 11 |
