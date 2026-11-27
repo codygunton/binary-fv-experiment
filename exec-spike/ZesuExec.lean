@@ -97,5 +97,5 @@ import ZesuExec.Vc.Regions
 import ZesuExec.Vc.Tactics
 import ZesuExec.Fn.F1.Vc
 import ZesuExec.Fn.F2.Vc
-import ZesuExec.Fn.TX.Cuts
+import ZesuExec.Fn.TX.Vc
 import ZesuExec.Test.Auto
