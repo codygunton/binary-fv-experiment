@@ -91,3 +91,16 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
 - 2026-11-27: `Fn/Common.lean` (entry state/env, `entry_match`, `entry_wf`, `inWritable_entry`).
   F0 `f0_spec : Spec zesuImage 0x8004218c 9 Pre Post` proved; axioms standard; `Fn/F0/Proof`
   builds in ~1 s.
+
+## Verification tools
+- ImageCheck 2026-11-27: `tools/check_image.sh [Gen.lean] [ELF]` (item 9): parses every
+  `Seg`/`RoSeg` in `ZesuExec/Image/Gen.lean`, compares each word with the encoding
+  `llvm-objdump -d --start-address --stop-address` prints at that address (flags missing, extra
+  and non-4-byte encodings) and each rodata byte with `.rodata` dumped by `llvm-objcopy
+  --dump-section`. Result: 10 text segments, 1138 words matched; 1 rodata segment, 32 bytes
+  matched; 0 mismatches; exit 0. A copy of Gen.lean with one word and one byte changed gives
+  5 mismatches (the word occurs in 4 segments), exit 1.
+- `tools/verify.sh [--build]`: items 2 (plan regex plus `bv_decide` outside backticks, `unsafe`
+  only in `Sym/Tactic.lean`), 3 (plan file list, missing globs skipped; 18 files), 9; item 1
+  only with `--build`. Result: 2 PASS, 3 PASS, 9 PASS; exit 0. The only `bv_decide` text in
+  `ZesuExec bfv` is backticked prose in `bfv/BinaryFv/RiscV/Model/SailEnumAux.lean`.
