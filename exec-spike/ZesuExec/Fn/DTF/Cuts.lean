@@ -25,16 +25,19 @@ Assertions (one generic form per kind, instantiated by the cut table of `Regions
   `k` items of the payload, each an `rlp.decodeItem` success, `skip k`); and `Extra` for four
   cuts: the jump-table word address (`0x80000574`), the store slot of a list buffer
   (`0x80002138`, `0x80002434`: RAM, present, carved from the allocator's private memory), the
-  written result (`0x800011f8`: error code 3, or code 0 and the decoded transaction);
+  written result (`0x800011f8`: error code 3, or code 0 and the decoded transaction); `CurOk`
+  at a byte-loop head (the cursor and end registers point into the payload, `cur < end ≤ len`,
+  `end - cur ≤ 32`);
 * a call return site (`RetA`, TX's `ARet`): the call-site predicate (`Common`, the shape, arms
   and `rest` at the call instruction, the return address and the callee's index) at the machine of
   the call, and the callee's `Post` from it; a return site also reached by a jump
   (`0x80002a6c`) has the disjunction.
 
 Not yet stated (open assertion items, `OPEN/DTF/CUTS.md`): the values of the decoded fields held in
-registers and frame slots, the state of the `txHashList`/`txAuthList` buffers, and the per-field
-checks before the current item. Leaves whose goal needs them (callee preconditions on the field
-values, the success write at `0x80002dc4`) stay open until those conjuncts are added.
+registers and frame slots (and a byte loop's accumulator), the state of the
+`txHashList`/`txAuthList` buffers, and the per-field checks before the current item. Leaves whose
+goal needs them (callee preconditions on the field values, the success write at `0x80002dc4`) stay
+open until those conjuncts are added.
 
 Budgets: `K + 256 · (rest length) + inner`, `K` the longest path to the return over the cut graph
 (back edges of the two list loops and the byte loops' self edges removed, callee bounds added,
@@ -248,25 +251,6 @@ def IdxOk (k : Kind) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   | .tx => x.2.2.L = x.1 ∧ ∃ X, Live σ m x.1 X
   | _ => ∃ X, Live σ m x.1 X
 
-/-! ## Assertions -/
-
-def AEntry (σ : Sig) (m : Machine) : Prop := m = σ.m ∧ m.pc.toNat = entry ∧ Pre σ.A σ.g m
-
-def PlainA (d : CutData) (σ : Sig) (m : Machine) : Prop :=
-  m.pc.toNat = d.pc ∧ Common σ m ∧ ShapeOk σ d.shape m ∧ ArmOk σ d.arms ∧ RestOk σ m d.rest ∧
-    Extra d.pc σ m
-
-/-- The call-site predicate of the call returning to `r`. -/
-def SiteA (s : Site) (r : Nat) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
-  m.reg 1 = w r ∧ Common σ m ∧ ShapeOk σ s.shape m ∧ ArmOk σ s.arms ∧ RestOk σ m s.rest ∧
-    IdxOk s.kind σ x m
-
-def RetA (s : Site) (r : Nat) (σ : Sig) (m : Machine) : Prop :=
-  ∃ mc x, SiteA s r σ x mc ∧ (calleeOf s.kind).Post σ x mc m
-
-def ACut (d : CutData) (σ : Sig) (m : Machine) : Prop :=
-  (d.plain = true ∧ PlainA d σ m) ∨ ∃ s, d.site = some s ∧ RetA s d.pc σ m
-
 /-! ## Budgets -/
 
 /-- The variable part of a budget beyond the rest length. -/
@@ -444,6 +428,32 @@ def budgetTable : List (Nat × Nat × Inner) := [
 ]
 
 def budgetAt (pc : Nat) : Nat × Inner := (budgetTable.lookup pc).getD (0, .none)
+
+/-! ## Assertions -/
+
+def AEntry (σ : Sig) (m : Machine) : Prop := m = σ.m ∧ m.pc.toNat = entry ∧ Pre σ.A σ.g m
+
+/-- At a byte-loop head (`Inner.be cur fin`): the cursor and end registers point into the
+payload, `cur < end ≤ len`, at most 32 bytes apart (the loop reads `cur` and stops at `end`). -/
+def CurOk (σ : Sig) (m : Machine) : Inner → Prop
+  | .be cur fin => ∃ c e, m.reg (Fin.ofNat 32 cur) = σ.inp + w c ∧
+      m.reg (Fin.ofNat 32 fin) = σ.inp + w e ∧ c < e ∧ e ≤ σ.len ∧ e ≤ c + 32
+  | _ => True
+
+def PlainA (d : CutData) (σ : Sig) (m : Machine) : Prop :=
+  m.pc.toNat = d.pc ∧ Common σ m ∧ ShapeOk σ d.shape m ∧ ArmOk σ d.arms ∧ RestOk σ m d.rest ∧
+    Extra d.pc σ m ∧ CurOk σ m (budgetAt d.pc).2
+
+/-- The call-site predicate of the call returning to `r`. -/
+def SiteA (s : Site) (r : Nat) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
+  m.reg 1 = w r ∧ Common σ m ∧ ShapeOk σ s.shape m ∧ ArmOk σ s.arms ∧ RestOk σ m s.rest ∧
+    IdxOk s.kind σ x m
+
+def RetA (s : Site) (r : Nat) (σ : Sig) (m : Machine) : Prop :=
+  ∃ mc x, SiteA s r σ x mc ∧ (calleeOf s.kind).Post σ x mc m
+
+def ACut (d : CutData) (σ : Sig) (m : Machine) : Prop :=
+  (d.plain = true ∧ PlainA d σ m) ∨ ∃ s, d.site = some s ∧ RetA s d.pc σ m
 
 /-- The length of the `rest` slice at the cut (0 when no location holds it). -/
 def restLen (d : CutData) (σ : Sig) (m : Machine) : Nat :=

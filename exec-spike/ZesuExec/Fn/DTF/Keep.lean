@@ -143,9 +143,9 @@ theorem Val.sym_eval {sh : Shape} {σ : Sig} {m : Machine} {v : Val} {a : Word} 
 
 /-! ## The leaf's machine -/
 
-/-- Every write of `S` is a frame word below the save area. -/
+/-- Every write of `S` is a frame word below the save area or in the result. -/
 def writesLow (S : SState) : Bool :=
-  S.mem.all fun w => w.r == 0 && decide (w.off + w.n ≤ frameBytes - 104)
+  S.mem.all fun w => (w.r == 0 && decide (w.off + w.n ≤ frameBytes - 104)) || w.r == 1
 
 theorem baseRegs_shape {sh : Shape} (hx : sh.extra = []) : BaseRegs sh.S := by
   simp [BaseRegs, Shape.S, entryState, hx]
@@ -166,7 +166,8 @@ theorem writesLow_nocover {S : SState} (h : writesLow S = true) {j : Nat}
     (hj : frameBytes - 104 ≤ j) : S.mem.find? (·.covers 0 j) = none := by
   rw [List.find?_eq_none]
   intro w hw hcov
-  simp only [writesLow, List.all_eq_true, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h
+  simp only [writesLow, List.all_eq_true, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq,
+    decide_eq_true_eq] at h
   have := h w hw
   simp only [Write.covers, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hcov
   omega
