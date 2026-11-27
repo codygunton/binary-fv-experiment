@@ -287,3 +287,37 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   Witness `c0` (missing field). `lake build ZesuExec.Compliance.F2 ZesuExec.Compliance.F3
   ZesuExec.Compliance.F6` passes; per module ParentHeaderSail 1.8 s, ParentHeaderAgree 1.7 s,
   F6 1.6 s, ≤ 1.7 GB. Lines: 395 + 566 + 163.
+
+## Programme plan (ZESU_VERIFICATION_PROGRAMME_PLAN.md)
+
+- S0 (2026-11-27): head 7a9e7da8 (no upstream configured; pull skipped). `lake build` 247 jobs, cached, 1 s; `tools/verify.sh` items 2, 3, 9 PASS. Gate S0 passed.
+- S1 (2026-11-27): `tools/zmap/` (`elfread.py`, `analyze.py`, `hints.py`, `ledger.py`, `__main__.py`;
+  `vendor/dwarf.py`, `vendor/inventory.py` copied unchanged from zesislar `tools/stock_zisk/`).
+  `python3 -m zmap build` (from `tools/`) runs in 12 s (analysis 2 s, DWARF 8 s) and writes
+  `map/static.json` (12.8 MB, compact JSON; addresses are integers). Census reproduced: 524 functions,
+  278,372 instructions, 39,926 blocks; 504 indirect call sites (493 table-heuristic, 11 unresolved),
+  193 other indirect jumps (18 resolved jump tables, 175 unresolved: 174 in
+  `interpreter.runDispatch__anon_13271`, whose table base is built in the previous block, so the
+  block-local rule does not apply; 1 in `memset`). Reachable from `_start` by direct and tail calls
+  alone: 195 functions, 202,867 instructions (= plan census); with table candidates `target` = 206
+  functions, 203,606 instructions; `maybe` 14; `other` 304. 4 function-pointer tables in `.rodata`
+  (4, 4, 17, 4 slots). Hints: `code_dwarf` accepted the object (388 anchors), 32,591 of 39,926 blocks
+  have a source hint, 26,503 an inlined-function name; `hints_error` null.
+  Heuristic tests matched without changes: `txAccessList`'s three indirect calls (`0x8000033c`,
+  `0x800003d0`, `0x80000428`, each `ld` from the allocator vtable at slots 2, 0, 3) have candidates
+  `alt_fl_alloc.remap`/`alloc`/`free` among 4 each; `decodeTxFields`'s `jalr zero,0(a0)` at
+  `0x80000584` loads from `0x80110050 + ((a2 & 0xff) << 3)` (auipc/addi base), 5 entries inside the
+  function (`0x80000588 0x800005dc 0x8000069c 0x8000075c 0x8000081c`), the 6th word is outside.
+  Two deviations from the literal S1 text, both recorded in the code: (1) `irreducible` is an edge to
+  an earlier address that is not a back edge *and* lies on a cycle of the graph without back edges;
+  the literal rule flagged 266 functions for layout jumps to lower addresses (e.g. `txAccessList`
+  `0x80000368 -> 0x800002ec`); now 7 functions. (2) Calls to functions that never return (greatest
+  fixpoint over the call graph; 12 functions, the Rust panic/`handle_error` family and `_start`) have
+  no fall-through edge and their return sites are not cut points (`calls[].noreturn: true`); the
+  fall-through after `panic_nounwind_fmt` in `rem_long` had made a false cycle. Path counts treat a
+  resolved jump table as a leaf end (the executor's `jumpInd`). Extra fields: `jump_tables`,
+  `noreturn` per function, `hints` (helper evidence) at top level, `tables[].kind` `fnptr`|`jump`.
+  `python3 -m unittest discover -s tools/zmap/tests`: 15 tests OK (2.3 s; structural counts, loop
+  heads `0x800000c4`/`0x8000018c`, `ensureTotalCapacity` 107/no loop/4 calls, `decodeItem` 2 loop heads,
+  `_start` in target, heuristics, committed `static.json` agrees with a fresh build). Ledger
+  `map/ledger.jsonl` created (S0 and S1 infra items). Gate S1 passed.
