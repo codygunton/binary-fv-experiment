@@ -761,3 +761,11 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   400_1 is unprovable until `Site428` drops that register fact (fix in Cuts.lean: move
   `m.reg 27 = o.ec` out of `Growing` into `Allocated`/`Site33c`/`Site3d0`, give `Site428` a
   copy of `Copied` without it; adjust `ret_340`/`ret_400`/`ret_42c` indices).
+- S6 TX third hand (TXLeavesB, 2026-11-27): `Fn/TX/Leaves3.lean` (imports Leaves2, imported by
+  Proof.lean and Grow.lean) closes leaves 068_2, 068_3, 0d8_2, 10c_3, 15c_2, 15c_3, 1a0_3,
+  230_0, 230_1. Reusable: `towned_pre`/`f1_pre_tx` (callee preconditions at TX call sites),
+  `after068`, `after15c`, `after230` (`slot_same`, `slot_bytes`), `frame_only`, `sl_apart`,
+  `outer_frame_keep`, `ie_keep`, `ret10c'`/`ret1a0'`, input copies (`leaf_bytes`,
+  `byteOf_byteList`, `byteOf_sext32`, `input_byte`, `slot_word`), `dec_ptr_str`, `dec_hpos`.
+  The generic write-leaf helpers moved to Leaves2 (TXLeavesC). Proof build at 00fdea01 had 14 open;
+  1f8_1 and 4a0_0 went back to TXLeavesC unstarted.
