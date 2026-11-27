@@ -26,7 +26,7 @@ Plan leaves: auto 7, manual 105, open 45 (auto share 4%). Ledger `leaf` minutes 
 
 | function | state | cuts | loops | calls | joins | leaves_estimate | n_instr | leaves auto/manual/open | ledger items | minutes | $ |
 |---|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|
-| f_80000000 rlp_decode.txAccessList | in-proof | 21 | 2 | 12 | 11 | 50 | 323 | 5/1/45 | 8 | 184 | 0 |
+| f_80000000 rlp_decode.txAccessList | conditional | 21 | 2 | 12 | 11 | 50 | 323 | 5/1/45 | 8 | 184 | 0 |
 | f_8000050c rlp_decode.decodeTxFields | contract-draft | 153 | 50 | 87 | 75 | 478 | 2825 | 0/0/0 | 3 | 23 | 0 |
 | f_8004218c alt_fl_alloc.remap | closed+sail | 1 | 0 | 0 | 0 | 1 | 9 | 0/0/0 | 0 | 0 | 0 |
 | f_800cb40c array_list.Aligned([32]u8,null).ensureTotalCapacity | closed+sail | 9 | 0 | 4 | 7 | 18 | 107 | 2/13/0 | 8 | 72 | 0 |
@@ -57,7 +57,7 @@ Feature sums per state; `leaves_estimate` is the median (path counts grow expone
 | blocked | 132 | 9415 | 2408 | 2554 | 7426 | 190696 | 26.5 |
 | closed+compliance | 3 | 40 | 6 | 22 | 18 | 536 | 18 |
 | closed+sail | 4 | 30 | 0 | 16 | 25 | 375 | 20 |
+| conditional | 1 | 21 | 2 | 12 | 11 | 323 | 50 |
 | contract-draft | 1 | 153 | 50 | 87 | 75 | 2825 | 478 |
-| in-proof | 1 | 21 | 2 | 12 | 11 | 323 | 50 |
 | ready | 18 | 156 | 31 | 11 | 129 | 2450 | 20 |
 | waiting | 44 | 371 | 15 | 195 | 242 | 6063 | 11 |
