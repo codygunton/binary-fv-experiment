@@ -658,3 +658,17 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   passes the list `L3`: the `freeL` workaround (list read back from `s3` inside the contract) is
   gone. Test/Vc `Tail` passes `()`. F1 20 items (auto 5, manual 15, open 0), F2 unchanged;
   `lake build` OK, `tools/verify.sh` all PASS after `make -C tools/zmap map`.
+- S8 (2026-11-27): cost model tooling. `tools/zmap/costmodel.py` and subcommand
+  `python3 -m zmap costmodel --map map/map.json --ledger map/ledger.jsonl --out map/COSTMODEL.md`
+  (one block in `__main__.py`; run by `make -C tools/zmap map`). Sections: effort by ledger kind
+  (count, median/total minutes and $), plan leaves by state and manual/open leaves by residual
+  class; per function with proof material or ledger rows the static features (cuts, loops,
+  calls, joins, `leaves_estimate`, instructions) beside actual leaves and ledger totals;
+  auto-closed share before/after each automation item, from ledger notes
+  `auto_share <fn> a/t -> a/t` (six zero-minute `rule` rows added from the counts recorded in
+  this LOG: F2 0/20; F1 2/21 (S4) → 2/21 (S5-p1) → 5/21 (S5-p1b) → 5/20 (S5-p2b) → 5/20
+  (S2-idx)); these rows are left out of the effort table; target set by state with feature sums
+  and the median `leaves_estimate`. Rates and counts only. `tests/test_costmodel.py` (4 tests);
+  `python3 -m unittest discover -s tools/zmap/tests` 22 OK. Residual classes are all `none` now:
+  hand-written leaf theorems record no residual. `Test/Auto.lean` (Verification item 4, five
+  `fail_if_success`) builds after S2-idx. `tools/verify.sh` all PASS.

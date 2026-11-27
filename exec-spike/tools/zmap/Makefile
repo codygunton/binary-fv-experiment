@@ -1,6 +1,5 @@
 # make -C tools/zmap map: static map (only when the ELF hash differs from static.json's or it was
-# built without join cuts), proof
-# status, merge, queue, page. Outputs in P/map/.
+# built without join cuts), proof status, merge, queue, page, cost model. Outputs in P/map/.
 P      := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 MAP    := $(P)/map
 ELF    ?= /home/cody/zesislar/build/stock-zisk/zesu-zisk.elf
@@ -15,6 +14,7 @@ map: static status
 	  --reviews $(MAP)/reviews.json --ledger $(MAP)/ledger.jsonl --out $(MAP)/map.json
 	$(ZMAP) queue --map $(MAP)/map.json --out $(MAP)/QUEUE.md --json $(MAP)/queue.json
 	$(ZMAP) site --map $(MAP)/map.json --queue $(MAP)/queue.json --out $(MAP)/site
+	$(ZMAP) costmodel --map $(MAP)/map.json --ledger $(MAP)/ledger.jsonl --out $(MAP)/COSTMODEL.md
 
 static:
 	@have=$$(python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); print(s["elf_sha256"] + ("" if s.get("join_cuts") else ":nojoin"))' \
