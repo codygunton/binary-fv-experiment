@@ -32,6 +32,11 @@ def HeaderIs (m : Machine) (hdr p n c : Word) : Prop :=
 /-- Little-endian bytes of a word. -/
 def wordBytes (v : Word) : List Byte := (List.range 8).map fun j => v.extractLsb' (8 * j) 8
 
+/-- The memcpy scratch word is unchanged. -/
+def ScratchSame (m m' : Machine) : Prop :=
+  ∀ j < 8, m'.mem (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 j) =
+    m.mem (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 j)
+
 /-- Two ranges do not meet. -/
 def Apart (a : Word) (n : Nat) (b : Word) (k : Nat) : Prop :=
   a.toNat + n ≤ b.toNat ∨ b.toNat + k ≤ a.toNat
@@ -76,15 +81,14 @@ def Post (m m' : Machine) : Prop :=
   SameOutside (fun a => InRange hdr 24 a ∨ InRange (sp - 128) 128 a ∨ InRange scratch 8 a ∨
     A.Priv L a ∨ (0 < c.toNat ∧ InRange p (c.toNat * elemBytes) a)) m m' ∧
   (if req.toNat ≤ c.toNat then
-     m'.reg 10 = 0 ∧ HeaderIs m' hdr p n c ∧ A.Heap L m' ∧ BytesAt m' scratch (wordBytes (wordAt m scratch))
+     m'.reg 10 = 0 ∧ HeaderIs m' hdr p n c ∧ A.Heap L m' ∧ ScratchSame m m'
    else
      (m'.reg 10 = 0 ∧ ∃ p', HeaderIs m' hdr p' n (BitVec.ofNat 64 (grown req.toNat)) ∧ 0 < p'.toNat ∧
         RamRange p' (grown req.toNat * elemBytes) ∧ BytesAt m' p' items ∧
         A.Heap ((if 0 < c.toNat then L.erase (p, c.toNat * elemBytes) else L) ++
           [(p', grown req.toNat * elemBytes)]) m' ∧
         BytesAt m' scratch (wordBytes (BitVec.ofNat 64 (n.toNat * elemBytes)))) ∨
-     (m'.reg 10 = 2 ∧ HeaderIs m' hdr p n c ∧ A.Heap L m' ∧
-        BytesAt m' scratch (wordBytes (wordAt m scratch))))
+     (m'.reg 10 = 2 ∧ HeaderIs m' hdr p n c ∧ A.Heap L m' ∧ ScratchSame m m'))
 
 end
 

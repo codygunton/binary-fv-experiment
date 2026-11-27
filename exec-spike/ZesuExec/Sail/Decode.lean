@@ -114,7 +114,8 @@ macro "dec_tac" : tactic =>
       encdec_mul_op_backwards_matches, encdec_mul_op_backwards, encdec_uop_backwards,
       Nat.div_div_eq_div_mul, setWidth_ne hop', word_ne hop', *]
     simp [toSail, rg, reg, immI, immS, immB, immJ, immU, field, ofNat_mod]
-    try (apply BitVec.eq_of_toNat_eq; simp only [toNat_append_add, BitVec.toNat_ofNat]; omega)))
+    try (apply BitVec.eq_of_toNat_eq; (repeat rw [toNat_append_add])
+         simp only [BitVec.toNat_ofNat]; omega)))
 
 /-- The register reads `ext_decode` performs on a configured state. -/
 theorem Configured.decodeReads {s : State} (hc : Configured s) :
@@ -269,5 +270,59 @@ theorem dec_mulhu (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 1
   have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
 
 end forms
+
+/-- Case split on an `if` in a hypothesis `ite c a b = x`. -/
+theorem ite_imp {α : Type} {c : Prop} [Decidable c] {a b x : α} {P : Prop}
+    (h1 : c → a = x → P) (h2 : ¬ c → b = x → P) : (if c then a else b) = x → P := by
+  by_cases hc : c
+  · intro h; exact h1 hc (by simpa [hc] using h)
+  · intro h; exact h2 hc (by simpa [hc] using h)
+
+/-- Sail's decoder agrees with `decodeWord` on every word of the 33 forms, from any configured
+state, without changing it. -/
+theorem decode_sound {w : BitVec 32} {i : Instr} {s : State} (h : decodeWord w = some i)
+    (hc : Configured s) : Runs (ext_decode w) s s (toSail i) := by
+  unfold decodeWord decodeNat at h
+  simp only at h
+  rw [if_pos (by have := w.isLt; simpa using this)] at h
+  generalize hop : field w.toNat 0 7 = opc at h
+  generalize hf3 : field w.toNat 12 3 = f3 at h
+  generalize hf7 : field w.toNat 25 7 = f7 at h
+  generalize hf6 : field w.toNat 26 6 = f6 at h
+  repeat' (revert h; apply ite_imp <;> intro hcond h)
+  all_goals cases h
+  all_goals (subst_vars; first
+        | exact dec_lui w hc (by assumption)
+        | exact dec_auipc w hc (by assumption)
+        | exact dec_jal w hc (by assumption)
+        | exact dec_jalr w hc (by assumption) (by assumption)
+        | exact dec_beq w hc (by assumption) (by assumption)
+        | exact dec_bne w hc (by assumption) (by assumption)
+        | exact dec_blt w hc (by assumption) (by assumption)
+        | exact dec_bltu w hc (by assumption) (by assumption)
+        | exact dec_bgeu w hc (by assumption) (by assumption)
+        | exact dec_lb w hc (by assumption) (by assumption)
+        | exact dec_lbu w hc (by assumption) (by assumption)
+        | exact dec_lhu w hc (by assumption) (by assumption)
+        | exact dec_lw w hc (by assumption) (by assumption)
+        | exact dec_ld w hc (by assumption) (by assumption)
+        | exact dec_sb w hc (by assumption) (by assumption)
+        | exact dec_sh w hc (by assumption) (by assumption)
+        | exact dec_sw w hc (by assumption) (by assumption)
+        | exact dec_sd w hc (by assumption) (by assumption)
+        | exact dec_addi w hc (by assumption) (by assumption)
+        | exact dec_xori w hc (by assumption) (by assumption)
+        | exact dec_andi w hc (by assumption) (by assumption)
+        | exact dec_sltiu w hc (by assumption) (by assumption)
+        | exact dec_slli w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_srli w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_add w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_sll w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_sltu w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_or w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_and w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_sub w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_mul w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_mulhu w hc (by assumption) (by assumption) (by assumption))
 
 end ZesuExec.SailLink

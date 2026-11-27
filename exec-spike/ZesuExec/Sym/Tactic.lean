@@ -47,4 +47,14 @@ unsafe def elabSymRun : CommandElab := fun stx => do
       i := i + 1
     logInfo msg
 
+/-- Unfold condition and value evaluation one constructor at a time, leaving `init`, `initx`,
+`bytes` and `cat` terms for lemmas that name them. -/
+macro "sym_simp" : tactic =>
+  `(tactic| simp only [SBool.eval, Sym.eval_lit, Sym.eval_var, Sym.eval_ptr, Sym.eval_bin,
+    Sym.eval_sext, BinOp.eval])
+macro "sym_simp" " at " h:ident : tactic =>
+  `(tactic| simp only [List.mem_cons, List.mem_nil_iff, or_false, forall_eq_or_imp, forall_eq,
+    SBool.eval, Sym.eval_lit, Sym.eval_var, Sym.eval_ptr, Sym.eval_bin, Sym.eval_sext,
+    BinOp.eval] at $h:ident)
+
 end ZesuExec.Sym

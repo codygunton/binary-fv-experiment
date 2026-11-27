@@ -144,6 +144,22 @@ theorem after_call_ov {env : Env} {S : SState} {m₁ m₂ : Machine} {F : Nat} {
       · have : i = 10 := Fin.ext h10
         subst this; exact ha0 s rfl) hframe
 
+/-- A `ret` leaf whose callee-saved registers are the entry variables returns. -/
+theorem returns_leaf {env : Env} {S : SState} {m mf : Machine} (hm : Match env S mf)
+    (hvars : ∀ i : Fin 32, env.vars i.val = m.reg i)
+    (hregs : (calleeSaved.filter (· ≠ 2)).all (fun i => S.reg i.val == .var i.val) = true)
+    (hsp : (S.reg 2).eval env = m.reg 2)
+    (hpc : mf.pc = (Sym.bin .and (.var 1) (.lit 18446744073709551614)).eval env) :
+    Returns m mf := by
+  refine ⟨?_, fun i hi => ?_⟩
+  · rw [hpc]; simp only [Sym.eval, BinOp.eval]
+    rw [show env.vars 1 = m.reg 1 from hvars 1]; rfl
+  · by_cases h2 : i = 2
+    · subst h2; rw [← hm.regs 2]; exact hsp
+    · have := List.all_eq_true.mp hregs i (List.mem_filter.mpr ⟨hi, by simpa using h2⟩)
+      simp only [beq_iff_eq] at this
+      rw [← hm.regs i, this]; exact hvars i
+
 /-! ## Loads as bytes -/
 
 theorem getLsbD_ofBytesLE : ∀ (bs : List Byte) (i : Nat), bs.length ≤ 8 → i < 64 →
@@ -211,5 +227,36 @@ theorem load_bytes {m : Machine} {a v : Word} {n : Nat} (h : m.load a n = some v
       have hl := readBytes_length hb
       rw [← ofNat_toNat_add, readBytes_get hb t (by omega), byteOf_ofBytesLE bs (by omega) t (by omega)]
   · simp at h
+
+theorem readBytes_congr {mem mem' : Word → Option Byte} :
+    ∀ {a n : Nat}, (∀ t < n, mem' (BitVec.ofNat 64 (a + t)) = mem (BitVec.ofNat 64 (a + t))) →
+      readBytes mem' a n = readBytes mem a n
+  | _, 0, _ => rfl
+  | a, n + 1, h => by
+    simp only [readBytes]
+    have h1 : readBytes mem' (a + 1) n = readBytes mem (a + 1) n :=
+      readBytes_congr fun t ht => by
+        have := h (t + 1) (by omega)
+        rwa [show a + (t + 1) = a + 1 + t by omega] at this
+    rw [show mem' (BitVec.ofNat 64 a) = mem (BitVec.ofNat 64 a) by simpa using h 0 (by omega), h1]
+
+/-- A load only depends on the bytes it reads. -/
+theorem load_congr {m m' : Machine} {a : Word} {n : Nat}
+    (h : ∀ t < n, m'.mem (a + BitVec.ofNat 64 t) = m.mem (a + BitVec.ofNat 64 t)) :
+    m'.load a n = m.load a n := by
+  unfold Machine.load
+  rw [readBytes_congr (mem := m.mem) (mem' := m'.mem) fun t ht => by rw [ofNat_toNat_add]; exact h t ht]
+
+/-- A region the run never wrote keeps the entry machine's bytes. -/
+theorem region_same {env : Env} {S : SState} {m mf : Machine} {r : Nat} (hm : Match env S mf)
+    (hr : r < S.regions.length) (hnw : S.mem.all (fun w => w.r != r) = true)
+    (hmem0 : ∀ j < env.size r, some (env.mem0 r j) = m.mem (env.base r + BitVec.ofNat 64 j)) :
+    ∀ j < env.size r, mf.mem (env.base r + BitVec.ofNat 64 j) = m.mem (env.base r + BitVec.ofNat 64 j) := by
+  intro j hj
+  rw [hm.mem r j hr hj, ← hmem0 j hj]
+  have : S.mem.find? (·.covers r j) = none := List.find?_eq_none.mpr fun w hw => by
+    have := List.all_eq_true.mp hnw w hw
+    simp [Write.covers] at this ⊢; intro h; exact absurd h this
+  simp [memByte, this, Env.byte0]
 
 end ZesuExec.Fn

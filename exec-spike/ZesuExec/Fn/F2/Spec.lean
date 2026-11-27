@@ -48,23 +48,29 @@ def decode : List Byte → Item
       let w := f - 247
       if 1 + w ≤ len then checkedPayload len (1 + w) (bigEndian (rest.take w)) true else .error
 
-/-- Byte `j` of a word, little-endian. -/
-abbrev byteOf (x : Word) (j : Nat) : Byte := x.extractLsb' (8 * j) 8
+/-- Byte `j` of a successful outcome (`successResult40`): payload pointer, payload length,
+`isList` byte, bytes 17..23 kept, consumed length, zero error halfword, bytes 34..39 kept. -/
+def successByte (ptr payload consumed : Word) (isList : Bool) (before : List Byte) (j : Nat) :
+    Byte :=
+  if j < 8 then Sym.byteOf ptr j
+  else if j < 16 then Sym.byteOf payload (j - 8)
+  else if j = 16 then (if isList then 1 else 0)
+  else if j < 24 then before.getD j 0
+  else if j < 32 then Sym.byteOf consumed (j - 24)
+  else if j < 34 then 0
+  else before.getD j 0
+
+/-- Byte `j` of an error outcome (`errorResult40`): all zero but byte 32, which is 4. -/
+def errorByte (j : Nat) : Byte := if j = 32 then 4 else 0
 
 /-- Byte `j` of the 40-byte outcome after a call with input `input` at `inPtr`, the struct
-holding `before` on entry (`candidateResult40`: `successResult40` / `errorResult40`). -/
+holding `before` on entry (`candidateResult40`). The empty string `0x80` reports pointer 1. -/
 def resultByte (inPtr : Word) (input before : List Byte) (j : Nat) : Byte :=
   match decode input with
-  | .error => if j = 32 then 4 else 0
+  | .error => errorByte j
   | .success isList h p =>
     let ptr : Word := if input.head? = some 128 then 1 else inPtr + BitVec.ofNat 64 h
-    if j < 8 then byteOf ptr j
-    else if j < 16 then byteOf (BitVec.ofNat 64 p) (j - 8)
-    else if j = 16 then (if isList then 1 else 0)
-    else if j < 24 then before.getD j 0
-    else if j < 32 then byteOf (BitVec.ofNat 64 (h + p)) (j - 24)
-    else if j < 34 then 0
-    else before.getD j 0
+    successByte ptr (BitVec.ofNat 64 p) (BitVec.ofNat 64 (h + p)) isList before j
 
 def result40 (inPtr : Word) (input before : List Byte) : List Byte :=
   (List.range 40).map (resultByte inPtr input before)

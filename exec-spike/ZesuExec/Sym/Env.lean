@@ -58,6 +58,15 @@ def Sym.eval (env : Env) : Sym → Word
   | .cat lo hi nlo =>
     (Sym.eval env lo &&& BitVec.ofNat 64 (2 ^ (8 * nlo) - 1)) ||| (Sym.eval env hi <<< (8 * nlo))
 
+theorem Sym.eval_lit (env : Env) (n : Nat) : (Sym.lit n).eval env = BitVec.ofNat 64 n := rfl
+theorem Sym.eval_var (env : Env) (i : Nat) : (Sym.var i).eval env = env.vars i := rfl
+theorem Sym.eval_ptr (env : Env) (r : Nat) (o : Int) :
+    (Sym.ptr r o).eval env = env.base r + BitVec.ofInt 64 o := rfl
+theorem Sym.eval_bin (env : Env) (op : BinOp) (a b : Sym) :
+    (Sym.bin op a b).eval env = op.eval (a.eval env) (b.eval env) := rfl
+theorem Sym.eval_sext (env : Env) (bits : Nat) (a : Sym) :
+    (Sym.sext bits a).eval env = ((a.eval env).setWidth bits).signExtend 64 := rfl
+
 def SBool.eval (env : Env) : SBool → Bool
   | .eq a b => a.eval env == b.eval env
   | .ne a b => a.eval env != b.eval env
