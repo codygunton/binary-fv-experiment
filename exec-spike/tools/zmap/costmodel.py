@@ -27,9 +27,13 @@ def features(f):
 
 
 def residual_class(residual):
-    """A manual leaf's residual class: the head symbol recorded by `zesu_auto`, or `none`."""
+    """A manual or open leaf's residual class: `leaf_diag`'s `class <c>` (the first stage of
+    `leaf_auto` that did not close), else the head symbol `zesu_auto` recorded, or `none`."""
     if not residual:
         return 'none'
+    m = re.search(r'class (\S+)', residual)
+    if m:
+        return m.group(1)
     m = re.search(r'head ([^\s;]+)', residual)
     return m.group(1) if m else residual.split(';')[0].strip()
 

@@ -701,3 +701,29 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `call_goal` takes `x`). runWith summaries for decodeItem could remove F6's 20 return-site cuts;
   not attempted. `lake build` 269 jobs OK; `make -C tools/zmap map`, `tools/verify.sh` all PASS;
   `zmap show f_800d5cb8`: closed+compliance, reach=yes.
+- S4b (2026-11-27): automation coverage. Classification of the manual leaves by what the hand
+  proof does (read, before this item): F1 13 = infeasible-by-bitvector 5 (needs `Pre`'s
+  `req < 2^32` and the `grown` lemmas), callee precondition 4, postcondition 3, assertion at
+  the next cut 1; F2 17 = postcondition 13 (decode semantics), assertion at the next cut 4.
+  Recorded classes (`zesu_auto` now runs `leaf_diag` after a failed `leaf_auto`: the first
+  stage that does not close, `class <c> <head>`; `zesu-status` reports it for manual items too;
+  `costmodel` reads it): F1 oblig 3 / budget 4; F2 oblig 17; F6 oblig 27 / tail 24 /
+  callee-pre 20 / cut 3; TX oblig 22 / budget 16 / callee-pre 4 / cut 4 — all functions: oblig
+  69, callee-pre 24, tail 24, budget 20, cut 7 (first failing stage, so a leaf whose
+  obligation is open is `oblig` whatever follows). Automation for infeasible leaves (top class
+  by reading in F1): `Vc/Facts.lean` attribute `@[zesu_fact]` (lemmas deriving a fact from a
+  cut's assertion) and tactic `zesu_facts` (forward chaining over the context: premises matched
+  by unification, conclusion added; adds hypotheses only); a new `leaf_auto` rule (tried first,
+  earlier rules unchanged on failure): `exfalso; zesu_facts`, then `leaf_norm` with
+  `omega`/`bv_omega`/`simp_all`, or `simp` normal form of the conditions rewritten with the
+  facts and closed by `simp`/`simp_all`; `leafc_auto` (new) does the same for leaves through
+  summarised calls after `SBool.conds_agree` and `zesu_autow` now tries it. F1: six facts
+  (`AE.req`, `AE.cap`, `AE.grown_or`, `AE.grown_shl5`, `AE.grown_srl59`, `AE.grown_bytes_ne`);
+  hand leaves 1, 3, 9 (plain) and 4, 6 (through `remap`) deleted, `f1_overflow` deleted. F1
+  items 20: auto 5 → 10 (leaves 2 → 7 of 15), manual 15 → 10; F2 0/20 unchanged (no
+  infeasible leaves; its leaves need decode semantics); TX 5/68 and F6 0/74 unchanged (no
+  facts declared). The second class by reading, postcondition, is per-function semantics; the
+  recorded classes point at obligations (return alignment, `inBounds`) and budgets (`if` budgets)
+  next, which close once the function declares its assertion facts (`@[zesu_fact]`), not
+  attempted here. `Test/Auto.lean` negative tests build; `lake build` OK; zmap tests OK;
+  `tools/verify.sh` all PASS after `make -C tools/zmap map`.

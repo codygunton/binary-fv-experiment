@@ -12,8 +12,9 @@ Per function: `id` (`f_<entry hex>`, the static map's id), `fn` (Lean namespace 
 `entry` (integer), `legacy`, `assembled` (`F.reach_from` exists), `cuts`, `open` (open items of
 the last `zesu_assemble`), `theorems` (`reach`, `spec`, `sail`, `compliance`: the constants
 exist) and `names` (the constants looked up). An item is `auto` when `zesu_auto` proved it,
-`manual` when its theorem exists otherwise, `open` else; `residual` is the last failed
-`zesu_auto` attempt's remaining-goal count and head symbol. Leaf `target` is the exit address
+`manual` when its theorem exists otherwise, `open` else; `residual` (manual and open items) is
+the last failed `zesu_auto` attempt's message: for a leaf the `leaf_diag` class (`class <c>
+<head>`), else the remaining-goal count and head symbol. Leaf `target` is the exit address
 (integer) when it is literal, else `null` with `target_sym` holding the symbolic target; `steps`
 counts from the cut point.
 -/
@@ -26,7 +27,7 @@ def itemJson (entries : Array Entry) (env : Environment) (fn item : Name) : Stri
     | .attempt f n ok r => if f == fn && n == item then some (ok, r) else none
     | _ => none
   if tried.any (·.1) then ("auto", "")
-  else if env.contains item then ("manual", "")
+  else if env.contains item then ("manual", (tried.back?.map (·.2)).getD "")
   else ("open", (tried.back?.map (·.2)).getD "not attempted")
 
 def theoremsJson (env : Environment) (reach : Option Name) (spec sail : Name)
