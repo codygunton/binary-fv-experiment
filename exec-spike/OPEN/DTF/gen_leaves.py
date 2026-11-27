@@ -7,7 +7,7 @@ Run from `exec-spike/` after `lake build ZesuExec.Fn.DTF.Gen`:
 A leaf gets an instance when its source is not the entry, `SrcOk` and `GenCheck` evaluate to
 `true` (`#eval` over the cut table, the same functions the instances check by `decide`), its
 source's cut lemma `DTF.cut_<pc>` is proved in `Leaves.lean`, and no hand-written file
-(`Leaves.lean`, `Exit.lean`) proves it.
+(every other file of `ZesuExec/Fn/DTF/`) proves it.
 """
 import pathlib
 import re
@@ -18,7 +18,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / 'ZesuExec/Fn/DTF/LeavesGen.lean'
 LEAVES = ROOT / 'ZesuExec/Fn/DTF/Leaves.lean'
-HAND = [LEAVES, ROOT / 'ZesuExec/Fn/DTF/Exit.lean']
+HAND = sorted(p for p in (ROOT / 'ZesuExec/Fn/DTF').glob('*.lean') if p != OUT)
 
 PROBE = '''import ZesuExec.Fn.DTF.Gen
 open ZesuExec ZesuExec.Sym ZesuExec.Fn.DTF

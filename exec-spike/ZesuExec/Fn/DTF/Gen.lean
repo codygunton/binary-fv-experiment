@@ -735,37 +735,39 @@ theorem lenFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : 
       exact hle
     · cases h
 
+/-- The target shape holds at the end of a leaf whose state carries it syntactically. -/
+theorem shapeOk_of_holds {sh0 sh : Shape} {σ : Sig} {m m' : Machine} {S' : SState}
+    (hwf' : Env.WF (envOf sh0 σ m) S') (hm' : Match (envOf sh0 σ m) S' m')
+    (hR : S'.regions[0]? = some frameR) (hfine : sh.Fine = true)
+    (hsh : shapeHolds S' sh = true) : ShapeOk σ sh m' := by
+  simp only [shapeHolds, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true,
+    Bool.not_eq_true', beq_iff_eq] at hsh
+  simp only [Shape.Fine, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at hfine
+  refine ⟨fun p hp v hv => ?_, fun p hp v hv => ?_⟩
+  · rcases hsh.1 p hp with h | h
+    · rw [Val.isWord_of hv] at h; cases h
+    · have hi := (hfine.1 p hp).1
+      have e : (Fin.ofNat 32 p.1 : Fin 32) = ⟨p.1, hi⟩ := Fin.ext (by simp [Nat.mod_eq_of_lt hi])
+      rw [e, ← hm'.regs ⟨p.1, hi⟩]
+      show (S'.reg p.1).eval _ = v
+      rw [h]
+      exact Val.sym_eval 0 hv
+  · rcases hsh.2 p hp with h | h
+    · rw [Val.isWord_of hv] at h; cases h
+    · have ho := (hfine.2 p hp).1.2
+      have := load_cst hwf' hm' hR (by rw [envOf_size0]; exact ho)
+      rw [env_base0, h, Val.sym_eval 0 hv] at this
+      exact this
+
 /-- The target's facts at the end of the leaf. -/
 theorem target_facts {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
     {sh : Shape} {arms : List Nat} {rs : List RestLoc} (hfine : sh.Fine = true)
     (hsh : shapeHolds l.S sh = true) (harms : armsKeep d.arms arms = true)
     (hrest : restFrom d.shape.S l.S (advUse d l) (srcRest d l) rs = true) :
-    Common σ m' ∧ ShapeOk σ sh m' ∧ ArmOk σ arms ∧ RestOk σ m' rs := by
-  refine ⟨common_leaf C.F.common C.wf C.hS C.hS' C.hm' C.so C.low, ⟨?_, ?_⟩,
+    Common σ m' ∧ ShapeOk σ sh m' ∧ ArmOk σ arms ∧ RestOk σ m' rs :=
+  ⟨common_leaf C.F.common C.wf C.hS C.hS' C.hm' C.so C.low,
+    shapeOk_of_holds C.wf' C.hm' (by rw [C.hS']; rfl) hfine hsh,
     armOk_keep harms C.F.arms, restFrom_sound C hrest⟩
-  · intro p hp v hv
-    simp only [shapeHolds, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true,
-      Bool.not_eq_true', beq_iff_eq] at hsh
-    rcases hsh.1 p hp with h | h
-    · rw [Val.isWord_of hv] at h; cases h
-    · simp only [Shape.Fine, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at hfine
-      have hi := (hfine.1 p hp).1
-      have e : (Fin.ofNat 32 p.1 : Fin 32) = ⟨p.1, hi⟩ := Fin.ext (by simp [Nat.mod_eq_of_lt hi])
-      rw [e, ← C.hm'.regs ⟨p.1, hi⟩]
-      show (l.S.reg p.1).eval _ = v
-      rw [h]
-      exact Val.sym_eval 0 hv
-  · intro p hp v hv
-    simp only [shapeHolds, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true,
-      Bool.not_eq_true', beq_iff_eq] at hsh
-    rcases hsh.2 p hp with h | h
-    · rw [Val.isWord_of hv] at h; cases h
-    · simp only [Shape.Fine, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at hfine
-      have ho := (hfine.2 p hp).1.2
-      have hR : l.S.regions[0]? = some frameR := by rw [C.hS']; rfl
-      have := load_cst C.wf' C.hm' hR (by rw [envOf_size0]; exact ho)
-      rw [env_base0, h, Val.sym_eval 0 hv] at this
-      exact this
 
 /-- A return-site `rest` location keeps its value across the call. -/
 theorem ret_loc_keep {d : CutData} {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}

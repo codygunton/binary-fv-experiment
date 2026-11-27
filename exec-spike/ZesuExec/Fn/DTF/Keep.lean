@@ -168,16 +168,22 @@ theorem baseRegs_shape {sh : Shape} (hx : sh.extra = []) : BaseRegs sh.S := by
   simp [BaseRegs, Shape.S, entryState, hx]
 
 /-- A frame byte no write covers is the source machine's. -/
-theorem frame_byte_keep {sh : Shape} {σ : Sig} {m m' : Machine} {S : SState} (hc : Avail σ m)
-    (hm' : Match (envOf sh σ m) S m') (hS : BaseRegs S) {j : Nat} (hj : j < frameBytes)
+theorem frame_byte_keep' {sh : Shape} {σ : Sig} {m m' : Machine} {S : SState} (hc : Avail σ m)
+    (hm' : Match (envOf sh σ m) S m') (h0 : 0 < S.regions.length) {j : Nat} (hj : j < frameBytes)
     (hnc : S.mem.find? (·.covers 0 j) = none) :
     m'.mem (σ.fr + BitVec.ofNat 64 j) = m.mem (σ.fr + BitVec.ofNat 64 j) := by
-  have h := hm'.mem 0 j (by rw [hS]; decide) (by rw [envOf_size0]; exact hj)
+  have h := hm'.mem 0 j h0 (by rw [envOf_size0]; exact hj)
   rw [env_base0] at h
   rw [h]
   simp only [memByte, hnc, Env.byte0, envOf, entryEnv, regionsOf]
   obtain ⟨b, hb⟩ := Option.isSome_iff_exists.mp (stack_present hc hj)
   simp [hb]
+
+theorem frame_byte_keep {sh : Shape} {σ : Sig} {m m' : Machine} {S : SState} (hc : Avail σ m)
+    (hm' : Match (envOf sh σ m) S m') (hS : BaseRegs S) {j : Nat} (hj : j < frameBytes)
+    (hnc : S.mem.find? (·.covers 0 j) = none) :
+    m'.mem (σ.fr + BitVec.ofNat 64 j) = m.mem (σ.fr + BitVec.ofNat 64 j) :=
+  frame_byte_keep' hc hm' (by rw [hS]; decide) hj hnc
 
 theorem writesLow_nocover {S : SState} (h : writesLow S = true) {j : Nat}
     (hj : frameBytes - 104 ≤ j) : S.mem.find? (·.covers 0 j) = none := by
@@ -223,15 +229,30 @@ theorem inWritable_owned {sh : Shape} {σ : Sig} {m : Machine} {S : SState} (hpr
     rw [toNat_add_ofNat (by unfold RamRange Layout.ramHi at hrr; omega)]
     omega
 
-/-- `Common` at the end of a leaf that writes only frame words below the save area. -/
-theorem common_leaf {sh : Shape} {σ : Sig} {m m' : Machine} {S S' : SState} (hc : Common σ m)
-    (hwf : Env.WF (envOf sh σ m) S) (hS : BaseRegs S) (hS' : BaseRegs S')
-    (hm' : Match (envOf sh σ m) S' m') (hso : SameOutside (InWritable (envOf sh σ m) S) m m')
-    (hlow : writesLow S' = true) : Common σ m' := by
+/-- An address of a writable region of a state whose regions beyond the base ones are read-only
+is DTF's own. -/
+theorem inWritable_owned_ro {sh : Shape} {σ : Sig} {m : Machine} {S : SState}
+    (hpre : Pre σ.A σ.g σ.m) {ex : List Region} (hS : S.regions = baseRegions ++ ex)
+    (hex : ∀ R ∈ ex, R.writable = false) {a : Word} (h : InWritable (envOf sh σ m) S a) :
+    Owned σ a := by
+  obtain ⟨r, R, j, hR, hwr, hj, rfl⟩ := h
+  rw [hS] at hR
+  by_cases hr : r < 4
+  · rw [List.getElem?_append_left (by simpa [baseRegions] using hr)] at hR
+    exact (inWritable_owned (S := { S with regions := baseRegions }) hpre rfl
+      ⟨r, R, j, hR, hwr, hj, rfl⟩).1
+  · rw [List.getElem?_append_right (by simp [baseRegions]; omega)] at hR
+    rw [hex R (List.mem_of_getElem? hR)] at hwr
+    cases hwr
+
+/-- `Common` at the end of a leaf that keeps present bytes, writes only DTF's own memory and, of the
+frame, only words below the save area. -/
+theorem common_leaf_of {sh : Shape} {σ : Sig} {m m' : Machine} {S S' : SState} (hc : Common σ m)
+    (hp : Preserved m m') (hown : ∀ a, InWritable (envOf sh σ m) S a → Owned σ a)
+    (hm' : Match (envOf sh σ m) S' m') (h0 : 0 < S'.regions.length)
+    (hso : SameOutside (InWritable (envOf sh σ m) S) m m') (hlow : writesLow S' = true) :
+    Common σ m' := by
   have hpre := hc.2.1
-  have hp : Preserved m m' := F1.preserved_of_leaf hwf hm'
-    (Nat.le_of_eq (congrArg List.length ((show S.regions = baseRegions from hS).trans
-      (show S'.regions = baseRegions from hS').symm))) hso
   let R : Word → Prop := fun a => InWritable (envOf sh σ m) S a ∧ ¬ InRange (σ.S - w 104) 104 a
   have hso' : SameOutside R m m' := fun a ha => by
     by_cases hw : InWritable (envOf sh σ m) S a
@@ -247,13 +268,23 @@ theorem common_leaf {sh : Shape} {σ : Sig} {m m' : Machine} {S S' : SState} (hc
         rw [toNat_add_ofNat (by unfold Layout.ramHi frameBytes stackBytes TX.stackBytes at *; omega)]
         unfold frameBytes stackBytes TX.stackBytes at *; omega
       rw [ha']
-      exact frame_byte_keep hc.avail hm' hS' (by unfold frameBytes stackBytes TX.stackBytes at *; omega)
+      exact frame_byte_keep' hc.avail hm' h0 (by unfold frameBytes stackBytes TX.stackBytes at *; omega)
         (writesLow_nocover hlow (by unfold frameBytes stackBytes TX.stackBytes at *; omega))
     · exact hso a hw
   obtain ⟨L, X, hlive⟩ := hc.2.2.2.2.2.2.2.2
-  exact common_keep hc hp hso' (fun a ha => ⟨.inl (inWritable_owned hpre hS ha.1).1, ha.2⟩)
+  exact common_keep hc hp hso' (fun a ha => ⟨.inl (hown a ha.1), ha.2⟩)
     ⟨L, X, live_keep hlive hso' hp fun a ha hpv =>
-      owned_not_priv hpre (inWritable_owned hpre hS ha.1).1 (priv_sub hpre hlive hpv)⟩
+      owned_not_priv hpre (hown a ha.1) (priv_sub hpre hlive hpv)⟩
+
+/-- `Common` at the end of a leaf that writes only frame words below the save area. -/
+theorem common_leaf {sh : Shape} {σ : Sig} {m m' : Machine} {S S' : SState} (hc : Common σ m)
+    (hwf : Env.WF (envOf sh σ m) S) (hS : BaseRegs S) (hS' : BaseRegs S')
+    (hm' : Match (envOf sh σ m) S' m') (hso : SameOutside (InWritable (envOf sh σ m) S) m m')
+    (hlow : writesLow S' = true) : Common σ m' :=
+  common_leaf_of hc (F1.preserved_of_leaf hwf hm'
+    (Nat.le_of_eq (congrArg List.length ((show S.regions = baseRegions from hS).trans
+      (show S'.regions = baseRegions from hS').symm))) hso)
+    (fun a h => (inWritable_owned hc.2.1 hS h).1) hm' (by rw [hS']; decide) hso hlow
 
 theorem wf_of_regions {env : Env} {S S' : SState} (hwf : Env.WF env S)
     (h : S'.regions = S.regions) : Env.WF env S' :=

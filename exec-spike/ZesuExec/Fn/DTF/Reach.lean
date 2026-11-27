@@ -1,5 +1,7 @@
 import ZesuExec.Fn.DTF.LeavesGen
 import ZesuExec.Fn.DTF.Exit
+import ZesuExec.Fn.DTF.Entry
+import ZesuExec.Fn.DTF.Jump
 
 /-!
 # DTF assembly (programme plan S7 step 3)
