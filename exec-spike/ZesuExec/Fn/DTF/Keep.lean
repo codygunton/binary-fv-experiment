@@ -1,16 +1,14 @@
 import ZesuExec.Fn.DTF.Ret
 
 /-!
-# DTF: the generic leaf theorem `leaf_keep` (programme plan S7 step 4)
+# DTF: facts at a cut and at the end of a leaf (programme plan S7 step 4)
 
-A leaf that ends at a plain cut (`.at`), has no obligations, writes only DTF's frame below the save
-area, and carries the target's facts over unchanged: the target's pointer registers and frame
-slots hold the shape's symbolic values in the leaf's state (`shapeHolds`), the target's `rest`
-locations hold the same symbolic values as locations of the source with the same item count
-(`restKeep`), the arms only widen (`armsKeep`), and the budget drops by at least the steps
-(`budgetKeep`). `KeepCheck` is all of it, by `decide` per leaf; `SrcOk` says the source cut's
-facts (`Facts`) follow from its assertion (a return site: its `rest` locations are callee-saved
-registers or frame words the callee keeps, its arms those of the call).
+The pieces of the generic leaf theorem `leaf_gen` (`Gen.lean`): a cut's `Facts` from its
+assertion (`facts_of_A`; a return site by `SrcOk`: its `rest` locations are callee-saved registers
+or frame words the callee keeps, its arms those of the call); locations as symbolic values of a
+state (`Loc.sym`, `loc_word_eval`); `Common` at the end of a leaf that writes only frame words
+below the save area (`common_leaf`); and the target checks `shapeHolds`, `armsKeep`,
+`budgetKeep`, `noExtra`.
 -/
 
 namespace ZesuExec.Fn.DTF
@@ -244,25 +242,10 @@ theorem wf_of_regions {env : Env} {S S' : SState} (hwf : Env.WF env S)
   ⟨by rw [h]; exact hwf.len, hwf.disjoint, fun r R s hR => hwf.size r R s (h ▸ hR),
     fun r R hR => hwf.align r R (h ▸ hR), fun r R hR => hwf.range r R (h ▸ hR)⟩
 
-/-! ## The check and the theorem -/
-
 /-- The target's pointer registers and frame slots hold the shape's values in `S`. -/
 def shapeHolds (S : SState) (sh : Shape) : Bool :=
   sh.regs.all (fun p => !p.2.isWord || S.reg p.1 == p.2.sym 0) &&
   sh.slots.all (fun p => !p.2.isWord || readConst S 0 p.1 8 == p.2.sym 0)
-
-/-- Every target `rest` location holds what a source location with the same item count held. -/
-def restKeep (S S' : SState) (rs rs' : List RestLoc) : Bool :=
-  rs'.all fun r' => r'.loc.fine && rs.any fun r =>
-    r.loc.fine && r.k == r'.k && r.len == r'.len && r'.loc.sym S' == r.loc.sym S
-
-/-- The target's `rest` length is the source's (or the target has none). -/
-def lenKeep (S S' : SState) (rs rs' : List RestLoc) : Bool :=
-  match rs'.find? (·.len) with
-  | none => true
-  | some r' => match rs.find? (·.len) with
-    | some r => r.loc.fine && r'.loc.fine && r'.loc.sym S' == r.loc.sym S
-    | none => false
 
 /-- No `Extra` conjunct at `pc`. -/
 def noExtra (pc : Nat) : Bool :=
@@ -273,95 +256,5 @@ def budgetKeep (pc pc' steps : Nat) : Bool :=
   match (budgetAt pc').2 with
   | .none => decide ((budgetAt pc').1 + steps ≤ (budgetAt pc).1)
   | _ => false
-
-def KeepCheck (d : CutData) (l : Leaf) (d' : CutData) : Bool :=
-  l.exit == .at d'.pc && d'.pc != entry && d'.plain && noExtra d'.pc && d.shape.extra.isEmpty &&
-  d'.shape.extra.isEmpty && d'.shape.Fine && l.S.regions == baseRegions && l.obligs.isEmpty &&
-  writesLow l.S && shapeHolds l.S d'.shape && armsKeep d.arms d'.arms &&
-  restKeep d.shape.S l.S d.rest d'.rest && lenKeep d.shape.S l.S d.rest d'.rest &&
-  budgetKeep d.pc d'.pc (l.S.steps - d.shape.S.steps)
-
-theorem leaf_keep (d d' : CutData) (l : Leaf) (hd' : d' ∈ table) (hpc : d.pc ≠ entry)
-    (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true) (hck : KeepCheck d l d' = true) :
-    LeafGoal vcPlan (mkCut d) l := by
-  simp only [KeepCheck, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq,
-    List.isEmpty_iff] at hck
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hex, hpc'⟩, hpl⟩, hnx⟩, hx⟩, hx'⟩, hfine'⟩, hreg⟩, hob⟩, hlow⟩, hsh⟩,
-    harms⟩, hrest⟩, hlen⟩, hbud⟩ := hck
-  intro σ m hA _
-  have F := facts_of_A hpc hsrc hA
-  obtain ⟨hwf, hm, -, -⟩ := hcut σ m hA
-  simp only [mkCut] at hwf hm
-  have hS : BaseRegs d.shape.S := baseRegs_shape hx
-  have hS' : BaseRegs l.S := hreg
-  have hwf' : Env.WF (envOf d.shape σ m) l.S :=
-    wf_of_regions hwf ((show l.S.regions = baseRegions from hS').trans hS.symm)
-  simp only [budgetKeep] at hbud
-  split at hbud
-  case h_2 => cases hbud
-  rename_i hinner
-  simp only [decide_eq_true_eq] at hbud
-  have hsteps : l.S.steps - d.shape.S.steps ≤ (budgetAt d.pc).1 := by omega
-  refine ⟨fun o ho => (by rw [hob] at ho; cases ho), ?_, fun m' hm' hexok hso => ?_⟩
-  · show l.S.steps - d.shape.S.steps ≤ budgetOf d σ m
-    unfold budgetOf; omega
-  simp only [mkCut] at hm' hso
-  rw [hex] at hexok ⊢
-  simp only [ExitOk] at hexok
-  -- the target's `rest` length is the source's
-  have hlen' : restLen d' σ m' ≤ restLen d σ m := by
-    unfold lenKeep at hlen
-    unfold restLen
-    split at hlen
-    · next h => rw [h]; exact Nat.zero_le _
-    · next r' h' =>
-      split at hlen
-      · next r h =>
-        simp only [Bool.and_eq_true, beq_iff_eq] at hlen
-        obtain ⟨⟨hf, hf'⟩, he⟩ := hlen
-        rw [h', h]
-        dsimp only
-        rw [loc_word_eval hwf' hm' hS' hf', he, ← loc_word_eval hwf hm hS hf]
-        exact Nat.le_refl _
-      · cases hlen
-  refine ExitGoal.at_cut rfl ⟨mkCut d', List.mem_map_of_mem hd', hexok, ?_, ?_⟩
-  · simp only [mkCut, if_neg hpc', ACut]
-    refine .inl ⟨hpl, hexok, common_leaf F.common hwf hS hS' hm' hso hlow, ⟨?_, ?_⟩,
-      armOk_keep harms F.arms, fun r' hr' => ?_, ?_⟩
-    · intro p hp v hv
-      simp only [shapeHolds, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true,
-        Bool.not_eq_true', beq_iff_eq] at hsh
-      rcases hsh.1 p hp with h | h
-      · rw [Val.isWord_of hv] at h; cases h
-      · simp only [Shape.Fine, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at hfine'
-        have hi := (hfine'.1 p hp).1
-        have e : (Fin.ofNat 32 p.1 : Fin 32) = ⟨p.1, hi⟩ := Fin.ext (by simp [Nat.mod_eq_of_lt hi])
-        rw [e, ← hm'.regs ⟨p.1, hi⟩]
-        show (l.S.reg p.1).eval _ = v
-        rw [h]
-        exact Val.sym_eval 0 hv
-    · intro p hp v hv
-      simp only [shapeHolds, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true,
-        Bool.not_eq_true', beq_iff_eq] at hsh
-      rcases hsh.2 p hp with h | h
-      · rw [Val.isWord_of hv] at h; cases h
-      · simp only [Shape.Fine, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at hfine'
-        have ho := (hfine'.2 p hp).1.2
-        have hR : l.S.regions[0]? = some frameR := by rw [hS']; rfl
-        have := load_cst hwf' hm' hR (by rw [envOf_size0]; exact ho)
-        rw [env_base0, h, Val.sym_eval 0 hv] at this
-        exact this
-    · simp only [restKeep, List.all_eq_true, List.any_eq_true, Bool.and_eq_true, beq_iff_eq] at hrest
-      obtain ⟨hf', r, hr, ⟨⟨⟨hf, hk⟩, hl⟩, he⟩⟩ := hrest r' hr'
-      obtain ⟨c, hskip, hw⟩ := F.rest r hr
-      refine ⟨c, hk ▸ hskip, ?_⟩
-      rw [loc_word_eval hwf' hm' hS' hf', he, ← loc_word_eval hwf hm hS hf, hw, hl]
-    · simp only [noExtra, Bool.and_eq_true, bne_iff_ne, ne_eq] at hnx
-      simp only [Extra, if_neg hnx.1.1.1, if_neg hnx.1.1.2, if_neg hnx.1.2, if_neg hnx.2]
-  · show budgetOf d' σ m' ≤ budgetOf d σ m - (l.S.steps - d.shape.S.steps)
-    unfold budgetOf
-    rw [hinner]
-    simp only [innerOf]
-    omega
 
 end ZesuExec.Fn.DTF

@@ -896,6 +896,25 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     over all 486 leaves (each a one-line `leaf_keep` with `decide`), mostly the error branches to
     `0x800011f0`/`0x800013fc`. **Counts: manual 150 → 341, auto 0 → 0, open 497 → 306** (leaves
     open 486 → 295). `LeavesKeep.lean` builds in 6 s.
+  - `skip` (assertion item, `Cuts.lean`): an item consumes `TX.itemConsumed h p = (h+p) mod 2^64`,
+    as the binary adds it to `rest` and the reference decoder drops it (the old `h + p` could not
+    follow a wrapped consumption). `entry_eq` (`@[zesu_simp]`, `entry = 0x8000050c`) added; it
+    has no effect on `zesu_auto` while budgets stop the leaves (Vc 263 s).
+  - `leaf_gen` (`Gen.lean`) supersedes `leaf_keep` (removed with `LeavesKeep.lean`): `rest`
+    locations kept or **advanced by one item** after a `decodeItem` return whose error halfword
+    the leaf tests zero (`advOf`/`advUse`, `adv_of_A`: `F2.Post`'s `result40` at the outcome slot
+    gives `decode` success and the consumed word; `skip_snoc`, `skip_le`), and **`decodeItem`
+    call exits** to a return site (`f2_pre_dtf`: `F2.Pre` from `Common`, the shape and `rest`;
+    the return site's `RetA`; budget `F2.bound + K' + steps ≤ K` with the return site's `rest`
+    length kept by the callee, `ret_loc_keep`). `LeavesGen.lean`: 250 generated instances.
+    **Counts: manual 341 → 400, auto 0, open 306 → 247** (leaves open 295 → 236).
+  - Remaining leaves by first failing `GenCheck` part: obligations 112 (byte loops: the cursor is
+    not yet in the assertion — `CUTS.md` item 4), byte-loop-head targets 57 (inner budget
+    `20·(end - cur)`: needs the payload-length bound from the leaf's `8 >=u len` condition or the
+    item-4 conjunct), sources without `SrcOk` 23 (memcpy/free/alloc/F1/F4/TX return sites), calls
+    to memcpy 12, alloc 7, F4 1, decodeItem sites without `f2Site` 8, `lenFrom` 5, region-4 /
+    `Extra` / result writes 10. Field values (`FieldsOk`/`ChecksOk`/`body_prefix`, step 3) are
+    still not implemented; no contract issue found.
 - S6 TX second hand (P2Summaries, 2026-11-27): (1) Cuts.lean assertion fix (Main-approved, S6.6
   wrong-assertion rule): `OuterWalked`/`KeysWalked` carry `WalkFits`/`KeysFits` (HeaderFits of
   every call the rest of the walk reaches; from `Domain` at 068_3), since `EntryOk`/`AKeyStore`
