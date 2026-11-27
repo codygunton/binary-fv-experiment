@@ -1,4 +1,4 @@
-import ZesuExec.Fn.TX.Err
+import ZesuExec.Fn.TX.Outer
 
 /-!
 # TX assembled (programme plan S6 step 7)
