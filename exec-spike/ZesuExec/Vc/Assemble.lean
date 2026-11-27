@@ -17,7 +17,11 @@ import ZesuExec.Vc.Sound
 The statements are fixed: `F.cut_<pc> : CutOK F.plan F.plan.cuts[i]!` and
 `F.leaf_<pc>_<j> : LeafGoal F.plan F.plan.cuts[i]! (F.plan.leaves <pc>)[j]!` where `i` is the
 index of the cut point at `pc`. The run equations `run … = some (F.plan.leaves pc)` are
-re-checked by the kernel with `Eq.refl`, as `sym_run` does; `hpos` by kernel `decide`.
+re-checked by the kernel with `Eq.refl`, as `sym_run` does, unless a theorem `F.run_<pc>` exists:
+then that theorem is the proof (`runProof?`; its `run` arguments and leaf list must match the
+conjunct's by `isDefEq` on the arguments, never by unfolding `run`, else assembly fails naming
+the cut), so the kernel compares arguments instead of evaluating every run again in one
+declaration; `hpos` by kernel `decide`.
 `unsafe` is confined to the evaluation of the plan's cut points and leaves; nothing it computes
 is trusted.
 -/
@@ -215,6 +219,28 @@ def allOfIdx (α Q l : Expr) (n : Nat) (pf : Nat → TermElabM Expr) : TermElabM
     chain := mkApp4 (mkConst ``And.intro) (mkApp Qi (mkNatLit k)) (mkApp rest tail) (← pf k) chain
   pure (mkApp5 (mkConst ``forall_mem_of_idx) α inst Q l chain)
 
+/-- The proof of the run equation `want` of the cut at `pc` by the theorem `fn.run_<pc>`, if it
+exists. Both statements must be `f a₁ … aₙ = some l` with the same head `f` (`run` or
+`runWith`); the arguments and `l` are compared by `isDefEq`, `f` itself is never unfolded. -/
+def runProof? (fn : Name) (pc : Nat) (want : Expr) : TermElabM (Option Expr) := do
+  let rn := fn ++ Name.mkSimple s!"run_{hexNat pc}"
+  let some ci := (← getEnv).find? rn | return none
+  let parts (e : Expr) : TermElabM (Option (Expr × Array Expr × Expr)) := do
+    let e ← instantiateMVars (← whnfR e)
+    let some (_, lhs, rhs) := e.eq? | return none
+    let some (_, l) := (← whnfR rhs).app2? ``Option.some | return none
+    return some (lhs.getAppFn, lhs.getAppArgs, l)
+  let fail : TermElabM (Option Expr) :=
+    throwError "zesu_assemble: {rn} does not state the run equation of the cut at 0x{hexNat pc} \
+      (same function, arguments and leaves)"
+  let some (f₁, as₁, l₁) ← parts want | fail
+  let some (f₂, as₂, l₂) ← parts ci.type | fail
+  unless f₁.isConst && f₁ == f₂ && as₁.size == as₂.size do return ← fail
+  for (a, b) in as₁.zip as₂ do
+    unless ← isDefEq a b do return ← fail
+  unless ← isDefEq l₁ l₂ do return ← fail
+  return some (mkConst rn)
+
 @[command_elab zesuAssembleCmd]
 def elabZesuAssemble : CommandElab := fun stx => do
   let fn ← fnName stx[1]
@@ -269,9 +295,12 @@ def elabZesuAssemble : CommandElab := fun stx => do
     let hleafTy := vcTy.bindingBody!.bindingBody!.bindingBody!.bindingDomain!
     let leafListTy := mkApp (mkConst ``List [0]) (mkConst ``Leaf)
     let hruns ← allOfIdx cutTy (← predOf hrunsTy) cutsE n fun i => do
-      let ls ← elabClosed s!"{rootTxt (fn ++ `plan)}.leaves {cuts[i]!.pc}"
-      pure (mkApp2 (mkConst ``Eq.refl [1]) (mkApp (mkConst ``Option [0]) leafListTy)
-        (mkApp2 (mkConst ``Option.some [0]) leafListTy ls))
+      match ← runProof? fn cuts[i]!.pc ((← predOf hrunsTy).beta #[← cutE i]) with
+      | some p => pure p
+      | none =>
+        let ls ← elabClosed s!"{rootTxt (fn ++ `plan)}.leaves {cuts[i]!.pc}"
+        pure (mkApp2 (mkConst ``Eq.refl [1]) (mkApp (mkConst ``Option [0]) leafListTy)
+          (mkApp2 (mkConst ``Option.some [0]) leafListTy ls))
     let hposInst ← synthInstance (mkApp (mkConst ``Decidable) hposTy)
     let hpos := mkApp3 (mkConst ``of_decide_eq_true) hposTy hposInst
       (mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Bool) (mkConst ``Bool.true))

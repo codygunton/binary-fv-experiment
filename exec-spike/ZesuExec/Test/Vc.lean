@@ -205,6 +205,47 @@ constructor:
 #guard_msgs in
 #print Toy2.Open
 
+/-! The same plan with its run equations given as theorems `Toy3.run_<pc>`: `zesu_assemble`
+uses them for `hruns` instead of re-evaluating the runs; a theorem that states another run is
+refused with the cut named. -/
+
+/--
+info: ZesuExec.Test.VcTest.Toy3: 2 cut points
+  0x80000000: 1 leaves
+  0x80000004: 2 leaves
+-/
+#guard_msgs in
+zesu_plan Toy3 := toyPlan
+
+theorem Toy3.run_80000000 :
+    run toyImage (cuts.map (·.pc)) 20 0x80000000 S0 = some run0_leaves := run0
+theorem Toy3.run_80000004 :
+    run toyImage (cuts.map (·.pc)) 20 0x80000004 S0 = some run1_leaves := run1
+
+/--
+info: ZesuExec.Test.VcTest.Toy3: 5 items, 0 auto, 0 manual, 5 open
+-/
+#guard_msgs in
+zesu_assemble Toy3
+
+-- A run theorem for the wrong cut.
+/--
+info: ZesuExec.Test.VcTest.Toy4: 2 cut points
+  0x80000000: 1 leaves
+  0x80000004: 2 leaves
+-/
+#guard_msgs in
+zesu_plan Toy4 := toyPlan
+
+theorem Toy4.run_80000000 :
+    run toyImage (cuts.map (·.pc)) 20 0x80000004 S0 = some run1_leaves := run1
+
+/--
+error: zesu_assemble: ZesuExec.Test.VcTest.Toy4.run_80000000 does not state the run equation of the cut at 0x80000000 (same function, arguments and leaves)
+-/
+#guard_msgs in
+zesu_assemble Toy4
+
 /-- `Toy.reach` at the entry cut as a `Spec`. -/
 example : Spec toyImage 0x80000000 8 (fun m => m.reg 1 = retAddr) (fun _ m' => m'.reg 10 = 0) :=
   fun m hpc h1 => Toy.reach c0 (by simp [Toy.plan, toyPlan, cuts]) () m ⟨hpc, h1⟩

@@ -104,6 +104,14 @@ import ZesuExec.Fn.F1.Vc
 import ZesuExec.Fn.F2.Vc
 import ZesuExec.Fn.TX.Proof
 import ZesuExec.Fn.F6.Vc
+import ZesuExec.Fn.DTF.Spec
+import ZesuExec.Fn.DTF.Regions
+import ZesuExec.Fn.DTF.Runs
+import ZesuExec.Fn.DTF.Cuts
+import ZesuExec.Fn.DTF.Vc
+import ZesuExec.Fn.DTF.Lemmas
+import ZesuExec.Fn.DTF.Leaves
+import ZesuExec.Fn.DTF.Reach
 import ZesuExec.Test.Auto
 import ZesuExec.Compliance.TXSail
 import ZesuExec.Compliance.TX
