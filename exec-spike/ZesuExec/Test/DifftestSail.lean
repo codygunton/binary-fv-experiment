@@ -7,7 +7,8 @@ import ZesuExec.Image.Gen
 
 `engineA img m0 bytes stop` builds a Sail state from the model's own initialisation
 (`modelInit`, which is `sail_model_init` by `ZesuExec.Sail.InitCheck.modelInit_eq`, then
-`init_model ""`, whose `reset` is the model's reset path), writes `PC`,
+the model's reset path `reset ()`; `init_model` would first assert the model's
+configuration validator, which the profile configuration does not pass, see `LOG.md`), writes `PC`,
 `x1 … x31`, the image's `.text` words and the snapshot bytes, checks `configuredB`, and runs
 `try_step` until `PC = stop`. At `Layout.memcpyEntry` it substitutes the ZisK service exactly as
 `SailReaches.service` does: `ziskMemcpy` on the machine read off the Sail state, and the Sail state
@@ -20,6 +21,7 @@ open BinaryFv.RiscV (State)
 open LeanRV64DExecutable.Functions
 open ZesuExec.SailLink
 open Register
+open PreSail
 
 /-- The machine `s` represents: `x1 … x31`, `PC`, and every byte present in Sail's byte map. -/
 def machineOf (s : State) : Machine where
@@ -29,15 +31,27 @@ def machineOf (s : State) : Machine where
   mem := fun a => s.mem.get? a.toNat
 
 /-- Run a generated action, rendering a failure. -/
-def runSail {α : Type} (act : SailM α) (s : State) : Except String (α × State) :=
+def runSail {α : Type} (label : String) (act : SailM α) (s : State) :
+    Except String (α × State) :=
   match act.run s with
   | .ok a s' => .ok (a, s')
-  | .error _ _ => .error "Sail action failed"
+  | .error e _ => .error s!"{label}: {e.print}"
+
+/-- The registers the generated `sail_model_init` leaves absent but the reset path or the step
+reads. The Lean backend's `initialize_registers` is empty, so they are absent from the register map
+(a read throws); the C emulator gives these undefined registers the value zero, and so does this. -/
+def undefinedInit : SailM Unit := do
+  writeReg mtvec default; writeReg stvec default; writeReg mcause default
+  writeReg pmpcfg_n default; writeReg pmpaddr_n default
+  writeReg vcsr default; writeReg vtype default; writeReg vstart default; writeReg vl default
+  writeReg mip default; writeReg mie default
+  writeReg mcountinhibit default; writeReg minstretcfg default; writeReg minstret default
 
 /-- The model's own initialisation and reset path. -/
 def initState : Except String State := do
-  let (_, s) ← runSail modelInit default
-  let (_, s) ← runSail (init_model "") s
+  let (_, s) ← runSail "sail_model_init" modelInit default
+  let (_, s) ← runSail "undefined registers" undefinedInit s
+  let (_, s) ← runSail "reset" (reset ()) s
   return s
 
 /-- Load the machine's registers, `PC`, the `.text` words of `img` and the listed bytes. -/
@@ -70,7 +84,8 @@ def runTo (stop : Nat) : Nat → State → Nat → Except String (State × Nat)
       match (try_step k false).run s with
       | .ok false s' => runTo stop fuel s' (k + 1)
       | .ok true _ => .error s!"try_step requested exit at pc {m.pc.toNat} after {k} transitions"
-      | .error _ _ => .error s!"try_step failed at pc {m.pc.toNat} after {k} transitions"
+      | .error e _ =>
+        .error s!"try_step failed at pc {m.pc.toNat} after {k} transitions: {e.print}"
 
 /-- Engine A from the machine `m0` holding the listed `bytes`. -/
 def engineA (img : Image) (m0 : Machine) (bytes : List (Nat × Nat)) (stop cap : Nat) :

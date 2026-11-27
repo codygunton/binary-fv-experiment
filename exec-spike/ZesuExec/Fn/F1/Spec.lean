@@ -1,4 +1,5 @@
 import ZesuExec.Fn.Assumed
+import ZesuExec.Fn.Stage
 
 /-!
 # F1 `array_list.Aligned([32]u8,null).ensureTotalCapacity` (`0x800cb40c`, 107 instructions)
@@ -91,5 +92,117 @@ def Post (m m' : Machine) : Prop :=
      (m'.reg 10 = 2 ∧ HeaderIs m' hdr p n c ∧ A.Heap L m' ∧ ScratchSame m m'))
 
 end
+
+open ZesuExec.Fn
+
+/-! ## Non-vacuity -/
+
+/-- The witness's own bytes: stack below `sp = 0xa0001000`, header at `0xa0002000`
+(items.ptr 1, length 0, capacity 0), allocator object at `0xa0002020`, the scratch word. -/
+def nvByte (a : Nat) : Option Nat :=
+  if 0xa0000f80 ≤ a ∧ a < 0xa0001000 then some 0
+  else if a = 0xa0002000 then some 1
+  else if 0xa0002000 < a ∧ a < 0xa0002028 then some 0
+  else if 0xa0002028 ≤ a ∧ a < 0xa0002030 then some ((vtable / 256 ^ (a - 0xa0002028)) % 256)
+  else if Layout.extraParams ≤ a ∧ a < Layout.extraParams + 8 then some 0
+  else none
+
+def nvMachine (m0 : Machine) : Machine where
+  regs := fun i => if i.val = 2 then 0xa0001000 else if i.val = 1 then 0x80000000
+    else if i.val = 10 then 0xa0002000 else if i.val = 11 then 0xa0002020 else if i.val = 12 then 1 else 0
+  pc := BitVec.ofNat 64 entry
+  mem := fun a => match zesuImage.rodataByte? a.toNat with
+    | some b => some (BitVec.ofNat 8 b)
+    | none => match nvByte a.toNat with
+      | some b => some (BitVec.ofNat 8 b)
+      | none => m0.mem a
+
+def bot : Machine := ⟨fun _ => 0, 0, fun _ => none⟩
+
+theorem nv_mem (m0 : Machine) (a : Word) (h : (nvByte a.toNat).isSome = true) :
+    (nvMachine m0).mem a = (nvMachine bot).mem a := by
+  simp only [nvMachine]
+  split
+  · rfl
+  · obtain ⟨b, hb⟩ := Option.isSome_iff_exists.mp h; simp [hb]
+
+theorem nv_load (m0 : Machine) (a : Word) (n : Nat)
+    (h : ∀ t < n, (nvByte (a + BitVec.ofNat 64 t).toNat).isSome = true) :
+    (nvMachine m0).load a n = (nvMachine bot).load a n :=
+  load_congr fun t ht => nv_mem m0 _ (h t ht)
+
+example (m0 : Machine) : (nvMachine m0).load (BitVec.ofNat 64 0xa0002000) 8 = some 1 := by
+  rw [nv_load m0 _ 8 (by decide)]; decide
+
+theorem nv_present (m0 : Machine) (a : Word) (n : Nat)
+    (h : ∀ t < n, (nvByte (a + BitVec.ofNat 64 t).toNat).isSome = true) :
+    ∀ t < n, ((nvMachine m0).mem (a + BitVec.ofNat 64 t)).isSome = true := by
+  intro t ht
+  obtain ⟨b, hb⟩ := Option.isSome_iff_exists.mp (h t ht)
+  show (match zesuImage.rodataByte? (a + BitVec.ofNat 64 t).toNat with
+    | some b => some (BitVec.ofNat 8 b)
+    | none => match nvByte (a + BitVec.ofNat 64 t).toNat with
+      | some b => some (BitVec.ofNat 8 b)
+      | none => m0.mem (a + BitVec.ofNat 64 t)).isSome = true
+  split
+  · rfl
+  · rw [hb]; rfl
+
+/-- `Pre` is satisfiable for any allocator whose heap predicate holds of some machine with an
+empty block list and whose memory lies away from the witness's bytes. -/
+theorem pre_nonvacuous (A : AllocAssumptions zesuImage) (m0 : Machine) (h0 : A.Heap [] m0)
+    (hP : ∀ a, A.Priv [] a → 0xa0003000 ≤ a.toNat ∧
+      ¬ (Layout.extraParams ≤ a.toNat ∧ a.toNat < Layout.extraParams + 8)) :
+    ∃ m, Pre A [] [] m := by
+  have r2 : (nvMachine m0).reg 2 = 0xa0001000 := rfl
+  have r10 : (nvMachine m0).reg 10 = 0xa0002000 := rfl
+  have r11 : (nvMachine m0).reg 11 = 0xa0002020 := rfl
+  have r12 : (nvMachine m0).reg 12 = 1 := rfl
+  have hp : (nvMachine m0).load 0xa0002000 8 = some 1 := by rw [nv_load m0 _ 8 (by decide)]; decide
+  have hn : (nvMachine m0).load (0xa0002000 + 8) 8 = some 0 := by rw [nv_load m0 _ 8 (by decide)]; decide
+  have hc : (nvMachine m0).load (0xa0002000 + 16) 8 = some 0 := by rw [nv_load m0 _ 8 (by decide)]; decide
+  have hctx : (nvMachine m0).load 0xa0002020 8 = some 0 := by rw [nv_load m0 _ 8 (by decide)]; decide
+  have hvt : (nvMachine m0).load (0xa0002020 + 8) 8 = some (BitVec.ofNat 64 vtable) := by
+    rw [nv_load m0 _ 8 (by decide)]; decide
+  have wp : wordAt (nvMachine m0) 0xa0002000 = 1 := by unfold wordAt; rw [hp]; rfl
+  have wn : wordAt (nvMachine m0) (0xa0002000 + 8) = 0 := by unfold wordAt; rw [hn]; rfl
+  have wc : wordAt (nvMachine m0) (0xa0002000 + 16) = 0 := by unfold wordAt; rw [hc]; rfl
+  refine ⟨nvMachine m0, ?_⟩
+  simp only [Pre, r2, r10, r11, r12, wp, wn, wc]
+  have r1 : (nvMachine m0).reg 1 = 0x80000000 := rfl
+  refine ⟨?_, ⟨by rw [r2]; decide, by rw [r2]; decide, by rw [r2]; decide, ?_⟩,
+    by unfold RetAligned; rw [r1]; decide,
+    by unfold RamRange; decide, by decide,
+    ⟨hp, hn, hc⟩, by decide, by decide, by decide, fun h => absurd h (by decide),
+    fun i h => by simp at h, by unfold RamRange; decide,
+    by decide, by rw [hctx]; rfl, hvt, by decide, ?_, ?_, by unfold Apart; decide, by unfold Apart; decide,
+    by unfold Apart; decide, by unfold Apart; decide, by unfold Apart; decide, by unfold Apart; decide,
+    fun h => absurd h (by decide), ?_⟩
+  · intro a b h
+    have ha : a < 2 ^ 64 := by
+      simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?] at h
+      have := (List.getElem?_eq_some_iff.mp h.2).1
+      simp at this; omega
+    simp [nvMachine, Nat.mod_eq_of_lt ha, h]
+  · rw [r2]; exact nv_present m0 _ 128 (by decide)
+  · exact nv_present m0 _ 8 (by decide)
+  · refine A.heap_frame [] m0 _ h0 fun a ha => ?_
+    obtain ⟨h1, h2⟩ := hP a ha
+    have hro : zesuImage.rodataByte? a.toNat = none := by
+      simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?]; intro; omega
+    have hnv : nvByte a.toNat = none := by
+      simp only [Layout.extraParams] at h2
+      simp only [nvByte, Layout.extraParams]
+      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg h2]
+    simp [nvMachine, hro, hnv]
+  · intro a h ha
+    obtain ⟨h1, h2⟩ := hP a ha
+    have e1 : ((0xa0001000 : Word) - 128).toNat = 0xa0000f80 := by decide
+    have e2 : (BitVec.ofNat 64 Layout.extraParams).toNat = Layout.extraParams := by decide
+    have e3 : (0xa0002000 : Word).toNat = 0xa0002000 := by decide
+    have e4 : (0xa0002020 : Word).toNat = 0xa0002020 := by decide
+    simp only [InRange, e1, e2, e3, e4] at h
+    simp only [Layout.extraParams] at h h2
+    omega
 
 end ZesuExec.Fn.F1
