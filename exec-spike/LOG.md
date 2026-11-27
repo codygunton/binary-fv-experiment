@@ -672,3 +672,11 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `python3 -m unittest discover -s tools/zmap/tests` 22 OK. Residual classes are all `none` now:
   hand-written leaf theorems record no residual. `Test/Auto.lean` (Verification item 4, five
   `fail_if_success`) builds after S2-idx. `tools/verify.sh` all PASS.
+- S6 TX step 6 progress (S1StaticMap): merged exec-spike 5de908a3 and fb4071d9 (indexed callees,
+  tail, runWith, costmodel) at `68287580`; TX callees adapted to indexed `Callee` (`famCallee`
+  with `X`, `ARet k site` with the index). `Fn/TX/Vc.lean`: cut lemmas `0x80000000`, `0x68`,
+  `0xc4`, `0xd8`, `0x10c`, `0x15c`, `0x18c`, `0x1a0` (8 of 17); leaf `0x80000000_0`; generic
+  lemmas (`pre_wf`, `pre_match`, `f2_pre`, `common_ret`, `common_f2`, `body_ok`, `payload_ok`,
+  `priv_sub`, `error_post` for the 20 error-exit `ret` leaves). Open: 9 cut lemmas, 45 leaves.
+  WIP (not committed, does not build): `bytes_of_present`, `init_slot`, `f2_result` in
+  `/home/cody/.cache/zesu-tmp/zmap/p9/Vc_wip.lean`.
