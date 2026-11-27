@@ -314,4 +314,216 @@ theorem TX.leaf_80000068_2 :
   · show F5.bound + 23 ≤ 32 * σ.len + 323 - ((run068_leaves[2]!).S.steps - S068.steps)
     rw [hsteps]; unfold F5.bound; omega
 
+/-! ## `0x80000230`: the key stored into its slot -/
+
+/-- The key store writes only its 32-byte slot. -/
+theorem slot_same {σ : Sig} {m m' : Machine} {S' : SState} (hc : Common σ m)
+    (hm' : Match (envS keySize σ m) S' m') (hS' : S'.regions = baseRegions ++ [slotR 32])
+    (hfr : SameOutside (InWritable (envS keySize σ m) S230) m m')
+    (hall : S'.mem.all (fun w => w.r == 5) = true) (hram : RamRange (m.reg 10) keySize) :
+    SameOutside (InRange (m.reg 10) keySize) m m' := by
+  intro a ha
+  by_cases hw : InWritable (envS keySize σ m) S230 a
+  · obtain ⟨r, R, j, hR, -, hj, rfl⟩ := hw
+    have hr6 : r < 6 := by
+      have := (List.getElem?_eq_some_iff.mp hR).1
+      simpa [S230, entryState, baseRegions] using this
+    rcases Nat.lt_or_ge r 5 with h5 | h5
+    · have hp := common_present hc r j h5 (by rwa [← envS_size (n := keySize) h5])
+      rw [← envS_base (n := keySize) h5] at hp
+      refine byte_keep hm' (by rw [hS']; simp [baseRegions]; omega) hj (fun w hw => ?_)
+        (mem0_entry hp)
+      have := List.all_eq_true.mp hall w hw
+      simp only [beq_iff_eq] at this
+      simp only [Write.covers, this, Bool.and_eq_false_iff, beq_eq_false_iff_ne, ne_eq,
+        decide_eq_false_iff_not]
+      omega
+    · obtain rfl : r = 5 := by omega
+      exfalso; apply ha
+      have hb : (envS keySize σ m).base 5 = m.reg 10 := rfl
+      have hs : (envS keySize σ m).size 5 = keySize := rfl
+      rw [hb]; rw [hs] at hj
+      unfold RamRange Layout.ramHi at hram
+      exact in_self (by omega) hj
+  · exact hfr a hw
+
+/-- The slot holds the key's words read from `S-0xd8`. -/
+theorem slot_bytes {σ : Sig} {m m' : Machine} {S' : SState}
+    (hwf : Env.WF (envS keySize σ m) S') (hm' : Match (envS keySize σ m) S' m')
+    (hS' : S'.regions = baseRegions ++ [slotR 32])
+    (hwr : ∀ t < 4, readConst S' 5 (8 * t) 8 = .var (11 + t))
+    (hw : ∀ t < 4, m.load (σ.sl 0xd8 + w (8 * t)) 8 = some (m.reg (Fin.ofNat 32 (11 + t)))) :
+    ∀ i < keySize, m'.mem (m.reg 10 + BitVec.ofNat 64 i) =
+      m.mem (σ.sl 0xd8 + BitVec.ofNat 64 i) := by
+  intro i hi
+  have ht : i / 8 < 4 := by unfold keySize at hi; omega
+  have l' := load_cst hwf hm' (r := 5) (R := slotR 32) (off := 8 * (i / 8)) (n := 8)
+    (by rw [hS']; rfl) (by show 8 * (i / 8) + 8 ≤ keySize; unfold keySize; omega)
+  rw [hwr _ ht] at l'
+  have b' := load_bytes l' (Nat.le_refl _) (i % 8) (Nat.mod_lt _ (by decide))
+  have b := load_bytes (hw _ ht) (Nat.le_refl _) (i % 8) (Nat.mod_lt _ (by decide))
+  have e1 : (envS keySize σ m).base 5 + BitVec.ofNat 64 (8 * (i / 8)) + BitVec.ofNat 64 (i % 8) =
+      m.reg 10 + BitVec.ofNat 64 i := by
+    show m.reg 10 + _ + _ = _
+    rw [BitVec.add_assoc, ← BitVec.ofNat_add, show 8 * (i / 8) + i % 8 = i by omega]
+  have e2 : σ.sl 0xd8 + w (8 * (i / 8)) + BitVec.ofNat 64 (i % 8) =
+      σ.sl 0xd8 + BitVec.ofNat 64 i := by
+    simp only [w]
+    rw [BitVec.add_assoc, ← BitVec.ofNat_add, show 8 * (i / 8) + i % 8 = i by omega]
+  rw [e1] at b'; rw [e2] at b
+  rw [b', b]; rfl
+
+/-- The state after the key store `0x80000230`, on both of its leaves: the key is the last of
+the keys list and the keys cursor is past it. -/
+theorem after230 {σ : Sig} {m m' : Machine} {S' : SState} (hA : AKeyStore σ m)
+    (hm' : Match (envS keySize σ m) S' m') (hS' : S'.regions = baseRegions ++ [slotR 32])
+    (hfr : SameOutside (InWritable (envS keySize σ m) S230) m m')
+    (hall : S'.mem.all (fun w => w.r == 5) = true)
+    (hwr : ∀ t < 4, readConst S' 5 (8 * t) 8 = .var (11 + t))
+    (hr : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 22, 24, 25, 26, 27] : List (Fin 32)),
+      S'.reg i.val = .var i.val)
+    (hr23 : S'.reg 23 = .bin .add (.var 23) (.var 25)) :
+    ∃ o k L, InEntry σ m' o k L ∧ KeysOk σ m' o k ∧ KList σ m' k k.keys.length ∧
+      (∀ i ∈ ([21, 22, 26] : List (Fin 32)), m'.reg i = m.reg i) ∧ k.j ≤ k.kl := by
+  obtain ⟨-, o, k, L, key, kh', hIE, hKW, hj, hdk, hjk, hkey, hKL, hcap, h10, hkb, hw, r23, r22,
+    r25, r24⟩ := hA
+  obtain ⟨hc, hok, ⟨r20, r21, hi, hmag⟩, hEL, hlive, ⟨hd, hle, r26⟩, hAO, hKLO, r27⟩ := hIE
+  have hpre := hc.2.1
+  have hreg : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 22, 24, 25, 26, 27] : List (Fin 32)),
+      m'.reg i = m.reg i := by
+    intro i hi
+    rw [Match.reg_eq hm' i i.val rfl, hr i hi]
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
+    rcases hi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+  have m23 : m'.reg 23 = m.reg 23 + m.reg 25 := by rw [Match.reg_eq hm' 23 23 rfl, hr23]; rfl
+  have hk0 : 0 < k.kc.toNat := by omega
+  have hKX : (k.kq, keySize * k.kc.toNat) ∈ KX k := by simp [KX, hk0]
+  have hbram := hKL.2.2.2.2.2.1 hk0
+  have hcapb : keySize * k.keys.length + keySize ≤ keySize * k.kc.toNat := by
+    rw [← Nat.mul_succ]; exact Nat.mul_le_mul_left _ hcap
+  obtain ⟨hpriv, hram, hpres⟩ := slot_of_block hlive (p := k.kq) (sz := keySize * k.kc.toNat)
+    (off := keySize * k.keys.length) (n := keySize) (List.mem_append_right _ hKX) hbram hcapb h10
+  have hwf : Env.WF (envS keySize σ m) S230 := (slot_ok hc hpriv hram hpres).1
+  have hwf' : Env.WF (envS keySize σ m) S' := hwf.congr (by rw [hS']; rfl)
+  have hso := slot_same hc hm' hS' hfr hall hram
+  have hp : Preserved m m' := F1.preserved_of_leaf hwf hm' (by rw [hS']; decide) hfr
+  unfold RamRange Layout.ramHi at hbram
+  have h10n : (m.reg 10).toNat = k.kq.toNat + keySize * k.keys.length := by
+    rw [h10]; exact toNat_add_ofNat (by omega)
+  have hinB : ∀ a, InRange (m.reg 10) keySize a → InRange k.kq (keySize * k.kc.toNat) a :=
+    fun a ha => by unfold InRange at ha ⊢; omega
+  have hsP : ∀ a, InRange (m.reg 10) keySize a → σ.A.Priv σ.g.L a := fun a ha =>
+    (hlive.2.2 _ (List.mem_append_right _ hKX)).2.2 a (hinB a ha)
+  have hc' : Common σ m' := common_keep hc (fun i hi => by
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hi
+      rcases hi with rfl | rfl | rfl | rfl | rfl <;> exact hreg _ (by decide)) hp hso
+    fun a ha => ⟨.inr (hsP a ha), fun hs => stack_not_priv hpre (save_in_stack hpre hs) (hsP a ha)⟩
+  have hfs : ∀ kk, kk ≤ 576 → ∀ t < kk,
+      m'.mem (σ.sl kk + BitVec.ofNat 64 t) = m.mem (σ.sl kk + BitVec.ofNat 64 t) := by
+    intro kk hkk t ht
+    have h3 := sl_toNat hpre (k := kk) (by unfold stackBytes; omega)
+    have hS := (entry_nums hpre).2.1; unfold Layout.ramHi at hS
+    refine hso _ fun hin => stack_not_priv hpre (sl_in_stack hpre (k := kk) (n := kk)
+      (by unfold stackBytes; omega) (Nat.le_refl _) (in_self (by rw [h3]; omega) ht)) (hsP _ hin)
+  have hbs : ∀ b ∈ EX o, ∀ t < b.2,
+      m'.mem (b.1 + BitVec.ofNat 64 t) = m.mem (b.1 + BitVec.ofNat 64 t) := by
+    intro b hb t ht
+    have hr := (hlive.2.2 b (List.mem_append_left _ hb)).2.1
+    unfold RamRange Layout.ramHi at hr
+    refine hso _ fun hin => ?_
+    have h1 := in_self (a := b.1) (by omega) ht
+    have h2 := hinB _ hin
+    have := live_apart hlive hb hKX
+    dsimp only at this
+    simp only [InRange] at h1 h2; omega
+  have hL : (k.kq, keySize * k.kc.toNat) ∈ L :=
+    hlive.2.1.symm.subset (List.mem_append_right _ (List.mem_append_right _ hKX))
+  have hlive' : Live σ m' L (EX o ++ KX k) := ⟨σ.A.heap_frame' L m m' hlive.1
+    (fun a hPa => hso a fun hin => σ.A.priv_not_live L a hPa ⟨_, hL, hinB a hin⟩) hp,
+    hlive.2.1, hlive.2.2⟩
+  have hEL' : EList σ m' o o.done.length := by
+    obtain ⟨hH, hle', hp0, hc0, hc32, hram', hil, hbytes, hz⟩ := hEL
+    refine ⟨hdr_congr hH fun t ht => hfs 0x1c0 (by decide) t (by omega), hle', hp0, hc0, hc32,
+      hram', hil, ?_, fun x hx => ?_⟩
+    · rcases Nat.eq_zero_or_pos o.ec.toNat with he | he
+      · have : o.done = [] := List.eq_nil_of_length_eq_zero (by omega)
+        have : o.is = [] := List.eq_nil_of_length_eq_zero (by rw [hil, this]; rfl)
+        intro i hi; simp [entriesBytes, *] at hi
+      · have hlen := entriesBytes_length o.done o.is hil fun x hx => ⟨(hz x hx).1, (hz x hx).2.1⟩
+        refine bytes_congr hbytes fun t ht => hbs (o.ep, entrySize * o.ec.toNat)
+          (by simp [EX, he]) t ?_
+        rw [hlen] at ht
+        exact Nat.lt_of_lt_of_le ht (Nat.mul_le_mul_left _ hle')
+    · obtain ⟨hpad, haddr, hkl', hkram, hkb'⟩ := hz x hx
+      refine ⟨hpad, haddr, hkl', hkram, ?_⟩
+      by_cases hk : x.1.keys = []
+      · rw [hk]; intro i hi; simp at hi
+      · exact bytes_congr hkb' fun t ht => hbs _ (by
+          simp only [EX, List.mem_append]; exact .inr (mem_keysBlocks hx hk)) t
+          (by rw [flatten_length _ hkl'] at ht; exact ht)
+  -- the keys walk advances past the key
+  obtain ⟨hjl, heq, hfit0⟩ := hKW
+  have hfit : KeysFits (kwin σ o k) := hfit0
+  have hne : kwin σ o k ≠ [] := by intro h; rw [h] at hdk; simp [F2.decode] at hdk
+  have hdk' : F2.decode (kwin σ o k) = .success false kh' 32 := hdk
+  obtain ⟨hfit', hstep⟩ := keysFits_tail hfit hne hdk'
+  have hhd := keysFits_head hfit hne
+  obtain ⟨-, hb2, -⟩ := fits_bounds hhd hdk'
+  have hkwl : (kwin σ o k).length = (kpl σ o k).length - k.j := List.length_drop ..
+  have hrest : itemRest (kwin σ o k) kh' 32 = (kpl σ o k).drop (k.j + (kh' + keySize)) := by
+    rw [(fits_rest hhd hdk').1]; simp only [kwin, List.drop_drop]
+    congr 1
+  have hkeyl : key.length = keySize := by
+    rw [hkey]; unfold keySize; simp only [itemPayload, List.length_take, List.length_drop]
+    omega
+  refine ⟨o, { k with j := k.j + (kh' + keySize), keys := k.keys ++ [key] }, L,
+    ⟨hc', outerOk_keep hpre hso (fun a h => .inr (.inr (hsP a h))) hok,
+      ⟨(hreg 20 (by decide)).trans r20, (hreg 21 (by decide)).trans r21, hi,
+        (load_congr fun t ht => hfs 0x1f0 (by decide) t (by omega)).trans hmag⟩,
+      hEL', hlive', ⟨hd, hle, (hreg 26 (by decide)).trans r26⟩,
+      ⟨hAO.1, hAO.2.1, bytes_congr hAO.2.2 fun t ht => hfs 0x158 (by decide) t (by
+        simp only [itemPayload, List.length_take] at ht; omega)⟩, hKLO,
+      (hreg 27 (by decide)).trans r27⟩,
+    ⟨⟨show k.j + (kh' + keySize) ≤ (kpl σ o k).length by unfold keySize; omega, ?_,
+      show KeysFits ((kpl σ o k).drop (k.j + (kh' + keySize))) by rw [← hrest]; exact hfit'⟩, ?_,
+      show m'.reg 22 = w (k.kl - (k.j + (kh' + keySize))) by
+        rw [(hreg 22 (by decide)).trans r22]; congr 1; omega,
+      show m'.reg 24 = w (k.keys ++ [key]).length by rw [(hreg 24 (by decide)).trans r24]; simp⟩,
+    ?_,
+    fun i hi => hreg i (by simp only [List.mem_cons, List.not_mem_nil, or_false] at hi ⊢
+                           rcases hi with rfl | rfl | rfl <;> decide),
+    show k.j + (kh' + keySize) ≤ k.kl by unfold keySize at *; omega⟩
+  · change ((keysWalk (kpl σ o k).length (kpl σ o k)).2) =
+      ((keysWalk ((kpl σ o k).drop (k.j + (kh' + keySize))).length
+        ((kpl σ o k).drop (k.j + (kh' + keySize)))).2).map ((k.keys ++ [key]) ++ ·)
+    rw [heq]
+    change ((keysWalk (kwin σ o k).length (kwin σ o k)).2).map (k.keys ++ ·) = _
+    rw [hstep, hrest, Option.map_map]
+    congr 1; funext x; simp [hkey, keySize]
+  · show m'.reg 23 = kplPtr σ o k + w (k.j + (kh' + keySize))
+    rw [m23, r23, r25]; simp only [keyPtr, w, BitVec.ofNat_add, BitVec.add_assoc]
+  · obtain ⟨hH, -, hq0, hc1, hc32, hR, hyl, hkb0⟩ := hKL
+    refine ⟨by simpa using hdr_congr hH fun t ht => hfs 0x118 (by decide) t (by omega),
+      by simpa using hcap, hq0, hc1, hc32, hR, fun y hy => ?_, ?_⟩
+    · simp only [List.mem_append, List.mem_singleton] at hy
+      rcases hy with hy | rfl
+      · exact hyl y hy
+      · exact hkeyl
+    · have hfl := flatten_length k.keys hyl
+      have hsb := slot_bytes hwf' hm' hS' hwr hw
+      intro i hi
+      simp only [List.flatten_append, List.flatten_cons, List.flatten_nil, List.append_nil,
+        List.length_append] at hi ⊢
+      rcases Nat.lt_or_ge i k.keys.flatten.length with hlt | hge
+      · rw [List.getElem_append_left hlt]
+        refine (hso _ fun hin => ?_).trans (hkb0 i hlt)
+        unfold InRange at hin
+        rw [toNat_add_ofNat (by omega)] at hin
+        omega
+      · rw [List.getElem_append_right hge]
+        have hu : i - k.keys.flatten.length < keySize := by omega
+        rw [show k.kq + BitVec.ofNat 64 i = m.reg 10 + BitVec.ofNat 64 (i - k.keys.flatten.length) by
+          rw [h10, hfl, BitVec.add_assoc]; simp only [w]; rw [← BitVec.ofNat_add]; congr 2; omega]
+        rw [hsb _ hu, hkb _ (by omega)]
+
 end ZesuExec.Fn.TX
