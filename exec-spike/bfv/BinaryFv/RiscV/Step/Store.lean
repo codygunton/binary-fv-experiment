@@ -62,6 +62,7 @@ def tryStepStoreAfterRetired (afterWrite : State) (pc retired : BitVec 64) : Sta
     regs := (tryStepStoreAfterTick afterWrite pc).regs.insert minstret
       (Sail.BitVec.addInt retired 1) }
 
+/-- exec-spike repair: the `noMMIO` premise was removed (`within_mmio_writable` is pure `false`). -/
 theorem executeStoreDwordDispatchRuns (before after : State) (imm : BitVec 12)
     (rs2 rs1 : regidx) (dstBits mstatusBits dataBits : BitVec 64)
     (mstatusRead : before.regs.get? mstatus = some mstatusBits)
@@ -74,23 +75,23 @@ theorem executeStoreDwordDispatchRuns (before after : State) (imm : BitVec 12)
     (aligned : is_aligned_vaddr (virtaddr.Virtaddr dstBits) 8 = true)
     (physAccess : Runs (phys_access_check (Store Data) PBMT_PMA .Machine
       (physaddr.Physaddr dstBits) 8 false) before before none)
-    (noMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 8) before before false)
     (write : Runs (PreSail.writeBytes (n := 8) dstBits.toNat dataBits) before after true) :
     Runs (execute (.STORE (imm, rs2, rs1, 8))) before after (.Retire_Success ()) := by
   change Runs (execute_STORE imm rs2 rs1 8) before after _
   exact execute_STORE_dword_run before after rs2 rs1 imm dstBits mstatusBits dataBits
-    mstatusRead privRead mprvZero dataReg addrReg aligned physAccess noMMIO write
+    mstatusRead privRead mprvZero dataReg addrReg aligned physAccess write
 
+/-- exec-spike repair: the `noFetchMMIO`, `interrupts`, `notExpected` and `noStoreMMIO` premises
+were removed. -/
 theorem runHartActiveStoreDwordRetires (stepNo : Nat) (state afterWrite : State)
     (pc : BitVec 64) (imm : BitVec 12) (rs2 rs1 : regidx)
     (dstBits mstatusBits dataBits : BitVec 64)
     (byte0 byte1 byte2 byte3 : BitVec 8)
-    (platform : FetchBasePlatform state pc) (noFetchMMIO : FetchMemoryNoMMIO state pc)
+    (platform : FetchBasePlatform state pc)
     (bytes : FetchBytesAt state pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled state) (base : BaseInstructionEncoding byte0)
+    (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3)) state state
       (.STORE (imm, rs2, rs1, 8)))
-    (notExpected : LandingPadNotExpected state)
     (mstatusRead : (coreStoreNextState state pc).regs.get? mstatus = some mstatusBits)
     (privRead : (coreStoreNextState state pc).regs.get? cur_privilege = some .Machine)
     (mprvZero : _get_Mstatus_MPRV mstatusBits = 0#1)
@@ -104,47 +105,39 @@ theorem runHartActiveStoreDwordRetires (stepNo : Nat) (state afterWrite : State)
     (physAccess : Runs (phys_access_check (Store Data) PBMT_PMA .Machine
       (physaddr.Physaddr dstBits) 8 false) (coreStoreNextState state pc)
       (coreStoreNextState state pc) none)
-    (noStoreMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 8)
-      (coreStoreNextState state pc) (coreStoreNextState state pc) false)
     (write : Runs (PreSail.writeBytes (n := 8) dstBits.toNat dataBits)
       (coreStoreNextState state pc) afterWrite true) :
     Runs (run_hart_active stepNo) state afterWrite
       (.Step_Execute (.Retire_Success (), zero_extend (m := 32)
         (fetchWord byte0 byte1 byte2 byte3))) := by
   have fetchBytes := fetch_bytes_machine_instructionFetch_fetch_word_run state pc
-    byte0 byte1 byte2 byte3 platform noFetchMMIO bytes
+    byte0 byte1 byte2 byte3 platform bytes
   have fetch : Runs (fetch ()) state state (.F_Base (fetchWord byte0 byte1 byte2 byte3)) :=
     fetch_base_of_fetchBytes state pc byte0 byte1 byte2 byte3 platform base fetchBytes
   rcases platform with ⟨misaBits, mstatusBitsFetch, pcRead, misaRead, mstatusReadFetch,
-    privilegeRead, pcLow0, pcLow1, alignedVaddr, alignedPaddr, pmpDisabled, pmaAllows⟩
-  have dispatch : Runs (dispatchInterrupt .Machine) state state none := by
-    unfold Runs
-    exact dispatchInterrupt_disabled state .Machine interrupts
-  have landingPad : Runs (is_landing_pad_expected ()) state state false :=
-    landingPad_notExpected state notExpected
+    privilegeRead, pcLow0, pcLow1, alignedVaddr, alignedPaddr, pmaAllows⟩
   have nextPc : Runs (Sail.writeReg nextPC (Sail.BitVec.addInt pc 4)) state
       (coreStoreNextState state pc) PUnit.unit := by
     simpa [coreStoreNextState] using writeNextPc_run state pc
   have execute := executeStoreDwordDispatchRuns (coreStoreNextState state pc) afterWrite imm
     rs2 rs1 dstBits mstatusBits dataBits mstatusRead privRead mprvZero dataReg addrReg aligned
-    physAccess noStoreMMIO write
+    physAccess write
   exact runHartActiveBaseRetires stepNo state state (coreStoreNextState state pc) afterWrite
     .Machine (fetchWord byte0 byte1 byte2 byte3) (.STORE (imm, rs2, rs1, 8)) pc privilegeRead
-    dispatch fetch decode landingPad pcRead nextPc execute
+    fetch decode pcRead nextPc execute
 
+/-- exec-spike repair: the `noFetchMMIO`, `interrupts`, `notExpected` and `noStoreMMIO` premises
+were removed; `hartRead` is kept because the `try_step` postlude still reads `hart_state`. -/
 theorem tryStepStoreDwordRetires (stepNo : Nat) (state afterWrite : State)
     (pc : BitVec 64) (imm : BitVec 12) (rs2 rs1 : regidx)
     (dstBits mstatusBits dataBits retired : BitVec 64) (inhibit : BitVec 32)
     (config : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
     (platform : FetchBasePlatform (tryStepStoreAfterIncrement state) pc)
-    (noFetchMMIO : FetchMemoryNoMMIO (tryStepStoreAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepStoreAfterIncrement state) pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled (tryStepStoreAfterIncrement state))
     (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepStoreAfterIncrement state) (tryStepStoreAfterIncrement state)
       (.STORE (imm, rs2, rs1, 8)))
-    (notExpected : LandingPadNotExpected (tryStepStoreAfterIncrement state))
     (mstatusRead : (coreStoreNextState (tryStepStoreAfterIncrement state) pc).regs.get? mstatus =
       some mstatusBits)
     (privRead : (coreStoreNextState (tryStepStoreAfterIncrement state) pc).regs.get? cur_privilege =
@@ -162,9 +155,6 @@ theorem tryStepStoreDwordRetires (stepNo : Nat) (state afterWrite : State)
       (physaddr.Physaddr dstBits) 8 false)
       (coreStoreNextState (tryStepStoreAfterIncrement state) pc)
       (coreStoreNextState (tryStepStoreAfterIncrement state) pc) none)
-    (noStoreMMIO : Runs (within_mmio_writable (physaddr.Physaddr dstBits) 8)
-      (coreStoreNextState (tryStepStoreAfterIncrement state) pc)
-      (coreStoreNextState (tryStepStoreAfterIncrement state) pc) false)
     (write : Runs (PreSail.writeBytes (n := 8) dstBits.toNat dataBits)
       (coreStoreNextState (tryStepStoreAfterIncrement state) pc) afterWrite true)
     (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
@@ -176,14 +166,14 @@ theorem tryStepStoreDwordRetires (stepNo : Nat) (state afterWrite : State)
     Runs (try_step stepNo false) state (tryStepStoreAfterRetired afterWrite pc retired) false := by
   have active := runHartActiveStoreDwordRetires stepNo (tryStepStoreAfterIncrement state)
     afterWrite pc imm rs2 rs1 dstBits mstatusBits dataBits byte0 byte1 byte2 byte3 platform
-    noFetchMMIO bytes interrupts base decode notExpected mstatusRead privRead mprvZero dataReg
-    addrReg aligned physAccess noStoreMMIO write
+    bytes base decode mstatusRead privRead mprvZero dataReg
+    addrReg aligned physAccess write
   have regsEq : afterWrite.regs =
       (coreStoreNextState (tryStepStoreAfterIncrement state) pc).regs :=
     writeBytes_preserves_regs dstBits.toNat dataBits
       (coreStoreNextState (tryStepStoreAfterIncrement state) pc) afterWrite write
   rcases platform with ⟨misaBits, mstatusBitsFetch, pcRead, misaRead, mstatusReadFetch,
-    privilegeAfterIncrement, pcLow0, pcLow1, alignedVaddr, alignedPaddr, pmpDisabled, pmaAllows⟩
+    privilegeAfterIncrement, pcLow0, pcLow1, alignedVaddr, alignedPaddr, pmaAllows⟩
   have privilege : state.regs.get? cur_privilege = some .Machine := by
     calc
       _ = (tryStepStoreAfterIncrement state).regs.get? cur_privilege := by
@@ -252,7 +242,7 @@ theorem tryStepStoreDwordRetires (stepNo : Nat) (state afterWrite : State)
   exact tryStepRetires stepNo state (tryStepStoreAfterIncrement state) afterWrite
     (tryStepStoreAfterTick afterWrite pc) (tryStepStoreAfterRetired afterWrite pc retired)
     .Machine retired (zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3)) privilege
-    shouldIncrement increment hartAfterIncrement active hartAfterActive tick incrementAfterTick
+    shouldIncrement increment active hartAfterActive tick incrementAfterTick
     retiredAfterTick writeRetired
 
 end BinaryFv.RiscV

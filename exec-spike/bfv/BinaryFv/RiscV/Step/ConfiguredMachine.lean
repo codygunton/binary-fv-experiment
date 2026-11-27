@@ -17,7 +17,8 @@ ordinary `auipc`/`jalr` call setup. -/
 def instructionPreserved (register : Register) : Prop :=
   platformPreserved register ∧ register ≠ x1
 
-/-- Reusable machine facts for stepping every instruction whose PC satisfies `pcs`. -/
+/-- exec-spike repair: the `landingPad : AbstractElp …` field was removed with `AbstractElp`.
+Reusable machine facts for stepping every instruction whose PC satisfies `pcs`. -/
 structure ConfiguredMachinePre (pcs : BitVec 64 → Prop) (state : State) : Prop where
   normal : NormalExecutionState state
   retiredCounter : RetiredCounterPresent state
@@ -26,7 +27,6 @@ structure ConfiguredMachinePre (pcs : BitVec 64 → Prop) (state : State) : Prop
     pmm_mode_backwards (_get_Seccfg_PMM bits) = .PMM_Disabled
   htifDisabled : state.regs.get? htif_tohost_base = some none
   platform : AbstractPlatform instructionPreserved pcs state
-  landingPad : AbstractElp instructionPreserved (fun _ => True) state
 
 /-- The counter-increment prefix of `try_step` preserves every configured-machine register. -/
 theorem agree_tryStepIncrement_instructionPreserved (state : State) :
@@ -63,14 +63,13 @@ theorem ConfiguredMachinePre.decodeRunsContext {pcs : BitVec 64 → Prop} {state
   obtain ⟨bits, _, _, privilegeAfter, seccfgAfter⟩ := configured.decodeContext
   exact ⟨bits, privilegeAfter, seccfgAfter⟩
 
-/-- Fetch, interrupt, and landing-pad premises at one configured instruction address. -/
+/-- exec-spike repair: the `FetchMemoryNoMMIO`, `InterruptDisabled` and `LandingPadNotExpected`
+conjuncts of the conclusion were removed.
+Fetch premise at one configured instruction address. -/
 theorem ConfiguredMachinePre.stepContext {pcs : BitVec 64 → Prop} {state : State}
     (configured : ConfiguredMachinePre pcs state) (pc : BitVec 64)
     (atPc : state.regs.get? PC = some pc) (inside : pcs pc) :
-    FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc ∧
-      FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc ∧
-      InterruptDisabled (tryStepControlFlowAfterIncrement state) ∧
-      LandingPadNotExpected (tryStepControlFlowAfterIncrement state) := by
+    FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc := by
   apply configured.platform _ pc (agree_tryStepIncrement_instructionPreserved state)
   · calc
       (tryStepControlFlowAfterIncrement state).regs.get? PC = state.regs.get? PC := by
@@ -115,7 +114,6 @@ theorem ConfiguredMachinePre.mono {pcs : BitVec 64 → Prop} {before after : Sta
     (agree htif_tohost_base (by simp [instructionPreserved, platformPreserved])).trans
       configured.htifDisabled
   platform := configured.platform.mono agree
-  landingPad := configured.landingPad.mono agree
 
 /-- Narrow a configured machine to a smaller owned-PC predicate. -/
 theorem ConfiguredMachinePre.restrict {wide narrow : BitVec 64 → Prop} {state : State}
@@ -128,6 +126,5 @@ theorem ConfiguredMachinePre.restrict {wide narrow : BitVec 64 → Prop} {state 
   htifDisabled := configured.htifDisabled
   platform := fun target pc agree landed inside =>
     configured.platform target pc agree landed (subset pc inside)
-  landingPad := configured.landingPad
 
 end BinaryFv.RiscV

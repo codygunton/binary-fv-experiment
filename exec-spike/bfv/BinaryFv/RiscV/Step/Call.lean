@@ -57,7 +57,10 @@ theorem preInc_minstret (state : State) (retired : BitVec 64)
 Identical bookkeeping to `tryStepControlFlowRetires`, but the three facts it derives from `agree`
 (hart active, `minstret_increment`, `minstret` preserved across the execute) are taken as direct
 premises about `afterExec`.  This accommodates the extra link-register write that a taken branch
-does not perform, while still threading the exact generated postlude (`tryStepRetires`). -/
+does not perform, while still threading the exact generated postlude (`tryStepRetires`).
+
+exec-spike repair: `tryStepCallRetires` lost its `hartRead` premise, which only fed the removed
+pre-selector `hart_state` read; the postlude's read is covered by `hartAfterExec`. -/
 theorem tryStepCallRetires (stepNo : Nat) (state afterExec : State)
     (targetPC retired : BitVec 64) (inhibit : BitVec 32) (config : BitVec 64) (instbits : BitVec 32)
     (privilegeAfterInc :
@@ -68,7 +71,6 @@ theorem tryStepCallRetires (stepNo : Nat) (state afterExec : State)
     (hartAfterExec : afterExec.regs.get? hart_state = some (.HART_ACTIVE ()))
     (incrementAfterExec : afterExec.regs.get? minstret_increment = some true)
     (retiredAfterExec : afterExec.regs.get? minstret = some retired)
-    (hartRead : state.regs.get? hart_state = some (.HART_ACTIVE ()))
     (inhibitRead : state.regs.get? mcountinhibit = some inhibit)
     (configRead : state.regs.get? minstretcfg = some config)
     (notInhibited : _get_Counterin_IR inhibit = 0#1)
@@ -88,9 +90,6 @@ theorem tryStepCallRetires (stepNo : Nat) (state afterExec : State)
   have increment : Runs (Sail.writeReg minstret_increment true) state
       (tryStepControlFlowAfterIncrement state) PUnit.unit := by
     simpa [tryStepControlFlowAfterIncrement] using writeReg_run state minstret_increment true
-  have hartAfterIncrement :
-      (tryStepControlFlowAfterIncrement state).regs.get? hart_state = some (.HART_ACTIVE ()) :=
-    preInc_hart state hartRead
   have tick : Runs (tick_pc ()) afterExec (tryStepControlFlowAfterTick afterExec targetPC) () := by
     simpa [tryStepControlFlowAfterTick] using tickPc_run afterExec targetPC nextPcAfterExec
   have incrementAfterTick :
@@ -118,7 +117,7 @@ theorem tryStepCallRetires (stepNo : Nat) (state afterExec : State)
   exact tryStepRetires stepNo state (tryStepControlFlowAfterIncrement state) afterExec
     (tryStepControlFlowAfterTick afterExec targetPC)
     (tryStepControlFlowAfterRetired afterExec targetPC retired) Privilege.Machine retired instbits
-    privilege shouldIncrement increment hartAfterIncrement active hartAfterExec tick
+    privilege shouldIncrement increment active hartAfterExec tick
     incrementAfterTick retiredAfterTick writeRetired
 
 /-! ## The link-writing post-execute state and its register reads -/
@@ -214,7 +213,10 @@ theorem jalrCallAfterRetired_mem (state : State) (pc target retired : BitVec 64)
 The auipc-relative target is `Sail.BitVec.update (rs1Val + sext imm) 0 0#1`, where `rs1Val` is the
 value the preceding `auipc` wrote into the base register.  The link `linkVal` is the pre-execute
 `nextPC` (`= pc + 4`, the return address).  `rd`, `linkReg`, and its disjointness from the
-counter/hart registers are explicit, so any concrete link register (`ra`, `t0`, …) applies. -/
+counter/hart registers are explicit, so any concrete link register (`ra`, `t0`, …) applies.
+
+exec-spike repair: `tryStepJalrCallRetires` lost its `noMMIO`, `interrupts`, `notExpected` and
+`helpElp` premises. -/
 theorem tryStepJalrCallRetires (stepNo : Nat) (state : State)
     (pc rs1Val retired linkVal : BitVec 64) (imm : BitVec 12) (rs1 rd : regidx)
     (linkReg : Register) (linkRegVal : RegisterType linkReg)
@@ -228,17 +230,11 @@ theorem tryStepJalrCallRetires (stepNo : Nat) (state : State)
     (linkNeNext : linkReg ≠ nextPC) (linkNeHart : linkReg ≠ hart_state)
     (linkNeInc : linkReg ≠ minstret_increment) (linkNeRetired : linkReg ≠ minstret)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
-    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
     (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JALR (imm, rs1, rd)))
-    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
-    (helpElp : Runs (update_elp_state rs1)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) ())
     (hlink : Runs (get_next_pc ())
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) linkVal)
@@ -269,12 +265,11 @@ theorem tryStepJalrCallRetires (stepNo : Nat) (state : State)
     exact execute_JALR_run (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
       (callLinkState (tryStepControlFlowAfterIncrement state) pc
         (Sail.BitVec.update (rs1Val + sign_extend (m := 64) imm) 0 0#1) linkReg linkRegVal)
-      imm rs1 rd linkVal rs1Val helpElp hlink hrs1 hbit1 zcaEnabled hzca hwrite
+      imm rs1 rd linkVal rs1Val hlink hrs1 hbit1 zcaEnabled hzca hwrite
   have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state)
     (callLinkState (tryStepControlFlowAfterIncrement state) pc
       (Sail.BitVec.update (rs1Val + sign_extend (m := 64) imm) 0 0#1) linkReg linkRegVal)
-    pc byte0 byte1 byte2 byte3 (.JALR (imm, rs1, rd)) platform noMMIO bytes interrupts base decode
-    notExpected exec
+    pc byte0 byte1 byte2 byte3 (.JALR (imm, rs1, rd)) platform bytes base decode exec
   have nextPcAfterExec :
       (callLinkState (tryStepControlFlowAfterIncrement state) pc
         (Sail.BitVec.update (rs1Val + sign_extend (m := 64) imm) 0 0#1) linkReg
@@ -308,13 +303,16 @@ theorem tryStepJalrCallRetires (stepNo : Nat) (state : State)
       (Sail.BitVec.update (rs1Val + sign_extend (m := 64) imm) 0 0#1) linkReg linkRegVal)
     (Sail.BitVec.update (rs1Val + sign_extend (m := 64) imm) 0 0#1) retired inhibit config
     (zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3)) privilegeAfterInc active
-    nextPcAfterExec hartAfterExec incrementAfterExec retiredAfterExec hartRead inhibitRead
+    nextPcAfterExec hartAfterExec incrementAfterExec retiredAfterExec inhibitRead
     configRead notInhibited machineEnabled
 
 /-! ## Genuine `jal` call, lifted through `try_step`
 
 Same shape, but the target is `PC + sext imm` (no register base, no bit-0 clear), and `PC` is read
-during execute rather than a source register. -/
+during execute rather than a source register.
+
+exec-spike repair: `tryStepJalCallRetires` lost its `noMMIO`, `interrupts` and `notExpected`
+premises. -/
 theorem tryStepJalCallRetires (stepNo : Nat) (state : State)
     (pc pcVal retired linkVal : BitVec 64) (imm : BitVec 21) (rd : regidx)
     (linkReg : Register) (linkRegVal : RegisterType linkReg)
@@ -328,14 +326,11 @@ theorem tryStepJalCallRetires (stepNo : Nat) (state : State)
     (linkNeNext : linkReg ≠ nextPC) (linkNeHart : linkReg ≠ hart_state)
     (linkNeInc : linkReg ≠ minstret_increment) (linkNeRetired : linkReg ≠ minstret)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
-    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
     (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JAL (imm, rd)))
-    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
     (hlink : Runs (get_next_pc ())
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) linkVal)
@@ -370,8 +365,7 @@ theorem tryStepJalCallRetires (stepNo : Nat) (state : State)
   have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state)
     (callLinkState (tryStepControlFlowAfterIncrement state) pc
       (pcVal + sign_extend (m := 64) imm) linkReg linkRegVal)
-    pc byte0 byte1 byte2 byte3 (.JAL (imm, rd)) platform noMMIO bytes interrupts base decode
-    notExpected exec
+    pc byte0 byte1 byte2 byte3 (.JAL (imm, rd)) platform bytes base decode exec
   have nextPcAfterExec :
       (callLinkState (tryStepControlFlowAfterIncrement state) pc
         (pcVal + sign_extend (m := 64) imm) linkReg linkRegVal).regs.get? nextPC =
@@ -403,30 +397,27 @@ theorem tryStepJalCallRetires (stepNo : Nat) (state : State)
       (pcVal + sign_extend (m := 64) imm) linkReg linkRegVal)
     (pcVal + sign_extend (m := 64) imm) retired inhibit config
     (zero_extend (m := 32) (fetchWord byte0 byte1 byte2 byte3)) privilegeAfterInc active
-    nextPcAfterExec hartAfterExec incrementAfterExec retiredAfterExec hartRead inhibitRead
+    nextPcAfterExec hartAfterExec incrementAfterExec retiredAfterExec inhibitRead
     configRead notInhibited machineEnabled
 
 /-! ## Tail call `jr off(rs1)` (`jalr x0, off(rs1)`), lifted through `try_step`
 
 The link is written to `x0` and discarded, so `afterExec` touches only `nextPC` and the branch
 postlude `tryStepControlFlowRetires` applies directly.  Generalizes `tryStepRetRetires` to a
-nonzero offset (`ret` is the `off = 0`, `rs1 = ra` special case). -/
+nonzero offset (`ret` is the `off = 0`, `rs1 = ra` special case).
+
+exec-spike repair: `tryStepJrDiscardRetires` lost its `noMMIO`, `interrupts`, `notExpected` and
+`helpElp` premises. -/
 theorem tryStepJrDiscardRetires (stepNo : Nat) (state : State)
     (pc rs1Val retired : BitVec 64) (imm : BitVec 12) (rs1 : regidx) (linkVal : BitVec 64)
     (inhibit : BitVec 32) (config : BitVec 64) (byte0 byte1 byte2 byte3 : BitVec 8)
     (zcaEnabled : Bool)
     (platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc)
-    (noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc)
     (bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3)
-    (interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state))
     (base : BaseInstructionEncoding byte0)
     (decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
       (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
       (.JALR (imm, rs1, .Regidx 0#5)))
-    (notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state))
-    (helpElp : Runs (update_elp_state rs1)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
-      (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) ())
     (hlink : Runs (get_next_pc ())
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
       (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) linkVal)
@@ -455,12 +446,12 @@ theorem tryStepJrDiscardRetires (stepNo : Nat) (state : State)
     change Runs (execute_JALR imm rs1 (.Regidx 0#5)) _ _ _
     unfold controlFlowJumpState
     exact execute_JALR_run (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) _
-      imm rs1 (.Regidx 0#5) linkVal rs1Val helpElp hlink hrs1 hbit1 zcaEnabled hzca
+      imm rs1 (.Regidx 0#5) linkVal rs1Val hlink hrs1 hbit1 zcaEnabled hzca
       (wX_x0_run _ linkVal)
   have active := runHartActiveControlFlow stepNo (tryStepControlFlowAfterIncrement state)
     (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
       (Sail.BitVec.update (rs1Val + sign_extend (m := 64) imm) 0 0#1)) pc byte0 byte1 byte2 byte3
-    (.JALR (imm, rs1, .Regidx 0#5)) platform noMMIO bytes interrupts base decode notExpected exec
+    (.JALR (imm, rs1, .Regidx 0#5)) platform bytes base decode exec
   have nextPcAfterExec :
       (controlFlowJumpState (tryStepControlFlowAfterIncrement state) pc
         (Sail.BitVec.update (rs1Val + sign_extend (m := 64) imm) 0 0#1)).regs.get? nextPC =

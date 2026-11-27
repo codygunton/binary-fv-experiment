@@ -131,38 +131,38 @@ theorem Env.setVars_ext (env : Env) (F : Nat) (f : Nat → Word) (R : Nat) :
   ⟨fun i hi => by simp [Env.setVars, Nat.not_le.mpr hi], fun _ _ => rfl, fun _ _ => rfl,
     fun _ _ _ => rfl⟩
 
-/-- Registers in `H` become `var (F + i)`. -/
-def SState.havoc (S : SState) (H : List Nat) (F : Nat) : SState :=
-  { S with regs := S.regs.mapIdx fun i s => if H.contains i then .var (F + i) else s }
+/-- Registers with `ov i = some s` become `s`. -/
+def SState.override (S : SState) (ov : Nat → Option Sym) : SState :=
+  { S with regs := S.regs.mapIdx fun i s => (ov i).getD s }
 
-theorem SState.havoc_reg (S : SState) (H : List Nat) (F : Nat) (hl : S.regs.length = 32)
-    (i : Fin 32) (h0 : i.val ≠ 0) :
-    (S.havoc H F).reg i.val = if H.contains i.val then .var (F + i.val) else S.reg i.val := by
-  unfold SState.havoc SState.reg
+theorem SState.override_reg (S : SState) (ov : Nat → Option Sym) (hl : S.regs.length = 32)
+    (i : Fin 32) (h0 : i.val ≠ 0) : (S.override ov).reg i.val = (ov i.val).getD (S.reg i.val) := by
+  unfold SState.override SState.reg
   simp only [h0, if_false, List.getD_eq_getElem?_getD, List.getElem?_mapIdx]
   have : i.val < S.regs.length := by rw [hl]; exact i.isLt
   rw [List.getElem?_eq_getElem this]
   simp only [Option.map_some, Option.getD_some]
 
-/-- After a call (or at a loop head): the registers in `H` take the values of `m₂`, the others
-and every region's bytes are those of `m`. -/
-theorem Match.havoc {env : Env} {S : SState} {m m₂ : Machine} {H : List Nat} {F : Nat}
-    (hm : Match env S m) (hwfB : S.wfB F = true) (h0 : ¬ H.contains 0)
-    (hkeep : ∀ i : Fin 32, ¬ H.contains i.val → m₂.reg i = m.reg i)
+/-- After a call or at a loop head: `m₂` keeps `m`'s registers except those `ov` replaces,
+whose new values the replacement terms denote under the extended environment `env'`, and
+keeps every region's bytes. -/
+theorem Match.override {env env' : Env} {S : SState} {m m₂ : Machine} {K : Nat}
+    {ov : Nat → Option Sym} (hm : Match env S m) (hwfB : S.wfB K = true)
+    (he : Env.Ext env env' K S.regions.length) (h0 : ov 0 = none)
+    (hkeep : ∀ i : Fin 32, ov i.val = none → m₂.reg i = m.reg i)
+    (hnew : ∀ i : Fin 32, ∀ s, ov i.val = some s → s.eval env' = m₂.reg i)
     (hmem : ∀ r j, r < S.regions.length → j < env.size r →
       m₂.mem (env.base r + BitVec.ofNat 64 j) = m.mem (env.base r + BitVec.ofNat 64 j)) :
-    Match (env.setVars F fun i => m₂.reg (Fin.ofNat 32 i)) (S.havoc H F) m₂ := by
-  have hm' := hm.ext hwfB (Env.setVars_ext env F (fun i => m₂.reg (Fin.ofNat 32 i)) S.regions.length)
-  refine ⟨by simp [SState.havoc, hm.regsLen], fun i => ?_, fun r j hr hj => ?_, hm'.known⟩
+    Match env' (S.override ov) m₂ := by
+  have hm' := hm.ext hwfB he
+  refine ⟨by simp [SState.override, hm.regsLen], fun i => ?_, fun r j hr hj => ?_, hm'.known⟩
   · by_cases hi0 : i.val = 0
-    · have := hm'.regs i
-      simp only [SState.reg, SState.havoc, hi0, if_true] at this ⊢
-      rw [this, Machine.reg, Machine.reg, if_pos hi0, if_pos hi0]
-    · rw [SState.havoc_reg S H F hm.regsLen i hi0]
-      split
-      · next hh => simp [Sym.eval, Env.setVars]
-      · next hh => rw [hm'.regs i, hkeep i hh]
-  · rw [show (env.setVars F _).base r = env.base r from rfl, hmem r j hr hj]
+    · simp only [SState.reg, hi0, if_true, Sym.eval, Machine.reg, BitVec.ofNat_eq_ofNat]
+    · rw [SState.override_reg S ov hm.regsLen i hi0]
+      cases h : ov i.val with
+      | none => rw [Option.getD_none, hm'.regs i, hkeep i h]
+      | some s => exact hnew i s h
+  · rw [he.base r hr, hmem r j hr (by rwa [← he.size r hr]), ← he.base r hr]
     exact hm'.mem r j hr hj
 
 /-! ## New regions -/
