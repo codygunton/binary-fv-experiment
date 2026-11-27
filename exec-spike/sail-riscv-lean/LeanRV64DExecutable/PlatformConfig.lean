@@ -541,7 +541,7 @@ def itype_mnemonic_forwards (arg_ : iop) : String :=
   | ORI => "ori"
   | ANDI => "andi"
 
-/-- Type quantifiers: k_ex248364_ : Bool -/
+/-- Type quantifiers: k_ex247893_ : Bool -/
 def maybe_u_forwards (arg_ : Bool) : String :=
   match arg_ with
   | true => "u"
@@ -981,8 +981,8 @@ def hartSupports (merge_var : extension) : Bool :=
   | Ext_D => (true && (hartSupports Ext_F))
   | Ext_B => true
   | Ext_V => ((8 ≥b 7) && (vector_support_ge vector_support_level Full))
-  | Ext_S => true
-  | Ext_U => true
+  | Ext_S => false
+  | Ext_U => false
   | Ext_H => false
   | Ext_Zibi => ((sys_enable_experimental_extensions ()) && (true : Bool))
   | Ext_Zic64b => true
@@ -1089,9 +1089,9 @@ def hartSupports (merge_var : extension) : Bool :=
   | Ext_Ssu64xl => ((hartSupports Ext_S) && (xlen == 64))
   | Ext_Svbare => true
   | Ext_Sv32 => ((false : Bool) && (xlen == 32))
-  | Ext_Sv39 => ((true : Bool) && (xlen == 64))
-  | Ext_Sv48 => ((true : Bool) && (xlen == 64))
-  | Ext_Sv57 => ((true : Bool) && (xlen == 64))
+  | Ext_Sv39 => ((false : Bool) && (xlen == 64))
+  | Ext_Sv48 => ((false : Bool) && (xlen == 64))
+  | Ext_Sv57 => ((false : Bool) && (xlen == 64))
   | Ext_Svade => true
   | Ext_Svadu => true
   | Ext_Svinval => true
@@ -1717,7 +1717,7 @@ def encdec_uop_forwards (arg_ : uop) : (BitVec 7) :=
   | LUI => 0b0110111#7
   | AUIPC => 0b0010111#7
 
-/-- Type quantifiers: k_ex249350_ : Bool, width : Nat, width ∈ {1, 2, 4, 8} -/
+/-- Type quantifiers: k_ex248879_ : Bool, width : Nat, width ∈ {1, 2, 4, 8} -/
 def valid_load_encdec (width : Nat) (is_unsigned : Bool) : Bool :=
   ((width <b xlen_bytes) || ((not is_unsigned) && (width ≤b xlen_bytes)))
 
@@ -2138,13 +2138,13 @@ def plat_mstatus_legal_fs : ExtContextPolicy := ExtContext_FourState
 
 def plat_mstatus_legal_vs : ExtContextPolicy := ExtContext_FourState
 
-def plat_have_clint : Bool := true
+def plat_have_clint : Bool := false
 
 def plat_clint_base : physaddrbits := unwrapValue ((to_bits_checked (l := 64) (33554432 : Int)))
 
 def plat_clint_size : physaddrbits := unwrapValue ((to_bits_checked (l := 64) (786432 : Int)))
 
-def plat_have_sig : Bool := true
+def plat_have_sig : Bool := false
 
 def plat_sig_base : physaddrbits := unwrapValue ((to_bits_checked (l := 64) (201326592 : Int)))
 

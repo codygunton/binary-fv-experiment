@@ -448,20 +448,15 @@ def getPendingSet (priv : Privilege) : SailM (Option ((BitVec 64) × Privilege))
 def shouldWakeForInterrupt (_ : Unit) : SailM Bool := do
   (pure (((← readReg mip) &&& (← readReg mie)) != (zeros (n := 64))))
 
-def dispatchInterrupt (priv : Privilege) : SailM (Option (InterruptType × Privilege)) := do
-  match (← (getPendingSet priv)) with
-  | none => (pure none)
-  | .some (ip, p) =>
-    (match (findPendingInterrupt ip) with
-    | none => (pure none)
-    | .some i => (pure (some (i, p))))
+def dispatchInterrupt (priv : Privilege) : (Option (InterruptType × Privilege)) :=
+  none
 
 def tval (excinfo : (Option (BitVec 64))) : (BitVec 64) :=
   match excinfo with
   | .some e => e
   | none => (zeros (n := 64))
 
-/-- Type quantifiers: k_ex251503_ : Bool -/
+/-- Type quantifiers: k_ex250998_ : Bool -/
 def track_trap (p : Privilege) (is_interrupt : Bool) (cause : (BitVec 6)) : SailM Unit := do
   (long_csr_write_callback "mstatus" "mstatush" (← readReg mstatus))
   match p with
@@ -475,10 +470,10 @@ def track_trap (p : Privilege) (is_interrupt : Bool) (cause : (BitVec 6)) : Sail
       (csr_name_write_callback "scause" (← readReg scause))
       (csr_name_write_callback "stval" (← readReg stval))
       (csr_name_write_callback "sepc" (← readReg sepc)))
-  | User => (internal_error "sys/sys_control.sail" 180 "Invalid privilege level")
-  | VirtualUser => (internal_error "sys/sys_control.sail" 181 "Hypervisor extension not supported")
+  | User => (internal_error "sys/sys_control.sail" 176 "Invalid privilege level")
+  | VirtualUser => (internal_error "sys/sys_control.sail" 177 "Hypervisor extension not supported")
   | VirtualSupervisor =>
-    (internal_error "sys/sys_control.sail" 182 "Hypervisor extension not supported")
+    (internal_error "sys/sys_control.sail" 178 "Hypervisor extension not supported")
   (pure (trap_callback is_interrupt cause))
 
 def trap_handler (del_priv : Privilege) (c : TrapCause) (pc : (BitVec 64)) (info : (Option (BitVec 64))) (ext : (Option Unit)) : SailM (BitVec 64) := do
@@ -530,21 +525,21 @@ def trap_handler (del_priv : Privilege) (c : TrapCause) (pc : (BitVec 64)) (info
           | User => (pure 0#1)
           | Supervisor => (pure 1#1)
           | Machine =>
-            (internal_error "sys/sys_control.sail" 231 "invalid privilege for s-mode trap")
+            (internal_error "sys/sys_control.sail" 227 "invalid privilege for s-mode trap")
           | VirtualUser =>
-            (internal_error "sys/sys_control.sail" 232 "Hypervisor extension not supported")
+            (internal_error "sys/sys_control.sail" 228 "Hypervisor extension not supported")
           | VirtualSupervisor =>
-            (internal_error "sys/sys_control.sail" 233 "Hypervisor extension not supported")))
+            (internal_error "sys/sys_control.sail" 229 "Hypervisor extension not supported")))
       writeReg stval (tval info)
       writeReg sepc pc
       writeReg cur_privilege del_priv
       let _ : Unit := (handle_trap_extension del_priv pc ext)
       (track_trap del_priv is_interrupt cause)
       (prepare_trap_vector del_priv (← readReg scause)))
-  | User => (internal_error "sys/sys_control.sail" 246 "Invalid privilege level")
-  | VirtualUser => (internal_error "sys/sys_control.sail" 247 "Hypervisor extension not supported")
+  | User => (internal_error "sys/sys_control.sail" 242 "Invalid privilege level")
+  | VirtualUser => (internal_error "sys/sys_control.sail" 243 "Hypervisor extension not supported")
   | VirtualSupervisor =>
-    (internal_error "sys/sys_control.sail" 248 "Hypervisor extension not supported")
+    (internal_error "sys/sys_control.sail" 244 "Hypervisor extension not supported")
 
 def exception_handler (cur_priv : Privilege) (exc : sync_exception) (pc : (BitVec 64)) : SailM (BitVec 64) := do
   let del_priv ← do (exception_delegatee exc.trap cur_priv)
@@ -622,7 +617,7 @@ def reset_misa (_ : Unit) : SailM Unit := do
   writeReg misa (Sail.BitVec.updateSubrange (← readReg misa) 8 8
     (Complement.complement (_get_Misa_E (← readReg misa))))
   if (((hartSupports Ext_F) && (hartSupports Ext_Zfinx)) : Bool)
-  then (internal_error "sys/sys_control.sail" 318 "F and Zfinx cannot both be enabled!")
+  then (internal_error "sys/sys_control.sail" 314 "F and Zfinx cannot both be enabled!")
   else (pure ())
   writeReg misa (Sail.BitVec.updateSubrange (← readReg misa) 5 5
     (bool_to_bit (hartSupports Ext_F)))

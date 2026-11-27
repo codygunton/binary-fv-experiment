@@ -187,9 +187,9 @@ open AtomicSupport
 open Architecture
 open AmocasOddRegisterReservedBehavior
 
-def sys_pmp_count : Int := 16
+def sys_pmp_count : Int := 0
 
-def sys_pmp_usable_count : Nat := 16
+def sys_pmp_usable_count : Nat := 0
 
 def sys_pmp_grain : Nat := 0
 
@@ -327,7 +327,7 @@ def pmpWriteCfgReg (n : Nat) (v : (BitVec 64)) : SailM Unit := do
       else (pure ())
   (pure loop_vars)
 
-/-- Type quantifiers: k_ex250091_ : Bool, k_ex250090_ : Bool -/
+/-- Type quantifiers: k_ex249620_ : Bool, k_ex249619_ : Bool -/
 def pmpWriteAddr (locked : Bool) (tor_locked : Bool) (reg : (BitVec 64)) (v : (BitVec 64)) : (BitVec 64) :=
   if ((locked || tor_locked) : Bool)
   then reg

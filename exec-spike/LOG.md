@@ -47,3 +47,9 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   (3 `ret`, 5 `call`), whole file (elaboration + compiled eval + kernel `Eq.refl` check)
   1.20 s wall, 1.52 GB peak RSS. Within the 60 s / 8 GiB gate; no representation change needed.
 - Next: `Sym/SmartLemmas.lean`, `Sym/Sound.lean` (`stepI_sound`, `run_sound`).
+- 2026-11-27: `Sym/{SmartLemmas,MemLemmas,LoadStore,Sound}.lean` built. `run_sound` proved
+  (`#print axioms`: propext, Classical.choice, Quot.sound). Deviations from the plan's statement:
+  extra hypothesis `RodataLoaded img m` (needed for literal rodata loads) and extra conclusion
+  `SameOutside (InWritable env S) m m'`; `Match` carries `regsLen : S.regs.length = 32`.
+  `bv_decide` was removed (its proofs add `_native.bv_decide` axioms); bit-level proofs instead.
+  Literal `jalr` targets also check `t < 2^64`.

@@ -19,19 +19,27 @@ def addConst (a : Sym) (c : Int) : Option Sym :=
   | .bin .add (.ptr r o) i => some (.bin .add (.ptr r (o + c)) i)
   | _ => none
 
+/-- `a + c` for a literal `c`. -/
+def addLit (a : Sym) (c : Nat) : Sym :=
+  if c % 2 ^ 64 = 0 then a else (addConst a (toInt64 c)).getD (.bin .add a (.lit c))
+
+/-- `a - c` for a literal `c`. -/
+def subLit (a : Sym) (c : Nat) : Sym :=
+  if c % 2 ^ 64 = 0 then a else (addConst a (-toInt64 c)).getD (.bin .sub a (.lit c))
+
 def mkAdd (a b : Sym) : Sym :=
   match a, b with
   | .lit x, .lit y => .lit ((x + y) % 2 ^ 64)
-  | a, .lit c => if c % 2 ^ 64 = 0 then a else (addConst a (toInt64 c)).getD (.bin .add a (.lit c))
-  | .lit c, b => if c % 2 ^ 64 = 0 then b else (addConst b (toInt64 c)).getD (.bin .add b (.lit c))
+  | a, .lit c => addLit a c
+  | .lit c, b => addLit b c
   | a, .ptr r o => .bin .add (.ptr r o) a
   | a, b => .bin .add a b
 
 def mkSub (a b : Sym) : Sym :=
   match a, b with
   | .lit x, .lit y => .lit (BitVec.ofNat 64 x - BitVec.ofNat 64 y).toNat
-  | .ptr r o, .ptr r' o' => if r = r' then .lit ((o - o') % 2 ^ 64).toNat else .bin .sub a b
-  | a, .lit c => if c % 2 ^ 64 = 0 then a else (addConst a (-toInt64 c)).getD (.bin .sub a (.lit c))
+  | .ptr r o, .ptr r' o' => if r = r' then .lit (BitVec.ofInt 64 (o - o')).toNat else .bin .sub a b
+  | a, .lit c => subLit a c
   | a, b => .bin .sub a b
 
 /-- Generic binary operation: folds two literals. -/

@@ -162,7 +162,8 @@ def stepI (img : Image) (pc : Nat) (i : Instr) (S : SState) :
     let S2 := S1.setReg rd (.lit fall)
     match tgt with
     | .lit t =>
-      if t % 4 = 0 then some (S2, if rd.val = 1 then .call t fall else .next t, []) else none
+      if t % 4 = 0 ∧ t < 2 ^ 64 then some (S2, if rd.val = 1 then .call t fall else .next t, [])
+      else none
     | _ =>
       some (S2,
         if rd.val = 1 then .callInd tgt fall

@@ -3,7 +3,6 @@ import LeanRV64DExecutable.Prelude
 import LeanRV64DExecutable.Errors
 import LeanRV64DExecutable.PlatformConfig
 import LeanRV64DExecutable.VmemTypes
-import LeanRV64DExecutable.MemTypeUtils
 import LeanRV64DExecutable.SysRegs
 import LeanRV64DExecutable.PmpRegs
 
@@ -280,37 +279,8 @@ def pmpMatchAddr (typ_0 : physaddr) (width : (BitVec 64)) (ent : (BitVec 8)) (pm
     (pure (pmpRangeMatch (begin_words *i 4) (end_words *i 4) addr width)))
 
 /-- Type quantifiers: width : Nat, 0 < width ∧ width ≤ max_mem_access -/
-def pmpCheck (addr : physaddr) (width : Nat) (access : (MemoryAccessType mem_payload)) (priv : Privilege) : SailM (Option ExceptionType) := SailME.run do
-  if ((sys_pmp_count == 0) : Bool)
-  then (pure none)
-  else
-    (do
-      let width : xlenbits := (to_bits (l := 64) width)
-      let loop_i_lower := 0
-      let loop_i_upper := (sys_pmp_count -i 1)
-      let mut loop_vars := ()
-      for i in [loop_i_lower:loop_i_upper:1]i do
-        let () := loop_vars
-        loop_vars ← do
-          let prev_pmpaddr ← do
-            if ((i >b 0) : Bool)
-            then (pmpReadAddrReg (i -i 1))
-            else (pure (zeros (n := 64)))
-          let cfg ← do (pure (GetElem?.getElem! (← readReg pmpcfg_n) i))
-          match (← (pmpMatchAddr addr width cfg (← (pmpReadAddrReg i)) prev_pmpaddr)) with
-          | PMP_NoMatch => (pure ())
-          | PMP_PartialMatch =>
-            SailME.throw (← do
-                (pure (some (← (accessFaultFromAccessType access)))))
-          | PMP_Match =>
-            SailME.throw (← do
-                if (((← (pmpCheckRWX cfg access)) || ((priv == Machine) && (not (pmpLocked cfg)))) : Bool)
-                then (pure none)
-                else (pure (some (← (accessFaultFromAccessType access)))))
-      (pure loop_vars)
-      if ((priv == Machine) : Bool)
-      then (pure none)
-      else (pure (some (← (accessFaultFromAccessType access)))))
+def pmpCheck (addr : physaddr) (width : Nat) (access : (MemoryAccessType mem_payload)) (priv : Privilege) : (Option ExceptionType) :=
+  none
 
 def reset_pmp (_ : Unit) : SailM Unit := do
   let loop_i_lower := 0

@@ -238,11 +238,11 @@ def sail_model_init (x_0 : Unit) : SailM Unit := do
   writeReg htif_exit_code (zeros (n := 64))
   writeReg htif_cmd_write (zeros (n := 1))
   writeReg htif_payload_writes (zeros (n := 4))
-  writeReg pma_regions [{ base := 0b0000000000000000000000000000000000000000000000000001000000000000#64
-                          size := 0b0000000000000000000000000000000000000000000000000001000000000000#64
-                          attributes := { mem_type := IOMemory
+  writeReg pma_regions [{ base := 0b0000000000000000000000000000000001000000000000000000000000000000#64
+                          size := 0b0000000000000000000000000000000001000000000000000000000000000000#64
+                          attributes := { mem_type := MainMemory
                                           cacheable := true
-                                          coherent := false
+                                          coherent := true
                                           executable := false
                                           readable := true
                                           writable := false
@@ -251,48 +251,48 @@ def sail_model_init (x_0 : Unit) : SailM Unit := do
                                           misaligned_exceptions := { load_store := none
                                                                      vector := none
                                                                      amo := AccessFault }
-                                          atomic_support := AMONone
-                                          reservability := RsrvNone
-                                          supports_cbo_zero := false
-                                          supports_pte_read := false
-                                          supports_pte_write := false }
-                          include_in_device_tree := false }, { base := 0b0000000000000000000000000000000000000010000000000000000000000000#64
-                                                               size := 0b0000000000000000000000000000000000010000000000000000000000000000#64
-                                                               attributes := { mem_type := IOMemory
-                                                                               cacheable := false
-                                                                               coherent := true
-                                                                               executable := false
-                                                                               readable := true
-                                                                               writable := true
-                                                                               read_idempotent := false
-                                                                               write_idempotent := false
-                                                                               misaligned_exceptions := { load_store := none
-                                                                                                          vector := none
-                                                                                                          amo := AccessFault }
-                                                                               atomic_support := AMONone
-                                                                               reservability := RsrvNone
-                                                                               supports_cbo_zero := false
-                                                                               supports_pte_read := false
-                                                                               supports_pte_write := false }
-                                                               include_in_device_tree := false }, { base := 0b0000000000000000000000000000000010000000000000000000000000000000#64
-                                                                                                    size := 0b0000000000000000000000000000000010000000000000000000000000000000#64
-                                                                                                    attributes := { mem_type := MainMemory
-                                                                                                                    cacheable := true
-                                                                                                                    coherent := true
-                                                                                                                    executable := true
-                                                                                                                    readable := true
-                                                                                                                    writable := true
-                                                                                                                    read_idempotent := true
-                                                                                                                    write_idempotent := true
-                                                                                                                    misaligned_exceptions := { load_store := none
-                                                                                                                                               vector := none
-                                                                                                                                               amo := AccessFault }
-                                                                                                                    atomic_support := AMOCASQ
-                                                                                                                    reservability := RsrvEventual
-                                                                                                                    supports_cbo_zero := true
-                                                                                                                    supports_pte_read := true
-                                                                                                                    supports_pte_write := true }
-                                                                                                    include_in_device_tree := true }]
+                                          atomic_support := AMOCASQ
+                                          reservability := RsrvEventual
+                                          supports_cbo_zero := true
+                                          supports_pte_read := true
+                                          supports_pte_write := true }
+                          include_in_device_tree := true }, { base := 0b0000000000000000000000000000000010000000000000000000000000000000#64
+                                                              size := 0b0000000000000000000000000000000000001000000000000000000000000000#64
+                                                              attributes := { mem_type := MainMemory
+                                                                              cacheable := true
+                                                                              coherent := true
+                                                                              executable := true
+                                                                              readable := true
+                                                                              writable := false
+                                                                              read_idempotent := true
+                                                                              write_idempotent := true
+                                                                              misaligned_exceptions := { load_store := none
+                                                                                                         vector := none
+                                                                                                         amo := AccessFault }
+                                                                              atomic_support := AMOCASQ
+                                                                              reservability := RsrvEventual
+                                                                              supports_cbo_zero := true
+                                                                              supports_pte_read := true
+                                                                              supports_pte_write := true }
+                                                              include_in_device_tree := true }, { base := 0b0000000000000000000000000000000010100000000000000000000000000000#64
+                                                                                                  size := 0b0000000000000000000000000000000000100000000000000000000000000000#64
+                                                                                                  attributes := { mem_type := MainMemory
+                                                                                                                  cacheable := true
+                                                                                                                  coherent := true
+                                                                                                                  executable := false
+                                                                                                                  readable := true
+                                                                                                                  writable := true
+                                                                                                                  read_idempotent := true
+                                                                                                                  write_idempotent := true
+                                                                                                                  misaligned_exceptions := { load_store := none
+                                                                                                                                             vector := none
+                                                                                                                                             amo := AccessFault }
+                                                                                                                  atomic_support := AMOCASQ
+                                                                                                                  reservability := RsrvEventual
+                                                                                                                  supports_cbo_zero := true
+                                                                                                                  supports_pte_read := true
+                                                                                                                  supports_pte_write := true }
+                                                                                                  include_in_device_tree := true }]
   writeReg tlb (vectorInit none)
   writeReg hart_state (HART_ACTIVE ())
   (pure (initialize_registers ()))

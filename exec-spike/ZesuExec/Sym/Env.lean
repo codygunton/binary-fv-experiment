@@ -91,6 +91,7 @@ structure Env.WF (env : Env) (S : SState) : Prop where
 
 /-- `m` is an instance of `S` under `env`. -/
 structure Match (env : Env) (S : SState) (m : Machine) : Prop where
+  regsLen : S.regs.length = 32
   regs : ∀ i : Fin 32, (S.reg i.val).eval env = m.reg i
   mem : ∀ r j, r < S.regions.length → j < env.size r →
     m.mem (env.base r + BitVec.ofNat 64 j) = some (memByte env S.mem r j)
@@ -101,6 +102,11 @@ structure Match (env : Env) (S : SState) (m : Machine) : Prop where
 def InWritable (env : Env) (S : SState) (a : Word) : Prop :=
   ∃ r R j, S.regions[r]? = some R ∧ R.writable = true ∧ j < env.size r ∧
     a = env.base r + BitVec.ofNat 64 j
+
+/-- The rodata bytes of `img` inside `[Layout.rodataLo, Layout.rodataHi)` are loaded in `m`. -/
+def RoLoaded (img : Image) (m : Machine) : Prop :=
+  ∀ a b, Layout.rodataLo ≤ a → a < Layout.rodataHi → img.rodataByte? a = some b →
+    m.mem (BitVec.ofNat 64 a) = some (BitVec.ofNat 8 b)
 
 def ExitOk (env : Env) : Exit → Machine → Prop
   | .at pc, m => m.pc.toNat = pc

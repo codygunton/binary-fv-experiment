@@ -8,7 +8,6 @@ import LeanRV64DExecutable.TypesExt
 import LeanRV64DExecutable.Types
 import LeanRV64DExecutable.VmemTypes
 import LeanRV64DExecutable.SysRegs
-import LeanRV64DExecutable.SysControl
 import LeanRV64DExecutable.Mem
 import LeanRV64DExecutable.VmemPte
 import LeanRV64DExecutable.VmemPtw
@@ -221,7 +220,7 @@ def update_and_write_pte (pteAddr : physaddr) (pteWidth : Nat) (pte : (BitVec (p
           | .Err _ => (pure (Err (PTW_No_Access ()))))
       else (pure (Err (PTW_PTE_Needs_Update ()))))
 
-/-- Type quantifiers: k_ex257079_ : Bool, level : Nat, k_ex257077_ : Bool, k_ex257076_ : Bool, sv_width
+/-- Type quantifiers: k_ex256571_ : Bool, level : Nat, k_ex256569_ : Bool, k_ex256568_ : Bool, sv_width
   : Nat, is_sv_mode(sv_width), 0 ≤ level ∧
   level ≤
   (if ( sv_width = 32  : Bool) then 1 else (if ( sv_width = 39  : Bool) then 2 else (if ( sv_width =
@@ -367,7 +366,7 @@ def translationMode (priv : Privilege) : SailM SATPMode := do
       | .some m => (pure m)
       | none => (internal_error "sys/vmem.sail" 263 "invalid translation mode in satp"))
 
-/-- Type quantifiers: tlb_index : Nat, k_ex257151_ : Bool, k_ex257150_ : Bool, sv_width : Nat, is_sv_mode(sv_width), 0
+/-- Type quantifiers: tlb_index : Nat, k_ex256643_ : Bool, k_ex256642_ : Bool, sv_width : Nat, is_sv_mode(sv_width), 0
   ≤ tlb_index ∧ tlb_index ≤ (2 ^ 6 - 1) -/
 def translate_TLB_hit (sv_width : Nat) (_asid : (BitVec (if ( 64 = 32  : Bool) then 9 else 16))) (vpn : (BitVec (sv_width - 12))) (access : (MemoryAccessType mem_payload)) (priv : Privilege) (mxr : Bool) (do_sum : Bool) (ext_ptw : Unit) (tlb_index : Nat) (ent : TLB_Entry) : SailM (Result ((BitVec (if ( sv_width
   = 32  : Bool) then 22 else 44)) × page_based_mem_type × Unit) (PTW_Error × Unit)) := do
@@ -393,7 +392,7 @@ def translate_TLB_hit (sv_width : Nat) (_asid : (BitVec (if ( 64 = 32  : Bool) t
       | .Err (.PTW_PTE_Needs_Update ()) => (pure (Err ((PTW_PTE_Needs_Update ()), ext_ptw)))
       | .Err e => (pure (Err (e, ext_ptw))))
 
-/-- Type quantifiers: k_ex257171_ : Bool, k_ex257170_ : Bool, sv_width : Nat, is_sv_mode(sv_width) -/
+/-- Type quantifiers: k_ex256663_ : Bool, k_ex256662_ : Bool, sv_width : Nat, is_sv_mode(sv_width) -/
 def translate_TLB_miss (sv_width : Nat) (asid : (BitVec (if ( 64 = 32  : Bool) then 9 else 16))) (base_ppn : (BitVec (if ( sv_width
   = 32  : Bool) then 22 else 44))) (vpn : (BitVec (sv_width - 12))) (access : (MemoryAccessType mem_payload)) (priv : Privilege) (mxr : Bool) (do_sum : Bool) (ext_ptw : Unit) : SailM (Result ((BitVec (if ( sv_width
   = 32  : Bool) then 22 else 44)) × page_based_mem_type × Unit) (PTW_Error × Unit)) := do
@@ -465,7 +464,7 @@ def satp_mode_width_backwards_matches (arg_ : Nat) : Bool :=
   | 57 => true
   | _ => false
 
-/-- Type quantifiers: k_ex257206_ : Bool, k_ex257205_ : Bool, sv_width : Nat, is_sv_mode(sv_width) -/
+/-- Type quantifiers: k_ex256698_ : Bool, k_ex256697_ : Bool, sv_width : Nat, is_sv_mode(sv_width) -/
 def translate (sv_width : Nat) (asid : (BitVec (if ( 64 = 32  : Bool) then 9 else 16))) (base_ppn : (BitVec (if ( sv_width
   = 32  : Bool) then 22 else 44))) (vpn : (BitVec (sv_width - 12))) (access : (MemoryAccessType mem_payload)) (priv : Privilege) (mxr : Bool) (do_sum : Bool) (ext_ptw : Unit) : SailM (Result ((BitVec (if ( sv_width
   = 32  : Bool) then 22 else 44)) × page_based_mem_type × Unit) (PTW_Error × Unit)) := do
@@ -481,44 +480,11 @@ def get_satp (sv_width : Nat) : SailM (BitVec (if ( sv_width = 32  : Bool) then 
   then (pure (Sail.BitVec.extractLsb (← readReg satp) 31 0))
   else readReg satp
 
-def translateAddr (vAddr : virtaddr) (access : (MemoryAccessType mem_payload)) : SailM (Result (physaddr × page_based_mem_type × Unit) (ExceptionType × Unit)) := SailME.run do
-  let effPriv ← do (effectivePrivilege access (← readReg mstatus) (← readReg cur_privilege))
-  let mode ← do (translationMode effPriv)
+def translateAddr (vAddr : virtaddr) (access : (MemoryAccessType mem_payload)) : SailM (Result (physaddr × page_based_mem_type × Unit) (ExceptionType × Unit)) := do
   if ((← (is_shadow_stack_access access)) : Bool)
-  then
-    (do
-      if ((((mode == Bare) && (bne effPriv Machine)) || (effPriv == Machine)) : Bool)
-      then
-        SailME.throw ((Err ((E_SAMO_Access_Fault ()), init_ext_ptw)) : (Result (physaddr × page_based_mem_type × Unit) (ExceptionType × Unit)))
-      else (pure ()))
-  else (pure ())
-  if ((mode == Bare) : Bool)
-  then
-    (pure (Ok ((Physaddr (zero_extend (m := 64) (bits_of_virtaddr vAddr))), PBMT_PMA, init_ext_ptw)))
+  then (pure (Err ((E_SAMO_Access_Fault ()), init_ext_ptw)))
   else
-    (do
-      let sv_width ← do (satp_mode_width_forwards mode)
-      let satp_sxlen ← do (get_satp sv_width)
-      assert ((sv_width == 32) || (xlen == 64)) "sys/vmem.sail:431.36-431.37"
-      let svAddr := (Sail.BitVec.extractLsb (bits_of_virtaddr vAddr) (sv_width -i 1) 0)
-      if (((bits_of_virtaddr vAddr) != (sign_extend (m := 64) svAddr)) : Bool)
-      then (pure (Err ((← (translationException access (PTW_Invalid_Addr ()))), init_ext_ptw)))
-      else
-        (do
-          let mxr ← do (pure ((_get_Mstatus_MXR (← readReg mstatus)) == 1#1))
-          let do_sum ← do (pure ((_get_Mstatus_SUM (← readReg mstatus)) == 1#1))
-          let asid := (satp_to_asid satp_sxlen)
-          let base_ppn := (satp_to_ppn satp_sxlen)
-          let res ← do
-            (translate sv_width (zero_extend (m := 16) asid) base_ppn
-              (Sail.BitVec.extractLsb svAddr (sv_width -i 1) pagesize_bits) access effPriv mxr
-              do_sum init_ext_ptw)
-          match res with
-          | .Ok (ppn, pbmt, ext_ptw) =>
-            (let paddr :=
-              (ppn ++ (Sail.BitVec.extractLsb (bits_of_virtaddr vAddr) (pagesize_bits -i 1) 0))
-            (pure (Ok ((Physaddr (zero_extend (m := 64) paddr)), pbmt, ext_ptw))))
-          | .Err (f, ext_ptw) => (pure (Err ((← (translationException access f)), ext_ptw)))))
+    (pure (Ok ((Physaddr (zero_extend (m := 64) (bits_of_virtaddr vAddr))), PBMT_PMA, init_ext_ptw)))
 
 def reset_vmem (_ : Unit) : SailM Unit := do
   (reset_TLB ())

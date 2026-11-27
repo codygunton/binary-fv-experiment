@@ -191,7 +191,7 @@ open Architecture
 open AmocasOddRegisterReservedBehavior
 
 def check_privs (_ : Unit) : Bool :=
-  if (((true : Bool) && (not (true : Bool))) : Bool)
+  if (((false : Bool) && (not (false : Bool))) : Bool)
   then
     (let _ : Unit :=
       (print_endline "User mode (U) should be enabled if supervisor mode (S) is enabled.")
@@ -209,7 +209,7 @@ def check_tvecs (_ : Unit) : Bool :=
           "`mtvec` specifies neither `direct` or `vectored` is supported; one of the modes must be supported.")
       valid)
     else valid
-  if (((true : Bool) && ((not (true : Bool)) && (not (true : Bool)))) : Bool)
+  if (((false : Bool) && ((not (true : Bool)) && (not (true : Bool)))) : Bool)
   then
     (let valid : Bool := false
     let _ : Unit :=
@@ -231,7 +231,7 @@ def require_Sv32 (ext_name : String) : Bool :=
   else true
 
 def require_Sv39 (ext_name : String) : Bool :=
-  if ((not (true : Bool)) : Bool)
+  if ((not (false : Bool)) : Bool)
   then
     (let _ : Unit :=
       (print_endline
@@ -250,21 +250,21 @@ def check_mmu_config (_ : Unit) : SailM Bool := do
   let valid : Bool := true
   let _ : Unit :=
     let _ : Unit :=
-      if (((not (true : Bool)) && ((true : Bool) || ((true : Bool) || (true : Bool)))) : Bool)
+      if (((not (false : Bool)) && ((false : Bool) || ((false : Bool) || (false : Bool)))) : Bool)
       then
         (let valid : Bool := false
         (print_endline
           "Supervisor mode (S) disabled but one of (Sv57, Sv48, Sv39) is enabled: cannot support address translation without supervisor mode."))
       else ()
     let _ : Unit :=
-      if (((true : Bool) && (not (true : Bool))) : Bool)
+      if (((false : Bool) && (not (false : Bool))) : Bool)
       then
         (let valid : Bool := false
         (print_endline
           "Sv57 is enabled but Sv48 is disabled: supporting Sv57 requires supporting Sv48."))
       else ()
     let _ : Unit :=
-      if (((true : Bool) && (not (true : Bool))) : Bool)
+      if (((false : Bool) && (not (false : Bool))) : Bool)
       then
         (let valid : Bool := false
         (print_endline
@@ -593,7 +593,7 @@ def undefined_pma_check_opts (_ : Unit) : SailM pma_check_opts := do
           ssccptr := ← (undefined_bool ())
           svadu := ← (undefined_bool ()) })
 
-/-- Type quantifiers: k_ex261660_ : Bool -/
+/-- Type quantifiers: k_ex261121_ : Bool -/
 def check_pma_regions (regions : (List PMA_Region)) (prev_base : (BitVec 64)) (prev_size : (BitVec 64)) (check_opts : pma_check_opts) (found_valid_svadu_pma : Bool) : Bool := ExceptM.run do
   match regions with
   | [] =>
@@ -763,12 +763,12 @@ def check_mem_layout (_ : Unit) : SailM Bool := do
       let pmas_ok ← do
         (pure (check_pma_regions (← readReg pma_regions) (zeros (n := 64)) (zeros (n := 64))
             check_opts false))
-      let clint_supported : Bool := true
+      let clint_supported : Bool := false
       let clint_ok ← do
         (pure ((not clint_supported) || (← (within_configured_pma_memory "CLINT (platform.clint)"
                 (some IOMemory) (← (to_bits_checked (l := 64) (33554432 : Int)))
                 (← (to_bits_checked (l := 64) (786432 : Int)))))))
-      let sig_supported : Bool := true
+      let sig_supported : Bool := false
       let sig_ok ← do
         (pure ((not sig_supported) || (← (within_configured_pma_memory
                 "simple interrupt generator (platform.simple_interrupt_generator)" (some IOMemory)
@@ -794,7 +794,7 @@ def check_pmp (_ : Unit) : Bool :=
     valid)
   else valid
 
-/-- Type quantifiers: k_ex261802_ : Bool -/
+/-- Type quantifiers: k_ex261263_ : Bool -/
 def check_required_sstvala_option (name : String) (value : Bool) : Bool :=
   if ((not value) : Bool)
   then
@@ -928,7 +928,7 @@ def check_misc_extension_dependencies (_ : Unit) : Bool :=
     if ((true : Bool) : Bool)
     then
       (let valid : Bool :=
-        if ((not (true : Bool)) : Bool)
+        if ((not (false : Bool)) : Bool)
         then
           (let valid : Bool := false
           let _ : Unit :=
@@ -1098,7 +1098,7 @@ def check_mstatus_fields (_ : Unit) : Bool :=
           valid)
         else valid)
       else
-        (if ((not (true : Bool)) : Bool)
+        (if ((not (false : Bool)) : Bool)
         then
           (if ((bne legal_fs ExtContext_Off) : Bool)
           then
@@ -1121,7 +1121,7 @@ def check_mstatus_fields (_ : Unit) : Bool :=
       valid)
     else valid)
   else
-    (if ((not (true : Bool)) : Bool)
+    (if ((not (false : Bool)) : Bool)
     then
       (if ((bne legal_vs ExtContext_Off) : Bool)
       then
