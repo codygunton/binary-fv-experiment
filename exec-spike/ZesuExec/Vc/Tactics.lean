@@ -200,7 +200,9 @@ Leaves the cut's fields as goals. -/
     let isTail ← evalExpr Bool (mkConst ``Bool)
       (← mkAppM ``Option.isSome #[mkApp2 (mkAppN (mkConst ``Plan.tail) #[σ, img]) P pcE])
     if isTail then
-      evalTactic (← `(tactic| refine ExitGoal.at_tail (by rfl) ⟨?_, ?_, ?_, fun m'' hpost => ?_⟩))
+      evalTactic (← `(tactic| (
+        refine ExitGoal.at_tail (by rfl) ⟨?x, ?_, ?_, ?_, fun m'' hpost => ?_⟩
+        try (case x => exact ()))))
     else
     let some i := pcs.idxOf? pc | throwError "exit_intro: no cut at {pc}"
     let c ← cutStx i
@@ -218,8 +220,9 @@ Leaves the cut's fields as goals. -/
     let c ← cutStx i
     evalTactic (← `(tactic| (
       simp only [ExitGoal]
-      refine ⟨_, rfl, ?_, ?_, fun m'' hpost =>
-        ⟨$c, (Plan.getElem!_mem _ (i := $(quote i)) (by decide) : $c ∈ _), rfl, ?_, ?_, ?_⟩⟩)))
+      refine ⟨_, ?x, rfl, ?_, ?_, fun m'' hpost =>
+        ⟨$c, (Plan.getElem!_mem _ (i := $(quote i)) (by decide) : $c ∈ _), rfl, ?_, ?_, ?_⟩⟩
+      try (case x => exact ()))))
   | _, _ => throwError "exit_intro: exit {e} has no literal target"
 
 /-- Each field of a conjunction: hypothesis, normalisation and arithmetic, `region_tac`.

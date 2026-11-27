@@ -161,9 +161,9 @@ def cJ4 : Cut Sig := ⟨0x800cb5a8, SJ4, AJ4, envJ 700 [S4a, S4b], fun _ _ => 17
 def allocC : Callee Sig zesuImage where
   entry := allocEntry
   bound := 53
-  Pre := fun g m => g.A.Heap g.L m ∧ 0 < (m.reg 11).toNat ∧ (m.reg 11).toNat < 2 ^ 63 ∧
+  Pre := fun g _ m => g.A.Heap g.L m ∧ 0 < (m.reg 11).toNat ∧ (m.reg 11).toNat < 2 ^ 63 ∧
     (m.reg 12).toNat ≤ 3 ∧ StackOk m 16 ∧ RetAligned m ∧ CalleeFrameFree (g.A.Priv g.L) m
-  Post := fun g m m' => (Returns m m' ∧
+  Post := fun g _ m m' => (Returns m m' ∧
       SameOutside (fun a => g.A.Priv g.L a ∨ InRange (m.reg 2 - 16) 16 a) m m' ∧
       ((m'.reg 10 = 0 ∧ g.A.Heap g.L m') ∨
        (m'.reg 10 ≠ 0 ∧ g.A.Heap (g.L ++ [(m'.reg 10, (m.reg 11).toNat)]) m' ∧
@@ -171,26 +171,24 @@ def allocC : Callee Sig zesuImage where
         (∀ a, InRange (m'.reg 10) (m.reg 11).toNat a → g.A.Priv g.L a) ∧
         (∀ a, g.A.Priv (g.L ++ [(m'.reg 10, (m.reg 11).toNat)]) a → g.A.Priv g.L a)))) ∧
     Preserved m m'
-  spec := fun g m hpc hpre => Reaches.preserve (g.A.alloc_spec g.L m hpc hpre)
+  spec := fun g _ m hpc hpre => Reaches.preserve (g.A.alloc_spec g.L m hpc hpre)
 
-/-- The allocator list at the `free` call: the entry list and the new buffer in `s3`. -/
-def freeL (g : Sig) (m : Machine) : List (Word × Nat) :=
-  g.L ++ [(m.reg 19, grown (reqOf g.m) * elemBytes)]
-
-/-- `free` of the old buffer, a block of `freeL`. -/
+/-- `free` of a block of the allocator list `L'` (the index: at F1's call, the entry list and the
+new buffer in `s3`). -/
 def freeC : Callee Sig zesuImage where
+  X := List (Word × Nat)
   entry := freeEntry
   bound := 42
-  Pre := fun g m => g.A.Heap (freeL g m) m ∧ (m.reg 11, (m.reg 12).toNat) ∈ freeL g m ∧
+  Pre := fun g L' m => g.A.Heap L' m ∧ (m.reg 11, (m.reg 12).toNat) ∈ L' ∧
     0 < (m.reg 12).toNat ∧ (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 3 ∧ StackOk m 16 ∧
-    RetAligned m ∧ CalleeFrameFree (g.A.Priv (freeL g m)) m
-  Post := fun g m m' => (Returns m m' ∧
-      SameOutside (fun a => g.A.Priv (freeL g m) a ∨ InRange (m.reg 11) (m.reg 12).toNat a ∨
+    RetAligned m ∧ CalleeFrameFree (g.A.Priv L') m
+  Post := fun g L' m m' => (Returns m m' ∧
+      SameOutside (fun a => g.A.Priv L' a ∨ InRange (m.reg 11) (m.reg 12).toNat a ∨
         InRange (m.reg 2 - 16) 16 a) m m' ∧
-      g.A.Heap ((freeL g m).erase (m.reg 11, (m.reg 12).toNat)) m' ∧
-      (∀ a, g.A.Priv ((freeL g m).erase (m.reg 11, (m.reg 12).toNat)) a →
-        g.A.Priv (freeL g m) a ∨ InRange (m.reg 11) (m.reg 12).toNat a)) ∧ Preserved m m'
-  spec := fun g m hpc hpre => Reaches.preserve (g.A.free_spec (freeL g m) m hpc hpre)
+      g.A.Heap (L'.erase (m.reg 11, (m.reg 12).toNat)) m' ∧
+      (∀ a, g.A.Priv (L'.erase (m.reg 11, (m.reg 12).toNat)) a →
+        g.A.Priv L' a ∨ InRange (m.reg 11) (m.reg 12).toNat a)) ∧ Preserved m m'
+  spec := fun g L' m hpc hpre => Reaches.preserve (g.A.free_spec L' m hpc hpre)
 
 def vcPlan : PlanW Sig zesuImage where
   cuts := [cE, cJ2, cJ3, cJ4]
@@ -407,7 +405,7 @@ theorem alloc_call {A : AllocAssumptions zesuImage} {L : List (Word × Nat)} {it
     (hitems : BytesAt mk (wordAt m (m.reg 10)) items) (hwfB : Sl.wfB F = true)
     (r11 : (mc.reg 11).toNat = grown (m.reg 12).toNat * elemBytes) (r12 : Sl.reg 12 = .lit 0)
     (r1 : Sl.reg 1 = .lit 0x800cb55c) (r2 : Sl.reg 2 = .ptr 0 0) :
-    allocC.Pre ⟨A, L, items, m⟩ mc ∧ ∀ m2, allocC.Post ⟨A, L, items, m⟩ mc m2 →
+    allocC.Pre ⟨A, L, items, m⟩ () mc ∧ ∀ m2, allocC.Post ⟨A, L, items, m⟩ () mc m2 →
       Match (env.setVars F fun i => m2.reg (Fin.ofNat 32 i)) (Sl.override (callOv Sl F none)) m2 ∧
       Env.WF (env.setVars F fun i => m2.reg (Fin.ofNat 32 i)) (Sl.override (callOv Sl F none)) ∧
       m2.pc.toNat = 0x800cb55c ∧ Inv A L m m2 ∧ ScratchSame m m2 ∧
@@ -512,7 +510,7 @@ theorem F1.leaf_800cb40c_2 :
   obtain ⟨hpreA, hpostA⟩ := alloc_call (F := 200) E (envOk0 m) (by decide) (by decide) hmc E.wf
     (fun a ha => hfr a fun h => ha (.inl h)) hp Inv.refl E.heap (fun _ _ => rfl) E.items (by decide)
     r11 rfl rfl rfl
-  refine ⟨allocC, rfl, by simpa using hex, hpreA, fun m2 hpost => ?_⟩
+  refine ⟨allocC, (), rfl, by simpa using hex, hpreA, fun m2 hpost => ?_⟩
   obtain ⟨hm2, hwf2, hpc2, hinv2, hscr2, hitems2, hout, hret⟩ := hpostA m2 hpost
   refine ⟨cJ2, by simp [F1.plan, vcPlan], rfl, hpc2, ⟨E, hpc2, hinv2, hlt, hitems2, hscr2, hout,
     by rw [hret.2 22 (by decide), h22],
@@ -565,7 +563,7 @@ theorem F1.leaf_800cb40c_5 :
   obtain ⟨hpreA, hpostA⟩ := alloc_call (F := 300) E he (by decide) (by decide) hmc
     (E.wf.of_regions hag.regions) hfr' hp Inv.refl E.heap (fun _ _ => rfl) E.items (by decide)
     r11 rfl rfl rfl
-  refine ⟨allocC, rfl, by simpa using hex, hpreA, fun m3 hpost => ?_⟩
+  refine ⟨allocC, (), rfl, by simpa using hex, hpreA, fun m3 hpost => ?_⟩
   obtain ⟨hm3, hwf3, hpc3, hinv3, hscr3, hitems3, hout, hret⟩ := hpostA m3 hpost
   refine ⟨cJ2, by simp [F1.plan, vcPlan], rfl, hpc3, ⟨E, hpc3, hinv3, hlt, hitems3, hscr3, hout,
     by rw [hret.2 22 (by decide), h22],
@@ -642,7 +640,7 @@ theorem F1.leaf_800cb55c_0 :
     · exact .inl h
   obtain ⟨hpre, hpost⟩ := copy_call (iP := 510) E he hwf hmc hfr hp hinv hc0 hlt h10 hitems hne
     hheap hram' hpres' hblk hpriv (by decide) (by decide) rfl rfl rfl rfl
-  refine ⟨Callee.memcpy Sig zesuImage, rfl, by simpa using hex, hpre, fun m3 hz => ?_⟩
+  refine ⟨Callee.memcpy Sig zesuImage, (), rfl, by simpa using hex, hpre, fun m3 hz => ?_⟩
   obtain ⟨hm3, hwf3, hpc3, hinv3, hitems3, hscr3, hheap3⟩ := hpost m3 hz
   have r19 : m3.reg 19 = m2.reg 10 := by rw [← hm3.regs 19]; exact h10
   have r22 : m3.reg 22 = m2.reg 22 := by
@@ -760,20 +758,16 @@ theorem F1.leaf_800cb588_1 :
     rw [← hmc.regs 22]; exact envJ_fresh (i := 22) (by decide) _ _
   generalize hp' : m3.reg 19 = p' at hp0 hram hitems hheap hpriv hblk r19
   generalize hL3 : L ++ [(p', grown (m.reg 12).toNat * elemBytes)] = L3 at hheap hpriv
-  have hfL : freeL ⟨A, L, items, m⟩ mc = L3 := by rw [← hL3]; simp [freeL, r19]
   have hheapc : A.Heap L3 mc := A.heap_frame' L3 m3 mc hheap (fun a ha => hfr a fun hw =>
     E.ownNotPriv (own a hw) (hpriv a ha)) hp
-  have hpre : freeC.Pre ⟨A, L, items, m⟩ mc := by
-    show A.Heap (freeL _ mc) mc ∧ _
-    rw [hfL]
+  have hpre : freeC.Pre ⟨A, L, items, m⟩ L3 mc := by
     refine ⟨hheapc, ?_, ?_, ?_, by rw [r13]; decide, E.calleeStack (hinv.2.trans hp) r2,
       by unfold RetAligned; rw [r1]; decide, E.calleeFree hpriv r2⟩
     · rw [r11, r12, ← hL3]; exact List.mem_append_left _ hbufL
     · rw [r12]; simp only [elemBytes]; omega
     · rw [r12]; simp only [elemBytes] at hcR ⊢; omega
-  refine ⟨freeC, rfl, by simpa using hex, hpre, fun m4 hpost => ?_⟩
+  refine ⟨freeC, L3, rfl, by simpa using hex, hpre, fun m4 hpost => ?_⟩
   obtain ⟨⟨hret, hfrF, hheap4, hpriv4⟩, hp4⟩ := hpost
-  simp only [hfL] at hfrF hheap4 hpriv4
   rw [r11, r12] at hfrF hheap4 hpriv4
   have hcf : mc.reg 2 - 16 = m.reg 2 - 128 := by rw [r2]; bv_omega
   rw [hcf] at hfrF

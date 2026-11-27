@@ -13,14 +13,16 @@ every assertion may mention. `ZesuExec.Vc.vc_sound` turns the per-cut and per-le
 namespace ZesuExec.Vc
 open ZesuExec ZesuExec.Sym
 
-/-- A function the plan calls, with its contract. `Pre` and `Post` may mention the plan's
-parameters `σ`. -/
+/-- A function the plan calls, with its contract: a family indexed by `X` (the caller picks the
+index at each call, so a family contract over e.g. the allocator's list keeps the caller's
+instance). `Pre` and `Post` may mention the plan's parameters `σ`. -/
 structure Callee (σ : Type) (img : Image) where
+  X     : Type := Unit
   entry : Nat
   bound : Nat
-  Pre   : σ → Machine → Prop
-  Post  : σ → Machine → Machine → Prop
-  spec  : ∀ g, Spec img entry bound (Pre g) (Post g)
+  Pre   : σ → X → Machine → Prop
+  Post  : σ → X → Machine → Machine → Prop
+  spec  : ∀ g x, Spec img entry bound (Pre g x) (Post g x)
 
 /-- A cut point: where a symbolic run starts and an assertion is stated. -/
 structure Cut (σ : Type) where
@@ -55,8 +57,8 @@ structure Plan (σ : Type) (img : Image) where
 def Callee.memcpy (σ : Type) (img : Image) : Callee σ img where
   entry := Layout.memcpyEntry
   bound := 3
-  Pre := fun _ => MemcpyPre
-  Post := fun _ => MemcpyPost
-  spec := fun _ => memcpy_spec img
+  Pre := fun _ _ => MemcpyPre
+  Post := fun _ _ => MemcpyPost
+  spec := fun _ _ => memcpy_spec img
 
 end ZesuExec.Vc

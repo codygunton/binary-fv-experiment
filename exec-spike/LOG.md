@@ -591,3 +591,13 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   after `make -C tools/zmap map`. Gate S5.2 now passed for both halves (F3/decodeItem, F1/remap);
   alloc fallback unchanged. `zmap show f_800cb40c` still lists the static map's 5 cut points
   (S1 cut rule); the plan uses 4. ~60 min.
+- S2-idx (2026-11-27): indexed callees. `Vc.Callee` gains `X : Type := Unit`; `Pre : σ → X →
+  Machine → Prop`, `Post : σ → X → Machine → Machine → Prop`, `spec : ∀ g x, …`. `ExitGoal`'s
+  call case is `∃ k x, P.callee r = some k ∧ … k.Pre g x m' ∧ ∀ m'', k.Post g x m' m'' → …`,
+  its tail case `∃ x, …` (`ExitGoal.at_tail` likewise); `vc_sound` and `vc_soundW` pick the
+  caller's `x` (`CallGoal` is about summaries and unchanged); `exit_intro` leaves `x` as a goal
+  and closes it with `()` for `Unit` indices. `Callee.memcpy`, F1's `allocC` use `X := Unit`.
+  F1's `freeC` is now the family over the allocator list (`X := List (Word × Nat)`), the call
+  passes the list `L3`: the `freeL` workaround (list read back from `s3` inside the contract) is
+  gone. Test/Vc `Tail` passes `()`. F1 20 items (auto 5, manual 15, open 0), F2 unchanged;
+  `lake build` OK, `tools/verify.sh` all PASS after `make -C tools/zmap map`.

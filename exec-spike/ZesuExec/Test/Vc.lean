@@ -272,7 +272,7 @@ theorem Tail.leaf_80000000_0 :
     have : ziskMemcpyDomain m' = ziskMemcpyDomain m := by simp only [ziskMemcpyDomain, hr, hmem]
     rw [this]; exact hpre
   refine ExitGoal.at_tail (k := Callee.memcpy Unit tailImage) (by rfl)
-    ⟨he, hd, by simp [Callee.memcpy, ct], fun m'' hz => ?_⟩
+    ⟨(), he, hd, by simp [Callee.memcpy, ct], fun m'' hz => ?_⟩
   have hz : ziskMemcpy m' = some m'' := hz
   rw [ziskMemcpy, if_pos hd] at hz
   cases hz

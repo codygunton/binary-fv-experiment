@@ -48,11 +48,11 @@ theorem vc_sound (P : Plan σ img)
     intro c' hc' m₁ hA' k₀ hk₀ hle
     obtain ⟨k, m₂, hk, hr₂, hQ⟩ := ih (c'.budget g m₁) (by omega) c' hc' g m₁ hA' rfl
     exact done (k₀ + k) m₂ (hk₀.trans hr₂) (by omega) hQ
-  have call : ∀ r, (∃ k, P.callee r = some k ∧ m'.pc.toNat = k.entry ∧ k.Pre g m' ∧
-      ∀ m'', k.Post g m' m'' → ∃ c' ∈ P.cuts, c'.pc = r ∧ m''.pc.toNat = r ∧ c'.A g m'' ∧
+  have call : ∀ r, (∃ k x, P.callee r = some k ∧ m'.pc.toNat = k.entry ∧ k.Pre g x m' ∧
+      ∀ m'', k.Post g x m' m'' → ∃ c' ∈ P.cuts, c'.pc = r ∧ m''.pc.toNat = r ∧ c'.A g m'' ∧
         k.bound + c'.budget g m'' ≤ n - s) → Reaches img n (P.Post g) m := by
-    rintro r ⟨k, -, hpc', hpre, hpost⟩
-    obtain ⟨k₁, m₁, hk₁, hr₁, hP⟩ := k.spec g m' hpc' hpre
+    rintro r ⟨k, x, -, hpc', hpre, hpost⟩
+    obtain ⟨k₁, m₁, hk₁, hr₁, hP⟩ := k.spec g x m' hpc' hpre
     obtain ⟨c', hc', -, -, hA', hle⟩ := hpost m₁ hP
     exact atCut c' hc' m₁ hA' k₁ hr₁ (by omega)
   cases hE : l.exit with
@@ -62,8 +62,8 @@ theorem vc_sound (P : Plan σ img)
     cases ht : P.tail pc with
     | some k =>
       simp only [ExitGoal, ht] at hx
-      obtain ⟨hpc', hpre, hbd, hpost⟩ := hx
-      obtain ⟨k₁, m₁, hk₁, hr₁, hP⟩ := k.spec g m' hpc' hpre
+      obtain ⟨x, hpc', hpre, hbd, hpost⟩ := hx
+      obtain ⟨k₁, m₁, hk₁, hr₁, hP⟩ := k.spec g x m' hpc' hpre
       exact done k₁ m₁ hr₁ (by omega) (hpost m₁ hP)
     | none =>
       simp only [ExitGoal, ht] at hx
