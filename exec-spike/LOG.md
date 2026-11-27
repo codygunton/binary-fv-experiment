@@ -53,3 +53,33 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `SameOutside (InWritable env S) m m'`; `Match` carries `regsLen : S.regs.length = 32`.
   `bv_decide` was removed (its proofs add `_native.bv_decide` axioms); bit-level proofs instead.
   Literal `jalr` targets also check `t < 2^64`.
+
+## S1 — specialised Sail model (TrackT)
+- 2026-11-27 01:45 TrackT: S0 gate confirmed (`regen.log`: "Generated source matches", EXIT 0).
+  Scratch worktree `~/.cache/zesu-tmp/exec-spike/sail-riscv` (branch `zesu-spec`, pin 65ddde80).
+- Patches `sail/01-profile-config.patch` (config keys) and `sail/02-specialise.patch` (10 hunks:
+  C `pmpCheck`, `within_clint`, `within_sig`, `execute JALR`; R `within_htif_writable` (I3),
+  `run_hart_active` landing pad ×2 (I5), `try_step` selector (I4), `translateAddr` (I1+I6),
+  `dispatchInterrupt` (I2)). No hunk dropped. Deviations (see `sail/SPECIALISATION.md`): the
+  landing-pad hunks are Class R under an extra invariant I5 `elp = NO_LP_EXPECTED` (the plan calls
+  them C, but the stock body reads `elp`); `translateAddr` also needs I6 `mstatus.MPRV = 0`.
+  `dtb_address` left unchanged (Lean generation does not validate the configuration).
+- `nix/proof.nix`: `zesuSailRiscvRaw` (= `sailRiscvRegeneratedRaw.overrideAttrs` with `patches`),
+  `zesuSailRiscvLean`, `zesuSailRiscvLeanRegenerationCheck`, exported via `proof.public`.
+  `nix build -L .#zesuSailRiscvLean`: ok, 6 min 57 s wall. Result copied to `sail-riscv-lean`.
+  `nix build -L .#zesuSailRiscvLeanRegenerationCheck`: "Generated source matches", EXIT 0.
+- Effect in the generated Lean: `pmpCheck`, `dispatchInterrupt`, `within_clint`, `within_sig`,
+  `within_htif_*`, `within_mmio_*` became pure functions; `translateAddr` reads no register.
+- Three variants, `lake build LeanRV64DExecutable` in scratch packages (24 cores via `taskset`):
+
+  | Variant | files | lines | wall | user | peak RSS | defs reachable / registers read (`tools/reach.py`, addi via `execute_ITYPE`) |
+  |---|---|---|---|---|---|---|
+  | stock (committed tree) | 111 | 54,283 | 66.1 s | 123.0 s | 1.83 GiB | 474 / 87 |
+  | config patch only | 111 | 54,283 | 59.6 s | 113.9 s | 1.82 GiB | 474 / 87 |
+  | both patches | 111 | 54,175 | 60.9 s | 115.1 s | 1.83 GiB | 331 / 76 |
+
+  The configuration alone changes only inlined constants (same line count, same reach).
+  `reach.py` counts textually, including the trap-handling paths of `try_step`.
+- Gate S1: passed on the top rung (both patches). `sail/PROVENANCE.md`, `sail/SPECIALISATION.md`.
+- Next: S3 step 1-2 (`tools/closure.py` copied 55 modules, no `BinaryFv.Zesu` import, no
+  `native_decide`); repair against the specialised tree.
