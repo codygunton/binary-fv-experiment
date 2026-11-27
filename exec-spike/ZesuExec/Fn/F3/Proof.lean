@@ -1,4 +1,5 @@
 import ZesuExec.Fn.F3.Lemmas
+import ZesuExec.Vc.Tactics
 
 /-!
 # F3 proof: `f3_spec : Spec zesuImage 0x800d6274 160 Pre Post`
@@ -965,14 +966,14 @@ theorem after_call {m mh : Machine} (e : Entry m) (hc : CallState m mh) (c : Wor
     · refine ⟨by simpa [Oblig.holds] using hal, by decide, fun m' hm' hex hfr => ?_⟩
       exact Reaches.done (post_of (ret_returns hc hm' hex (by decide)) (ret_so e hc hfr)
         (res_err hm' rfl (by decide) hn) (sl_kept e hc hm' rfl (by decide) hn))
-    all_goals exfalso; f3_conds
+    all_goals leaf_infeasible
   obtain ⟨hst, hfl, hpl, hcons, hptr⟩ := outcome_ok hc c hd
   obtain ⟨hh9, hhp, h128, hp64⟩ := decode_success hd
   rw [hlen] at hhp
   have hcw : (Sym.init 0 32 8).eval (envR m mh c) = BitVec.ofNat 64 (h + p) := hcons
   cases b
   · rcases hl with rfl | rfl | rfl | rfl | rfl
-    · exfalso; f3_conds
+    · leaf_infeasible
     · exfalso; f3_conds
     · -- empty payload
       f3_conds
@@ -1022,7 +1023,7 @@ theorem after_call {m mh : Machine} (e : Entry m) (hc : CallState m mh) (c : Wor
         (res_err hm' rfl (by decide) hn) (sl_kept e hc hm' rfl (by decide) hn))
   · have hn : nextUint64 (inputOf m) = none := by simp [nextUint64, hd]
     rcases hl with rfl | rfl | rfl | rfl | rfl
-    · exfalso; f3_conds
+    · leaf_infeasible
     · refine ⟨by simpa [Oblig.holds] using hal, by decide, fun m' hm' hex hfr => ?_⟩
       exact Reaches.done (post_of (ret_returns hc hm' hex (by decide)) (ret_so e hc hfr)
         (res_err hm' rfl (by decide) hn) (sl_kept e hc hm' rfl (by decide) hn))

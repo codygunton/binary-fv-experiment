@@ -89,3 +89,10 @@ import ZesuExec.Vc.Sound
 import ZesuExec.Vc.Assemble
 import ZesuExec.Vc.Legacy
 import ZesuExec.Test.Vc
+import ZesuExec.Sym.Pretty
+import ZesuExec.Vc.SimpAttr
+import ZesuExec.Vc.Regions
+import ZesuExec.Vc.Tactics
+import ZesuExec.Fn.F1.Vc
+import ZesuExec.Fn.F2.Vc
+import ZesuExec.Test.Auto

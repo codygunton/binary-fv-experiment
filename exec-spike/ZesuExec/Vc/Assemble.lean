@@ -146,31 +146,34 @@ unsafe def elabZesuPlan : CommandElab := fun stx => do
     msg := msg ++ s!"\n  0x{hexNat c.pc}: {c.leaves.size} leaves"
   logInfo msg
 
-/-- Try `tac` on the goal `goalTxt`; on success add theorem `name`. -/
+/-- Try `tac` on the goal `goalTxt`; on success add theorem `name`. A proof with a placeholder (an
+error recovered inside the tactic) is a failure. A failure leaves no messages and records the
+remaining goals' count and the first one's head symbol, or the tactic's error. -/
 def tryItem (fn name : Name) (goalTxt : String) (tac : Syntax) : CommandElabM Unit := do
   let (ok, residual) ← liftTermElabM do
     let ty ← elabClosed goalTxt (mkSort .zero)
     let mv ← mkFreshExprMVar ty
     let saved ← saveState
+    let msgs := (← getThe Core.State).messages
+    let fail (r : String) : TermElabM (Bool × String) := do
+      saved.restore; modifyThe Core.State ({ · with messages := msgs }); return (false, r)
     let res ← try
-        let gs ← Tactic.run mv.mvarId! (Tactic.evalTactic tac)
+        let gs ← Term.withoutErrToSorry <| Tactic.run mv.mvarId! <|
+          Tactic.withoutRecover (Tactic.evalTactic tac)
         pure (Except.ok gs)
       catch e => pure (Except.error e)
     match res with
     | .ok [] =>
       let v ← instantiateMVars mv
-      if v.hasMVar then
-        saved.restore
-        return (false, "1 goal; metavariables in the proof")
+      if v.hasMVar || v.hasSorry then return ← fail "1 goal; incomplete proof"
       addDecl (.thmDecl { name, levelParams := [], type := ty, value := v })
       return (true, "")
     | .ok (g :: gs) =>
       let head ← ppExpr ((← instantiateMVars (← g.getType)).getAppFn)
-      saved.restore
-      return (false, s!"{gs.length + 1} goals; head {head}")
-    | .error _ =>
-      saved.restore
-      return (false, s!"1 goal; head {← ppExpr ty.getAppFn}")
+      fail s!"{gs.length + 1} goals; head {head}"
+    | .error e =>
+      let msg := ((← e.toMessageData.toString).splitOn "\n").headD ""
+      fail s!"1 goal; head {← ppExpr ty.getAppFn}; {String.ofList (msg.toList.take 160)}"
   modifyEnv (zesuExt.addEntry · (.attempt fn name ok residual))
 
 @[command_elab zesuAutoCmd]

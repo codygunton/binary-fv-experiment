@@ -1,5 +1,6 @@
 import ZesuExec.Fn.F6.Lemmas
 import ZesuExec.Fn.F6.Runs
+import ZesuExec.Vc.Tactics
 
 /-!
 # F6 proof: `f6_spec : Spec zesuImage 0x800d5cb8 2178 Pre Post`
@@ -571,9 +572,9 @@ theorem after14 {m : Machine} (n : Nums m) (e : Entry m) {mh : Machine} {o r v0 
   · rcases hl with rfl | rfl | rfl
     · exact ⟨by simp, by decide, fun m' hm' hex hfr =>
         (memcpy_exit n e hs.d.fr hm' hfr hex (by decide) hw).mono (by decide) fun _ h => h⟩
-    all_goals conds; exfalso; simp [hst, Sym.eval_lit] at hcs
+    all_goals leaf_infeasible
   rcases hl with rfl | rfl | rfl
-  · conds; exfalso; simp [hst, Sym.eval_lit] at hcs
+  · leaf_infeasible
   · -- the first nextUint64
     conds
     obtain ⟨-, h1⟩ := hcs
@@ -998,9 +999,9 @@ theorem after11 {m : Machine} (n : Nums m) (e : Entry m) {mh : Machine} {o r v0 
     · exact ⟨by simpa using retT_aligned e mh c0, by decide, fun m' hm' hex hfr =>
         Reaches.done (err_exit (v := .lit 3) n hs.fr hm' hfr hex (by decide) (by decide)
           (by decide) rfl hwn)⟩
-    all_goals conds; exfalso; simp [hst, Sym.eval_lit] at hcs
+    all_goals leaf_infeasible
   rcases hl with rfl | rfl | rfl | rfl | rfl | rfl
-  · conds; exfalso; simp [hst, Sym.eval_lit] at hcs
+  · leaf_infeasible
   · -- a list
     iconds
     have hb : b = true := by cases b <;> simp_all
@@ -1158,9 +1159,9 @@ theorem after10 {m : Machine} (n : Nums m) (e : Entry m) {mh : Machine} {o r v0 
     · exact ⟨by simpa using retT_aligned e mh c0, by decide, fun m' hm' hex hfr =>
         Reaches.done (err_exit (v := .lit 3) n hs.fr hm' hfr hex (by decide) (by decide)
           (by decide) rfl hwn)⟩
-    all_goals conds; exfalso; simp [hst, Sym.eval_lit] at hcs
+    all_goals leaf_infeasible
   rcases hl with rfl | rfl | rfl | rfl | rfl
-  · conds; exfalso; simp [hst, Sym.eval_lit] at hcs
+  · leaf_infeasible
   · -- a list
     iconds
     have hb : b = true := by cases b <;> simp_all
@@ -1270,7 +1271,7 @@ theorem after9 {m : Machine} (n : Nums m) (e : Entry m) {mh : Machine} {o r : Na
   simp only [run9_leaves, List.mem_cons, List.not_mem_nil, or_false] at hl
   rcases int_step hs hw with ⟨hwn, hst⟩ | ⟨b, h, p, hst, hfl, hpl, hcw, hp64, hbad, hok⟩
   · rcases hl with rfl | rfl | rfl | rfl | rfl
-    all_goals try (conds; exfalso; simp [hst, Sym.eval_lit] at hcs; done)
+    all_goals try (leaf_infeasible; done)
     exact ⟨by simpa using retT_aligned e mh c0, by decide, fun m' hm' hex hfr =>
       Reaches.done (err_exit (v := .lit 3) n hs.fr hm' hfr hex (by decide) (by decide)
         (by decide) rfl hwn)⟩
@@ -1345,7 +1346,7 @@ theorem after9 {m : Machine} (n : Nums m) (e : Entry m) {mh : Machine} {o r : Na
         rw [w18, w10, ofNat_add_ofNat]
       · show (Sym.var 19).eval _ - (Sym.var 10).eval _ = _
         rw [w19, w10, adv_len' hr64 (by omega)]
-  · conds; exfalso; simp [hst, Sym.eval_lit] at hcs
+  · leaf_infeasible
 
 /-! ## The required skips (fields 0..8, outcome at 64) -/
 

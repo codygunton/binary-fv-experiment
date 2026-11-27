@@ -1,6 +1,7 @@
 import ZesuExec.Sym.Sound
 import ZesuExec.Sym.Tactic
 import ZesuExec.Image.Gen
+import ZesuExec.Vc.SimpAttr
 
 /-!
 # Shared definitions for the function proofs `ZesuExec.Fn.<Id>`
@@ -45,6 +46,10 @@ theorem entryState_reg (ov : Nat → Option Sym) (rs : List Region) (ks : List W
 theorem entryEnv_var (m : Machine) (rs : List (Word × Nat)) (i : Fin 32) :
     (entryEnv m rs).vars i.val = m.reg i := by
   simp [entryEnv]
+
+/-- `entryEnv_var` with a `Nat` index, as `Sym.eval_var` leaves it (for `zesu_simp`). -/
+@[zesu_simp] theorem entryEnv_vars (m : Machine) (rs : List (Word × Nat)) (i : Nat) :
+    (entryEnv m rs).vars i = m.reg (Fin.ofNat 32 i) := rfl
 
 theorem Env.base_of_lt {env : Env} {r : Nat} (h : r < env.regions.length) :
     env.base r = env.regions[r].1 := by

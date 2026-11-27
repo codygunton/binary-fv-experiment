@@ -57,9 +57,13 @@ def planJson (entries : Array Entry) (env : Environment) (fn : Name) (cuts : Arr
         ("obligs", toJson l.obligs), ("state", toJson ls), ("residual", toJson lr)]
     Json.mkObj [("pc", toJson c.pc), ("cut_lemma", toJson st), ("residual", toJson res),
       ("leaves", Json.arr leaves.toArray)]
-  let f := fn.getString!.toLower
-  let (th, names) := theoremsJson env (some (fn ++ `reach)) (nearName env fn s!"{f}_spec")
-    (nearName env fn s!"{f}_sail") (some (nearName env fn s!"{f}_compliance"))
+  -- a spike function converted to a plan keeps the legacy table's theorem names
+  let (th, names) := match legacyFns.find? (·.entry == entry) with
+    | some l => theoremsJson env (some (fn ++ `reach)) l.spec l.sail l.compliance
+    | none =>
+      let f := fn.getString!.toLower
+      theoremsJson env (some (fn ++ `reach)) (nearName env fn s!"{f}_spec")
+        (nearName env fn s!"{f}_sail") (some (nearName env fn s!"{f}_compliance"))
   Json.mkObj [("id", toJson s!"f_{hexNat entry}"), ("fn", toJson fn.toString),
     ("entry", toJson entry), ("legacy", toJson false),
     ("assembled", toJson (env.contains (fn ++ `reach_from))), ("cuts", Json.arr cutsJ.toArray),
@@ -71,13 +75,17 @@ def legacyJson (env : Environment) (l : LegacyFn) : Json :=
     ("legacy", toJson true), ("assembled", toJson false), ("cuts", Json.arr #[]),
     ("open", Json.arr #[]), ("theorems", th), ("names", names)]
 
+/-- Plan functions, then the legacy functions that have no plan. -/
 def statusJson (env : Environment) : Json :=
   let entries := zesuEntries env
   let plans := entries.filterMap fun
-    | .plan fn cs => if (`ZesuExec.Test).isPrefixOf fn then none else some (planJson entries env fn cs)
+    | .plan fn cs => if (`ZesuExec.Test).isPrefixOf fn then none else some (fn, cs)
     | _ => none
+  let planEntries := plans.map fun (_, cs) => (cs[0]?.map (·.pc)).getD 0
+  let legacy := legacyFns.filter (!planEntries.contains ·.entry)
   Json.mkObj [("schema", toJson "zmap.status.v1"),
-    ("functions", Json.arr (plans ++ (legacyFns.map (legacyJson env)).toArray))]
+    ("functions", Json.arr (plans.map (fun (fn, cs) => planJson entries env fn cs) ++
+      (legacy.map (legacyJson env)).toArray))]
 
 end ZesuExec.Vc
 

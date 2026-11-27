@@ -393,6 +393,41 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `decode_access_list` (l.180) and its entries/keys walkers, so no `compliance-spec-missing`.
   `tools/snap.py --fn TX` added: 16/16 zesislar inputs `returned` under Unicorn (real allocator);
   `zesu-difftest --fn TX` needs `Gen.TX` (image change), not wired.
+- S4 (2026-11-27): `Sym/Pretty.lean` (ABI-name printers, depth-6 truncation, `Leaf.pp` against
+  the cut state); `sym_run` log lines now carry the exit target and first condition. `Vc/SimpAttr`
+  (`zesu_simp`), `Vc/Regions` (`Layout`, `Layout.apart`/`wf`/`inWritable_iff`/`sameOutside_frame`,
+  `region_tac`), `Vc/Tactics` (`leaf_intro`, `cut_intro`, `sym_show`, `match_regs`, `leaf_norm`,
+  `leaf_infeasible`, `exit_intro`, `field_auto`, `leaf_auto`/`cut_auto` as `macro_rules`).
+  Deviations: `sym_show` lives in `Vc/Tactics.lean` (needs `unsafe` evaluation; allowlist kept);
+  `zesu_auto` now rejects proofs containing `sorryAx` and runs tactics without error recovery (found
+  while testing: a recovered error was recorded as `auto`). `Test/Auto.lean`: toy 5/5 auto,
+  `Toy3.reach` axioms guarded; false leaf goals (reachable back edge asserted infeasible; wrong
+  postcondition `Toy5`) fail under `fail_if_success`, `Toy5.Open` has exactly the false leaf;
+  `region_tac` positive and wrong-layout tests; `sym_show` output guarded.
+  `leaf_infeasible` at existing call sites: replaced where it closes the same goal — F3 `f3_conds`
+  3 of 5 closing sites (kept: `Proof.lean` the `exfalso; f3_conds` at the second leaf of the
+  `cases b` branch and the last `all_goals`; the 3 normalising uses stay); F6 `conds; exfalso; simp`
+  8 of 14 closing sites (kept: 4 single-leaf sites, the `| none =>` site, one `all_goals try`);
+  kept entirely: `f1_overflow` (2 sites; needs `g_or'`/`grown_srl59` rewriting of `|||` terms),
+  `f4_infeasible`, `f5_infeasible` (derive facts inside the macro), and all `conds`/`iconds`
+  normalising uses.
+- S4 benchmark F2: `Fn/F2/Vc.lean` (the old `Proof.lean` renamed and converted: `loop_step` →
+  `loop_leaves`, `f2_spec` body → `entry_leaves`, `loop_reaches` deleted), `Fn/F2/Proof.lean` derives
+  `f2_spec` from `F2.reach` (22 lines). 3 cuts, 17 leaves, 20 items: auto 0, manual 20, open 0.
+  Hand lines before 736 (Proof.lean), after 848 + 22 = 870 (+17 one-line leaf theorems + plan/cut
+  definitions). `f2_spec`, `f2_sail`, F2 compliance unchanged and building.
+- S4 benchmark F1 (fallback taken: conditional): `Fn/F1/Vc.lean` (561 lines): 5 cuts (entry, after
+  remap/alloc/memcpy/free), 16 leaves, 21 items: auto 2 (two overflow leaves), manual 11 (entry and
+  after-remap cut lemmas, entry leaves 0-4 and 7, after-remap leaves 0-2; `alloc_call` splits
+  `alloc_step` for `ExitGoal`), open 8: the cut lemmas of the three join cuts and the 5 leaves of
+  their runs. Join states are `genS` of the spike's two path states; their `CutOK` needs matching a
+  path state against its `genS` (S5 probe 1), attempted twice in design, not proved. `F1.reach_from`
+  assembles (axioms guarded); `f1_spec` keeps its spike proof; `Fn/F1/Runs.lean` and the old bodies
+  are not deleted. Hand lines before 1309 + 29; after: unchanged + 561 conditional.
+  `zesu-status`: F1, F2 now plan rows (legacy rows dropped for them, legacy theorem names kept).
+  `lake build` 260 jobs OK; `tools/verify.sh` items 2, 3, 9 PASS; "map freshness" FAILS until
+  `make -C tools/zmap map` is rerun (S3's step; `zesu-status` output changed). Gate S4: automation
+  items done and tested; F2 converted; F1 conditional (fallback).
 - S5 probe 3 (2026-11-27, branch `probe-unaligned`, worktree `~/.cache/zesu-tmp/zmap/wt-unaligned`):
   unaligned accesses. `Machine.load`/`Machine.store` drop natural alignment (the range must lie in
   one permitted interval, bytes present); `Sym`'s `cstCheck`, rodata and indexed loads drop their
