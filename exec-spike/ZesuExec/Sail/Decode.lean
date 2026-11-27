@@ -42,8 +42,50 @@ theorem fld_of_field {w : BitVec 32} {lo n c : Nat} (h : field w.toNat lo n = c)
     BitVec.ofNat n (w.toNat / 2 ^ lo) = BitVec.ofNat n c := by
   apply BitVec.eq_of_toNat_eq; simp [field] at h; simp [← h]
 
-macro "sail_decode" : tactic =>
+/-- A whole-word or low-bits comparison against a constant whose opcode differs is false. -/
+theorem setWidth_ne {w : BitVec 32} {k : Nat} (h : BitVec.setWidth 7 w = BitVec.ofNat 7 k)
+    (n c : Nat) (hn : 7 ≤ n) (hn' : n ≤ 32) (hc : c % 128 ≠ k % 128) :
+    (BitVec.setWidth n w = BitVec.ofNat n c) = False := by
+  apply propext; constructor
+  · intro heq
+    have h1 := congrArg BitVec.toNat h
+    have h2 := congrArg BitVec.toNat heq
+    simp only [BitVec.toNat_setWidth, BitVec.toNat_ofNat] at h1 h2
+    have hd : 128 ∣ 2 ^ n := by
+      have : 2 ^ 7 ∣ 2 ^ n := Nat.pow_dvd_pow 2 hn
+      simpa using this
+    have e1 : w.toNat % 2 ^ n % 128 = w.toNat % 128 := Nat.mod_mod_of_dvd _ hd
+    have e2 : c % 2 ^ n % 128 = c % 128 := Nat.mod_mod_of_dvd _ hd
+    simp only [Nat.reducePow] at h1
+    apply hc; omega
+  · intro f; exact f.elim
+
+theorem word_ne {w : BitVec 32} {k : Nat} (h : BitVec.setWidth 7 w = BitVec.ofNat 7 k)
+    (c : Nat) (hc : c % 128 ≠ k % 128) : (w = BitVec.ofNat 32 c) = False := by
+  have := setWidth_ne h 32 c (by omega) (by omega) hc
+  simpa using this
+
+theorem field_14_1 (x : Nat) : field x 14 1 = field x 12 3 / 4 := by
+  simp only [field]; omega
+
+theorem field_12_2 (x : Nat) : field x 12 2 = field x 12 3 % 4 := by
+  simp only [field]; omega
+
+theorem toNat_append_add {m n : Nat} (x : BitVec m) (y : BitVec n) :
+    (x ++ y).toNat = x.toNat * 2 ^ n + y.toNat := by
+  rw [BitVec.toNat_append, ← Nat.shiftLeft_add_eq_or_of_lt y.isLt, Nat.shiftLeft_eq]
+
+set_option hygiene false in
+/-- Runs the generated decoder on a symbolic word whose fixed fields are in context: `hop` (the
+opcode, as `field w.toNat 0 7 = c`) and any `BitVec.ofNat` field facts; decides every clause test
+and compares the result with `toSail`. -/
+macro "dec_tac" : tactic =>
   `(tactic| (
+    have hop' := opc_of_field hop
+    have h14 := fld_of_field (field_14_1 w.toNat)
+    have h12 := fld_of_field (field_12_2 w.toNat)
+    simp only [Nat.reducePow] at *
+    obtain ⟨hpriv, ⟨sb, hsec⟩, ⟨mi, hmisa, hm⟩⟩ := Configured.decodeReads hc
     unfold Runs ext_decode
     simp [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
       PreSail.readReg, EStateM.run, Bind.bind, Pure.pure,
@@ -53,11 +95,15 @@ macro "sail_decode" : tactic =>
       MonadState.get, MonadStateOf.get, extractLsb_field,
       ofNat_beq_ofNat, ofNat_eq_ofNat, encdec_reg_backwards_matches,
       LeanRV64DExecutable.Functions.base_E_enabled, LeanRV64DExecutable.Functions.not,
+      LeanRV64DExecutable.Functions.xlen, LeanRV64DExecutable.Functions.xlen_bytes,
+      valid_load_encdec,
       encdec_uop_backwards_matches, encdec_iop_backwards_matches, encdec_iop_backwards,
       encdec_reg_backwards, encdec_bop_backwards_matches, encdec_bop_backwards,
       width_enc_backwards_matches, width_enc_backwards, bool_bit_backwards_matches,
       encdec_mul_op_backwards_matches, encdec_mul_op_backwards, encdec_uop_backwards,
-      Nat.div_div_eq_div_mul, *]))
+      Nat.div_div_eq_div_mul, setWidth_ne hop', word_ne hop', *]
+    simp [toSail, rg, reg, immI, immS, immB, immJ, immU, field, ofNat_mod]
+    try (apply BitVec.eq_of_toNat_eq; simp only [toNat_append_add, BitVec.toNat_ofNat]; omega)))
 
 /-- The register reads `ext_decode` performs on a configured state. -/
 theorem Configured.decodeReads {s : State} (hc : Configured s) :
@@ -67,16 +113,152 @@ theorem Configured.decodeReads {s : State} (hc : Configured s) :
   obtain ⟨v, hv, _⟩ := hc.mseccfg
   exact ⟨hc.privilege, ⟨v, hv⟩, hc.misa⟩
 
-theorem dec_addi (w : BitVec 32) {s : State} (hc : Configured s)
-    (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 0) :
+section forms
+variable (w : BitVec 32) {s : State} (hc : Configured s)
+include hc
+
+theorem dec_lui (hop : field w.toNat 0 7 = 0x37) :
+    Runs (ext_decode w) s s (toSail (.lui (reg w.toNat 7) (immU w.toNat))) := by
+  have := opc_of_field hop; dec_tac
+
+theorem dec_auipc (hop : field w.toNat 0 7 = 0x17) :
+    Runs (ext_decode w) s s (toSail (.auipc (reg w.toNat 7) (immU w.toNat))) := by
+  have := opc_of_field hop; dec_tac
+
+theorem dec_jal (hop : field w.toNat 0 7 = 0x6f) :
+    Runs (ext_decode w) s s (toSail (.jal (reg w.toNat 7) (immJ w.toNat))) := by
+  have := opc_of_field hop; dec_tac
+
+theorem dec_jalr (hop : field w.toNat 0 7 = 0x67) (hf3 : field w.toNat 12 3 = 0) :
+    Runs (ext_decode w) s s (toSail (.jalr (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_beq (hop : field w.toNat 0 7 = 0x63) (hf3 : field w.toNat 12 3 = 0) :
+    Runs (ext_decode w) s s (toSail (.beq (reg w.toNat 15) (reg w.toNat 20) (immB w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_bne (hop : field w.toNat 0 7 = 0x63) (hf3 : field w.toNat 12 3 = 1) :
+    Runs (ext_decode w) s s (toSail (.bne (reg w.toNat 15) (reg w.toNat 20) (immB w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_blt (hop : field w.toNat 0 7 = 0x63) (hf3 : field w.toNat 12 3 = 4) :
+    Runs (ext_decode w) s s (toSail (.blt (reg w.toNat 15) (reg w.toNat 20) (immB w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_bltu (hop : field w.toNat 0 7 = 0x63) (hf3 : field w.toNat 12 3 = 6) :
+    Runs (ext_decode w) s s (toSail (.bltu (reg w.toNat 15) (reg w.toNat 20) (immB w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_bgeu (hop : field w.toNat 0 7 = 0x63) (hf3 : field w.toNat 12 3 = 7) :
+    Runs (ext_decode w) s s (toSail (.bgeu (reg w.toNat 15) (reg w.toNat 20) (immB w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_lb (hop : field w.toNat 0 7 = 0x03) (hf3 : field w.toNat 12 3 = 0) :
+    Runs (ext_decode w) s s (toSail (.lb (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_lbu (hop : field w.toNat 0 7 = 0x03) (hf3 : field w.toNat 12 3 = 4) :
+    Runs (ext_decode w) s s (toSail (.lbu (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_lhu (hop : field w.toNat 0 7 = 0x03) (hf3 : field w.toNat 12 3 = 5) :
+    Runs (ext_decode w) s s (toSail (.lhu (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_lw (hop : field w.toNat 0 7 = 0x03) (hf3 : field w.toNat 12 3 = 2) :
+    Runs (ext_decode w) s s (toSail (.lw (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_ld (hop : field w.toNat 0 7 = 0x03) (hf3 : field w.toNat 12 3 = 3) :
+    Runs (ext_decode w) s s (toSail (.ld (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_sb (hop : field w.toNat 0 7 = 0x23) (hf3 : field w.toNat 12 3 = 0) :
+    Runs (ext_decode w) s s (toSail (.sb (reg w.toNat 15) (reg w.toNat 20) (immS w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_sh (hop : field w.toNat 0 7 = 0x23) (hf3 : field w.toNat 12 3 = 1) :
+    Runs (ext_decode w) s s (toSail (.sh (reg w.toNat 15) (reg w.toNat 20) (immS w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_sw (hop : field w.toNat 0 7 = 0x23) (hf3 : field w.toNat 12 3 = 2) :
+    Runs (ext_decode w) s s (toSail (.sw (reg w.toNat 15) (reg w.toNat 20) (immS w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_sd (hop : field w.toNat 0 7 = 0x23) (hf3 : field w.toNat 12 3 = 3) :
+    Runs (ext_decode w) s s (toSail (.sd (reg w.toNat 15) (reg w.toNat 20) (immS w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_addi (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 0) :
     Runs (ext_decode w) s s (toSail (.addi (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
-  obtain ⟨hpriv, ⟨sb, hsec⟩, ⟨mi, hmisa, hm⟩⟩ := hc.decodeReads
-  have hop' := opc_of_field hop
-  have hf3' := fld_of_field hf3
-  simp only [Nat.reducePow] at hf3'
-  sail_decode
-  simp [toSail, rg, reg, immI, field, ofNat_mod]
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
   trace_state
   sorry
+
+theorem dec_xori (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 4) :
+    Runs (ext_decode w) s s (toSail (.xori (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_andi (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 7) :
+    Runs (ext_decode w) s s (toSail (.andi (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_sltiu (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 3) :
+    Runs (ext_decode w) s s (toSail (.sltiu (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_slli (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 1)
+    (hf6 : field w.toNat 26 6 = 0) :
+    Runs (ext_decode w) s s (toSail (.slli (reg w.toNat 7) (reg w.toNat 15)
+      (BitVec.ofNat 6 (field w.toNat 20 6)))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf6; dec_tac
+
+theorem dec_srli (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 5)
+    (hf6 : field w.toNat 26 6 = 0) :
+    Runs (ext_decode w) s s (toSail (.srli (reg w.toNat 7) (reg w.toNat 15)
+      (BitVec.ofNat 6 (field w.toNat 20 6)))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf6; dec_tac
+
+theorem dec_add (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0)
+    (hf3 : field w.toNat 12 3 = 0) :
+    Runs (ext_decode w) s s (toSail (.add (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_sll (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0)
+    (hf3 : field w.toNat 12 3 = 1) :
+    Runs (ext_decode w) s s (toSail (.sll (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_sltu (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0)
+    (hf3 : field w.toNat 12 3 = 3) :
+    Runs (ext_decode w) s s (toSail (.sltu (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_or (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0)
+    (hf3 : field w.toNat 12 3 = 6) :
+    Runs (ext_decode w) s s (toSail (.or (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_and (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0)
+    (hf3 : field w.toNat 12 3 = 7) :
+    Runs (ext_decode w) s s (toSail (.and (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_sub (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0x20)
+    (hf3 : field w.toNat 12 3 = 0) :
+    Runs (ext_decode w) s s (toSail (.sub (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_mul (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 1)
+    (hf3 : field w.toNat 12 3 = 0) :
+    Runs (ext_decode w) s s (toSail (.mul (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_mulhu (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 1)
+    (hf3 : field w.toNat 12 3 = 3) :
+    Runs (ext_decode w) s s (toSail (.mulhu (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+end forms
 
 end ZesuExec.SailLink

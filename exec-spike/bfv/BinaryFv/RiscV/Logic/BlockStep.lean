@@ -54,7 +54,8 @@ open PreSail LeanRV64DExecutable.Functions Register
 
 /-! ### Representative instruction-contract block -/
 
-/-- The concrete premises for a signed word load that retires through `try_step`. -/
+/-- exec-spike repair: the `noMMIO`, `interrupts` and `notExpected` fields were removed.
+The concrete premises for a signed word load that retires through `try_step`. -/
 structure LoadWordStepContract (stepNo : Nat) (state : State) where
   afterExec : State
   pc : BitVec 64
@@ -70,14 +71,11 @@ structure LoadWordStepContract (stepNo : Nat) (state : State) where
   byte2 : BitVec 8
   byte3 : BitVec 8
   platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc
-  noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc
   bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3
-  interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state)
   base : BaseInstructionEncoding byte0
   decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
     (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
     (.LOAD (imm, rs1, rd, false, 4))
-  notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state)
   hread : Runs (vmem_read rs1 (sign_extend (m := 64) imm) 4
     (MemoryAccessType.Load mem_payload.Data) false false false)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
@@ -110,15 +108,17 @@ theorem LoadWordStepContract.retire
     Runs (try_step stepNo false) state contract.afterRetired false := by
   exact tryStepFallThroughRetires stepNo state contract.afterExec contract.pc contract.retired
     contract.inhibit contract.config contract.byte0 contract.byte1 contract.byte2 contract.byte3
-    (.LOAD (contract.imm, contract.rs1, contract.rd, false, 4)) contract.platform contract.noMMIO
-    contract.bytes contract.interrupts contract.base contract.decode contract.notExpected
+    (.LOAD (contract.imm, contract.rs1, contract.rd, false, 4)) contract.platform
+    contract.bytes contract.base contract.decode
     (execute_LOAD_lw_run _ _ contract.imm contract.rs1 contract.rd contract.data contract.hread
       contract.hwrite)
     contract.nextPcAfterExec contract.hartAgree contract.incrementAgree contract.retiredAgree
     contract.hartRead contract.inhibitRead contract.configRead contract.notInhibited
     contract.machineEnabled contract.retiredRead
 
-/-- Concrete premises for an unsigned-byte primitive read retired through generated `try_step`. -/
+/-- exec-spike repair: the `fetchNoMMIO`, `interrupts`, `notExpected` and `loadNoMMIO` fields were
+removed.
+Concrete premises for an unsigned-byte primitive read retired through generated `try_step`. -/
 structure LoadByteStepContract (stepNo : Nat) (state : State) where
   afterExec : State
   pc : BitVec 64
@@ -136,14 +136,11 @@ structure LoadByteStepContract (stepNo : Nat) (state : State) where
   byte2 : BitVec 8
   byte3 : BitVec 8
   platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc
-  fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc
   bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3
-  interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state)
   base : BaseInstructionEncoding byte0
   decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
     (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
     (.LOAD (imm, rs1, rd, true, 1))
-  notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state)
   mstatusRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get? mstatus =
     some mstatusBits
   privilegeRead : (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).regs.get?
@@ -159,9 +156,6 @@ structure LoadByteStepContract (stepNo : Nat) (state : State) where
     page_based_mem_type.PBMT_PMA .Machine (physaddr.Physaddr srcBits) 1 false)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) none
-  loadNoMMIO : Runs (within_mmio_readable (physaddr.Physaddr srcBits) 1)
-    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
-    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) false
   hmem : ∀ index (h : index < (BinaryFv.RiscV.Sep.leBytes 1 data).length),
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc).mem.get?
       (srcBits.toNat + index) = some (BinaryFv.RiscV.Sep.leBytes 1 data)[index]
@@ -190,11 +184,11 @@ theorem LoadByteStepContract.retire {stepNo : Nat} {state : State}
     Runs (try_step stepNo false) state contract.afterRetired false := by
   exact tryStepFallThroughRetires stepNo state contract.afterExec contract.pc contract.retired
     contract.inhibit contract.config contract.byte0 contract.byte1 contract.byte2 contract.byte3
-    (.LOAD (contract.imm, contract.rs1, contract.rd, true, 1)) contract.platform contract.fetchNoMMIO
-    contract.bytes contract.interrupts contract.base contract.decode contract.notExpected
+    (.LOAD (contract.imm, contract.rs1, contract.rd, true, 1)) contract.platform
+    contract.bytes contract.base contract.decode
     (execute_LOAD_lbu_run _ _ contract.imm contract.rs1 contract.rd contract.srcBits contract.mstatusBits
       contract.data contract.mstatusRead contract.privilegeRead contract.mprvZero contract.addrReg
-      contract.aligned contract.physAccess contract.loadNoMMIO contract.hmem contract.hwrite)
+      contract.aligned contract.physAccess contract.hmem contract.hwrite)
     contract.nextPcAfterExec contract.hartAgree contract.incrementAgree contract.retiredAgree
     contract.hartRead contract.inhibitRead contract.configRead contract.notInhibited
     contract.machineEnabled contract.retiredRead
@@ -206,7 +200,8 @@ theorem traceByteReadBlock (stepNo : Nat) (state : State)
     Trace stepNo 2 state second.afterRetired := by
   trace_steps [first.retire, second.retire]
 
-/-- Concrete premises for an unsigned half-word primitive read retired through `try_step`. -/
+/-- exec-spike repair: the `fetchNoMMIO`, `interrupts` and `notExpected` fields were removed.
+Concrete premises for an unsigned half-word primitive read retired through `try_step`. -/
 structure LoadHalfStepContract (stepNo : Nat) (state : State) where
   afterExec : State
   pc : BitVec 64
@@ -222,14 +217,11 @@ structure LoadHalfStepContract (stepNo : Nat) (state : State) where
   byte2 : BitVec 8
   byte3 : BitVec 8
   platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc
-  fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc
   bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3
-  interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state)
   base : BaseInstructionEncoding byte0
   decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
     (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
     (.LOAD (imm, rs1, rd, true, 2))
-  notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state)
   hread : Runs (vmem_read rs1 (sign_extend (m := 64) imm) 2
     (MemoryAccessType.Load mem_payload.Data) false false false)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
@@ -259,15 +251,16 @@ theorem LoadHalfStepContract.retire {stepNo : Nat} {state : State}
     Runs (try_step stepNo false) state contract.afterRetired false := by
   exact tryStepFallThroughRetires stepNo state contract.afterExec contract.pc contract.retired
     contract.inhibit contract.config contract.byte0 contract.byte1 contract.byte2 contract.byte3
-    (.LOAD (contract.imm, contract.rs1, contract.rd, true, 2)) contract.platform contract.fetchNoMMIO
-    contract.bytes contract.interrupts contract.base contract.decode contract.notExpected
+    (.LOAD (contract.imm, contract.rs1, contract.rd, true, 2)) contract.platform
+    contract.bytes contract.base contract.decode
     (execute_LOAD_lhu_run _ _ contract.imm contract.rs1 contract.rd contract.data contract.hread
       contract.hwrite)
     contract.nextPcAfterExec contract.hartAgree contract.incrementAgree contract.retiredAgree
     contract.hartRead contract.inhibitRead contract.configRead contract.notInhibited
     contract.machineEnabled contract.retiredRead
 
-/-- Concrete premises for an unsigned word primitive read retired through `try_step`. -/
+/-- exec-spike repair: the `fetchNoMMIO`, `interrupts` and `notExpected` fields were removed.
+Concrete premises for an unsigned word primitive read retired through `try_step`. -/
 structure LoadUnsignedWordStepContract (stepNo : Nat) (state : State) where
   afterExec : State
   pc : BitVec 64
@@ -283,14 +276,11 @@ structure LoadUnsignedWordStepContract (stepNo : Nat) (state : State) where
   byte2 : BitVec 8
   byte3 : BitVec 8
   platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc
-  fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc
   bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3
-  interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state)
   base : BaseInstructionEncoding byte0
   decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
     (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
     (.LOAD (imm, rs1, rd, true, 4))
-  notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state)
   hread : Runs (vmem_read rs1 (sign_extend (m := 64) imm) 4
     (MemoryAccessType.Load mem_payload.Data) false false false)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
@@ -320,15 +310,16 @@ theorem LoadUnsignedWordStepContract.retire {stepNo : Nat} {state : State}
     Runs (try_step stepNo false) state contract.afterRetired false := by
   exact tryStepFallThroughRetires stepNo state contract.afterExec contract.pc contract.retired
     contract.inhibit contract.config contract.byte0 contract.byte1 contract.byte2 contract.byte3
-    (.LOAD (contract.imm, contract.rs1, contract.rd, true, 4)) contract.platform contract.fetchNoMMIO
-    contract.bytes contract.interrupts contract.base contract.decode contract.notExpected
+    (.LOAD (contract.imm, contract.rs1, contract.rd, true, 4)) contract.platform
+    contract.bytes contract.base contract.decode
     (execute_LOAD_run _ _ contract.imm contract.rs1 contract.rd true 4 contract.data (by decide)
       contract.hread contract.hwrite)
     contract.nextPcAfterExec contract.hartAgree contract.incrementAgree contract.retiredAgree
     contract.hartRead contract.inhibitRead contract.configRead contract.notInhibited
     contract.machineEnabled contract.retiredRead
 
-/-- Concrete premises for an unsigned double-word primitive read retired through `try_step`. -/
+/-- exec-spike repair: the `fetchNoMMIO`, `interrupts` and `notExpected` fields were removed.
+Concrete premises for an unsigned double-word primitive read retired through `try_step`. -/
 structure LoadDoubleStepContract (stepNo : Nat) (state : State) where
   afterExec : State
   pc : BitVec 64
@@ -344,14 +335,11 @@ structure LoadDoubleStepContract (stepNo : Nat) (state : State) where
   byte2 : BitVec 8
   byte3 : BitVec 8
   platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc
-  fetchNoMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc
   bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3
-  interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state)
   base : BaseInstructionEncoding byte0
   decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
     (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
     (.LOAD (imm, rs1, rd, true, 8))
-  notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state)
   hread : Runs (vmem_read rs1 (sign_extend (m := 64) imm) 8
     (MemoryAccessType.Load mem_payload.Data) false false false)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
@@ -381,8 +369,8 @@ theorem LoadDoubleStepContract.retire {stepNo : Nat} {state : State}
     Runs (try_step stepNo false) state contract.afterRetired false := by
   exact tryStepFallThroughRetires stepNo state contract.afterExec contract.pc contract.retired
     contract.inhibit contract.config contract.byte0 contract.byte1 contract.byte2 contract.byte3
-    (.LOAD (contract.imm, contract.rs1, contract.rd, true, 8)) contract.platform contract.fetchNoMMIO
-    contract.bytes contract.interrupts contract.base contract.decode contract.notExpected
+    (.LOAD (contract.imm, contract.rs1, contract.rd, true, 8)) contract.platform
+    contract.bytes contract.base contract.decode
     (execute_LOAD_run _ _ contract.imm contract.rs1 contract.rd true 8 contract.data (by decide)
       contract.hread contract.hwrite)
     contract.nextPcAfterExec contract.hartAgree contract.incrementAgree contract.retiredAgree
@@ -398,7 +386,8 @@ theorem traceUnsignedPrimitiveReadWidths (stepNo : Nat) (state : State)
     Trace stepNo 4 state double.afterRetired := by
   trace_steps [byte.retire, half.retire, word.retire, double.retire]
 
-/-- The concrete premises for a decoded, not-taken conditional branch. -/
+/-- exec-spike repair: the `noMMIO`, `interrupts` and `notExpected` fields were removed.
+The concrete premises for a decoded, not-taken conditional branch. -/
 structure NotTakenBranchStepContract (stepNo : Nat) (state : State) where
   pc : BitVec 64
   retired : BitVec 64
@@ -413,14 +402,11 @@ structure NotTakenBranchStepContract (stepNo : Nat) (state : State) where
   byte2 : BitVec 8
   byte3 : BitVec 8
   platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc
-  noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc
   bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3
-  interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state)
   base : BaseInstructionEncoding byte0
   decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
     (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
     (.BTYPE (imm, rs2, rs1, op))
-  notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state)
   hcond : Runs (bTypeTaken rs2 rs1 op)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) false
@@ -444,12 +430,13 @@ theorem NotTakenBranchStepContract.retire
     Runs (try_step stepNo false) state contract.afterRetired false := by
   exact tryStepBranchNotTakenRetires stepNo state contract.pc contract.retired contract.imm
     contract.rs2 contract.rs1 contract.op contract.inhibit contract.config contract.byte0
-    contract.byte1 contract.byte2 contract.byte3 contract.platform contract.noMMIO contract.bytes
-    contract.interrupts contract.base contract.decode contract.notExpected contract.hcond
+    contract.byte1 contract.byte2 contract.byte3 contract.platform contract.bytes
+    contract.base contract.decode contract.hcond
     contract.hartRead contract.inhibitRead contract.configRead contract.notInhibited
     contract.machineEnabled contract.retiredRead
 
-/-- The concrete premises for a link-writing decoded indirect `jalr` call. -/
+/-- exec-spike repair: the `noMMIO`, `interrupts`, `notExpected` and `helpElp` fields were removed.
+The concrete premises for a link-writing decoded indirect `jalr` call. -/
 structure JalrCallStepContract (stepNo : Nat) (state : State) where
   pc : BitVec 64
   rs1Val : BitVec 64
@@ -477,17 +464,11 @@ structure JalrCallStepContract (stepNo : Nat) (state : State) where
   linkNeIncrement : linkReg ≠ minstret_increment
   linkNeRetired : linkReg ≠ minstret
   platform : FetchBasePlatform (tryStepControlFlowAfterIncrement state) pc
-  noMMIO : FetchMemoryNoMMIO (tryStepControlFlowAfterIncrement state) pc
   bytes : FetchBytesAt (tryStepControlFlowAfterIncrement state) pc byte0 byte1 byte2 byte3
-  interrupts : InterruptDisabled (tryStepControlFlowAfterIncrement state)
   base : BaseInstructionEncoding byte0
   decode : Runs (ext_decode (fetchWord byte0 byte1 byte2 byte3))
     (tryStepControlFlowAfterIncrement state) (tryStepControlFlowAfterIncrement state)
     (.JALR (imm, rs1, rd))
-  notExpected : LandingPadNotExpected (tryStepControlFlowAfterIncrement state)
-  helpElp : Runs (update_elp_state rs1)
-    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
-    (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) ()
   hlink : Runs (get_next_pc ())
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc)
     (coreControlFlowNextState (tryStepControlFlowAfterIncrement state) pc) linkVal
@@ -526,8 +507,8 @@ theorem JalrCallStepContract.retire
     contract.linkVal contract.imm contract.rs1 contract.rd contract.linkReg contract.linkRegVal
     contract.inhibit contract.config contract.byte0 contract.byte1 contract.byte2 contract.byte3
     contract.zcaEnabled contract.hwrite contract.linkNeNext contract.linkNeHart
-    contract.linkNeIncrement contract.linkNeRetired contract.platform contract.noMMIO contract.bytes
-    contract.interrupts contract.base contract.decode contract.notExpected contract.helpElp
+    contract.linkNeIncrement contract.linkNeRetired contract.platform contract.bytes
+    contract.base contract.decode
     contract.hlink contract.hrs1 contract.hbit1 contract.hzca contract.hartRead contract.inhibitRead
     contract.configRead contract.notInhibited contract.machineEnabled contract.retiredRead
 

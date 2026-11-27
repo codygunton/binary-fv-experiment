@@ -119,14 +119,16 @@ private theorem access_update0_bit0 (x : BitVec 64) :
     Sail.BitVec.access (Sail.BitVec.update x 0 0#1) 0 = 0#1 := by
   simp only [Sail.BitVec.access, Sail.BitVec.update, Sail.BitVec.updateSubrange', getElem!_pos,
     Nat.reduceLT]
-  bv_decide
+  ext i hi
+  simp
 
 /-- Clearing bit 0 leaves bit 1 unchanged. -/
 private theorem access_update0_bit1 (x : BitVec 64) :
     Sail.BitVec.access (Sail.BitVec.update x 0 0#1) 1 = Sail.BitVec.access x 1 := by
   simp only [Sail.BitVec.access, Sail.BitVec.update, Sail.BitVec.updateSubrange', getElem!_pos,
     Nat.reduceLT]
-  bv_decide
+  ext i hi
+  simp
 
 /-! ## `execute_JAL` -/
 
@@ -238,7 +240,7 @@ private theorem wX_bits_zero_run (s : State) (data : BitVec 64) :
 private theorem add_sign_extend_zero (x : BitVec 64) :
     x + sign_extend (m := 64) (0#12) = x := by
   simp only [sign_extend, Sail.BitVec.signExtend]
-  bv_decide
+  simp
 
 /-- `ret` (`jalr x0, 0(rs1)`): jumps to `rs1` with bit 0 cleared, discarding the link write to
 `x0`.  With `rs1 = x1` this is the RISC-V `ret` pseudo-instruction. -/

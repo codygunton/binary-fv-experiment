@@ -104,3 +104,23 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   only in `Sym/Tactic.lean`), 3 (plan file list, missing globs skipped; 18 files), 9; item 1
   only with `--build`. Result: 2 PASS, 3 PASS, 9 PASS; exit 0. The only `bv_decide` text in
   `ZesuExec bfv` is backticked prose in `bfv/BinaryFv/RiscV/Model/SailEnumAux.lean`.
+
+## S3 — Sail link (TrackT, in progress)
+- 2026-11-27 TrackT: step 1 `tools/closure.py` (55 modules, no `BinaryFv.Zesu`, no
+  `native_decide`). Step 2 done: all 55 `bfv` modules build against the specialised tree
+  (`/home/cody/.cache/zesu-tmp/exec-spike/bin/bfvbuild` EXIT 0); removed-feature premises
+  (PMP, MMIO, landing pad, interrupts, waiting-hart selector) deleted, docstrings say
+  "exec-spike repair:"; every `bv_decide` replaced (all 1981 theorems: standard axioms only).
+- Step 3: `ZesuExec/Sail/Rel.lean` (`Configured` 12 fields incl. I1–I6, `configuredB` +
+  `configuredB_sound`, `xreg`, `xreg_type`, `Rel`, `toSail`) checks with `lake env lean`.
+  Deviations: `Rel.regs` reads through `cast (xreg_type i).symm` (`RegisterType (xreg i)` does
+  not reduce for open `i`); `Rel.code` covers only words inside `.text` (needed so RAM stores
+  preserve it).
+- Step 5 measurement: the generic per-form statement works (no per-word fallback needed):
+  `dec_<form>` over symbolic operand fields, ~0.2 s each, whole file 7 s. 23/33 proved;
+  open: `dec_jal`, branches ×5, stores ×4 — only the final immediate-reassembly equality
+  (`ofNat a ++ ofNat b … = ofNat (…)`) remains; goals in `OPEN/S3/decode_immediates.goals.txt`.
+- Not started: `decode_sound` assembly, `Forms/sim_*`, `Step.lean`, `Run.lean`, engine A.
+- Next: fix the append finisher in `dec_tac` (`simp` leaves the `+++` goal before `apply
+  BitVec.eq_of_toNat_eq`; the standalone `simp only [toNat_append_add, toNat_ofNat]; omega`
+  proof works), then `lake build ZesuExec.Sail.Decode`.
