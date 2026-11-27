@@ -36,12 +36,12 @@ def RegsAgree (m : Machine) (st : State) : Prop :=
 def setX (st : State) (i : Fin 32) (v : BitVec 64) : State :=
   if i.val = 0 then st else { st with regs := st.regs.insert (xreg i) (cast (xreg_type i).symm v) }
 
-theorem get?_insert_ne {st : State} {r r' : Register} (v : RegisterType r') (h : r ≠ r') :
-    (st.regs.insert r' v).get? r = st.regs.get? r := by
+theorem get?_insert_ne {M : Std.ExtDHashMap Register RegisterType} {r r' : Register}
+    (v : RegisterType r') (h : r ≠ r') : (M.insert r' v).get? r = M.get? r := by
   rw [Std.ExtDHashMap.get?_insert]; simp [Ne.symm h]
 
-theorem get?_insert_self {st : State} {r : Register} (v : RegisterType r) :
-    (st.regs.insert r v).get? r = some v := by
+theorem get?_insert_self {M : Std.ExtDHashMap Register RegisterType} {r : Register}
+    (v : RegisterType r) : (M.insert r v).get? r = some v := by
   rw [Std.ExtDHashMap.get?_insert]; simp
 
 set_option hygiene false in
@@ -163,33 +163,205 @@ theorem baseEncoding_of_low {w : Nat} (h : w % 4 = 3) :
 theorem to_bits_64 (n : Nat) : (to_bits (l := 64) n : BitVec 64) = BitVec.ofNat 64 n := by
   simp [to_bits, Sail.get_slice_int]; apply BitVec.eq_of_toNat_eq; simp [BitVec.extractLsb']
 
+theorem physaddr_bits (a : BitVec 64) :
+    zero_extend (m := 64) (bits_of_physaddr (.Physaddr a)) = a := by
+  apply BitVec.eq_of_toNat_eq
+  simp [zero_extend, Sail.BitVec.zeroExtend, bits_of_physaddr]
+
+set_option hygiene false in
+/-- Decide a `range_subset` test of the profile's regions from interval facts `h`, `ha`. -/
+macro "rs_tac" : tactic => `(tactic| (
+  simp only [range_subset, zopz0zIzJ_u, physaddr_bits, to_bits_64, Sail.BitVec.toNatInt, BitVec.toNat_sub, BitVec.toNat_add,
+    BitVec.toNat_ofNat, BitVec.toNat_setWidth, Bool.and_eq_true, decide_eq_true_eq,
+    Int.ofNat_eq_natCast, Int.ofNat_le, Bool.not_eq_true, decide_eq_false_iff_not, not_and,
+    Nat.reducePow, Nat.reduceMod, Nat.reduceAdd, Nat.reduceSub]
+  omega))
+
 section pma
 variable (a : BitVec 64) (n : Nat)
 
 theorem matching_input (h : 0x40000000 ≤ a.toNat ∧ a.toNat + n ≤ 0x80000000) :
     matching_pma_region zesuPmaRegions (.Physaddr a) n = some zesuPmaRegions[0] := by
   have ha := a.isLt
-  simp [matching_pma_region, matching_pma_region_bits_range, range_subset, zesuPmaRegions,
-    zopz0zIzJ_u, bits_of_physaddr, to_bits_64, zero_extend, Sail.BitVec.zeroExtend,
-    Sail.BitVec.toNatInt]
-  rw [if_pos (by omega)]
+  simp only [matching_pma_region, matching_pma_region_bits_range, zesuPmaRegions,
+    List.getElem_cons_zero, List.getElem_cons_succ]
+  rw [if_pos (by rs_tac)]
 
-theorem matching_rom (h : 0x80000000 ≤ a.toNat ∧ a.toNat + n ≤ 0x88000000) :
+theorem matching_rom (hn : 0 < n) (h : 0x80000000 ≤ a.toNat ∧ a.toNat + n ≤ 0x88000000) :
     matching_pma_region zesuPmaRegions (.Physaddr a) n = some zesuPmaRegions[1] := by
   have ha := a.isLt
-  simp [matching_pma_region, matching_pma_region_bits_range, range_subset, zesuPmaRegions,
-    zopz0zIzJ_u, bits_of_physaddr, to_bits_64, zero_extend, Sail.BitVec.zeroExtend,
-    Sail.BitVec.toNatInt]
-  rw [if_neg (by omega), if_pos (by omega)]
+  simp only [matching_pma_region, matching_pma_region_bits_range, zesuPmaRegions,
+    List.getElem_cons_zero, List.getElem_cons_succ]
+  rw [if_neg (by rs_tac), if_pos (by rs_tac)]
 
 theorem matching_ram (h : 0xa0000000 ≤ a.toNat ∧ a.toNat + n ≤ 0xc0000000) :
     matching_pma_region zesuPmaRegions (.Physaddr a) n = some zesuPmaRegions[2] := by
   have ha := a.isLt
-  simp [matching_pma_region, matching_pma_region_bits_range, range_subset, zesuPmaRegions,
-    zopz0zIzJ_u, bits_of_physaddr, to_bits_64, zero_extend, Sail.BitVec.zeroExtend,
-    Sail.BitVec.toNatInt]
-  rw [if_neg (by omega), if_neg (by omega), if_pos (by omega)]
+  simp only [matching_pma_region, matching_pma_region_bits_range, zesuPmaRegions,
+    List.getElem_cons_zero, List.getElem_cons_succ]
+  rw [if_neg (by rs_tac), if_neg (by rs_tac), if_pos (by rs_tac)]
 
 end pma
+
+/-! ## Configured transport -/
+
+/-- `Configured` depends only on registers other than `x1 … x31`, `PC`, `nextPC`,
+`minstret_increment`, and on the presence of `minstret`. -/
+theorem Configured.of_agree {s s' : State} (h : Configured s)
+    (hag : ∀ r, r ≠ nextPC → r ≠ PC → r ≠ minstret → r ≠ minstret_increment →
+      (∀ j, xreg j ≠ r) → s'.regs.get? r = s.regs.get? r)
+    (hmi : ∃ v, s'.regs.get? minstret = some v) : Configured s' := by
+  have e : ∀ r, r ≠ nextPC → r ≠ PC → r ≠ minstret → r ≠ minstret_increment →
+      (∀ j, xreg j ≠ r) → s'.regs.get? r = s.regs.get? r := hag
+  obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, _⟩ := h
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, hmi⟩
+  · rw [e _ (by decide) (by decide) (by decide) (by decide) (by decide)]; exact h1
+  · rw [e _ (by decide) (by decide) (by decide) (by decide) (by decide)]; exact h2
+  · rw [e mip (by decide) (by decide) (by decide) (by decide) (by decide),
+      e mie (by decide) (by decide) (by decide) (by decide) (by decide)]; exact h3
+  · rw [e _ (by decide) (by decide) (by decide) (by decide) (by decide)]; exact h4
+  · rw [e _ (by decide) (by decide) (by decide) (by decide) (by decide)]; exact h5
+  · rw [e _ (by decide) (by decide) (by decide) (by decide) (by decide)]; exact h6
+  · rw [e _ (by decide) (by decide) (by decide) (by decide) (by decide)]; exact h7
+  · rw [e _ (by decide) (by decide) (by decide) (by decide) (by decide)]; exact h8
+  · rw [e _ (by decide) (by decide) (by decide) (by decide) (by decide)]; exact h9
+  · rw [e _ (by decide) (by decide) (by decide) (by decide) (by decide)]; exact h10
+  · rw [e _ (by decide) (by decide) (by decide) (by decide) (by decide)]; exact h11
+
+/-! ## The generic step -/
+
+/-- The state after `try_step`'s counter-increment write. -/
+abbrev Inc (s : State) : State := tryStepControlFlowAfterIncrement s
+
+/-- The state the generated base path hands to `execute`: `minstret_increment` set and
+`nextPC = pc + 4`. -/
+abbrev T (s : State) (pc : BitVec 64) : State := coreControlFlowNextState (Inc s) pc
+
+theorem Inc_get? {s : State} {r : Register} (h : r ≠ minstret_increment) :
+    (Inc s).regs.get? r = s.regs.get? r := get?_insert_ne _ h
+
+theorem T_get?_inc {s : State} {pc : BitVec 64} {r : Register} (h : r ≠ nextPC) :
+    (T s pc).regs.get? r = (Inc s).regs.get? r := get?_insert_ne _ h
+
+theorem T_get? {s : State} {pc : BitVec 64} {r : Register} (h1 : r ≠ nextPC)
+    (h2 : r ≠ minstret_increment) : (T s pc).regs.get? r = s.regs.get? r := by
+  rw [T_get?_inc h1, Inc_get? h2]
+
+theorem T_nextPC (s : State) (pc : BitVec 64) : (T s pc).regs.get? nextPC = some (pc + 4) := by
+  simp only [T, coreControlFlowNextState, Sail.BitVec.addInt]
+  exact get?_insert_self _
+
+theorem RegsAgree.T {m : Machine} {s : State} (h : RegsAgree m s) (pc : BitVec 64) :
+    RegsAgree m (T s pc) := by
+  intro j hj; rw [T_get? (xreg_ne_nextPC j) (xreg_ne_inc j)]; exact h j hj
+
+/-- Every register but `x1 … x31` and `nextPC` is as in `T s pc`. -/
+def Frame (s : State) (pc : BitVec 64) (a : State) : Prop :=
+  ∀ r, r ≠ nextPC → (∀ j, xreg j ≠ r) → a.regs.get? r = (T s pc).regs.get? r
+
+/-- `a` keeps the code words of `img`. -/
+def CodeKept (img : Image) (a : State) : Prop :=
+  ∀ seg ∈ img.text, ∀ k w, seg.words[k]? = some w →
+    Layout.textLo ≤ seg.base + 4 * k → seg.base + 4 * k < Layout.textHi →
+    CodeAt a (seg.base + 4 * k) w
+
+/-- **Generic step.** A run of the decoded instruction's `execute` from `T s m.pc` to a state `a`
+that matches `m'` lifts to a retiring `try_step` from `s` to a state related to `m'`. -/
+theorem sim_of_exec {img : Image} {m m' : Machine} {s a : State} {w : Nat} {i : Instr}
+    (hR : Rel img m s) (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some i)
+    (hpc : Layout.textLo ≤ m.pc.toNat ∧ m.pc.toNat < Layout.textHi ∧ m.pc.toNat % 4 = 0)
+    (hexec : Runs (execute (toSail i)) (T s m.pc) a (.Retire_Success ()))
+    (hnext : a.regs.get? nextPC = some m'.pc) (hframe : Frame s m.pc a)
+    (hregs : RegsAgree m' a) (hmem : ∀ x b, m'.mem x = some b → a.mem.get? x.toNat = some b)
+    (hcode : CodeKept img a) (n : Nat) :
+    ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  obtain ⟨retired, hret⟩ := hR.conf.instret
+  obtain ⟨inhibit, hinh, hinh0⟩ := hR.conf.inhibit
+  obtain ⟨config, hcfg, hcfg0⟩ := hR.conf.instretcfg
+  obtain ⟨misaB, hmisa, _⟩ := hR.conf.misa
+  obtain ⟨mstB, hmst, _⟩ := hR.conf.mstatus
+  obtain ⟨hlt, hw3⟩ := decodeNat_low hd
+  obtain ⟨seg, hseg, k, hk, hpck⟩ := Image.word?_spec hw
+  have hc := hR.code seg hseg k w hk (by omega) (by omega)
+  rw [← hpck] at hc
+  have b0 := hc 0 (by decide)
+  rw [Nat.add_zero] at b0
+  have bytes : FetchBytesAt (Inc s) m.pc (BitVec.ofNat 8 (w / 256 ^ 0))
+      (BitVec.ofNat 8 (w / 256 ^ 1)) (BitVec.ofNat 8 (w / 256 ^ 2))
+      (BitVec.ofNat 8 (w / 256 ^ 3)) :=
+    ⟨b0, hc 1 (by decide), hc 2 (by decide), hc 3 (by decide)⟩
+  have hpma : FetchPmaAllows (Inc s) m.pc :=
+    fetchPmaAllows_of_region (by rw [Inc_get? (by decide)]; exact hR.conf.pma)
+      (matching_rom m.pc 4 (by decide)
+        (by simp only [Layout.textLo, Layout.textHi] at hpc; omega)) rfl
+  have platform : FetchBasePlatform (Inc s) m.pc :=
+    fetchBasePlatform_of_offPC (by rw [Inc_get? (by decide)]; exact hR.pc)
+      (fetchBasePlatformOffPC_of_reads (by rw [Inc_get? (by decide)]; exact hmisa)
+        (by rw [Inc_get? (by decide)]; exact hmst)
+        (by rw [Inc_get? (by decide)]; exact hR.conf.privilege) hpc.2.2 hpma)
+  have hconfInc : Configured (Inc s) :=
+    Configured.of_agree hR.conf (fun r _ _ _ h4 _ => Inc_get? h4)
+      ⟨retired, by rw [Inc_get? (by decide)]; exact hret⟩
+  have decode : Runs (ext_decode (fetchWord (BitVec.ofNat 8 (w / 256 ^ 0))
+      (BitVec.ofNat 8 (w / 256 ^ 1)) (BitVec.ofNat 8 (w / 256 ^ 2))
+      (BitVec.ofNat 8 (w / 256 ^ 3)))) (Inc s) (Inc s) (toSail i) := by
+    rw [fetchWord_bytes hlt]
+    exact decode_sound (by simp [decodeWord, Nat.mod_eq_of_lt hlt, hd]) hconfInc
+  have active := runHartActiveControlFlow n (Inc s) a m.pc _ _ _ _ (toSail i) platform bytes
+    (baseEncoding_of_low hw3) decode hexec
+  have agreeInc : ∀ r, r ≠ nextPC → (∀ j, xreg j ≠ r) → a.regs.get? r = (Inc s).regs.get? r :=
+    fun r h1 h2 => (hframe r h1 h2).trans (T_get?_inc h1)
+  have run := tryStepGenericRetires n s a m'.pc retired inhibit config _
+    (by rw [Inc_get? (by decide)]; exact hR.conf.privilege) active hnext
+    (agreeInc _ (by decide) (by decide)) (agreeInc _ (by decide) (by decide))
+    (agreeInc _ (by decide) (by decide)) hR.conf.hart hinh hcfg hinh0 hcfg0 hret
+  refine ⟨_, run, ?_⟩
+  have fin : ∀ r, r ≠ PC → r ≠ minstret →
+      (tryStepControlFlowAfterRetired a m'.pc retired).regs.get? r = a.regs.get? r := by
+    intro r h1 h2
+    simp only [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]
+    rw [get?_insert_ne _ h2, get?_insert_ne _ h1]
+  refine ⟨?_, ?_, ?_, hmem, hcode⟩
+  · refine Configured.of_agree hR.conf (fun r h1 h2 h3 h4 h5 => ?_) ⟨_, get?_insert_self _⟩
+    rw [fin r h2 h3, agreeInc r h1 h5, Inc_get? h4]
+  · intro j hj
+    rw [fin _ (xreg_ne_PC j) (xreg_ne_minstret j)]; exact hregs j hj
+  · simp only [tryStepControlFlowAfterRetired, tryStepControlFlowAfterTick]
+    rw [get?_insert_ne _ (by decide)]; exact get?_insert_self _
+
+/-- Inverting `step`: the guard holds and the decoded instruction's effect is `m'`. -/
+theorem step_inv {img : Image} {m m' : Machine} {w : Nat} {i : Instr}
+    (hs : step img m = some m') (hw : img.word? m.pc.toNat = some w)
+    (hd : decodeNat w = some i) :
+    (Layout.textLo ≤ m.pc.toNat ∧ m.pc.toNat < Layout.textHi ∧ m.pc.toNat % 4 = 0) ∧
+      m.exec i = some m' := by
+  unfold step at hs
+  split at hs
+  · rename_i hg
+    rw [hw] at hs; simp only [hd] at hs
+    exact ⟨hg, hs⟩
+  · cases hs
+
+/-- The common shape of the 16 register-writing forms: `execute` writes `x rd` and falls through. -/
+theorem sim_wreg {img : Image} {m : Machine} {s : State} {w : Nat} {i : Instr}
+    (hR : Rel img m s) (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some i)
+    (hpc : Layout.textLo ≤ m.pc.toNat ∧ m.pc.toNat < Layout.textHi ∧ m.pc.toNat % 4 = 0)
+    {rd : Fin 32} {v : BitVec 64}
+    (hexec : Runs (execute (toSail i)) (T s m.pc) (setX (T s m.pc) rd v) (.Retire_Success ()))
+    (n : Nat) :
+    ∃ s', Runs (try_step n false) s s' false ∧ Rel img (m.setReg rd v).advance s' := by
+  have hmem : (setX (T s m.pc) rd v).mem = s.mem := setX_mem _ _ _
+  refine sim_of_exec hR hw hd hpc hexec ?_ ?_ ?_ ?_ ?_ n
+  · rw [setX_get?_ne (Ne.symm (xreg_ne_nextPC rd)), T_nextPC]
+    unfold Machine.setReg; split <;> rfl
+  · intro r h1 h2; exact setX_get?_ne (Ne.symm (h2 rd))
+  · have h := RegsAgree.setX (RegsAgree.T (m := m) hR.regs m.pc) rd v
+    unfold Machine.advance; unfold Machine.setReg at h ⊢; split <;> rename_i h0 <;>
+      simp only [h0, if_true, if_false] at h <;> exact h
+  · intro x b hb
+    rw [hmem]
+    have : (m.setReg rd v).advance.mem = m.mem := by unfold Machine.advance Machine.setReg; split <;> rfl
+    rw [this] at hb; exact hR.mem x b hb
+  · intro seg hseg k w hk h1 h2; unfold CodeAt; rw [hmem]; exact hR.code seg hseg k w hk h1 h2
 
 end ZesuExec.SailLink

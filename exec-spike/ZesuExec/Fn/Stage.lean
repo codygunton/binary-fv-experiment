@@ -1,5 +1,6 @@
 import ZesuExec.Fn.Common
 import ZesuExec.Sym.Compose
+import ZesuExec.Fn.Preserve
 
 /-!
 # Helpers for multi-run function proofs
@@ -258,5 +259,30 @@ theorem region_same {env : Env} {S : SState} {m mf : Machine} {r : Nat} (hm : Ma
     have := List.all_eq_true.mp hnw w hw
     simp [Write.covers] at this ⊢; intro h; exact absurd h this
   simp [memByte, this, Env.byte0]
+
+/-- `run_reaches` whose leaf continuation also learns what the run preserved. -/
+theorem run_reaches' {img : Image} {cuts : List Nat} {fuel pc : Nat} {S : SState}
+    {ls : List Leaf} {env : Env} {m : Machine} {b : Nat} {Q : Machine → Prop}
+    (h : run img cuts fuel pc S = some ls) (hwf : Env.WF env S) (hm : Match env S m)
+    (hpc : m.pc.toNat = pc) (hro : RodataLoaded img m)
+    (hleaf : ∀ l ∈ ls, (∀ c ∈ l.conds, c.eval env = true) →
+      (∀ o ∈ l.obligs, o.holds env) ∧ l.S.steps - S.steps ≤ b ∧
+      ∀ m', Match env l.S m' → ExitOk env l.exit m' → SameOutside (InWritable env S) m m' →
+        Preserved m m' → Reaches img (b - (l.S.steps - S.steps)) Q m') :
+    Reaches img b Q m := by
+  obtain ⟨l, hl, hc, hr⟩ := run_sound h hwf hm hpc hro
+  obtain ⟨hob, hb, hk⟩ := hleaf l hl hc
+  obtain ⟨m', hrun, hm', hex, hfr⟩ := hr hob
+  obtain ⟨k, m'', hk', hrun', hQ⟩ := hk m' hm' hex hfr hrun.preserved
+  exact ⟨_, m'', by omega, hrun.trans hrun', hQ⟩
+
+/-- Rodata of the image below RAM survives a run that preserves bytes below RAM. -/
+theorem RodataLoaded.preserved {img : Image} {m m' : Machine} (hro : RodataLoaded img m)
+    (hp : Preserved m m') (hlo : ∀ a b, img.rodataByte? a = some b → a < Layout.ramLo) :
+    RodataLoaded img m' := by
+  intro a b h
+  have := hlo a b h
+  rw [hp.2 _ (by simp; unfold Layout.ramLo at this ⊢; omega)]
+  exact hro a b h
 
 end ZesuExec.Fn

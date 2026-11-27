@@ -217,6 +217,10 @@ structure EnvOk (m : Machine) (env : Env) : Prop where
   base1 : env.base 1 = m.reg 10
   size1 : env.size 1 = 24
   mem1 : ∀ j, env.mem0 1 j = (m.mem (m.reg 10 + BitVec.ofNat 64 j)).getD 0
+  size0 : env.size 0 = 112
+  base2 : env.base 2 = m.reg 11
+  size2 : env.size 2 = 16
+  len : env.regions.length = 3
 
 theorem envOk0 (m : Machine) : EnvOk m (env0 m) where
   vars i := by simp [entryEnv]
@@ -224,6 +228,10 @@ theorem envOk0 (m : Machine) : EnvOk m (env0 m) where
   base1 := by simp [entryEnv, Env.base, shape]
   size1 := by simp [entryEnv, Env.size, shape]
   mem1 j := by simp [entryEnv, shape]
+  size0 := by simp [entryEnv, Env.size, shape]
+  base2 := by simp [entryEnv, Env.base, shape]
+  size2 := by simp [entryEnv, Env.size, shape]
+  len := by simp [entryEnv, shape]
 
 theorem EnvOk.setVars {m : Machine} {env : Env} (h : EnvOk m env) {F : Nat} (hF : 32 ≤ F)
     (f : Nat → Word) : EnvOk m (env.setVars F f) where
@@ -232,6 +240,10 @@ theorem EnvOk.setVars {m : Machine} {env : Env} (h : EnvOk m env) {F : Nat} (hF 
   base1 := h.base1
   size1 := h.size1
   mem1 := h.mem1
+  size0 := h.size0
+  base2 := h.base2
+  size2 := h.size2
+  len := h.len
 
 /-- A run that never wrote the header leaves it as at entry. -/
 theorem Entry.header_same (E : Entry A L items m) {env : Env} {S : SState} {mf : Machine}
@@ -299,6 +311,178 @@ def Allowed (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m : Machi
     InRange (BitVec.ofNat 64 Layout.extraParams) 8 a ∨ A.Priv L a ∨
     (0 < (wordAt m (m.reg 10 + 16)).toNat ∧
       InRange (wordAt m (m.reg 10)) ((wordAt m (m.reg 10 + 16)).toNat * elemBytes) a)
+
+theorem zesu_rodata_low {a b : Nat} (h : zesuImage.rodataByte? a = some b) : a < Layout.ramLo := by
+  simp [zesuImage, Image.rodataByte?, Gen.rodata_801136d8, RoSeg.byte?] at h
+  have := (List.getElem?_eq_some_iff.mp h.2).1; simp at this; unfold Layout.ramLo; omega
+
+/-- What holds of every machine along F1's run: changes stay in `Allowed`, bytes survive. -/
+def Inv (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m mk : Machine) : Prop :=
+  SameOutside (Allowed A L m) m mk ∧ Preserved m mk
+
+theorem Inv.refl : Inv A L m m := ⟨fun _ _ => rfl, Preserved.refl m⟩
+
+theorem Inv.ro (E : Entry A L items m) {mk : Machine} (h : Inv A L m mk) :
+    RodataLoaded zesuImage mk :=
+  RodataLoaded.preserved E.ro h.2 fun _ _ hb => zesu_rodata_low hb
+
+theorem Inv.step {mk mf : Machine} {R : Word → Prop} (h : Inv A L m mk)
+    (hfr : SameOutside R mk mf) (hR : ∀ a, R a → Allowed A L m a) (hp : Preserved mk mf) :
+    Inv A L m mf :=
+  ⟨fun a ha => (hfr a fun hr => ha (hR a hr)).trans (h.1 a ha), h.2.trans hp⟩
+
+theorem sp112 (E : Entry A L items m) : (m.reg 2 - 112).toNat = (m.reg 2).toNat - 112 := by
+  have := E.sp.1; unfold Layout.ramLo at this
+  rw [BitVec.toNat_sub]; simp; omega
+
+theorem sp128 (E : Entry A L items m) : (m.reg 2 - 128).toNat = (m.reg 2).toNat - 128 := by
+  have := E.sp.1; unfold Layout.ramLo at this
+  rw [BitVec.toNat_sub]; simp; omega
+
+/-- The writable regions of F1's runs are the frame and the header. -/
+theorem Entry.inWritable' (E : Entry A L items m) {env : Env} {S : SState} (he : EnvOk m env)
+    (hS : S.regions = [frameR, headerR, allocObjR]) {a : Word} (h : InWritable env S a) :
+    Allowed A L m a := by
+  obtain ⟨r, R, j, hR, hw, hj, rfl⟩ := h
+  rw [hS] at hR
+  have hsp := E.sp; have hh := E.hdrRam
+  unfold Layout.ramLo Layout.ramHi at hsp; unfold RamRange Layout.ramHi at hh
+  have h112 := sp112 E; have h128 := sp128 E
+  rcases r with _ | _ | _ | r <;> simp at hR <;> subst hR
+  · rw [he.size0] at hj; rw [he.base0]
+    refine .inr (.inl ?_)
+    simp only [InRange, h128]; rw [toNat_add_ofNat (by omega), h112]; omega
+  · rw [he.size1] at hj; rw [he.base1]
+    refine .inl ?_
+    simp only [InRange]; rw [toNat_add_ofNat (by omega)]; omega
+  · simp [allocObjR] at hw
+
+theorem Entry.inWritable2 (E : Entry A L items m) {env : Env} {S : SState} (he : EnvOk m env)
+    (hS : S.regions = [frameR, headerR, allocObjR]) {a : Word} (h : InWritable env S a) :
+    InRange (m.reg 2 - 112) 112 a ∨ InRange (m.reg 10) 24 a := by
+  obtain ⟨r, R, j, hR, hw, hj, rfl⟩ := h
+  rw [hS] at hR
+  have hsp := E.sp; have hh := E.hdrRam
+  unfold Layout.ramLo Layout.ramHi at hsp; unfold RamRange Layout.ramHi at hh
+  have h112 := sp112 E
+  rcases r with _ | _ | _ | r <;> simp at hR <;> subst hR
+  · rw [he.size0] at hj; rw [he.base0]
+    refine .inl ?_
+    simp only [InRange, h112]; rw [toNat_add_ofNat (by omega), h112]; omega
+  · rw [he.size1] at hj; rw [he.base1]
+    refine .inr ?_
+    simp only [InRange]; rw [toNat_add_ofNat (by omega)]; omega
+  · simp [allocObjR] at hw
+
+theorem Entry.oldNotOwn (E : Entry A L items m) (hc0 : 0 < (wordAt m (m.reg 10 + 16)).toNat)
+    {a : Word} (hin : InRange (wordAt m (m.reg 10)) ((wordAt m (m.reg 10 + 16)).toNat * elemBytes) a)
+    (h : InRange (m.reg 2 - 112) 112 a ∨ InRange (m.reg 10) 24 a) : False := by
+  obtain ⟨dh, -, ds, -⟩ := E.dbuf hc0
+  have h112 := sp112 E; have h128 := sp128 E
+  simp only [Apart, InRange, h112, h128] at dh ds hin h
+  omega
+
+/-- The callee frame below F1's frame avoids every region of F1's runs. -/
+theorem Entry.calleeApart (E : Entry A L items m) {env : Env} (he : EnvOk m env) :
+    ∀ r j, r < 3 → j < env.size r → ¬ InRange (m.reg 2 - 128) 16 (env.base r + BitVec.ofNat 64 j) := by
+  intro r j hr hj
+  have hsp := E.sp; have hh := E.hdrRam; have ha := E.aoRam; have d2 := E.d2; have d3 := E.d3
+  unfold Layout.ramLo Layout.ramHi at hsp; unfold RamRange Layout.ramHi at hh ha
+  have h112 := sp112 E; have h128 := sp128 E
+  simp only [Apart, h128] at d2 d3
+  rcases r with _ | _ | _ | r
+  · rw [he.size0] at hj; rw [he.base0]
+    simp only [InRange, h128]; rw [toNat_add_ofNat (by omega), h112]; omega
+  · rw [he.size1] at hj; rw [he.base1]
+    simp only [InRange, h128]; rw [toNat_add_ofNat (by omega)]; omega
+  · rw [he.size2] at hj; rw [he.base2]
+    simp only [InRange, h128]; rw [toNat_add_ofNat (by omega)]; omega
+  · omega
+
+theorem Entry.len (E : Entry A L items m) :
+    (Sym.init 1 8 8).eval (env0 m) = wordAt m (m.reg 10 + 8) := by
+  have := E.hdrRam; unfold RamRange Layout.ramHi at this
+  exact init_eval_load (by simp [shape]) (by simpa [shape] using E.hdr.2.1) (by simp [shape]; omega)
+
+theorem EnvOk.init_eq {env : Env} (he : EnvOk m env) (off n : Nat) :
+    (Sym.init 1 off n).eval env = (Sym.init 1 off n).eval (env0 m) := by
+  have : env.byte0 1 = (env0 m).byte0 1 := by
+    funext j; simp only [Env.byte0]; rw [he.mem1]; simp [entryEnv, shape]
+  simp only [Sym.eval, this]
+
+/-- Loading a word of the header at the end of a run. -/
+theorem header_load {env : Env} {S : SState} {mf : Machine} (he : EnvOk m env)
+    (hwf : Env.WF env S) (hm : Match env S mf) (hS : S.regions = [frameR, headerR, allocObjR])
+    (off : Nat) (hoff : off % 8 = 0 ∧ off + 8 ≤ 24) :
+    mf.load (m.reg 10 + BitVec.ofNat 64 off) 8 = some ((readConst S 1 off 8).eval env) := by
+  rw [← he.base1]
+  exact load_cst hwf hm (R := headerR) (by rw [hS]; rfl) hoff.1 (by decide)
+    (by rw [he.size1]; exact hoff.2)
+
+/-- The end of the growing path: the header holds the new pointer, the old length and the grown
+capacity; the new block holds the items; the scratch word holds the copied byte count. -/
+theorem stage4b (E : Entry A L items m) {env : Env} {m4 : Machine} {p' : Word}
+    (he : EnvOk m env) (hm : Match env S4b m4) (hwf : Env.WF env S4b)
+    (hpc : m4.pc.toNat = 0x800cb5a8) (hinv : Inv A L m m4)
+    (hc0 : 0 < (wordAt m (m.reg 10 + 16)).toNat)
+    (hlt : (wordAt m (m.reg 10 + 16)).toNat < (m.reg 12).toNat)
+    (hv310 : env.vars 310 = p') (hv122 : env.vars 122 = BitVec.ofNat 64 (grown (m.reg 12).toNat))
+    (hp'0 : 0 < p'.toNat) (hp'ram : RamRange p' (grown (m.reg 12).toNat * elemBytes))
+    (hitems : BytesAt m4 p' items)
+    (hscr : BytesAt m4 (BitVec.ofNat 64 Layout.extraParams)
+      (wordBytes (BitVec.ofNat 64 ((wordAt m (m.reg 10 + 8)).toNat * elemBytes))))
+    (hheap : A.Heap ((L.erase (wordAt m (m.reg 10), (wordAt m (m.reg 10 + 16)).toNat * elemBytes)) ++
+      [(p', grown (m.reg 12).toNat * elemBytes)]) m4)
+    (hpriv : ∀ a, A.Priv ((L.erase (wordAt m (m.reg 10), (wordAt m (m.reg 10 + 16)).toNat * elemBytes)) ++
+      [(p', grown (m.reg 12).toNat * elemBytes)]) a →
+        A.Priv L a ∨ InRange (wordAt m (m.reg 10)) ((wordAt m (m.reg 10 + 16)).toNat * elemBytes) a)
+    (hblk : ∀ a, InRange p' (grown (m.reg 12).toNat * elemBytes) a → A.Priv L a) :
+    Reaches zesuImage 17 (Post A L items m) m4 := by
+  refine run_reaches' run4b hwf hm hpc (hinv.ro E) ?_
+  intro l hl hc
+  simp only [run4b_leaves, List.mem_cons, List.mem_nil_iff, or_false] at hl
+  subst hl
+  have hv1 : env.vars 1 = m.reg 1 := he.vars 1
+  refine ⟨fun o ho => ?_, by decide, fun mf hmf hex hfr hp => Reaches.done ?_⟩
+  · simp at ho; subst ho; simpa [Oblig.holds, Sym.eval, BinOp.eval, hv1] using E.ra
+  have hwf' : Env.WF env (run4b_leaves[0]!).S := hwf.congr (by decide)
+  have hS : (run4b_leaves[0]!).S.regions = [frameR, headerR, allocObjR] := by decide
+  have own : ∀ a, InWritable env S4b a → InRange (m.reg 2 - 112) 112 a ∨ InRange (m.reg 10) 24 a :=
+    fun a h => E.inWritable2 he (by decide) h
+  have hret : Returns m mf := returns_leaf hmf he.vars (by decide)
+    (by show env.base 0 + BitVec.ofInt 64 112 = m.reg 2
+        rw [he.base0]; simp [BitVec.sub_add_cancel]) hex
+  have hlt' : ¬ (m.reg 12).toNat ≤ (wordAt m (m.reg 10 + 16)).toNat := by omega
+  refine ⟨hret, (hinv.step hfr (fun a h => E.inWritable' he (by decide) h) hp).1, ?_⟩
+  simp only [hlt', if_false]
+  refine .inl ⟨by rw [← hmf.regs 10]; rfl, p', ⟨?_, ?_, ?_⟩, hp'0, hp'ram, ?_, ?_, ?_⟩
+  · have := header_load he hwf' hmf hS 0 (by decide)
+    rw [show m.reg 10 + BitVec.ofNat 64 0 = m.reg 10 by simp] at this
+    rw [this]; show some (env.vars 310) = _; rw [hv310]
+  · have := header_load he hwf' hmf hS 8 (by decide)
+    show mf.load (m.reg 10 + BitVec.ofNat 64 8) 8 = _
+    rw [this]; show some ((Sym.init 1 8 8).eval env) = _
+    rw [he.init_eq, E.len]
+  · have := header_load he hwf' hmf hS 16 (by decide)
+    show mf.load (m.reg 10 + BitVec.ofNat 64 16) 8 = _
+    rw [this]; show some (env.vars 122) = _; rw [hv122]
+  · intro i hi
+    rw [hfr _ fun hw => ?_]
+    · exact hitems i hi
+    · have hlen := E.itemsLen; have hnc := E.nc
+      have hram := hp'ram; unfold RamRange Layout.ramHi at hram
+      simp only [elemBytes, grown] at hlen hram hi ⊢
+      have hin : InRange p' (((m.reg 12).toNat + (m.reg 12).toNat / 2 + 2) * 32) (p' + BitVec.ofNat 64 i) := by
+        simp only [InRange]; rw [toNat_add_ofNat (by omega)]; omega
+      exact E.ownNotPriv (own _ hw) (hblk _ (by simpa only [grown, elemBytes] using hin))
+  · simp only [hc0, if_true]
+    refine A.heap_frame _ m4 mf hheap fun a ha => hfr a fun hw => ?_
+    rcases hpriv a ha with h | h
+    · exact E.ownNotPriv (own a hw) h
+    · exact E.oldNotOwn hc0 h (own a hw)
+  · intro i hi
+    rw [hfr _ fun hw => E.scratchNotOwn (by simpa [wordBytes] using hi) (own _ hw)]
+    exact hscr i hi
 
 set_option hygiene false in
 /-- A path that needs the grown capacity to overflow `2^59` is infeasible. -/

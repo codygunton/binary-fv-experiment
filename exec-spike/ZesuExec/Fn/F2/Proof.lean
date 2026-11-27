@@ -14,9 +14,9 @@ set_option hygiene false in
 macro "f2_word" : tactic => `(tactic| (
   apply BitVec.eq_of_toNat_eq
   simp only [↓eval_and_sext_init, Sym.eval, BinOp.eval, hb0]
-  simp [BitVec.toNat_and, BitVec.toNat_add, Nat.mod_eq_of_lt (Nat.lt_trans hx (by decide : 256 < 2 ^ 64))]
+  try simp [BitVec.toNat_and, BitVec.toNat_add, Nat.mod_eq_of_lt (Nat.lt_trans hx (by decide : 256 < 2 ^ 64))]
   try simp only [land_255, land_127]
-  omega))
+  try omega))
 
 set_option hygiene false in
 /-- `decode` of the input under the leaf's facts on the first byte and the length. -/
@@ -154,7 +154,7 @@ theorem f2_spec : Spec zesuImage entry bound Pre Post := by
     have hdec : decode (bytesOf m (m.reg 11) (m.reg 12).toNat) = .success true 1 ((firstByte m).toNat - 192) := by f2_decode
     refine post_of (hret m' _ hm' hex (by decide)) (hso m' hfr)
       (bytes_succ (p := (.ptr 1 1)) (l := (.bin .and (.bin .add (.bin .and (.sext 8 (.init 1 0 1)) (.lit 255)) (.lit 64)) (.lit 255))) (f := (.lit 1)) (c := (.bin .add (.bin .and (.bin .add (.bin .and (.sext 8 (.init 1 0 1)) (.lit 255)) (.lit 64)) (.lit 255)) (.lit 1))) hm' rfl hb2 hs2
-        (by decide) (by simp [Sym.eval]) hbE hdec ?_ (by f2_word) (by f2_word))
+        (by decide) rfl hbE hdec ?_ (by f2_word) (by f2_word))
     rw [input_head m (by omega)]
     have : firstByte m ≠ 128 := fun h => by rw [h] at hc; simp at hc
     simp [Sym.eval, envE, entryEnv, Env.base, shape, shapeOf]
@@ -175,7 +175,7 @@ theorem f2_spec : Spec zesuImage entry bound Pre Post := by
     have hdec : decode (bytesOf m (m.reg 11) (m.reg 12).toNat) = .success false 1 ((firstByte m).toNat - 128) := by f2_decode
     refine post_of (hret m' _ hm' hex (by decide)) (hso m' hfr)
       (bytes_succ (p := (.ptr 1 1)) (l := (.bin .and (.bin .and (.sext 8 (.init 1 0 1)) (.lit 255)) (.lit 127))) (f := (.lit 0)) (c := (.bin .add (.bin .and (.bin .and (.sext 8 (.init 1 0 1)) (.lit 255)) (.lit 127)) (.lit 1))) hm' rfl hb2 hs2
-        (by decide) (by simp [Sym.eval]) hbE hdec ?_ (by f2_word) (by f2_word))
+        (by decide) rfl hbE hdec ?_ (by f2_word) (by f2_word))
     rw [input_head m (by omega)]
     have : firstByte m ≠ 128 := fun h => by rw [h] at hc; simp at hc
     simp [Sym.eval, envE, entryEnv, Env.base, shape, shapeOf]
@@ -185,7 +185,7 @@ theorem f2_spec : Spec zesuImage entry bound Pre Post := by
     have hdec : decode (bytesOf m (m.reg 11) (m.reg 12).toNat) = .success false 1 0 := by f2_decode
     refine post_of (hret m' _ hm' hex (by decide)) (hso m' hfr)
       (bytes_succ (p := (.lit 1)) (l := (.lit 0)) (f := (.lit 0)) (c := (.lit 1)) hm' rfl hb2 hs2
-        (by decide) (by simp [Sym.eval]) hbE hdec ?_ (by f2_word) (by f2_word))
+        (by decide) rfl hbE hdec ?_ (by f2_word) (by f2_word))
     rw [input_head m (by omega)]
     have : firstByte m = 128 := BitVec.eq_of_toNat_eq (by simp; omega)
     simp [this, Sym.eval]

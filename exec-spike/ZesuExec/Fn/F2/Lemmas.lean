@@ -147,6 +147,35 @@ theorem mem_eq_of_nowrite {env : Env} {S lS : SState} {m m' : Machine}
     rfl
   · exact hfr a ha
 
+/-- Memory after a leaf differs from the start only inside written regions, which `R` covers. -/
+theorem so_of_leaf {env : Env} {S lS : SState} {m m' : Machine} {R : Word → Prop}
+    (hfr : SameOutside (InWritable env S) m m') (hm' : Match env lS m')
+    (hreg : lS.regions = S.regions)
+    (hinit : ∀ r j, r < S.regions.length → j < env.size r →
+      m.mem (env.base r + BitVec.ofNat 64 j) = some (env.byte0 r j))
+    (hR : ∀ r j, r < S.regions.length → j < env.size r → lS.mem.all (·.r != r) = false →
+      R (env.base r + BitVec.ofNat 64 j)) :
+    SameOutside R m m' := by
+  intro a ha
+  by_cases hw : InWritable env S a
+  · obtain ⟨r, R', j, hR', -, hj, rfl⟩ := hw
+    have hr := (List.getElem?_eq_some_iff.mp hR').1
+    by_cases hn : lS.mem.all (·.r != r) = true
+    · rw [match_nowrite hm' (by rw [hreg]; exact hr) hn hj, hinit r j hr hj]
+    · exact absurd (hR r j hr hj (by simpa using hn)) ha
+  · exact hfr a hw
+
+/-- The frame after `sd s0, 0(sp)` and `sd ra, 8(sp)`. -/
+theorem frame_bytes (env : Env) (a b : Sym) {t : Nat} (ht : t < 8) :
+    memByte env [⟨0, 0, 8, a⟩, ⟨0, 8, 8, b⟩] 0 (8 + t) = byteOf (b.eval env) t ∧
+      memByte env [⟨0, 0, 8, a⟩, ⟨0, 8, 8, b⟩] 0 t = byteOf (a.eval env) t := by
+  constructor
+  · rw [memByte_cons, memByte_cons]
+    simp [Write.covers, show ¬ 8 + t < 8 by omega]
+    omega
+  · rw [memByte_cons]
+    simp [Write.covers, ht]
+
 theorem SameOutside.trans' {R : Word → Prop} {m₁ m₂ m₃ : Machine} (h₁ : SameOutside R m₁ m₂)
     (h₂ : SameOutside R m₂ m₃) : SameOutside R m₁ m₃ := fun a ha => (h₂ a ha).trans (h₁ a ha)
 
@@ -172,8 +201,8 @@ theorem eval_and_sext_init (env : Env) (r off : Nat) :
     (Sym.bin .and (Sym.sext 8 (Sym.init r off 1)) (.lit 255)).eval env =
       BitVec.ofNat 64 (env.byte0 r off).toNat := by
   rw [← sext_and_255]
-  simp only [Sym.eval, BinOp.eval, eval_sext_init]
-  simp [Sym.eval, byteList, ofBytesLE]
+  simp only [Sym.eval, BinOp.eval]
+  simp [byteList, ofBytesLE]
 
 theorem eval_initx1 (env : Env) (r off : Nat) (i : Sym) :
     (Sym.initx r off i 1 1).eval env = (env.byte0 r (off + (i.eval env).toNat)).setWidth 64 := by
