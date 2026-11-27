@@ -11,10 +11,10 @@ specialised by two reviewable patches), and seven functions of the Zesu ELF prov
 | F0 | `alt_fl_alloc.remap` | proved | `Fn.F0.f0_spec`, `f0_sail` |
 | F1 | `ensureTotalCapacity` | proved (given `AllocAssumptions`) | `f1_spec`, `f1_sail` |
 | F2 | `rlp.decodeItem` | proved; compliance proved | `f2_spec`, `f2_sail`, `Compliance.F2.f2_candidate_agrees`, `f2_compliance`, `f2_compliance_sail` |
-| F3 | `rlp_decode.nextUint64` | proved; compliance in progress | `f3_spec`, `f3_sail` |
+| F3 | `rlp_decode.nextUint64` | proved; compliance proved | `f3_spec`, `f3_sail`, `Compliance.F3.f3_candidate_agrees`, `f3_compliance`, `f3_compliance_sail` |
 | F4 | keys `toOwnedSlice` | proved (given `AllocAssumptions`) | `f4_spec`, `f4_sail` |
 | F5 | entries `toOwnedSlice` | proved (given `AllocAssumptions`) | `f5_spec`, `f5_sail` |
-| F6 | `decodeParentHeader` | in progress | — (`OPEN/F6/`) |
+| F6 | `decodeParentHeader` | proved; compliance in progress | `f6_spec` (bound 2178), `f6_sail` |
 
 Every listed theorem has a `#guard_msgs`-checked `#print axioms` in `ZesuExec/Axioms.lean`
 listing only `propext`, `Classical.choice`, `Quot.sound`.
@@ -32,9 +32,10 @@ Kernel time/memory: clean `lake build ZesuExec.Fn.<Id>.Proof` with shared module
 | F3 | 53 | 10 | 1431 | 6.2 s | 11.4 s | 1.82 GB | 0.21 | 160 | — |
 | F4 | 121 | 27 | 1624 | 6.7 s | 13.0 s | 1.76 GB | 0.11 | 194 | ~1,560 lines, 30 rounds, 7.58 M tokens |
 | F5 | 138 | 27 | 410 (+ shared F4) | 5.4 s | 5.4 s | 1.82 GB | 0.04 | 204 | 10 rounds, 9.42 M tokens |
+| F6 | 367 | 87 | 3340 | ~21 s (sum of modules) | — | 1.8 GB | — | 2178 | — |
 
 zesislar overall: 27–38 CPU-s per instruction; here 0.04–0.21. Agent cost (approximate, from
-the harness): F2 ~$9 (one worker, 30 min), F3 ~$9 (26 min), F4+F5 ~$7 (22 min), F1 by the
+the harness): F2 ~$9 (one worker, 30 min), F3 ~$9 (26 min), F4+F5 ~$7 (22 min), F6 one worker (48 min), F1 by the
 coordinator (~3 h wall, interleaved). All bounds match the plan's expected values where given;
 F1's is checked tight in `Test/Budget.lean`.
 
@@ -89,3 +90,16 @@ table in LOG.md S1: stock 474 reachable defs / 87 registers on the `addi` path; 
 - `ecall`, atomics: new outcomes in `next` and trap modelling.
 - Unaligned accesses: drop the alignment check in `load`/`store` and re-prove `Rel.mem` steps.
 - Indexed stores: `Write` with a symbolic index (plan S5 recipe).
+
+- F3 compliance: zesislar has no nextUint64-vs-Sail statement; the Sail side `sailNext`
+  (item decode + `rlp_decode_uint64`) was defined in `Compliance/F3.lean` and needs review.
+- F6 `Post` states only the error bytes on both error paths (not the copied constant) and
+  leaves the scratch word's final value unstated.
+
+## Verification run (2026-11-27)
+
+- Item 1: `rm -rf .lake/build && lake build`: success, 223 jobs, 1:30 wall, 447 s user, 2.6 GB peak.
+- Items 2, 3, 9: `tools/verify.sh` PASS (forbidden constructs, layering, image vs ELF: 1138 words, 128 rodata bytes).
+- Item 4: `ZesuExec/Axioms.lean` guards build. Items 5, 6, 10: `Test/Sym.lean`, `Test/Budget.lean`, non-vacuity examples build.
+- Item 7: three-way difftest agrees on 45/45 F1/F2 snapshots (TrackT2, after the config fix).
+- Item 8: `zesuSailRiscvLeanRegenerationCheck` passes (TrackT2).
