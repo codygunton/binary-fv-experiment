@@ -5,35 +5,11 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147483752,
-  "i": 0,
-  "exit": "ret",
-  "target": null,
-  "residual": "1 goal; head @LeafGoal; class post ?",
-  "rank": 1
- },
- {
-  "type": "leaf",
-  "fn": "f_80000000",
-  "name": "rlp_decode.txAccessList",
-  "status_id": "ZesuExec.Fn.TX.TX",
-  "cut": 2147483752,
-  "i": 1,
-  "exit": "ret",
-  "target": null,
-  "residual": "1 goal; head @LeafGoal; class post ?",
-  "rank": 2
- },
- {
-  "type": "leaf",
-  "fn": "f_80000000",
-  "name": "rlp_decode.txAccessList",
-  "status_id": "ZesuExec.Fn.TX.TX",
-  "cut": 2147483752,
   "i": 2,
   "exit": "call",
   "target": 2148361556,
   "residual": "1 goal; head @LeafGoal; class callee-pre ?",
-  "rank": 3
+  "rank": 1
  },
  {
   "type": "leaf",
@@ -45,7 +21,7 @@
   "exit": "at",
   "target": 2147483844,
   "residual": "1 goal; head @LeafGoal; class cut Eq",
-  "rank": 4
+  "rank": 2
  },
  {
   "type": "leaf",
@@ -57,7 +33,7 @@
   "exit": "call",
   "target": 2148362592,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 5
+  "rank": 3
  },
  {
   "type": "leaf",
@@ -69,7 +45,7 @@
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class post ?",
-  "rank": 6
+  "rank": 4
  },
  {
   "type": "leaf",
@@ -81,7 +57,7 @@
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class post ?",
-  "rank": 7
+  "rank": 5
  },
  {
   "type": "leaf",
@@ -93,7 +69,7 @@
   "exit": "call",
   "target": 2148362592,
   "residual": "1 goal; head @LeafGoal; class callee-pre Eq",
-  "rank": 8
+  "rank": 6
  },
  {
   "type": "leaf",
@@ -102,6 +78,30 @@
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147483916,
   "i": 0,
+  "exit": "ret",
+  "target": null,
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
+  "rank": 7
+ },
+ {
+  "type": "leaf",
+  "fn": "f_80000000",
+  "name": "rlp_decode.txAccessList",
+  "status_id": "ZesuExec.Fn.TX.TX",
+  "cut": 2147483916,
+  "i": 1,
+  "exit": "ret",
+  "target": null,
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
+  "rank": 8
+ },
+ {
+  "type": "leaf",
+  "fn": "f_80000000",
+  "name": "rlp_decode.txAccessList",
+  "status_id": "ZesuExec.Fn.TX.TX",
+  "cut": 2147483916,
+  "i": 2,
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class oblig Eq",
@@ -113,35 +113,11 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147483916,
-  "i": 1,
-  "exit": "ret",
-  "target": null,
-  "residual": "1 goal; head @LeafGoal; class oblig Eq",
-  "rank": 10
- },
- {
-  "type": "leaf",
-  "fn": "f_80000000",
-  "name": "rlp_decode.txAccessList",
-  "status_id": "ZesuExec.Fn.TX.TX",
-  "cut": 2147483916,
-  "i": 2,
-  "exit": "ret",
-  "target": null,
-  "residual": "1 goal; head @LeafGoal; class oblig Eq",
-  "rank": 11
- },
- {
-  "type": "leaf",
-  "fn": "f_80000000",
-  "name": "rlp_decode.txAccessList",
-  "status_id": "ZesuExec.Fn.TX.TX",
-  "cut": 2147483916,
   "i": 3,
   "exit": "call",
   "target": 2148362592,
   "residual": "1 goal; head @LeafGoal; class oblig LE.le",
-  "rank": 12
+  "rank": 10
  },
  {
   "type": "leaf",
@@ -153,7 +129,7 @@
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class post ?",
-  "rank": 13
+  "rank": 11
  },
  {
   "type": "leaf",
@@ -165,7 +141,7 @@
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class post ?",
-  "rank": 14
+  "rank": 12
  },
  {
   "type": "leaf",
@@ -177,7 +153,7 @@
   "exit": "call",
   "target": 2148362108,
   "residual": "1 goal; head @LeafGoal; class callee-pre ?",
-  "rank": 15
+  "rank": 13
  },
  {
   "type": "leaf",
@@ -189,7 +165,7 @@
   "exit": "at",
   "target": 2147484044,
   "residual": "1 goal; head @LeafGoal; class cut Eq",
-  "rank": 16
+  "rank": 14
  },
  {
   "type": "leaf",
@@ -201,7 +177,7 @@
   "exit": "call",
   "target": 2148362592,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 17
+  "rank": 15
  },
  {
   "type": "leaf",
@@ -210,6 +186,30 @@
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484064,
   "i": 0,
+  "exit": "ret",
+  "target": null,
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
+  "rank": 16
+ },
+ {
+  "type": "leaf",
+  "fn": "f_80000000",
+  "name": "rlp_decode.txAccessList",
+  "status_id": "ZesuExec.Fn.TX.TX",
+  "cut": 2147484064,
+  "i": 1,
+  "exit": "ret",
+  "target": null,
+  "residual": "1 goal; head @LeafGoal; class oblig Eq",
+  "rank": 17
+ },
+ {
+  "type": "leaf",
+  "fn": "f_80000000",
+  "name": "rlp_decode.txAccessList",
+  "status_id": "ZesuExec.Fn.TX.TX",
+  "cut": 2147484064,
+  "i": 2,
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class oblig Eq",
@@ -221,35 +221,11 @@
   "name": "rlp_decode.txAccessList",
   "status_id": "ZesuExec.Fn.TX.TX",
   "cut": 2147484064,
-  "i": 1,
-  "exit": "ret",
-  "target": null,
-  "residual": "1 goal; head @LeafGoal; class oblig Eq",
-  "rank": 19
- },
- {
-  "type": "leaf",
-  "fn": "f_80000000",
-  "name": "rlp_decode.txAccessList",
-  "status_id": "ZesuExec.Fn.TX.TX",
-  "cut": 2147484064,
-  "i": 2,
-  "exit": "ret",
-  "target": null,
-  "residual": "1 goal; head @LeafGoal; class oblig Eq",
-  "rank": 20
- },
- {
-  "type": "leaf",
-  "fn": "f_80000000",
-  "name": "rlp_decode.txAccessList",
-  "status_id": "ZesuExec.Fn.TX.TX",
-  "cut": 2147484064,
   "i": 3,
   "exit": "call",
   "target": 2148316172,
   "residual": "1 goal; head @LeafGoal; class oblig LE.le",
-  "rank": 21
+  "rank": 19
  },
  {
   "type": "leaf",
@@ -261,7 +237,7 @@
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class post ?",
-  "rank": 22
+  "rank": 20
  },
  {
   "type": "leaf",
@@ -273,7 +249,7 @@
   "exit": "at",
   "target": 2147484208,
   "residual": "1 goal; head @LeafGoal; class cut Eq",
-  "rank": 23
+  "rank": 21
  },
  {
   "type": "leaf",
@@ -285,7 +261,7 @@
   "exit": "at",
   "target": 2147484044,
   "residual": "1 goal; head @LeafGoal; class cut Eq",
-  "rank": 24
+  "rank": 22
  },
  {
   "type": "leaf",
@@ -297,7 +273,7 @@
   "exit": "call",
   "target": 2148362108,
   "residual": "1 goal; head @LeafGoal; class callee-pre ?",
-  "rank": 25
+  "rank": 23
  },
  {
   "type": "leaf",
@@ -309,7 +285,7 @@
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 26
+  "rank": 24
  },
  {
   "type": "leaf",
@@ -321,7 +297,7 @@
   "exit": "at",
   "target": 2147484768,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 27
+  "rank": 25
  },
  {
   "type": "leaf",
@@ -333,7 +309,7 @@
   "exit": "call",
   "target": 2147755156,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 28
+  "rank": 26
  },
  {
   "type": "leaf",
@@ -345,7 +321,7 @@
   "exit": "call",
   "target": 2147754380,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 29
+  "rank": 27
  },
  {
   "type": "leaf",
@@ -357,7 +333,7 @@
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 30
+  "rank": 28
  },
  {
   "type": "leaf",
@@ -369,7 +345,7 @@
   "exit": "call",
   "target": 2147755156,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 31
+  "rank": 29
  },
  {
   "type": "leaf",
@@ -381,7 +357,7 @@
   "exit": "call",
   "target": 2148402880,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 32
+  "rank": 30
  },
  {
   "type": "leaf",
@@ -393,7 +369,7 @@
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 33
+  "rank": 31
  },
  {
   "type": "leaf",
@@ -405,7 +381,7 @@
   "exit": "at",
   "target": 2147484716,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 34
+  "rank": 32
  },
  {
   "type": "leaf",
@@ -417,7 +393,7 @@
   "exit": "call",
   "target": 2147753784,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 35
+  "rank": 33
  },
  {
   "type": "leaf",
@@ -429,7 +405,7 @@
   "exit": "at",
   "target": 2147484768,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 36
+  "rank": 34
  },
  {
   "type": "leaf",
@@ -441,7 +417,7 @@
   "exit": "at",
   "target": 2147483844,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 37
+  "rank": 35
  },
  {
   "type": "leaf",
@@ -453,7 +429,7 @@
   "exit": "call",
   "target": 2148361556,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 38
+  "rank": 36
  },
  {
   "type": "leaf",
@@ -465,7 +441,7 @@
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class post ?",
-  "rank": 39
+  "rank": 37
  },
  {
   "type": "leaf",
@@ -477,7 +453,7 @@
   "exit": "ret",
   "target": null,
   "residual": "1 goal; head @LeafGoal; class post ?",
-  "rank": 40
+  "rank": 38
  },
  {
   "type": "function",
@@ -489,7 +465,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 41
+  "rank": 39
  },
  {
   "type": "function",
@@ -501,7 +477,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 42
+  "rank": 40
  },
  {
   "type": "function",
@@ -513,7 +489,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 3,
-  "rank": 43
+  "rank": 41
  },
  {
   "type": "function",
@@ -525,7 +501,7 @@
   "loops_needing_measure": 2,
   "contract_missing": true,
   "leaves_estimate": 29,
-  "rank": 44
+  "rank": 42
  },
  {
   "type": "function",
@@ -537,7 +513,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 19,
-  "rank": 45
+  "rank": 43
  },
  {
   "type": "function",
@@ -549,7 +525,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 6,
-  "rank": 46
+  "rank": 44
  },
  {
   "type": "function",
@@ -561,7 +537,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 105,
-  "rank": 47
+  "rank": 45
  },
  {
   "type": "function",
@@ -573,7 +549,7 @@
   "loops_needing_measure": 2,
   "contract_missing": true,
   "leaves_estimate": 16,
-  "rank": 48
+  "rank": 46
  },
  {
   "type": "function",
@@ -585,7 +561,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 24,
-  "rank": 49
+  "rank": 47
  },
  {
   "type": "function",
@@ -597,7 +573,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 20,
-  "rank": 50
+  "rank": 48
  },
  {
   "type": "function",
@@ -609,7 +585,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 18,
-  "rank": 51
+  "rank": 49
  },
  {
   "type": "function",
@@ -621,7 +597,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 20,
-  "rank": 52
+  "rank": 50
  },
  {
   "type": "function",
@@ -633,7 +609,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 86,
-  "rank": 53
+  "rank": 51
  },
  {
   "type": "function",
@@ -645,7 +621,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 67,
-  "rank": 54
+  "rank": 52
  },
  {
   "type": "function",
@@ -657,7 +633,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 8,
-  "rank": 55
+  "rank": 53
  },
  {
   "type": "function",
@@ -669,7 +645,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 37,
-  "rank": 56
+  "rank": 54
  },
  {
   "type": "function",
@@ -681,7 +657,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 20,
-  "rank": 57
+  "rank": 55
  },
  {
   "type": "function",
@@ -693,7 +669,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 86,
-  "rank": 58
+  "rank": 56
  },
  {
   "type": "blocker",
@@ -767,7 +743,7 @@
    "f_800e8c44",
    "f_800f7824"
   ],
-  "rank": 59
+  "rank": 57
  },
  {
   "type": "blocker",
@@ -811,7 +787,7 @@
    "f_800d5898",
    "f_8010f90c"
   ],
-  "rank": 60
+  "rank": 58
  },
  {
   "type": "blocker",
@@ -834,7 +810,7 @@
    "f_80103a7c",
    "f_8010f90c"
   ],
-  "rank": 61
+  "rank": 59
  },
  {
   "type": "blocker",
@@ -853,7 +829,7 @@
    "f_8009f348",
    "f_8010f90c"
   ],
-  "rank": 62
+  "rank": 60
  },
  {
   "type": "blocker",
@@ -870,7 +846,7 @@
    "f_8008baec",
    "f_8009f348"
   ],
-  "rank": 63
+  "rank": 61
  },
  {
   "type": "blocker",
@@ -929,7 +905,7 @@
    "f_800dfa30",
    "f_800dfe5c"
   ],
-  "rank": 64
+  "rank": 62
  },
  {
   "type": "blocker",
@@ -992,7 +968,7 @@
    "f_800dfa30",
    "f_800dfe5c"
   ],
-  "rank": 65
+  "rank": 63
  },
  {
   "type": "blocker",
@@ -1007,7 +983,7 @@
    "f_8008baec",
    "f_800cbb74"
   ],
-  "rank": 66
+  "rank": 64
  },
  {
   "type": "blocker",
@@ -1073,7 +1049,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 67
+  "rank": 65
  },
  {
   "type": "blocker",
@@ -1102,7 +1078,7 @@
    "f_800dded0",
    "f_800de310"
   ],
-  "rank": 68
+  "rank": 66
  },
  {
   "type": "blocker",
@@ -1168,7 +1144,7 @@
    "f_800dfe5c",
    "f_8010f90c"
   ],
-  "rank": 69
+  "rank": 67
  },
  {
   "type": "blocker",
@@ -1196,7 +1172,7 @@
    "f_800d7a60",
    "f_800f7824"
   ],
-  "rank": 70
+  "rank": 68
  },
  {
   "type": "blocker",
@@ -1211,7 +1187,7 @@
    "f_800ab11c",
    "f_8010f90c"
   ],
-  "rank": 71
+  "rank": 69
  },
  {
   "type": "blocker",
@@ -1221,7 +1197,7 @@
    "f_8001e8fc",
    "f_800308b0"
   ],
-  "rank": 72
+  "rank": 70
  },
  {
   "type": "blocker",
@@ -1231,7 +1207,7 @@
    "f_8001e8fc",
    "f_800cfa50"
   ],
-  "rank": 73
+  "rank": 71
  },
  {
   "type": "blocker",
@@ -1245,7 +1221,7 @@
    "f_800f5ad8",
    "f_800f5b98"
   ],
-  "rank": 74
+  "rank": 72
  },
  {
   "type": "blocker",
@@ -1255,7 +1231,7 @@
    "f_800ab11c",
    "f_800e06f0"
   ],
-  "rank": 75
+  "rank": 73
  },
  {
   "type": "blocker",
@@ -1264,7 +1240,7 @@
   "functions": [
    "f_8000a48c"
   ],
-  "rank": 76
+  "rank": 74
  },
  {
   "type": "blocker",
@@ -1285,7 +1261,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 77
+  "rank": 75
  },
  {
   "type": "blocker",
@@ -1302,7 +1278,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 78
+  "rank": 76
  },
  {
   "type": "blocker",
@@ -1317,7 +1293,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 79
+  "rank": 77
  },
  {
   "type": "blocker",
@@ -1329,7 +1305,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 80
+  "rank": 78
  },
  {
   "type": "blocker",
@@ -1343,7 +1319,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 81
+  "rank": 79
  },
  {
   "type": "blocker",
@@ -1356,7 +1332,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 82
+  "rank": 80
  },
  {
   "type": "blocker",
@@ -1367,7 +1343,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 83
+  "rank": 81
  },
  {
   "type": "blocker",
@@ -1379,7 +1355,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 84
+  "rank": 82
  },
  {
   "type": "blocker",
@@ -1389,7 +1365,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 85
+  "rank": 83
  },
  {
   "type": "blocker",
@@ -1399,7 +1375,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 86
+  "rank": 84
  },
  {
   "type": "blocker",
@@ -1409,7 +1385,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 87
+  "rank": 85
  },
  {
   "type": "blocker",
@@ -1419,7 +1395,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 88
+  "rank": 86
  },
  {
   "type": "blocker",
@@ -1429,7 +1405,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 89
+  "rank": 87
  },
  {
   "type": "blocker",
@@ -1440,7 +1416,7 @@
    "f_800f7824",
    "f_8010f90c"
   ],
-  "rank": 90
+  "rank": 88
  },
  {
   "type": "blocker",
@@ -1451,7 +1427,7 @@
    "f_800e8c44",
    "f_800f7824"
   ],
-  "rank": 91
+  "rank": 89
  },
  {
   "type": "blocker",
@@ -1460,7 +1436,7 @@
   "functions": [
    "f_800e06f0"
   ],
-  "rank": 92
+  "rank": 90
  },
  {
   "type": "blocker",
@@ -1470,7 +1446,7 @@
    "f_800e8c44",
    "f_800ea180"
   ],
-  "rank": 93
+  "rank": 91
  },
  {
   "type": "blocker",
@@ -1479,7 +1455,7 @@
   "functions": [
    "f_800f7824"
   ],
-  "rank": 94
+  "rank": 92
  },
  {
   "type": "blocker",
@@ -1490,7 +1466,7 @@
    "f_800fcda8",
    "f_8010f78c"
   ],
-  "rank": 95
+  "rank": 93
  },
  {
   "type": "blocker",
@@ -1499,7 +1475,7 @@
   "functions": [
    "f_8010f90c"
   ],
-  "rank": 96
+  "rank": 94
  },
  {
   "type": "blocker",
@@ -1508,7 +1484,7 @@
   "functions": [
    "f_800ea180"
   ],
-  "rank": 97
+  "rank": 95
  },
  {
   "type": "blocker",
@@ -1518,7 +1494,7 @@
    "f_800e17b8",
    "f_800f5b30"
   ],
-  "rank": 98
+  "rank": 96
  },
  {
   "type": "blocker",
@@ -1527,7 +1503,7 @@
   "functions": [
    "f_8010f78c"
   ],
-  "rank": 99
+  "rank": 97
  },
  {
   "type": "blocker",
@@ -1537,7 +1513,7 @@
    "f_800e0680",
    "f_800f5b30"
   ],
-  "rank": 100
+  "rank": 98
  },
  {
   "type": "blocker",
@@ -1547,7 +1523,7 @@
    "f_800ea5d4",
    "f_800f5b30"
   ],
-  "rank": 101
+  "rank": 99
  },
  {
   "type": "blocker",
@@ -1557,6 +1533,6 @@
    "f_800e0680",
    "f_800e0692"
   ],
-  "rank": 102
+  "rank": 100
  }
 ]
