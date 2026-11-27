@@ -450,4 +450,382 @@ theorem TX.leaf_80000400_1 :
     show 42 + bTail m'' 324 ≤ bTail m 377 - _
     rw [hsteps]; unfold bTail afterEntry; rw [h21, h26]; omega
 
+/-! ## The grown list before its header is written -/
+
+/-- `EList` without the header at `S-0x1c0`. -/
+def ELNoHdr (σ : Sig) (m : Machine) (o : Obs) : Prop :=
+  o.done.length ≤ o.ec.toNat ∧ 0 < o.ep.toNat ∧
+  (o.ec.toNat = 0 → o.ep = 8) ∧ o.ec.toNat < 2 ^ 32 ∧
+  (0 < o.ec.toNat → RamRange o.ep (entrySize * o.ec.toNat)) ∧
+  o.is.length = o.done.length ∧ BytesAt m o.ep (entriesBytes o.done o.is) ∧
+  ∀ x ∈ List.zip o.done o.is, x.2.padding.length = 4 ∧ x.1.address.length = 20 ∧
+    (∀ y ∈ x.1.keys, y.length = keySize) ∧
+    (x.1.keys ≠ [] → RamRange x.2.keysPtr (keySize * x.1.keys.length)) ∧
+    BytesAt m x.2.keysPtr x.1.keys.flatten
+
+/-- `EntryDone` without the entries header and copy B, with live blocks `X` besides TX's. -/
+def Grown (σ : Sig) (m : Machine) (o : Obs) (k : Kobs) (L : List (Word × Nat)) (kp' : Word)
+    (X : List (Word × Nat)) : Prop :=
+  Common σ m ∧ OuterOk σ m o ∧ OuterRegs σ m o ∧ ELNoHdr σ m o ∧
+  Live σ m L (EX o ++ KD k kp' ++ X) ∧ EntryOk σ m o k ∧ AddrOk σ m o k ∧ KeysListOk σ o k ∧
+  KeysWalked (kpl σ o k) k.kl k.keys ∧
+  (k.keys ≠ [] → RamRange kp' (keySize * k.keys.length)) ∧ BytesAt m kp' k.keys.flatten ∧
+  (∀ y ∈ k.keys, y.length = keySize)
+
+theorem live_perm {σ : Sig} {m : Machine} {L X X' : List (Word × Nat)} (h : Live σ m L X)
+    (hp : X.Perm X') : Live σ m L X' :=
+  ⟨h.1, h.2.1.trans (List.Perm.append_left _ hp), fun b hb => h.2.2 b (hp.symm.subset hb)⟩
+
+/-- `Grown` carries over to a machine that keeps its bytes and registers. -/
+theorem grown_keep {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs}
+    {L X L' X' : List (Word × Nat)} {kp' : Word} (h : Grown σ mc o k L kp' X) (hcm : Common σ m)
+    (hl : Live σ m L' (EX o ++ KD k kp' ++ X'))
+    (hr : ∀ i ∈ ([20, 21, 26] : List (Fin 32)), m.reg i = mc.reg i)
+    (hrest : ∀ t < 16, m.mem (σ.rest + BitVec.ofNat 64 t) = mc.mem (σ.rest + BitVec.ofNat 64 t))
+    (hslot : ∀ kn ∈ ([(0x1f0, 8), (0x158, 20)] : List (Nat × Nat)), ∀ t < kn.2,
+      m.mem (σ.sl kn.1 + BitVec.ofNat 64 t) = mc.mem (σ.sl kn.1 + BitVec.ofNat 64 t))
+    (hblk : ∀ b ∈ EX o ++ KD k kp', ∀ t < b.2,
+      m.mem (b.1 + BitVec.ofNat 64 t) = mc.mem (b.1 + BitVec.ofNat 64 t)) :
+    Grown σ m o k L' kp' X' := by
+  obtain ⟨-, hok, ⟨r20, r21, hi, hmag⟩, hEL, -, ⟨hd, hle, r26⟩, ⟨had, hal, hA⟩, hkl, hkw,
+    hram, hkb, hkeys⟩ := h
+  have l0 := hslot (0x1f0, 8) (by simp)
+  have l2 := hslot (0x158, 20) (by simp)
+  obtain ⟨hle', hp0, hc0, hc32, hram', hil, hbytes, hz⟩ := hEL
+  have h20 : ∀ t < (itemPayload (ent σ o k) k.ah 20).length, t < 20 := fun t ht => by
+    simp only [itemPayload, List.length_take] at ht; omega
+  refine ⟨hcm, ⟨hok.1, hok.2.1, ?_, ?_, hok.2.2.2.2⟩,
+    ⟨(hr 20 (by decide)).trans r20, (hr 21 (by decide)).trans r21, hi,
+      (load_congr fun t ht => l0 t ht).trans hmag⟩,
+    ⟨hle', hp0, hc0, hc32, hram', hil, ?_, fun x hx => ?_⟩,
+    hl, ⟨hd, hle, (hr 26 (by decide)).trans r26⟩,
+    ⟨had, hal, bytes_congr hA fun t ht => l2 t (h20 t ht)⟩, hkl, hkw, hram, ?_, hkeys⟩
+  · rw [load_congr fun t ht => hrest t (by omega)]; exact hok.2.2.1
+  · rw [load_congr (m := mc) fun t ht => by
+      rw [show σ.rest + 8 + BitVec.ofNat 64 t = σ.rest + BitVec.ofNat 64 (8 + t) by bv_omega]
+      exact hrest _ (by omega)]
+    exact hok.2.2.2.1
+  · rcases Nat.eq_zero_or_pos o.ec.toNat with he | he
+    · have : o.done = [] := List.eq_nil_of_length_eq_zero (by omega)
+      have : o.is = [] := List.eq_nil_of_length_eq_zero (by rw [hil, this]; rfl)
+      intro i hi; simp [entriesBytes, *] at hi
+    · have hlen := entriesBytes_length o.done o.is hil fun x hx => ⟨(hz x hx).1, (hz x hx).2.1⟩
+      refine bytes_congr hbytes fun t ht => hblk (o.ep, entrySize * o.ec.toNat)
+        (by simp [EX, he]) t ?_
+      rw [hlen] at ht
+      exact Nat.lt_of_lt_of_le ht (Nat.mul_le_mul_left _ hle')
+  · obtain ⟨hpad, haddr, hkl', hkram, hkb'⟩ := hz x hx
+    refine ⟨hpad, haddr, hkl', hkram, ?_⟩
+    by_cases hk : x.1.keys = []
+    · rw [hk]; intro i hi; simp at hi
+    · exact bytes_congr hkb' fun t ht => hblk _ (by
+        simp only [EX, List.mem_append]; exact .inl (.inr (mem_keysBlocks hx hk))) t
+        (by rw [flatten_length _ hkl'] at ht; exact ht)
+  · by_cases hk : k.keys = []
+    · rw [hk]; intro i hi; simp at hi
+    · exact bytes_congr hkb fun t ht => hblk (kp', keySize * k.keys.length)
+        (by simp [KD, hk]) t (by rw [flatten_length _ hkeys] at ht; exact ht)
+
+/-- The grown list `{p'', c'}` once the old entries are copied; the old buffer (if any) is
+still live. -/
+theorem grown_of_copied {σ : Sig} {m : Machine} {o : Obs} {k : Kobs} {L : List (Word × Nat)}
+    {kp' p'' : Word} (h : Copied σ m o k L kp' p'') :
+    Grown σ m { o with ep := p'', ec := w (grownCap o.done.length) } k L kp'
+      (if 0 < o.ec.toNat then [(o.ep, entrySize * o.ec.toNat)] else []) := by
+  obtain ⟨⟨hED, hG, -, -, hp0, -⟩, hcopy⟩ := h
+  obtain ⟨hc, hok, hOR, hEL, hlive, hEO, hAO, hKLO, hkw, hram, hkb, hkeys, -⟩ := hED
+  obtain ⟨-, hle', -, -, hc32, -, hil, -, hz⟩ := hEL
+  have hn32 : o.done.length < 2 ^ 32 := by omega
+  have hgc := grownCap_lt hn32
+  have hge := grownCap_ge o.done.length
+  have hcn : (w (grownCap o.done.length)).toNat = grownCap o.done.length := by
+    simp only [w, BitVec.toNat_ofNat]; omega
+  have hpos : 0 < grownCap o.done.length := by unfold grownCap; omega
+  have hnb : (p'', entrySize * grownCap o.done.length) ∈
+      EX o ++ KD k kp' ++ [(p'', entrySize * grownCap o.done.length)] := by simp
+  have hramN := (hlive.2.2 _ hnb).2.1
+  dsimp only at hramN
+  have hEX : EX { o with ep := p'', ec := w (grownCap o.done.length) } =
+      [(p'', entrySize * grownCap o.done.length)] ++ keysBlocks o.done o.is := by
+    simp only [EX, hcn, if_pos hpos]
+  have hEXo : EX o = (if 0 < o.ec.toNat then [(o.ep, entrySize * o.ec.toNat)] else []) ++
+      keysBlocks o.done o.is := rfl
+  refine ⟨hc, hok, hOR, ⟨by rw [hcn]; exact hge, hp0, fun h0 => by rw [hcn] at h0; omega, ?_,
+    fun _ => by rw [hcn]; exact hramN, hil, hcopy, hz⟩, live_perm hlive ?_, hEO, hAO, hKLO, hkw,
+    hram, hkb, hkeys⟩
+  · rw [hcn]; unfold RamRange Layout.ramHi at hramN; simp only [entrySize] at hramN; omega
+  · rw [hEX, hEXo, List.perm_iff_count]; intro a; simp only [List.count_append]; omega
+
+/-- Freeing a live block `a` of `L ~ g.L ++ (Y ++ [a])` leaves `g.L ++ Y`. -/
+theorem erase_perm {σ : Sig} {m : Machine} {L Y : List (Word × Nat)} {a : Word × Nat}
+    (hlive : Live σ m L (Y ++ [a])) (ha : 0 < a.2) : (L.erase a).Perm (σ.g.L ++ Y) := by
+  have hpw := (σ.A.live_ok L m hlive.1).1
+  rw [hlive.2.1.pairwise_iff (fun h => h.symm),
+    show σ.g.L ++ (Y ++ [a]) = (σ.g.L ++ Y) ++ [a] by simp, List.pairwise_append] at hpw
+  have hnot : a ∉ σ.g.L ++ Y := fun hin => by
+    have := hpw.2.2 a hin a (List.mem_singleton_self _); omega
+  refine (hlive.2.1.erase a).trans ?_
+  rw [show σ.g.L ++ (Y ++ [a]) = (σ.g.L ++ Y) ++ [a] by simp, List.erase_append_right _ hnot]
+  simp
+
+/-- At `0x8000042c`: the grown list is in place but its header is the old one. -/
+theorem at42c {σ : Sig} {m : Machine} (h : A42c σ m) :
+    ∃ o k L kp' p'', Grown σ m { o with ep := p'', ec := w (grownCap o.done.length) } k L kp' [] ∧
+      Growing σ m o k kp' ∧ m.reg 24 = p'' ∧
+      BytesAt m (σ.sl 0xa0) (itemPayload (ent σ o k) k.ah 20) := by
+  have hcm := A42c_common h
+  rcases h with ⟨-, o, k, L, kp', p'', hcop, hec⟩ | h
+  · have hG := grown_of_copied hcop
+    rw [if_neg (by omega)] at hG
+    exact ⟨o, k, L, kp', p'', hG, hcop.1.2.1, hcop.1.2.2.2.1,
+      hcop.1.1.2.2.2.2.2.2.2.2.2.2.2.2⟩
+  change ∃ (mc : Machine) (L : List (Word × Nat)), Site428 σ L mc ∧ freeC.Post σ L mc m at h
+  obtain ⟨mc, L, ⟨o, k, kp', p'', hcop, hec, ha⟩, ⟨hret, hso, hheap, -⟩, -⟩ := h
+  have G := grown_of_copied hcop
+  rw [if_pos hec] at G
+  have hc0 := hcop.1.1.1
+  have hpre := hc0.2.1
+  have hEL := hcop.1.1.2.2.2.1
+  have hlive := G.2.2.2.2.1
+  have h11 : mc.reg 11 = o.ep := ha.arg 1 (by simp)
+  have h12' : mc.reg 12 = w (entrySize * o.ec.toNat) := ha.arg 2 (by simp)
+  have h12 : (mc.reg 12).toNat = entrySize * o.ec.toNat := by
+    rw [h12']; have := hEL.2.2.2.2.1; simp only [w, BitVec.toNat_ofNat, entrySize] at *; omega
+  rw [h11, h12] at hso hheap
+  have hpos : 0 < entrySize * o.ec.toNat := by simp only [entrySize]; omega
+  have hY : ∀ a, InRange o.ep (entrySize * o.ec.toNat) a → σ.A.Priv σ.g.L a := fun a h =>
+    (hlive.2.2 _ (List.mem_append_right _ (List.mem_singleton_self _))).2.2 a h
+  have hs := edsame_of hpre hlive hso fun a h => by
+    rcases h with h | h | h
+    · exact .inr (.inr (.inl h))
+    · exact .inr (.inr (.inr ⟨_, List.mem_singleton_self _, h⟩))
+    · exact .inl (cframe_R hc0 h)
+  have hl : Live σ m (L.erase (o.ep, entrySize * o.ec.toNat))
+      (EX { o with ep := p'', ec := w (grownCap o.done.length) } ++ KD k kp' ++ []) :=
+    live_of_heap hpre hheap (by simpa using erase_perm hlive hpos) fun b hb =>
+      (hlive.2.2 b (List.mem_append_left _ (by simpa using hb))).1
+  have rk : ∀ i ∈ ([20, 21, 23, 24, 25, 26] : List (Fin 32)), m.reg i = mc.reg i :=
+    fun i hi => hret.2 i (by simp only [calleeSaved]; simp at hi ⊢; omega)
+  refine ⟨o, k, L.erase (o.ep, entrySize * o.ec.toNat), kp', p'',
+    grown_keep G hcm hl (fun i hi => rk i (by simp at hi ⊢; omega)) hs.rest
+      (fun kn hkn => hs.slot kn (by
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
+        rcases hkn with rfl | rfl <;> simp)) hs.blk,
+    growing_keep hcop.1.2.1 (fun i hi => rk i (by simp at hi ⊢; omega)) fun j hj t ht =>
+      hso _ fun h => ?_, (rk 24 (by simp)).trans hcop.1.2.2.2.1,
+    bytes_congr hcop.1.1.2.2.2.2.2.2.2.2.2.2.2.2 fun t ht => hs.slot (0xa0, 20) (by simp) t (by
+      simp only [itemPayload, List.length_take] at ht; omega)⟩
+  have hk : 8 ≤ j ∧ j ≤ 576 := by
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hj
+    rcases hj with rfl | rfl | rfl | rfl | rfl | rfl <;> decide
+  obtain ⟨n1, n2⟩ := frame_out hc0 hcop.1.1.2.2.2.2.1 hk.1 hk.2 ht
+  rcases h with h | h | h
+  · exact n1 h
+  · have h3 := sl_toNat hpre (k := j) (by unfold stackBytes; omega)
+    have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
+    exact stack_not_priv hpre (sl_in_stack hpre (k := j) (n := 8) (by unfold stackBytes; omega)
+      hk.1 (in_self (by rw [h3]; omega) ht)) (hY _ h)
+  · exact n2 h
+
+/-! ## Leaves that write frame words -/
+
+/-- A leaf over the base regions whose writes are frame words changes only those words. -/
+theorem frame_leaf_so {σ : Sig} {m m' : Machine} {S S' : SState} (hc : Common σ m)
+    (hS : S.regions = baseRegions) (hm' : Match (envB σ m) S' m')
+    (hS' : S'.regions = baseRegions) (hfr : SameOutside (InWritable (envB σ m) S) m m')
+    (hall : S'.mem.all (fun w => w.r == 0) = true) :
+    SameOutside (fun a => ∃ wr ∈ S'.mem, InRange (σ.sl 576 + w wr.off) wr.n a) m m' := by
+  have hpre := hc.2.1
+  have h576 := sl_toNat hpre (k := 576) (by decide)
+  have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
+  intro a ha
+  by_cases hw : InWritable (envB σ m) S a
+  · obtain ⟨r, R, j, hR, -, hj, rfl⟩ := hw
+    have hr5 : r < 5 := by
+      have := (List.getElem?_eq_some_iff.mp hR).1; rw [hS] at this
+      simpa [baseRegions] using this
+    refine byte_keep hm' (by rw [hS']; simpa [baseRegions] using hr5) hj (fun wr hwr => ?_)
+      (mem0_entry (common_present hc r j hr5 hj))
+    have h0 := List.all_eq_true.mp hall wr hwr
+    simp only [beq_iff_eq] at h0
+    cases hcv : wr.covers r j
+    · rfl
+    · exfalso
+      simp only [Write.covers, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hcv
+      obtain ⟨⟨hr0, h1⟩, h2⟩ := hcv
+      rw [h0] at hr0; subst hr0
+      have hb : (envB σ m).base 0 = σ.sl 576 := rfl
+      have hs : (envB σ m).size 0 = 576 := rfl
+      rw [hs] at hj
+      apply ha
+      refine ⟨wr, hwr, ?_⟩
+      rw [hb]
+      simp only [InRange, w]
+      rw [toNat_add_ofNat (by omega), toNat_add_ofNat (by omega)]
+      omega
+  · exact hfr a hw
+
+/-- A frame range inside another. -/
+theorem fr_in {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {off n k n' : Nat} {a : Word} (hk : k ≤ 576)
+    (h1 : 576 - k ≤ off) (h2 : off + n ≤ 576 - k + n') (ho : off ≤ 576)
+    (h : InRange (σ.sl 576 + w off) n a) :
+    InRange (σ.sl k) n' a := by
+  have h576 := sl_toNat hpre (k := 576) (by decide)
+  have hk' := sl_toNat hpre (k := k) (by unfold stackBytes; omega)
+  have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
+  have hhi := (entry_nums hpre).2.1; unfold Layout.ramHi at hhi
+  simp only [InRange, w] at h ⊢
+  rw [toNat_add_ofNat (by omega)] at h
+  rw [hk']; omega
+
+/-- Frame ranges `S-k` of `n` bytes and `S-k'` of `n'` bytes that do not meet. -/
+theorem fr_apart {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {k n k' n' : Nat} {a : Word} (hk : k ≤ 704)
+    (hk' : k' ≤ 704) (hd : k' + n ≤ k ∨ k + n' ≤ k') (h : InRange (σ.sl k) n a)
+    (h' : InRange (σ.sl k') n' a) : False := by
+  have h1 := sl_toNat hpre (k := k) hk
+  have h2 := sl_toNat hpre (k := k') hk'
+  have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
+  simp only [InRange, h1, h2] at h h'; omega
+
+/-- `rest`'s bytes survive a change of `Rcls` bytes only. -/
+theorem rest_bytes {σ : Sig} {mc m : Machine} (hpre : Pre σ.A σ.g σ.m) {R : Word → Prop}
+    (hso : SameOutside R mc m) (hR : ∀ a, R a → Rcls σ a) :
+    ∀ t < 16, m.mem (σ.rest + BitVec.ofNat 64 t) = mc.mem (σ.rest + BitVec.ofNat 64 t) := by
+  have hfit := pre_fit hpre ((σ.rest, 16), restR) (by simp [shapeFull])
+  have h2 := sl_toNat hpre (k := stackBytes) (Nat.le_refl _)
+  have d9 : Apart (σ.sl stackBytes) stackBytes σ.rest 16 :=
+    hpre.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+  have d33 : Apart scratch 8 σ.rest 16 :=
+    hpre.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+  unfold Apart at d9 d33
+  intro t ht
+  refine hso _ fun hr => ?_
+  have hin : InRange σ.rest 16 (σ.rest + BitVec.ofNat 64 t) := by
+    simp only [InRange]; rw [toNat_add_ofNat (by simp at hfit; omega)]; omega
+  rcases hR _ hr with h | h | h
+  · simp only [InRange] at h hin
+    rw [h2] at h d9; omega
+  · simp only [InRange] at h hin
+    simp only [scratch, Layout.extraParams, BitVec.toNat_ofNat] at h d33; omega
+  · exact owned_not_priv hpre (.inr (.inl hin)) h
+
+/-- `AEntryStore` from the grown list, its new header and the store's registers. -/
+theorem aes_of {σ : Sig} {m : Machine} {o : Obs} {k : Kobs} {L : List (Word × Nat)} {kp' : Word}
+    (hpc : m.pc.toNat = c460) (h : Grown σ m o k L kp' []) (hC : Consts m)
+    (hH : F1.HeaderIs m (σ.sl 0x1c0) o.ep (w (o.done.length + 1)) o.ec)
+    (hroom : o.done.length + 1 ≤ o.ec.toNat)
+    (hB : BytesAt m (σ.sl 0xa0) (itemPayload (ent σ o k) k.ah 20))
+    (h10 : m.reg 10 = o.ep + w (entrySize * o.done.length)) (h14 : m.reg 14 = kp')
+    (h15 : m.reg 15 = w k.keys.length) : AEntryStore σ m := by
+  obtain ⟨hc, hok, hOR, hEL, hlive, hEO, hAO, hKLO, hkw, hram, hkb, hkeys⟩ := h
+  rw [List.append_nil] at hlive
+  exact ⟨hpc, o, k, L, kp', hc, hok, hOR, hC, ⟨hH, hEL⟩, hroom, hlive, hEO, hAO, hKLO, hkw,
+    hram, hkb, hkeys, hB, h10, h14, h15⟩
+
+/-! ## `0x8000042c`: the grown list's header, to the entry store -/
+
+theorem TX.leaf_8000042c_0 :
+    LeafGoal TX.plan TX.plan.cuts[14]! ((TX.plan.leaves 0x8000042c)[0]!) := by
+  show LeafGoal TX.plan cut42c (run42c_leaves[0]!)
+  have hsteps : (run42c_leaves[0]!).S.steps - cut42c.S.steps = 13 := by decide
+  intro σ m hA _
+  have hcm := A42c_common hA
+  have hpre := hcm.2.1
+  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 324; unfold bTail; omega, ?_⟩
+  intro m' hm' hex hfr
+  have hx : (run42c_leaves[0]!).exit = .at 0x80000460 := by decide
+  rw [hx] at hex ⊢
+  change m'.pc.toNat = 0x80000460 at hex
+  change Match (envB σ m) _ m' at hm'
+  change SameOutside (InWritable (envB σ m) SBody) m m' at hfr
+  obtain ⟨hwf, hm, -⟩ := body_cut hcm
+  obtain ⟨o, k, L, kp', p'', G, hG, r24, hB⟩ := at42c hA
+  have hS : ∀ i ∈ ([2, 8, 9, 18, 19, 20, 21, 23, 26] : List (Fin 32)),
+      (run42c_leaves[0]!).S.reg i.val = SBody.reg i.val := by decide
+  have hr := regs_keep hm hm' _ hS
+  have reg : ∀ (i : Fin 32) (s : Sym), (run42c_leaves[0]!).S.reg i.val = s →
+      m'.reg i = s.eval (envB σ m) := fun i s h => by rw [Match.reg_eq hm' i i.val rfl, h]
+  have r10 := reg 10 _ (by decide : (run42c_leaves[0]!).S.reg 10 =
+    .bin .add (.var 24) (.bin .add (.init 0 64 8) (.init 0 72 8)))
+  have r14 := reg 14 _ (by decide : (run42c_leaves[0]!).S.reg 14 = .init 0 56 8)
+  have r15 := reg 15 _ (by decide : (run42c_leaves[0]!).S.reg 15 = .init 0 48 8)
+  have c24 := reg 24 _ (by decide : (run42c_leaves[0]!).S.reg 24 = .lit 20)
+  have c25 := reg 25 _ (by decide : (run42c_leaves[0]!).S.reg 25 = .lit 1)
+  have c27 := reg 27 _ (by decide : (run42c_leaves[0]!).S.reg 27 = .lit 32)
+  have hlive := G.2.2.2.2.1
+  obtain ⟨hc', hlive', -⟩ := base_leaf hcm hlive (BaseEnv.ofB σ m) hwf rfl hm' (by decide) hfr
+    (by decide) fun i hi => hr i (by simp at hi ⊢; omega)
+  have hso := frame_leaf_so hcm rfl hm' (by decide) hfr (by decide)
+  have hmem : (run42c_leaves[0]!).S.mem =
+      [⟨0, 136, 8, .var 23⟩, ⟨0, 144, 8, .var 25⟩, ⟨0, 128, 8, .var 24⟩] := by decide
+  have hW : ∀ a, (∃ wr ∈ (run42c_leaves[0]!).S.mem, InRange (σ.sl 576 + w wr.off) wr.n a) →
+      InRange (σ.sl 0x1c0) 24 a := by
+    rintro a ⟨wr, hwr, hin⟩
+    rw [hmem] at hwr
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hwr
+    rcases hwr with rfl | rfl | rfl <;>
+      exact fr_in hpre (by decide) (by decide) (by decide) (by decide) hin
+  have hst : ∀ a, InRange (σ.sl 0x1c0) 24 a → InRange (σ.sl stackBytes) stackBytes a :=
+    fun a h => sl_in_stack hpre (by decide) (by decide) h
+  have G' := grown_keep G hc' hlive' (fun i hi => hr i (by simp at hi ⊢; omega))
+    (rest_bytes hpre hso fun a h => .inl (hst a (hW a h)))
+    (fun kn hkn t ht => hso _ fun h => by
+      have hW' := hW _ h
+      have h3 := sl_toNat hpre (k := kn.1) (by
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
+        rcases hkn with rfl | rfl <;> decide)
+      have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hkn
+      rcases hkn with rfl | rfl <;>
+        exact fr_apart hpre (by decide) (by decide) (by decide)
+          (in_self (by dsimp only at h3 ⊢; rw [h3]; omega) ht) hW')
+    (fun b hb t ht => hso _ fun h => by
+      have hP := (hlive.2.2 b (List.mem_append_left _ hb))
+      have hram := hP.2.1
+      unfold RamRange Layout.ramHi at hram
+      exact stack_not_priv hpre (hst _ (hW _ h)) (hP.2.2 _ (in_self (by omega) ht)))
+  have hwf' : Env.WF (envB σ m) (run42c_leaves[0]!).S := hwf.congr (by decide)
+  have fw := fun kk hk hk' => frame_word (BaseEnv.ofB σ m) hwf' hm' (by decide) (k := kk) hk hk'
+  have f0 := fw 0x1c0 (by decide) (by decide)
+  have f8 := fw 0x1b8 (by decide) (by decide)
+  have f16 := fw 0x1b0 (by decide) (by decide)
+  have v23 : (Sym.var 23).eval (envB σ m) = m.reg 23 := envB_var σ m 23
+  have v24 : (Sym.var 24).eval (envB σ m) = m.reg 24 := envB_var σ m 24
+  have v25 : (Sym.var 25).eval (envB σ m) = m.reg 25 := envB_var σ m 25
+  rw [show readConst (run42c_leaves[0]!).S 0 (576 - 0x1c0) 8 = .var 24 by decide, v24, r24] at f0
+  rw [show readConst (run42c_leaves[0]!).S 0 (576 - 0x1b8) 8 = .var 23 by decide, v23,
+    hG.2.1] at f8
+  rw [show readConst (run42c_leaves[0]!).S 0 (576 - 0x1b0) 8 = .var 25 by decide, v25,
+    hG.2.2.1] at f16
+  have hEL := G.2.2.2.1
+  have hn32 : o.done.length < 2 ^ 32 := by
+    have h1 := hEL.1; have h2 := hEL.2.2.2.1; dsimp only at h1 h2; omega
+  have hgc := grownCap_lt hn32
+  have hcn : (w (grownCap o.done.length)).toNat = grownCap o.done.length := by
+    simp only [w, BitVec.toNat_ofNat]; omega
+  have e64 := frame_init hpre (m := m) (k := 0x200) (by decide) (by decide) hG.2.2.2.1
+  have e72 := frame_init hpre (m := m) (k := 0x1f8) (by decide) (by decide) hG.2.2.2.2.1
+  have e56 := frame_init hpre (m := m) (k := 0x208) (by decide) (by decide) hG.2.2.2.2.2.2.1
+  have e48 := frame_init hpre (m := m) (k := 0x210) (by decide) (by decide) hG.2.2.2.2.2.1
+  simp only [show 576 - 0x200 = 64 from rfl, show 576 - 0x1f8 = 72 from rfl,
+    show 576 - 0x208 = 56 from rfl, show 576 - 0x210 = 48 from rfl] at e64 e72 e56 e48
+  have hB' : BytesAt m' (σ.sl 0xa0) (itemPayload (ent σ o k) k.ah 20) := by
+    have h3 := sl_toNat hpre (k := 0xa0) (by decide)
+    have hlo := (entry_nums hpre).1; unfold Layout.ramLo at hlo
+    refine bytes_congr hB fun t ht => hso _ fun h => fr_apart hpre (k := 0xa0) (n := 20)
+      (by decide) (by decide) (by decide) (in_self (by rw [h3]; omega) ?_) (hW _ h)
+    simp only [itemPayload, List.length_take] at ht; omega
+  refine ExitGoal.at_cut rfl ⟨cut460, by simp [TX.plan, vcPlan], hex, aes_of hex G'
+    ⟨by simp only [Sym.eval] at c24; exact c24, by simp only [Sym.eval] at c25; exact c25,
+      by simp only [Sym.eval] at c27; exact c27⟩
+    ⟨f0, by rw [show σ.sl 0x1c0 + 8 = σ.sl 0x1b8 by simp only [Sig.sl, w]; bv_omega]; exact f8,
+      by rw [show σ.sl 0x1c0 + 16 = σ.sl 0x1b0 by simp only [Sig.sl, w]; bv_omega]; exact f16⟩
+    (by dsimp only; rw [hcn]; unfold grownCap; omega)
+    hB' ?_ (r14.trans e56) (r15.trans e48), ?_⟩
+  · rw [r10]
+    show m.reg 24 + ((Sym.init 0 64 8).eval (envB σ m) + (Sym.init 0 72 8).eval (envB σ m)) = _
+    rw [e64, e72, w_40, r24]
+  · show bTail m' 311 ≤ bTail m 324 - _
+    rw [hsteps]; unfold bTail afterEntry; rw [hr 21 (by simp), hr 26 (by simp)]; omega
+
 end ZesuExec.Fn.TX
