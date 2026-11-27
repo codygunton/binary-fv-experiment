@@ -673,4 +673,159 @@ theorem TX.cut_8000018c : CutOK TX.plan TX.plan.cuts[6]! := by
   rintro σ m ⟨hpc, o, k, L, hs, -⟩
   exact ⟨(body_cut hs.1).1, (body_cut hs.1).2.1, (body_cut hs.1).2.2, hpc⟩
 
+/-! ## The allocator's memory and error exits -/
+
+/-- `Priv` of TX's live list lies in `Priv g.L` (`arena_split`). -/
+theorem priv_sub {σ : Sig} {m : Machine} {L X : List (Word × Nat)} (hpre : Pre σ.A σ.g σ.m)
+    (hlive : Live σ m L X) {a : Word} (h : σ.A.Priv L a) : σ.A.Priv σ.g.L a := by
+  have hheap0 : σ.A.Heap σ.g.L σ.m := hpre.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+  have harena := (σ.A.arena_split L m a hlive.1).mpr (.inl h)
+  rcases (σ.A.arena_split σ.g.L σ.m a hheap0).mp harena with h' | ⟨b, hb, hin⟩
+  · exact h'
+  · exact absurd ⟨b, hlive.2.1.symm.subset (List.mem_append_left _ hb), hin⟩
+      (σ.A.priv_not_live L a h)
+
+/-- An env with the base regions and the machine's initial bytes. -/
+structure BaseEnv (σ : Sig) (m : Machine) (env : Env) : Prop where
+  regions : env.regions = shapeOf σ
+  mem0 : env.mem0 = (envB σ m).mem0
+
+theorem BaseEnv.ofB (σ : Sig) (m : Machine) : BaseEnv σ m (envB σ m) := ⟨rfl, rfl⟩
+theorem BaseEnv.ofP (k : Nat) (σ : Sig) (m : Machine) : BaseEnv σ m (envP k σ m) := ⟨rfl, rfl⟩
+
+theorem BaseEnv.init {σ : Sig} {m : Machine} {env : Env} (he : BaseEnv σ m env) (r off n : Nat) :
+    (Sym.init r off n).eval env = (Sym.init r off n).eval (envB σ m) := by
+  unfold Sym.eval Env.byte0; rw [he.mem0]
+
+theorem BaseEnv.base {σ : Sig} {m : Machine} {env : Env} (he : BaseEnv σ m env) (r : Nat) :
+    env.base r = (envB σ m).base r := by simp only [Env.base, he.regions]; rfl
+
+theorem BaseEnv.size {σ : Sig} {m : Machine} {env : Env} (he : BaseEnv σ m env) (r : Nat) :
+    env.size r = (envB σ m).size r := by simp only [Env.size, he.regions]; rfl
+
+theorem BaseEnv.owned {σ : Sig} {m : Machine} {env : Env} (he : BaseEnv σ m env)
+    (hpre : Pre σ.A σ.g σ.m) {S : SState} (hS : S.regions = baseRegions) {a : Word}
+    (h : InWritable env S a) : Owned σ a := by
+  obtain ⟨r, R, j, hR, hw, hj, rfl⟩ := h
+  exact owned_of_inWritable hpre (mh := m) (ov := ovBody) (ks := [])
+    ⟨r, R, j, by simpa [entryState, hS] using hR, hw,
+      by have := he.size r; simp only [envB] at this; rwa [← this],
+      by have := he.base r; simp only [envB] at this; rw [this]⟩
+
+/-- A saved word is what the save area held at the cut. -/
+theorem saved_eval {σ : Sig} {m : Machine} {env : Env} (hc : Common σ m) (he : BaseEnv σ m env)
+    {k : Nat} (hk : k < 13) :
+    (Sym.init 0 (576 - 8 * (k + 1)) 8).eval env = σ.m.reg (savedReg k) := by
+  rw [he.init]
+  apply init_eval_load (regs := shapeOf σ) (r := 0) (by simp [shapeOf])
+  · have := hc.2.2.2.2.2.2.2.2.1 k hk
+    rwa [show σ.sl (8 * (k + 1)) =
+        ((shapeOf σ)[0]'(by simp [shapeOf])).1 + BitVec.ofNat 64 (576 - 8 * (k + 1)) by
+      simp only [shapeOf, List.getElem_cons_zero, Sig.sl, w, frameBytes]; bv_omega] at this
+  · have := (entry_nums hc.2.1).1
+    simp only [shapeOf, List.getElem_cons_zero]
+    rw [sl_toNat hc.2.1 (by decide)]
+    unfold Layout.ramLo frameBytes at *; omega
+
+/-- The writes of the error exit `+0x4a8`: `res = {0, 0, 3}`. -/
+def errWrites : List Write := [⟨1, 16, 8, .lit 3⟩, ⟨1, 8, 8, .lit 0⟩, ⟨1, 0, 8, .lit 0⟩]
+
+/-- The return target of the epilogue. -/
+def retTarget : Sym := .bin .and (.init 0 568 8) (.lit 18446744073709551614)
+
+/-- Reading the result after the error exit. -/
+theorem err_res {σ : Sig} {m m' : Machine} {env : Env} {S' : SState} (he : BaseEnv σ m env) (hwf' : Env.WF env S') (hm' : Match env S' m')
+    (hS'reg : S'.regions = baseRegions) (hmem : S'.mem = errWrites) :
+    m'.load σ.res 8 = some 0 ∧ m'.load (σ.res + 8) 8 = some 0 ∧ m'.load (σ.res + 16) 8 = some 3 := by
+  have hb : env.base 1 = σ.res := by rw [he.base]; rfl
+  have hs : env.size 1 = 24 := by rw [he.size]; rfl
+  have hR : S'.regions[1]? = some resR := by rw [hS'reg]; rfl
+  have l0 := load_cst hwf' hm' (off := 0) (n := 8) hR (by rw [hs]; decide)
+  have l8 := load_cst hwf' hm' (off := 8) (n := 8) hR (by rw [hs]; decide)
+  have l16 := load_cst hwf' hm' (off := 16) (n := 8) hR (by rw [hs]; decide)
+  simp only [readConst, hmem, errWrites] at l0 l8 l16
+  rw [hb] at l0 l8 l16
+  refine ⟨?_, ?_, ?_⟩
+  · rw [show σ.res = σ.res + BitVec.ofNat 64 0 by simp, l0]; rfl
+  · rw [show σ.res + 8 = σ.res + BitVec.ofNat 64 8 from rfl, l8]; rfl
+  · rw [show σ.res + 16 = σ.res + BitVec.ofNat 64 16 from rfl, l16]; rfl
+
+/-- An error exit (`+0x4a8`, epilogue, `ret`) from a `Common` machine with TX's live list:
+`Post` with the given error class and consumed count. -/
+theorem error_post {σ : Sig} {m m' : Machine} {env : Env} {S S' : SState}
+    {L X : List (Word × Nat)} (hc : Common σ m) (hlive : Live σ m L X) (he : BaseEnv σ m env)
+    (hwf : Env.WF env S) (hSreg : S.regions = baseRegions) (hm' : Match env S' m')
+    (hS'reg : S'.regions = baseRegions) (hfr : SameOutside (InWritable env S) m m')
+    (hsave : ∀ k < 13, S'.reg (savedReg k).val = .init 0 (576 - 8 * (k + 1)) 8)
+    (hsp : S'.reg 2 = .ptr 0 576) (hpc : m'.pc = retTarget.eval env) (hmem : S'.mem = errWrites)
+    {cls : OutcomeClass} (hcls : cls = .invalidInput ∨ cls = .allocationFailure) {c : Nat}
+    (hall : OutcomeAllowed σ.input cls c)
+    (hr0 : m.load σ.rest 8 = some (σ.inp + w c))
+    (hr8 : m.load (σ.rest + 8) 8 = some (wordAt σ.m (σ.rest + 8) - w c)) :
+    Post σ.A σ.g σ.m m' := by
+  have hpre := hc.2.1
+  have hwf' : Env.WF env S' := hwf.congr (hS'reg.trans hSreg.symm)
+  have hp : Preserved m m' :=
+    F1.preserved_of_leaf hwf hm' (by rw [hSreg, hS'reg]; exact Nat.le_refl _) hfr
+  have hown : ∀ a, InWritable env S a → Owned σ a := fun a h => he.owned hpre hSreg h
+  -- registers after the epilogue
+  have hreg : ∀ i ∈ calleeSaved, m'.reg i = σ.m.reg i := by
+    intro i hi
+    simp only [calleeSaved, List.mem_cons, List.not_mem_nil, or_false] at hi
+    have hk : ∀ k < 13, i = savedReg k → m'.reg i = σ.m.reg i := fun k hk h => by
+      rw [Match.reg_eq hm' i (savedReg k).val (by rw [h]), hsave k hk, saved_eval hc he hk, h]
+    rcases hi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    · rw [Match.reg_eq hm' 2 2 rfl, hsp]
+      simp only [Sym.eval, he.base]
+      simp [Env.base, envB, entryEnv, shapeOf, Sig.sl, w, frameBytes, BitVec.sub_add_cancel]
+    · exact hk 1 (by decide) rfl
+    · exact hk 2 (by decide) rfl
+    · exact hk 3 (by decide) rfl
+    · exact hk 4 (by decide) rfl
+    · exact hk 5 (by decide) rfl
+    · exact hk 6 (by decide) rfl
+    · exact hk 7 (by decide) rfl
+    · exact hk 8 (by decide) rfl
+    · exact hk 9 (by decide) rfl
+    · exact hk 10 (by decide) rfl
+    · exact hk 11 (by decide) rfl
+    · exact hk 12 (by decide) rfl
+  have hpc' : m'.pc = σ.m.reg 1 &&& ~~~(1 : Word) := by
+    rw [hpc]
+    have := saved_eval hc he (k := 0) (by decide)
+    simp only [retTarget, Sym.eval, BinOp.eval] at this ⊢
+    rw [this]; rfl
+  -- `rest` is not written
+  have hrest : ∀ t < 16, m'.mem (σ.rest + BitVec.ofNat 64 t) = m.mem (σ.rest + BitVec.ofNat 64 t) := by
+    intro t ht
+    have h2 := region_same (r := 2) (m := m) hm' (by rw [hS'reg]; decide) (by rw [hmem]; decide)
+      (fun j hj => by
+        rw [he.mem0, he.base]
+        exact mem0_entry (common_present hc 2 j (by decide) (by rwa [← he.size])))
+      t (by rw [he.size]; simpa [envB, entryEnv, Env.size, shapeOf] using ht)
+    rwa [he.base] at h2
+  have hheap : σ.A.Heap L m' := σ.A.heap_frame' L m m' hlive.1
+    (fun a ha => hfr a fun hw => owned_not_priv hpre (hown a hw) (priv_sub hpre hlive ha)) hp
+  obtain ⟨e0, e8, e16⟩ := err_res he hwf' hm' hS'reg hmem
+  have hfr' := frame_trans hc.2.2.2.2.2.2.2.2.2.2.2.2.2 hfr fun a h => .inl (hown a h)
+  refine ⟨⟨hpc', hreg⟩, fun a ha => hfr' a fun h => ha ?_,
+    Present.of_preserved hc.2.2.2.2.2.2.2.2.2.2.2.2.1 hp, cls, c, hall, ?_, ?_, ?_⟩
+  · rcases h with (h | h | h | h) | h
+    · exact .inl h
+    · exact .inr (.inl h)
+    · exact .inr (.inr (.inl h))
+    · exact .inr (.inr (.inr (.inl h)))
+    · exact .inr (.inr (.inr (.inr h)))
+  · rw [load_congr fun t ht => hrest t (by omega)]; exact hr0
+  · rw [load_congr (m := m) fun t ht => by
+      rw [show σ.rest + 8 + BitVec.ofNat 64 t = σ.rest + BitVec.ofNat 64 (8 + t) by bv_omega]
+      exact hrest (8 + t) (by omega)]
+    exact hr8
+  · have himg : m'.load σ.res 8 = some 0 ∧ m'.load (σ.res + 8) 8 = some 0 ∧
+        m'.load (σ.res + 16) 8 = some 3 ∧ ∃ leaked : List (Word × Nat),
+          (∀ b ∈ leaked, 0 < b.2 ∧ RamRange b.1 b.2) ∧
+          ∃ L', L'.Perm (σ.g.L ++ leaked) ∧ σ.A.Heap L' m' :=
+      ⟨e0, e8, e16, X, fun b hb => ⟨(hlive.2.2 b hb).1, (hlive.2.2 b hb).2.1⟩, L, hlive.2.1, hheap⟩
+    rcases hcls with rfl | rfl <;> exact himg
+
 end ZesuExec.Fn.TX
