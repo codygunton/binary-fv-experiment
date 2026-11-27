@@ -887,11 +887,11 @@ theorem errConst_73 : zesuImage.rodataByte? (errConst + 73) = some 0 := by decid
 
 theorem errConst_src : ∀ t < 80, (zesuImage.rodataByte? (errConst + t)).isSome := by decide
 
+/-- The `memcpy` tail: its precondition at the jump, and `Post` for its result. -/
 theorem memcpy_exit {m mh mf : Machine} (n : Nums m) (e : Entry m) (hc : Fr m mh) {c : Word}
     {x : Nat → Option Sym} {lS : SState} (hm' : Match (envC m mh c) lS mf)
-    (hfr : SameOutside (InWritable (envC m mh c) (SC x)) mh mf)
-    (hpc : mf.pc.toNat = Layout.memcpyEntry) (hk : memcpyOK lS = true)
-    (hw : walk (inputOf m) = none) : Reaches zesuImage 3 (Post m) mf := by
+    (hfr : SameOutside (InWritable (envC m mh c) (SC x)) mh mf) (hk : memcpyOK lS = true)
+    (hw : walk (inputOf m) = none) : MemcpyPre mf ∧ ∀ m2, MemcpyPost mf m2 → Post m m2 := by
   have ef := envC_facts m mh c
   have hk' := hk
   simp only [memcpyOK, Bool.and_eq_true, beq_iff_eq] at hk'
@@ -961,7 +961,7 @@ theorem memcpy_exit {m mh mf : Machine} (n : Nums m) (e : Entry m) (hc : Fr m mh
       have ht' : t < 80 := by simpa using ht
       rw [ofNat_toNat_add, hres t ht']
       rw [hc.so _ (n.res_not_stack ht')]; exact e.resP t ht'
-  refine Reaches.mono (memcpy_spec zesuImage mf hpc hdom) (Nat.le_refl _) fun m2 hm2 => ?_
+  refine ⟨hdom, fun m2 hm2 => ?_⟩
   have hz : ziskMemcpy mf = some m2 := hm2
   have hcs := regs_saved hc hm' hsv
   have hres2 : ∀ j, j = 72 ∨ j = 73 → m2.mem (m.reg 10 + BitVec.ofNat 64 j) =
@@ -1174,24 +1174,7 @@ theorem len_eq {r x : Nat} (hr : r < 2 ^ 64) :
   · intro h; have := congrArg BitVec.toNat h; simpa [Nat.mod_eq_of_lt hr] using this
   · intro h; apply BitVec.eq_of_toNat_eq; simp [Nat.mod_eq_of_lt hr, h]
 
-/-! ## Cuts and calls -/
-
-/-- A run from a cut: its state matches, and each leaf continues within the budget. -/
-theorem cut_reaches {m mh : Machine} (n : Nums m) (e : Entry m) (hc : Fr m mh) {c : Word}
-    {x : Nat → Option Sym} {pc : Nat} {ls : List Leaf} {B : Nat}
-    (hrun : run zesuImage cuts 400 pc (SC x) = some ls)
-    (hx : ∀ i : Fin 32, i.val ≠ 2 → i.val ≠ 8 → i.val ≠ 9 → ∀ s, x i.val = some s →
-      s.eval (envC m mh c) = mh.reg i)
-    (hpc : mh.pc.toNat = pc)
-    (hleaf : ∀ l ∈ ls, (∀ c' ∈ l.conds, c'.eval (envC m mh c) = true) →
-      (∀ o ∈ l.obligs, o.holds (envC m mh c)) ∧ l.S.steps ≤ B ∧
-      ∀ m', Match (envC m mh c) l.S m' → ExitOk (envC m mh c) l.exit m' →
-        SameOutside (InWritable (envC m mh c) (SC x)) mh m' →
-        Reaches zesuImage (B - l.S.steps) (Post m) m') :
-    Reaches zesuImage B (Post m) mh :=
-  run_reaches hrun (n.wf mh c _ _) (hc.match n e hx) hpc (hc.ro n e) fun l hl hcs => by
-    obtain ⟨h1, h2, h3⟩ := hleaf l hl hcs
-    exact ⟨h1, by simpa [SC, entryState] using h2, by simpa [SC, entryState] using h3⟩
+/-! ## Calls -/
 
 /-- After decodeItem returned: the frame invariant and the outcome at `off` for the slice
 `(o, r)`. -/
@@ -1201,30 +1184,29 @@ structure DSt (m mh : Machine) (off o r : Nat) : Prop where
   out : ∃ before : List Byte, ∀ k < 40, mh.mem (frB m + BitVec.ofNat 64 (off + k)) =
     some (F2.resultByte (m.reg 11 + BitVec.ofNat 64 o) (sl m o r) before k)
 
-/-- A decodeItem call leaf, decodeItem's contract, and the continuation at the return point. -/
+/-- A decodeItem call leaf: decodeItem's precondition, and the continuation at the return point
+for every result. -/
 theorem call_d {m mh m1 : Machine} (n : Nums m) (e : Entry m) (hc : Fr m mh) {c : Word}
     {x : Nat → Option Sym} {lS : SState} (hm' : Match (envC m mh c) lS m1)
     (hfr : SameOutside (InWritable (envC m mh c) (SC x)) mh m1) (hk : keepOK lS = true)
-    (hex : m1.pc.toNat = F2.entry) {off o r ret : Nat} (hoff : off + 40 ≤ 320) (hal : off % 8 = 0)
+    {off o r ret : Nat} (hoff : off + 40 ≤ 320) (hal : off % 8 = 0)
     (hor : o + r ≤ (m.reg 12).toNat) (h1 : lS.reg 1 = .lit ret)
     (hra : (BitVec.ofNat 64 ret &&& ~~~(1 : Word)).toNat % 4 = 0)
     (hrp : (BitVec.ofNat 64 ret &&& ~~~(1 : Word)).toNat = ret)
     (h10 : (lS.reg 10).eval (envC m mh c) = frB m + BitVec.ofNat 64 off)
     (h11 : (lS.reg 11).eval (envC m mh c) = m.reg 11 + BitVec.ofNat 64 o)
-    (h12 : (lS.reg 12).eval (envC m mh c) = BitVec.ofNat 64 r) {B : Nat}
+    (h12 : (lS.reg 12).eval (envC m mh c) = BitVec.ofNat 64 r) {Q : Machine → Prop}
     (K : ∀ m2, DSt m m2 off o r → m2.pc.toNat = ret →
       (∀ i : Fin 32, i ∈ calleeSaved → m2.reg i = (lS.reg i.val).eval (envC m mh c)) →
       (∀ j < 400, (j < off ∨ off + 40 ≤ j) →
-        m2.mem (frB m + BitVec.ofNat 64 j) = some (memByte (envC m mh c) lS.mem 0 j)) →
-      Reaches zesuImage B (Post m) m2) :
-    Reaches zesuImage (75 + B) (Post m) m1 := by
+        m2.mem (frB m + BitVec.ofNat 64 j) = some (memByte (envC m mh c) lS.mem 0 j)) → Q m2) :
+    F2.Pre m1 ∧ ∀ m2, F2.Post m1 m2 ∧ Preserved m1 m2 → Q m2 := by
   obtain ⟨hc1, hfm, -⟩ := Fr.of_leaf n e hc hm' hfr hk
   have g : ∀ i : Fin 32, m1.reg i = (lS.reg i.val).eval (envC m mh c) := fun i => (hm'.regs i).symm
   have g1 : m1.reg 1 = BitVec.ofNat 64 ret := by rw [g 1]; show (lS.reg 1).eval _ = _; rw [h1]; rfl
   obtain ⟨hpre, hpost⟩ := dcall n e hc1 hoff hal hor (by rw [g 10]; exact h10)
     (by rw [g 11]; exact h11) (by rw [g 12]; exact h12) (by unfold RetAligned; rw [g1]; exact hra)
-  have hcall := Reaches.preserve (F2.f2_spec m1 (by simpa [F2.entry] using hex) hpre)
-  refine Reaches.trans hcall fun m2 ⟨hp, hpr⟩ => ?_
+  refine ⟨hpre, fun m2 ⟨hp, hpr⟩ => ?_⟩
   obtain ⟨hfr2, hpc2, hcs, hout, hsame⟩ := hpost m2 hp hpr
   exact K m2 ⟨hfr2, hor, hout⟩ (by rw [hpc2, g1]; exact hrp) (fun i hi => (hcs i hi).trans (g i))
     (fun j hj hj' => (hsame j hj hj').trans (hfm j hj))
@@ -1239,23 +1221,24 @@ structure NSt (m mh : Machine) (roff o r : Nat) : Prop where
   slc : ∃ old : Nat → Byte, ∀ j < 16, mh.mem (frB m + BitVec.ofNat 64 (48 + j)) =
     some (F3.sliceByte (m.reg 11 + BitVec.ofNat 64 o) (BitVec.ofNat 64 r) (sl m o r) (old j) j)
 
-/-- A nextUint64 call leaf, nextUint64's contract, and the continuation at the return point. -/
+/-- A nextUint64 call leaf: nextUint64's precondition, and the continuation at the return point
+for every result. -/
 theorem call_n {m mh m1 : Machine} (n : Nums m) (e : Entry m) (hc : Fr m mh) {c : Word}
     {x : Nat → Option Sym} {lS : SState} (hm' : Match (envC m mh c) lS m1)
     (hfr : SameOutside (InWritable (envC m mh c) (SC x)) mh m1) (hk : keepOK lS = true)
-    (hex : m1.pc.toNat = F3.entry) {roff o r ret : Nat} (hr1 : 64 ≤ roff) (hr2 : roff + 16 ≤ 320)
+    {roff o r ret : Nat} (hr1 : 64 ≤ roff) (hr2 : roff + 16 ≤ 320)
     (hal : roff % 8 = 0) (hor : o + r ≤ (m.reg 12).toNat) (h1 : lS.reg 1 = .lit ret)
     (hra : (BitVec.ofNat 64 ret &&& ~~~(1 : Word)).toNat % 4 = 0)
     (hrp : (BitVec.ofNat 64 ret &&& ~~~(1 : Word)).toNat = ret)
     (h10 : lS.reg 10 = .ptr 0 roff) (h11 : lS.reg 11 = .ptr 0 48)
     (hs0 : ∀ t < 8, memByte (envC m mh c) lS.mem 0 (48 + t) = byteOf (m.reg 11 + BitVec.ofNat 64 o) t)
-    (hs1 : ∀ t < 8, memByte (envC m mh c) lS.mem 0 (56 + t) = byteOf (BitVec.ofNat 64 r) t) {B : Nat}
+    (hs1 : ∀ t < 8, memByte (envC m mh c) lS.mem 0 (56 + t) = byteOf (BitVec.ofNat 64 r) t)
+    {Q : Machine → Prop}
     (K : ∀ m2, NSt m m2 roff o r → m2.pc.toNat = ret →
       (∀ i : Fin 32, i ∈ calleeSaved → m2.reg i = (lS.reg i.val).eval (envC m mh c)) →
       (∀ j < 400, (j < 48 ∨ (64 ≤ j ∧ j < roff) ∨ roff + 16 ≤ j) →
-        m2.mem (frB m + BitVec.ofNat 64 j) = some (memByte (envC m mh c) lS.mem 0 j)) →
-      Reaches zesuImage B (Post m) m2) :
-    Reaches zesuImage (160 + B) (Post m) m1 := by
+        m2.mem (frB m + BitVec.ofNat 64 j) = some (memByte (envC m mh c) lS.mem 0 j)) → Q m2) :
+    F3.Pre m1 ∧ ∀ m2, F3.Post m1 m2 ∧ Preserved m1 m2 → Q m2 := by
   have ef := envC_facts m mh c
   obtain ⟨hc1, hfm, -⟩ := Fr.of_leaf n e hc hm' hfr hk
   have g : ∀ i : Fin 32, m1.reg i = (lS.reg i.val).eval (envC m mh c) := fun i => (hm'.regs i).symm
@@ -1268,8 +1251,7 @@ theorem call_n {m mh m1 : Machine} (n : Nums m) (e : Entry m) (hc : Fr m mh) {c 
     (fun t ht => by rw [hfm _ (by omega), hs0 t ht])
     (fun t ht => by rw [hfm _ (by omega), hs1 t ht])
     (by unfold RetAligned; rw [g1]; exact hra)
-  have hcall := Reaches.preserve (F3.f3_spec m1 (by simpa [F3.entry] using hex) hpre)
-  refine Reaches.trans hcall fun m2 ⟨hp, hpr⟩ => ?_
+  refine ⟨hpre, fun m2 ⟨hp, hpr⟩ => ?_⟩
   obtain ⟨hfr2, hpc2, hcs, hres, hslc, hsame⟩ := hpost m2 hp hpr
   exact K m2 ⟨hfr2, hor, ⟨_, hres⟩, ⟨_, hslc⟩⟩ (by rw [hpc2, g1]; exact hrp)
     (fun i hi => (hcs i hi).trans (g i)) (fun j hj hj' => (hsame j hj hj').trans (hfm j hj))

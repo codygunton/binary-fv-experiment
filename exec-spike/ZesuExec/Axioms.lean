@@ -203,3 +203,9 @@ info: 'ZesuExec.Vc.vc_soundW' depends on axioms: [propext, Classical.choice, Quo
 -/
 #guard_msgs in
 #print axioms ZesuExec.Vc.vc_soundW
+
+/--
+info: 'ZesuExec.Fn.F6.F6.reach' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.F6.F6.reach
