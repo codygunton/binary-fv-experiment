@@ -11,3 +11,6 @@ lean_lib BinaryFv where
 lean_lib Evm where srcDir := "vendor/evm-sail-lean"
 @[default_target] lean_lib ZesuExec
 lean_exe «zesu-difftest» where root := `ZesuExec.Test.Difftest
+lean_exe «zesu-status» where
+  root := `ZesuExec.Vc.Status
+  supportInterpreter := true

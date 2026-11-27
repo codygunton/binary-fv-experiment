@@ -17,6 +17,7 @@ import ZesuExec.Fn.F5.Sail
 import ZesuExec.Sail.Run
 import ZesuExec.Sail.Step
 import ZesuExec.Sym.Sound
+import ZesuExec.Vc.Sound
 
 /-! Axiom guards for every end theorem (plan Verification item 4). -/
 
@@ -158,3 +159,8 @@ info: 'ZesuExec.Compliance.F6.f6_compliance_sail' depends on axioms: [propext, C
 #guard_msgs in
 #print axioms ZesuExec.Compliance.F6.f6_compliance_sail
 
+/--
+info: 'ZesuExec.Vc.vc_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Vc.vc_sound

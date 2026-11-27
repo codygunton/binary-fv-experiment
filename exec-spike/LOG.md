@@ -321,3 +321,27 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   heads `0x800000c4`/`0x8000018c`, `ensureTotalCapacity` 107/no loop/4 calls, `decodeItem` 2 loop heads,
   `_start` in target, heuristics, committed `static.json` agrees with a fresh build). Ledger
   `map/ledger.jsonl` created (S0 and S1 infra items). Gate S1 passed.
+- S2 (2026-11-27): `ZesuExec/Vc/` `Types` (`Callee`, `Cut`, `Plan`, `Callee.memcpy` from
+  `memcpy_spec`), `Goals` (`CutOK`, `ExitGoal`, `LeafGoal`), `Sound` (`vc_sound`, strong induction on
+  the budget via `run_sound`, `RunsIn.trans`, callee `spec`; `AllL`/`idxQ`/`forall_mem_of_idx`),
+  `Assemble` (`zesuExt`, `zesu_plan`, `zesu_auto`, `zesu_assemble`, placeholder tactics
+  `leaf_auto`/`cut_auto` that `fail` until S4, extendable by `macro_rules`), `Legacy` (F0-F6 entries
+  and theorem names), `Status` + `lean_exe «zesu-status»`. `Test/Vc.lean`: toy
+  `li a0,3; L: addi; bnez a0,L; ret`, 2 cuts / 3 leaves; `zesu_auto` closes 0 of 5; all hand-proved
+  gives `Toy.reach` (axioms standard three, guarded; used to derive a `Spec`); `Toy2` without leaf
+  `80000004_1` gives `Toy2.Open` with exactly that field (`#guard_msgs` on `#print`), `reach_from`, no
+  `reach`; legacy names checked to exist. `Axioms.lean`: `vc_sound` guarded, standard three.
+  `tools/verify.sh` unsafe allowlist now also `ZesuExec/Vc/`. Deviations from the plan text:
+  `ExitOk` for `.call` gives `pc = target`, so the call case of `LeafGoal` needs `m'.pc.toNat = k.entry`
+  proved from it (kept as stated); `Plan.leaves`/`cuts` are looked up by evaluating the plan with
+  compiled code (`evalExpr`), so a plan must be computable and its cut pcs distinct;
+  fixed statements `F.cut_<pc> : CutOK F.plan F.plan.cuts[i]!`,
+  `F.leaf_<pc>_<j> : LeafGoal F.plan F.plan.cuts[i]! (F.plan.leaves <pc>)[j]!` (checked by `isDefEq`
+  before use); `hruns` is re-proved by kernel `Eq.refl` per cut (each run evaluated once more by the
+  kernel, as `sym_run` does), `hpos` by kernel `decide`; `zesu-status` reads the extension entries
+  of the imported `ZesuExec` environment (no `loadExts`), skips plans under `ZesuExec.Test`, emits
+  `assembled`, integer `entry`/`target` (`target_sym` for symbolic exits), `steps` relative to the cut,
+  and `names`; for plan functions `<f>_spec` etc. are looked up as `<fn lowercased>_spec` in `F`'s
+  namespace or its parent. `lake build` 253 jobs OK; `tools/verify.sh` 2, 3, 9 PASS; `lake exe
+  zesu-status | jq .` valid, F0-F6 `legacy: true` with spec/sail true, compliance true for F2, F3, F6.
+  No elaborator fallback needed (no `gen-vc`). Gate S2 passed.

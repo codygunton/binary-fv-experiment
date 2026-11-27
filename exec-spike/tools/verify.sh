@@ -29,9 +29,10 @@ hits=$(grep -rnE "\bsorry\b|\badmit\b|native_decide|^axiom |implemented_by" Zesu
 # bv_decide adds `_native` axioms (rule 3); backticked mentions in doc comments are not uses.
 bvd=$(grep -rnE '(^|[^`])\bbv_decide\b($|[^`])' ZesuExec bfv)
 hits="$hits${hits:+${bvd:+$'\n'}}$bvd"
-unsafe=$(grep -rln "unsafe" ZesuExec | grep -vx "ZesuExec/Sym/Tactic.lean")
+# `unsafe` only in elaborator code: Sym/Tactic.lean and ZesuExec/Vc/ (programme plan rule 2).
+unsafe=$(grep -rln "unsafe" ZesuExec | grep -vx "ZesuExec/Sym/Tactic.lean" | grep -v "^ZesuExec/Vc/")
 [ -n "$hits" ] && echo "$hits"
-[ -n "$unsafe" ] && echo "unsafe outside ZesuExec/Sym/Tactic.lean:" && echo "$unsafe"
+[ -n "$unsafe" ] && echo "unsafe outside ZesuExec/Sym/Tactic.lean and ZesuExec/Vc/:" && echo "$unsafe"
 if [ -z "$hits$unsafe" ]; then record "2 forbidden constructs" PASS; else record "2 forbidden constructs" FAIL; fi
 
 echo "== 3. layering"

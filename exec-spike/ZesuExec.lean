@@ -83,3 +83,9 @@ import ZesuExec.Compliance.ParentHeaderSail
 import ZesuExec.Compliance.ParentHeaderAgree
 import ZesuExec.Compliance.F6
 import ZesuExec.Compliance.RlpUint
+import ZesuExec.Vc.Types
+import ZesuExec.Vc.Goals
+import ZesuExec.Vc.Sound
+import ZesuExec.Vc.Assemble
+import ZesuExec.Vc.Legacy
+import ZesuExec.Test.Vc
