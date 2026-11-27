@@ -65,6 +65,38 @@ buffer slot (RAM, present, from `Priv`), `0x800011f8` the written result (`Done`
    (`Ret.lean`: `arena_split` at the entry and after the call, apart from `g.L`'s blocks by
    `live_ok`).
 
+### Design for items 1, 2, 4 (not implemented; next step)
+
+What the code does per scalar field (arm 4, item 0 = `chainId`, `0x800005dc..0x80000648`):
+`decodeItem(S-0x90, s6 = rest ptr, s5 = rest len)`; outcome at `S-0x90`: payload ptr `-0x90`,
+payload len `-0x88`, `isList` byte `-0x80`, consumed `-0x78`, error `-0x70`. Error or `isList`
+→ `0x800011f0` (code 3); `rest += consumed` (`s6`, `S-0x220`), `len -= consumed` (`s7`,
+`S-0x218`); `len > 8` → `0x800011f0`; then the byte loop `0x80000634` folds
+`s10 = s10 << 8 | byte` over the payload. So after field `k` the value sits in a callee-saved
+register (or a frame spill) as `be (itemPayload k)`, and every later `decodeItem` keeps it.
+
+Proposed conjuncts (one generic form, a new column of the `shape.py` table):
+
+* `FieldsOk σ m (fs : List (Loc × FieldVal))`, `FieldVal = (k, kind)` with kind `u64`,
+  `nonce` (clamped), `u128lo`/`u128hi`, `u256 i` (limb `i`), `addrTag`, `bytesPtr`/`bytesLen`:
+  `loc.word σ m = w (fieldWord kind (itemAt k σ.payload))`, `itemAt k` = the payload of the
+  `k`-th top-level item (defined like `skip`). `shape.py`: give `('inp', k)` payload pointers the
+  item index they point into, and add abstract values `('acc', k, n)` (the byte loop's
+  accumulator over the first `n` payload bytes of item `k`) and `('fld', k, kind)`.
+* `ChecksOk σ k`: for `i < k`, item `i` decodes (`skip`), is a string (`isList = false`) and
+  passes its helper's length test (`armKinds t` lists the helper per field). Then a lemma
+  `body_prefix`: `ChecksOk` for all fields of arm `t` and the `FieldsOk` values give
+  `decode t payload = some tx` with `tx`'s fields equal to `fieldWord`s — the bridge `Done` needs.
+* Byte-loop heads (`Inner.be`): `cur`/`end` inside item `k`'s payload, `end - cur ≤ 32`, and the
+  accumulator register `= be (first (cur - start) bytes)`.
+
+Leaves first affected: the success write `0x80002dc4 → 0x800011f8` (`Done`), and every
+`at`-exit leaf (class `cut ite`, 268): `leaf_auto` stops at `if pc = entry` in `mkCut` (an
+`@[zesu_simp]` unfolding of `entry` should let it reach `ACut`; not tried), after which a generic leaf theorem
+(like `cut_plain`: `Common` kept by `SameOutside (InWritable …)`, `ShapeOk`/`RestOk` from the
+leaf's symbolic registers) is the natural next tool; it should be written against the assertion
+with these conjuncts, not before.
+
 ## Budgets
 
 `K + 256·(rest length) + inner`; `K` from `OPEN/DTF` budget computation (longest path over the cut
