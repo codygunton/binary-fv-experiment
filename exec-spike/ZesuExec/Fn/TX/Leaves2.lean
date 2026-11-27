@@ -326,4 +326,82 @@ theorem TX.leaf_800004a0_1 :
   exact oom_err hcm (outerOk_keep hc0.2.1 hpost.2.1 (fun a h => f5_rcls hc0 hEL hlive hres hhdr h) hok)
     (p_pos hw hdone) ⟨hheap, hlive.2.1, hlive.2.2⟩
 
+/-! ## A finished entry's facts across a change that misses them -/
+
+theorem bytes_congr {m m' : Machine} {a : Word} {bs : List Byte} (h : BytesAt m a bs)
+    (hs : ∀ t < bs.length, m'.mem (a + BitVec.ofNat 64 t) = m.mem (a + BitVec.ofNat 64 t)) :
+    BytesAt m' a bs := fun i hi => (hs i hi).trans (h i hi)
+
+theorem hdr_congr {m m' : Machine} {a p n c : Word} (h : F1.HeaderIs m a p n c)
+    (hs : ∀ t < 24, m'.mem (a + BitVec.ofNat 64 t) = m.mem (a + BitVec.ofNat 64 t)) :
+    F1.HeaderIs m' a p n c := by
+  obtain ⟨h0, h8, h16⟩ := h
+  refine ⟨(load_congr fun t ht => hs t (by omega)).trans h0, ?_, ?_⟩
+  · rw [load_congr (m := m) fun t ht => by
+      rw [show a + 8 + BitVec.ofNat 64 t = a + BitVec.ofNat 64 (8 + t) by bv_omega]
+      exact hs _ (by omega)]
+    exact h8
+  · rw [load_congr (m := m) fun t ht => by
+      rw [show a + 16 + BitVec.ofNat 64 t = a + BitVec.ofNat 64 (16 + t) by bv_omega]
+      exact hs _ (by omega)]
+    exact h16
+
+/-- The bytes `EntryDone` reads: `rest`, four frame slots and TX's live blocks. -/
+structure EDSame (σ : Sig) (o : Obs) (k : Kobs) (kp' : Word) (mc m : Machine) : Prop where
+  rest : ∀ t < 16, m.mem (σ.rest + BitVec.ofNat 64 t) = mc.mem (σ.rest + BitVec.ofNat 64 t)
+  slot : ∀ kn ∈ ([(0x1f0, 8), (0x1c0, 24), (0x158, 20), (0xa0, 20)] : List (Nat × Nat)),
+    ∀ t < kn.2, m.mem (σ.sl kn.1 + BitVec.ofNat 64 t) = mc.mem (σ.sl kn.1 + BitVec.ofNat 64 t)
+  blk : ∀ b ∈ EX o ++ KD k kp', ∀ t < b.2,
+    m.mem (b.1 + BitVec.ofNat 64 t) = mc.mem (b.1 + BitVec.ofNat 64 t)
+
+/-- `EntryDone` carries over to a machine that keeps its bytes, its registers and the heap. -/
+theorem ed_congr {σ : Sig} {mc m : Machine} {o : Obs} {k : Kobs} {L X : List (Word × Nat)}
+    {kp' : Word} (h : EntryDone σ mc o k L kp' X) (hcm : Common σ m) (hheap : σ.A.Heap L m)
+    (hr : ∀ i ∈ ([20, 21, 26] : List (Fin 32)), m.reg i = mc.reg i)
+    (hs : EDSame σ o k kp' mc m) : EntryDone σ m o k L kp' X := by
+  obtain ⟨-, hok, ⟨r20, r21, hi, hmag⟩, hEL, hlive, ⟨hd, hle, r26⟩, ⟨had, hal, hA⟩, hkl, hkw,
+    hram, hkb, hkeys, hB⟩ := h
+  have l0 := hs.slot (0x1f0, 8) (by simp)
+  have l1 := hs.slot (0x1c0, 24) (by simp)
+  have l2 := hs.slot (0x158, 20) (by simp)
+  have l3 := hs.slot (0xa0, 20) (by simp)
+  obtain ⟨hH, hle', hp0, hc0, hc32, hram', hil, hbytes, hz⟩ := hEL
+  have h20 : ∀ t < (itemPayload (ent σ o k) k.ah 20).length, t < 20 := fun t ht => by
+    simp only [itemPayload, List.length_take] at ht; omega
+  have hA' : BytesAt m (σ.sl 0x158) (itemPayload (ent σ o k) k.ah 20) :=
+    bytes_congr hA fun t ht => l2 t (h20 t ht)
+  have hB' : BytesAt m (σ.sl 0xa0) (itemPayload (ent σ o k) k.ah 20) :=
+    bytes_congr hB fun t ht => l3 t (h20 t ht)
+  refine ⟨hcm, ⟨hok.1, hok.2.1, ?_, ?_, hok.2.2.2.2⟩,
+    ⟨(hr 20 (by decide)).trans r20, (hr 21 (by decide)).trans r21, hi,
+      (load_congr fun t ht => l0 t ht).trans hmag⟩,
+    ⟨hdr_congr hH l1, hle', hp0, hc0, hc32, hram', hil, ?_, fun x hx => ?_⟩,
+    ⟨hheap, hlive.2.1, hlive.2.2⟩, ⟨hd, hle, (hr 26 (by decide)).trans r26⟩,
+    ⟨had, hal, hA'⟩, hkl, hkw, hram, ?_, hkeys, hB'⟩
+  · rw [load_congr fun t ht => hs.rest t (by omega)]; exact hok.2.2.1
+  · rw [load_congr (m := mc) fun t ht => by
+      rw [show σ.rest + 8 + BitVec.ofNat 64 t = σ.rest + BitVec.ofNat 64 (8 + t) by bv_omega]
+      exact hs.rest _ (by omega)]
+    exact hok.2.2.2.1
+  · rcases Nat.eq_zero_or_pos o.ec.toNat with he | he
+    · have : o.done = [] := List.eq_nil_of_length_eq_zero (by omega)
+      have : o.is = [] := List.eq_nil_of_length_eq_zero (by rw [hil, this]; rfl)
+      intro i hi; simp [entriesBytes, *] at hi
+    · have hlen := entriesBytes_length o.done o.is hil fun x hx => ⟨(hz x hx).1, (hz x hx).2.1⟩
+      refine bytes_congr hbytes fun t ht => hs.blk (o.ep, entrySize * o.ec.toNat)
+        (by simp [EX, he]) t ?_
+      rw [hlen] at ht
+      exact Nat.lt_of_lt_of_le ht (Nat.mul_le_mul_left _ hle')
+  · obtain ⟨hpad, haddr, hkl', hkram, hkb'⟩ := hz x hx
+    refine ⟨hpad, haddr, hkl', hkram, ?_⟩
+    by_cases hk : x.1.keys = []
+    · rw [hk]; intro i hi; simp at hi
+    · exact bytes_congr hkb' fun t ht => hs.blk _ (by
+        simp only [EX, List.mem_append]; exact .inl (.inr (mem_keysBlocks hx hk))) t
+        (by rw [flatten_length _ hkl'] at ht; exact ht)
+  · by_cases hk : k.keys = []
+    · rw [hk]; intro i hi; simp at hi
+    · exact bytes_congr hkb fun t ht => hs.blk (kp', keySize * k.keys.length)
+        (by simp [KD, hk]) t (by rw [flatten_length _ hkeys] at ht; exact ht)
+
 end ZesuExec.Fn.TX
