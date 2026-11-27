@@ -615,8 +615,8 @@ def f2C : Callee Sig zesuImage :=
 
 def f1C : Callee Sig zesuImage :=
   famCallee (X := List (Word × Nat) × List Byte) F1.entry F1.bound
-    (fun σ x => F1.Pre σ.A x.1 x.2) (fun σ x => F1.Post σ.A x.1 x.2)
-    fun σ x => F1.f1_spec σ.A x.1 x.2
+    (fun σ x => F1.Pre σ.A x.1 x.2) (fun σ x => F1.PostKeep σ.A x.1 x.2)
+    fun σ x => F1.f1_spec_keep σ.A x.1 x.2
 
 def f4C : Callee Sig zesuImage :=
   famCallee (X := List (Word × Nat) × List Byte) F4.entry F4.bound

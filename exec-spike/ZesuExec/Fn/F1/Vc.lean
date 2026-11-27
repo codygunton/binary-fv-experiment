@@ -190,6 +190,13 @@ def freeC : Callee Sig zesuImage where
         g.A.Priv L' a ∨ InRange (m.reg 11) (m.reg 12).toNat a)) ∧ Preserved m m'
   spec := fun g L' m hpc hpre => Reaches.preserve (g.A.free_spec L' m hpc hpre)
 
+/-- `Post` and, on the no-growth branch, the list's items unchanged: the early return writes
+only F1's frame and the header (`f1_spec_keep`). -/
+def PostKeep (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (items : List Byte)
+    (m m' : Machine) : Prop :=
+  Post A L items m m' ∧
+  ((m.reg 12).toNat ≤ (wordAt m (m.reg 10 + 16)).toNat → BytesAt m' (wordAt m (m.reg 10)) items)
+
 def vcPlan : PlanW Sig zesuImage where
   cuts := [cE, cJ2, cJ3, cJ4]
   fuel := 400
@@ -198,7 +205,7 @@ def vcPlan : PlanW Sig zesuImage where
     if r = 0x800cb55c then some allocC
     else if r = 0x800cb588 then some (Callee.memcpy Sig zesuImage)
     else if r = 0x800cb5a8 then some freeC else none
-  Post := fun g => Post g.A g.L g.items g.m
+  Post := fun g => PostKeep g.A g.L g.items g.m
   sums := sums
   X := fun g _ => InRange (g.m.reg 2 - 128) 16
   wleaves := fun pc =>
@@ -274,7 +281,7 @@ theorem F1.leaf_800cb40c_0 :
   simp only [E.cap] at hc
   refine ⟨fun o ho => ?_, by decide, fun mf hm hex hfr => ?_⟩
   · simp at ho; subst ho; simpa [Oblig.holds, Sym.eval, BinOp.eval, entryEnv] using E.ra
-  show Post A L items m mf
+  show PostKeep A L items m mf
   have hret : Returns m mf := returns_leaf hm (envOk0 m).vars (by decide)
     (by simp [SState.reg, Sym.eval, entryEnv, Env.base, shape, BitVec.sub_add_cancel]) hex
   have hfr' : SameOutside (Allowed A L m) m mf := SameOutside.mono hfr fun a ha => by
@@ -283,7 +290,10 @@ theorem F1.leaf_800cb40c_0 :
     · exact .inl h
   have hle : (m.reg 12).toNat ≤ (wordAt m (m.reg 10 + 16)).toNat := by
     simp [BitVec.ult, entryEnv] at hc ⊢; omega
-  refine ⟨hret, hfr', ?_⟩
+  refine ⟨⟨hret, hfr', ?_⟩, fun _ i hi => ?_⟩
+  rotate_left
+  · obtain ⟨hc0, hin⟩ := E.itemsOld hi
+    rw [hfr _ fun hw => E.oldNotOwn hc0 hin (E.inWritable hw)]; exact E.items i hi
   simp only [hle, if_true]
   refine ⟨by rw [← hm.regs 10]; rfl, E.header_same (envOk0 m) hm (by decide) (by decide),
     A.heap_frame' L m mf E.heap (fun a hp => hfr a fun hw => ?_)
@@ -625,9 +635,9 @@ theorem F1.leaf_800cb55c_1 :
   · simp at ho; subst ho
     simpa [Oblig.holds, Sym.eval, BinOp.eval,
       show (envJ 500 [S2a, S2b] ⟨A, L, items, m⟩ m2).vars 1 = m.reg 1 from he.vars 1] using E.ra
-  show Post A L items m mf
-  exact oom_post E he (by decide) hmf (by decide) (by decide) (by decide) rfl rfl hex hinv hfr
-    (preserved_of_leaf hwf hmf (by decide) hfr) hlt hheap hscr
+  show PostKeep A L items m mf
+  exact ⟨oom_post E he (by decide) hmf (by decide) (by decide) (by decide) rfl rfl hex hinv hfr
+    (preserved_of_leaf hwf hmf (by decide) hfr) hlt hheap hscr, fun h => absurd h (by omega)⟩
 
 /-- After `memcpy`, leaf 0: capacity 0, nothing to free. -/
 theorem F1.leaf_800cb588_0 :
@@ -809,7 +819,7 @@ theorem F1.leaf_800cb5a8_0 :
   · simp at ho; subst ho
     simpa [Oblig.holds, Sym.eval, BinOp.eval,
       show (envJ 700 [S4a, S4b] ⟨A, L, items, m⟩ m4).vars 1 = m.reg 1 from he.vars 1] using E.ra
-  show Post A L items m mf
+  show PostKeep A L items m mf
   have hp := preserved_of_leaf hwf hmf (by decide) hfr
   have own : ∀ a, InWritable (envJ 700 [S4a, S4b] ⟨A, L, items, m⟩ m4) SJ4 a →
       InRange (m.reg 2 - 112) 112 a ∨ InRange (m.reg 10) 24 a :=
@@ -818,7 +828,8 @@ theorem F1.leaf_800cb5a8_0 :
     (by show (envJ 700 [S4a, S4b] ⟨A, L, items, m⟩ m4).base 0 + BitVec.ofInt 64 112 = m.reg 2
         rw [he.base0]; simp [BitVec.sub_add_cancel]) hex
   have hlt' : ¬ (m.reg 12).toNat ≤ (wordAt m (m.reg 10 + 16)).toNat := by omega
-  refine ⟨hret, (hinv.step hfr (fun a h => E.inWritable' he (by decide) h) hp).1, ?_⟩
+  refine ⟨⟨hret, (hinv.step hfr (fun a h => E.inWritable' he (by decide) h) hp).1, ?_⟩,
+    fun h => absurd h hlt'⟩
   simp only [hlt', if_false]
   refine .inl ⟨by rw [← hmf.regs 10]; rfl, m4.reg 19, ⟨?_, ?_, ?_⟩, hp0, hram,
     E.blockSame he (by decide) hfr hlt hram hblk hitems, ?_,

@@ -98,7 +98,7 @@ theorem spill_cut {σ : Sig} {m : Machine} (hc : Common σ m)
 /-- `Common` and the pc after `ensureTotalCapacity` returns to `0x800001f8`. -/
 theorem ret_1f8 {σ : Sig} {m : Machine} (h : ARet f1C Site1f4 σ m) :
     Common σ m ∧ m.pc.toNat = c1f8 := by
-  obtain ⟨mc, x, ⟨o, k, kh', hIE, -, -, hKL, -, -, ha⟩, ⟨hret, hso, -⟩, hp⟩ := h
+  obtain ⟨mc, x, ⟨o, k, kh', hIE, -, -, hKL, -, -, ha⟩, ⟨⟨hret, hso, -⟩, -⟩, hp⟩ := h
   have hc := hIE.1
   have hpre := hc.2.1
   have hlive := hIE.2.2.2.2.1

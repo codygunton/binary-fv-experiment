@@ -264,7 +264,7 @@ theorem TX.leaf_800001f8_0 :
   · have : (run1f8_leaves[0]!).S.steps - SBody.steps = 22 := by decide
     show _ ≤ 32 * (afterEntry m + keysLeft m) + 439; simp only [cut1f8, mkCut] at *; omega
   have hcm := (ret_1f8 hA).1
-  obtain ⟨mc, x, ⟨o, k, kh', hIE, -, -, hKL, -, -, ha⟩, hpost, -⟩ := hA
+  obtain ⟨mc, x, ⟨o, k, kh', hIE, -, -, hKL, -, -, ha⟩, ⟨hpost, -⟩, -⟩ := hA
   have h1 : SBool.eval (envB σ m) (SBool.ne (Sym.bin BinOp.srl
       (Sym.bin BinOp.sll (Sym.var 10) (Sym.lit 48)) (Sym.lit 48)) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; exact List.mem_singleton.mpr rfl)

@@ -1662,13 +1662,13 @@ theorem TX.leaf_800001a0_3 :
     hkb'
   refine ⟨f1C, (L, k.keys.flatten), rfl, hex, hpre1, fun m'' hpost => ⟨cut1f8,
     by simp [TX.plan, vcPlan], rfl, ?_, ⟨m', (L, k.keys.flatten), hsite, hpost⟩, ?_⟩⟩
-  · rw [hpost.1.1.1, r1]; decide
+  · rw [hpost.1.1.1.1, r1]; decide
   · have h21 : m''.reg 21 = m.reg 21 :=
-      (hpost.1.1.2 21 (by decide)).trans (hreg 21 (by decide))
+      (hpost.1.1.1.2 21 (by decide)).trans (hreg 21 (by decide))
     have h22 : m''.reg 22 = m.reg 22 :=
-      (hpost.1.1.2 22 (by decide)).trans (hreg 22 (by decide))
+      (hpost.1.1.1.2 22 (by decide)).trans (hreg 22 (by decide))
     have h26 : m''.reg 26 = m.reg 26 :=
-      (hpost.1.1.2 26 (by decide)).trans (hreg 26 (by decide))
+      (hpost.1.1.1.2 26 (by decide)).trans (hreg 26 (by decide))
     show F1.bound + (32 * (afterEntry m'' + keysLeft m'') + 439) ≤
       32 * (afterEntry m + keysLeft m) + 658 - ((run1a0_leaves[3]!).S.steps - S1a0.steps)
     rw [hsteps]; unfold afterEntry keysLeft F1.bound; rw [h21, h22, h26]; omega
