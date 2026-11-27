@@ -336,7 +336,7 @@
        "i": 1,
        "exit": "ret",
        "conds": 1}],
-     "cut_lemma": "manual"},
+     "cut_lemma": "auto"},
     {"residual": "",
      "pc": 2148316552,
      "leaves":
@@ -358,7 +358,7 @@
        "i": 1,
        "exit": "call",
        "conds": 1}],
-     "cut_lemma": "manual"},
+     "cut_lemma": "auto"},
     {"residual": "",
      "pc": 2148316584,
      "leaves":
@@ -372,7 +372,7 @@
        "i": 0,
        "exit": "ret",
        "conds": 0}],
-     "cut_lemma": "manual"}],
+     "cut_lemma": "auto"}],
    "assembled": true},
   {"theorems":
    {"spec": true, "sail": true, "reach": false, "compliance": false},

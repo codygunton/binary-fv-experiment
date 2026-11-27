@@ -13,12 +13,13 @@ entry machine.
 Cut states: the entry state `S0`; after `remap` the return state `S1` of the entry run (one path
 reaches it, so its `Env` is the entry `Env` plus the returned registers). The other three are
 join cuts (programme plan S5 probe 1): their state is `generalise F Ss 32` of the leaf states
-`Ss` that reach them (`Sym/Join.lean`), their `Env` is `envJ F`: entry variables from the entry
-machine, `var (F + i)` = register `i` at the cut, frame bytes from the machine at the cut,
-header and allocator-object bytes from the entry. After `alloc` two paths meet (capacity 0, or
-after `remap`); after `memcpy` one; after `free` two (capacity 0 skips `free`). Each assertion
-is machine facts plus `MatchIn`: some incoming state matches the machine under an `Env` that
-agrees with the entry; `join_cut` turns that into the cut's `Match` by `Match.generalise_to`.
+`Ss` that reach them (`Sym/Join.lean`), their `Env` is `envJ F Ss` = `joinEnv 32 F Ss` over the
+entry `Env`: entry variables from the entry machine, `var (F + i)` = register `i` at the cut,
+frame bytes from the machine at the cut, header and allocator-object bytes from the entry.
+After `alloc` two paths meet (capacity 0, or after `remap`); after `memcpy` one; after `free`
+two (capacity 0 skips `free`). Each assertion is machine facts, `RodataLoaded`, and `JoinIn`:
+some incoming state matches the machine under an `Env` that agrees with the entry `Env`; the
+cut lemmas are `cut_auto`'s (`JoinIn.ok`).
 So each segment is run once, not once per path. Budgets: 197 at the entry, 148 after `remap`,
 `103`/`78` after `alloc`, `18`/`67` after `memcpy` (capacity 0 / positive), 17 after `free`.
 -/
@@ -68,65 +69,39 @@ abbrev reqOf (m : Machine) : Nat := (m.reg 12).toNat
 /-- After `remap`: the entry `Env` and `var (100 + i)` = register `i` at the return. -/
 def envR (g : Sig) (mh : Machine) : Env := (env0 g.m).setVars 100 fun i => mh.reg (Fin.ofNat 32 i)
 
-/-- At a join: entry variables from the entry machine, `var (F + i)` = register `i` at the cut,
-the entry regions, frame bytes from the machine at the cut, header and allocator bytes from
-the entry. -/
-def envJ (F : Nat) (g : Sig) (mh : Machine) : Env where
-  vars := fun i => if i < 32 then g.m.reg (Fin.ofNat 32 i) else mh.reg (Fin.ofNat 32 (i - F))
-  regions := (shape g.m).map (·.1)
-  mem0 := fun r j =>
-    let b := (((shape g.m).map (·.1)).getD r (0, 0)).1 + BitVec.ofNat 64 j
-    ((if r = 0 then mh.mem b else g.m.mem b)).getD 0
+/-- At a join: `joinEnv` over the entry `Env`. -/
+def envJ (F : Nat) (Ss : List SState) (g : Sig) : Machine → Env := joinEnv 32 F Ss (env0 g.m)
 
-theorem envJ_ok {F : Nat} (hF : 32 ≤ F) (g : Sig) (mh : Machine) : EnvOk g.m (envJ F g mh) where
-  vars i := by simp [envJ, i.isLt]
-  base0 := by simp [envJ, Env.base, shape]
-  base1 := by simp [envJ, Env.base, shape]
-  size1 := by simp [envJ, Env.size, shape]
-  mem1 j := by simp [envJ, shape]
-  size0 := by simp [envJ, Env.size, shape]
-  base2 := by simp [envJ, Env.base, shape]
-  size2 := by simp [envJ, Env.size, shape]
-  len := by simp [envJ, shape]
-  mem2 j := by simp [envJ, shape]
+theorem envJ_ok {F : Nat} {Ss : List SState} (hF : 32 ≤ F) (h1 : dirtyB Ss 1 = false)
+    (h2 : dirtyB Ss 2 = false) (g : Sig) (mh : Machine) : EnvOk g.m (envJ F Ss g mh) where
+  vars i := by simp [envJ, joinEnv, entryEnv, i.isLt]
+  base0 := by simp [envJ, joinEnv, Env.base, entryEnv, shape]
+  base1 := by simp [envJ, joinEnv, Env.base, entryEnv, shape]
+  size1 := by simp [envJ, joinEnv, Env.size, entryEnv, shape]
+  mem1 j := by simp [envJ, joinEnv, h1, entryEnv, shape]
+  size0 := by simp [envJ, joinEnv, Env.size, entryEnv, shape]
+  base2 := by simp [envJ, joinEnv, Env.base, entryEnv, shape]
+  size2 := by simp [envJ, joinEnv, Env.size, entryEnv, shape]
+  len := by simp [envJ, joinEnv, entryEnv, shape]
+  mem2 j := by simp [envJ, joinEnv, h2, entryEnv, shape]
 
-theorem envJ_fresh {F : Nat} (hF : 32 ≤ F) (g : Sig) (mh : Machine) (i : Fin 32) :
-    (envJ F g mh).vars (F + i.val) = mh.reg i := by
-  simp [envJ, show ¬ F + i.val < 32 by omega]
+theorem envJ_fresh {F : Nat} {Ss : List SState} (hF : 32 ≤ F) (g : Sig) (mh : Machine)
+    (i : Fin 32) : (envJ F Ss g mh).vars (F + i.val) = mh.reg i :=
+  joinEnv_fresh hF Ss _ mh i
 
-/-- Some incoming state of a join matches `m` under an `Env` that agrees with the entry. -/
-def MatchIn (g : Sig) (Ss : List SState) (m : Machine) : Prop :=
-  ∃ S ∈ Ss, ∃ env, EnvOk g.m env ∧ Match env S m ∧ Env.WF env S
-
-/-- The cut lemma of F1's join cuts: the frame is written on some path, the header and the
-allocator object on none. -/
-theorem join_cut {F : Nat} {Ss : List SState} {g : Sig} {m : Machine} (hF : 32 ≤ F)
-    (hR : ∀ S ∈ Ss, S.regions = [frameR, headerR, allocObjR])
-    (hd : dirtyB Ss 0 = true ∧ dirtyB Ss 1 = false ∧ dirtyB Ss 2 = false)
-    (h : MatchIn g Ss m) :
-    Env.WF (envJ F g m) (generalise F Ss 32) ∧ Match (envJ F g m) (generalise F Ss 32) m := by
-  obtain ⟨S, hS, env, he, hm, hwf⟩ := h
-  have hR' : ∀ S' ∈ Ss, S'.regions = S.regions := fun S' h => (hR S' h).trans (hR S hS).symm
-  have hr : (envJ F g m).regions = env.regions := by rw [he.regions]; rfl
-  refine ⟨Env.WF.generalise hS hR' hwf hr, Match.generalise_to hS hR' hm (fun i hi => ?_)
-    (envJ_fresh hF g m) hr (fun r hr hdr j => ?_) (fun r j hdr hj => ?_)⟩
-  · show (if i < 32 then _ else _) = _
-    rw [if_pos hi, he.vars ⟨i, hi⟩]; congr 1; exact Fin.ext (Nat.mod_eq_of_lt hi)
-  · have hr3 : r < 3 := by rw [hR S hS] at hr; simpa using hr
+/-- An `Env` extending the entry's agrees with it where a join that writes the frame keeps
+terms. -/
+theorem EnvOk.agrees {m : Machine} {env : Env} {Ss : List SState} (he : EnvOk m env)
+    (hd : dirtyB Ss 0 = true) : Agrees 32 Ss (env0 m) env where
+  vars i hi := by
+    rw [he.vars ⟨i, hi⟩]; simp [entryEnv]; congr 1; exact Fin.ext (Nat.mod_eq_of_lt hi).symm
+  regions := by rw [he.regions]; rfl
+  mem0 r hr hdr j := by
+    have hr3 : r < 3 := by simpa [entryEnv, shape] using hr
     match r, hr3, hdr with
-    | 0, _, hdr => rw [hd.1] at hdr; cases hdr
-    | 1, _, _ => rw [he.mem1]; simp [envJ, shape]
-    | 2, _, _ => rw [he.mem2]; simp [envJ, shape]
-  · have hr3 : r < 3 := by
-      rcases Nat.lt_or_ge r 3 with h | h
-      · exact h
-      · rw [Env.size, List.getD_eq_getElem?_getD, List.getElem?_eq_none (by rw [he.len]; omega)]
-          at hj
-        simp at hj
-    match r, hr3, hdr with
-    | 0, _, _ => simp [envJ, Env.base, he.regions]
-    | 1, _, hdr => rw [hd.2.1] at hdr; cases hdr
-    | 2, _, hdr => rw [hd.2.2] at hdr; cases hdr
+    | 0, _, hdr => rw [hd] at hdr; cases hdr
+    | 1, _, _ => rw [he.mem1]; simp [entryEnv, shape]
+    | 2, _, _ => rw [he.mem2]; simp [entryEnv, shape]
 
 def AE (g : Sig) (m : Machine) : Prop := m = g.m ∧ m.pc.toNat = entry ∧ Pre g.A g.L g.items m
 
@@ -142,7 +117,8 @@ def AJ2 (g : Sig) (m2 : Machine) : Prop :=
   Entry g.A g.L g.items g.m ∧ m2.pc.toNat = 0x800cb55c ∧ Inv g.A g.L g.m m2 ∧
   capOf g.m < reqOf g.m ∧ BytesAt m2 (wordAt g.m (g.m.reg 10)) g.items ∧ ScratchSame g.m m2 ∧
   AllocOut g.A g.L (grown (reqOf g.m) * elemBytes) m2 ∧
-  m2.reg 22 = BitVec.ofNat 64 (grown (reqOf g.m)) ∧ MatchIn g [S2a, S2b] m2
+  m2.reg 22 = BitVec.ofNat 64 (grown (reqOf g.m)) ∧ RodataLoaded zesuImage m2 ∧
+  JoinIn 32 [S2a, S2b] (env0 g.m) m2
 
 /-- After `memcpy`, for the new buffer `p'`. -/
 def Copied (g : Sig) (m4 : Machine) (p' : Word) : Prop :=
@@ -157,7 +133,7 @@ def Copied (g : Sig) (m4 : Machine) (p' : Word) : Prop :=
 def AJ3 (g : Sig) (m3 : Machine) : Prop :=
   Entry g.A g.L g.items g.m ∧ m3.pc.toNat = 0x800cb588 ∧ Inv g.A g.L g.m m3 ∧
   capOf g.m < reqOf g.m ∧ m3.reg 22 = BitVec.ofNat 64 (grown (reqOf g.m)) ∧
-  Copied g m3 (m3.reg 19) ∧ MatchIn g [S3] m3
+  Copied g m3 (m3.reg 19) ∧ RodataLoaded zesuImage m3 ∧ JoinIn 32 [S3] (env0 g.m) m3
 
 /-- The allocator list at the end of the growing paths. -/
 def newL (g : Sig) (p' : Word) : List (Word × Nat) :=
@@ -178,15 +154,15 @@ def Freed (g : Sig) (m4 : Machine) (p' : Word) : Prop :=
 def AJ4 (g : Sig) (m4 : Machine) : Prop :=
   Entry g.A g.L g.items g.m ∧ m4.pc.toNat = 0x800cb5a8 ∧ Inv g.A g.L g.m m4 ∧
   capOf g.m < reqOf g.m ∧ m4.reg 22 = BitVec.ofNat 64 (grown (reqOf g.m)) ∧
-  Freed g m4 (m4.reg 19) ∧ MatchIn g [S4a, S4b] m4
+  Freed g m4 (m4.reg 19) ∧ RodataLoaded zesuImage m4 ∧ JoinIn 32 [S4a, S4b] (env0 g.m) m4
 
 def cE : Cut Sig := ⟨entry, S0, AE, fun _ m => env0 m, fun _ _ => bound⟩
 def cR : Cut Sig := ⟨0x800cb4f8, S1, AR, envR, fun _ _ => 148⟩
 def cJ2 : Cut Sig :=
-  ⟨0x800cb55c, SJ2, AJ2, envJ 500, fun g _ => if capOf g.m = 0 then 103 else 78⟩
+  ⟨0x800cb55c, SJ2, AJ2, envJ 500 [S2a, S2b], fun g _ => if capOf g.m = 0 then 103 else 78⟩
 def cJ3 : Cut Sig :=
-  ⟨0x800cb588, SJ3, AJ3, envJ 600, fun g _ => if capOf g.m = 0 then 18 else 67⟩
-def cJ4 : Cut Sig := ⟨0x800cb5a8, SJ4, AJ4, envJ 700, fun _ _ => 17⟩
+  ⟨0x800cb588, SJ3, AJ3, envJ 600 [S3], fun g _ => if capOf g.m = 0 then 18 else 67⟩
+def cJ4 : Cut Sig := ⟨0x800cb5a8, SJ4, AJ4, envJ 700 [S4a, S4b], fun _ _ => 17⟩
 
 /-! ## Callees -/
 
@@ -569,7 +545,8 @@ theorem F1.leaf_800cb40c_2 :
   obtain ⟨hm2, hwf2, hpc2, hinv2, hscr2, hitems2, hout, hret⟩ := hpostA m2 hpost
   refine ⟨cJ2, by simp [F1.plan, vcPlan], rfl, hpc2, ⟨E, hpc2, hinv2, hlt, hitems2, hscr2, hout,
     by rw [hret.2 22 (by decide), h22],
-    S2a, by simp, _, (envOk0 m).setVars (by decide) _, hm2, hwf2⟩, ?_⟩
+    hinv2.ro E, S2a, by simp, _, ((envOk0 m).setVars (by decide) _).agrees (by decide), hm2, hwf2⟩,
+    ?_⟩
   show 53 + (if capOf m = 0 then 103 else 78) ≤ 197 - (41 - 0)
   simp only [capOf, hc0, if_true]; decide
 
@@ -592,38 +569,23 @@ theorem F1.leaf_800cb4f8_1 :
   obtain ⟨hm3, hwf3, hpc3, hinv3, hscr3, hitems3, hout, hret⟩ := hpostA m3 hpost
   refine ⟨cJ2, by simp [F1.plan, vcPlan], rfl, hpc3, ⟨E, hpc3, hinv3, hlt, hitems3, hscr3, hout,
     by rw [hret.2 22 (by decide), ← hmc.regs 22]; exact hv122,
-    S2b, by simp, _, he.setVars (by decide) _, hm3, hwf3⟩, ?_⟩
+    hinv3.ro E, S2b, by simp, _, (he.setVars (by decide) _).agrees (by decide), hm3, hwf3⟩, ?_⟩
   show 53 + (if capOf m = 0 then 103 else 78) ≤ 148 - (17 - 0)
   simp only [capOf, Nat.pos_iff_ne_zero.mp hc0, if_false]; decide
 
 /-! ## The join cuts and the leaves of their runs -/
 
 theorem AJ2.ok {g : Sig} {m : Machine} (h : AJ2 g m) :
-    Env.WF (envJ 500 g m) SJ2 ∧ Match (envJ 500 g m) SJ2 m :=
-  join_cut (by decide) (by decide) (by decide) h.2.2.2.2.2.2.2.2
+    Env.WF (envJ 500 [S2a, S2b] g m) SJ2 ∧ Match (envJ 500 [S2a, S2b] g m) SJ2 m :=
+  JoinIn.ok (by decide) (by decide) h.2.2.2.2.2.2.2.2.2
 
 theorem AJ3.ok {g : Sig} {m : Machine} (h : AJ3 g m) :
-    Env.WF (envJ 600 g m) SJ3 ∧ Match (envJ 600 g m) SJ3 m :=
-  join_cut (by decide) (by decide) (by decide) h.2.2.2.2.2.2
+    Env.WF (envJ 600 [S3] g m) SJ3 ∧ Match (envJ 600 [S3] g m) SJ3 m :=
+  JoinIn.ok (by decide) (by decide) h.2.2.2.2.2.2.2
 
 theorem AJ4.ok {g : Sig} {m : Machine} (h : AJ4 g m) :
-    Env.WF (envJ 700 g m) SJ4 ∧ Match (envJ 700 g m) SJ4 m :=
-  join_cut (by decide) (by decide) (by decide) h.2.2.2.2.2.2
-
-theorem F1.cut_800cb55c : CutOK F1.plan F1.plan.cuts[2]! := by
-  show CutOK F1.plan cJ2
-  intro g m2 hA
-  exact ⟨(AJ2.ok hA).1, (AJ2.ok hA).2, hA.2.2.1.ro hA.1, hA.2.1⟩
-
-theorem F1.cut_800cb588 : CutOK F1.plan F1.plan.cuts[3]! := by
-  show CutOK F1.plan cJ3
-  intro g m3 hA
-  exact ⟨(AJ3.ok hA).1, (AJ3.ok hA).2, hA.2.2.1.ro hA.1, hA.2.1⟩
-
-theorem F1.cut_800cb5a8 : CutOK F1.plan F1.plan.cuts[4]! := by
-  show CutOK F1.plan cJ4
-  intro g m4 hA
-  exact ⟨(AJ4.ok hA).1, (AJ4.ok hA).2, hA.2.2.1.ro hA.1, hA.2.1⟩
+    Env.WF (envJ 700 [S4a, S4b] g m) SJ4 ∧ Match (envJ 700 [S4a, S4b] g m) SJ4 m :=
+  JoinIn.ok (by decide) (by decide) h.2.2.2.2.2.2.2
 
 /-- The new block's bytes survive a run of F1's own code. -/
 theorem Entry.blockSame {A : AllocAssumptions zesuImage} {L : List (Word × Nat)}
@@ -664,10 +626,11 @@ theorem F1.leaf_800cb55c_0 :
   obtain ⟨hwf, -⟩ := AJ2.ok hA
   obtain ⟨A, L, items, m⟩ := g
   simp only [AJ2, capOf, reqOf] at hA
-  obtain ⟨E, -, hinv, hlt, hitems, -, hout, h22, -⟩ := hA
+  obtain ⟨E, -, hinv, hlt, hitems, -, hout, h22, -, -⟩ := hA
   dsimp only at hc ⊢
-  have he := envJ_ok (F := 500) (by decide) ⟨A, L, items, m⟩ m2
-  have h10 : (envJ 500 ⟨A, L, items, m⟩ m2).vars 510 = m2.reg 10 :=
+  have he := envJ_ok (F := 500) (Ss := [S2a, S2b]) (by decide) (by decide) (by decide)
+    ⟨A, L, items, m⟩ m2
+  have h10 : (envJ 500 [S2a, S2b] ⟨A, L, items, m⟩ m2).vars 510 = m2.reg 10 :=
     envJ_fresh (i := 10) (by decide) _ _
   sym_simp at hc; rw [h10] at hc; simp only [bne_iff_ne, ne_eq] at hc
   obtain ⟨hne, hheap, hram', hpres', hblk, hpriv⟩ := hout.resolve_left fun h => hc h.1
@@ -688,7 +651,7 @@ theorem F1.leaf_800cb55c_0 :
     Nat.pos_of_ne_zero fun e => hne (BitVec.eq_of_toNat_eq (by simpa using e))
   refine ⟨cJ3, by simp [F1.plan, vcPlan], rfl, hpc3, ⟨E, hpc3, hinv3, hlt, by rw [r22, h22],
     by rw [r19]; exact ⟨hp0, hram', hitems3, hscr3, hheap3, hpriv, hblk⟩,
-    S3, by simp, _, he, hm3, hwf3⟩, ?_⟩
+    hinv3.ro E, S3, by simp, _, he.agrees (by decide), hm3, hwf3⟩, ?_⟩
   show 3 + (if capOf m = 0 then 18 else 67) ≤ (if capOf m = 0 then 103 else 78) - (8 - 0)
   by_cases h : capOf m = 0 <;> simp [h]
 
@@ -700,10 +663,11 @@ theorem F1.leaf_800cb55c_1 :
   obtain ⟨hwf, -⟩ := AJ2.ok hA
   obtain ⟨A, L, items, m⟩ := g
   simp only [AJ2, capOf, reqOf] at hA
-  obtain ⟨E, -, hinv, hlt, -, hscr, hout, -, -⟩ := hA
+  obtain ⟨E, -, hinv, hlt, -, hscr, hout, -, -, -⟩ := hA
   dsimp only at hc ⊢
-  have he := envJ_ok (F := 500) (by decide) ⟨A, L, items, m⟩ m2
-  have h10 : (envJ 500 ⟨A, L, items, m⟩ m2).vars 510 = m2.reg 10 :=
+  have he := envJ_ok (F := 500) (Ss := [S2a, S2b]) (by decide) (by decide) (by decide)
+    ⟨A, L, items, m⟩ m2
+  have h10 : (envJ 500 [S2a, S2b] ⟨A, L, items, m⟩ m2).vars 510 = m2.reg 10 :=
     envJ_fresh (i := 10) (by decide) _ _
   sym_simp at hc; rw [h10] at hc; simp only [beq_iff_eq] at hc
   have hheap : A.Heap L m2 := by
@@ -713,7 +677,7 @@ theorem F1.leaf_800cb55c_1 :
   refine ⟨fun o ho => ?_, by split <;> decide, fun mf hmf hex hfr => ?_⟩
   · simp at ho; subst ho
     simpa [Oblig.holds, Sym.eval, BinOp.eval,
-      show (envJ 500 ⟨A, L, items, m⟩ m2).vars 1 = m.reg 1 from he.vars 1] using E.ra
+      show (envJ 500 [S2a, S2b] ⟨A, L, items, m⟩ m2).vars 1 = m.reg 1 from he.vars 1] using E.ra
   show Post A L items m mf
   exact oom_post E he (by decide) hmf (by decide) (by decide) (by decide) rfl rfl hex hinv hfr
     (preserved_of_leaf hwf hmf (by decide) hfr) hlt hheap hscr
@@ -726,9 +690,10 @@ theorem F1.leaf_800cb588_0 :
   obtain ⟨hwf, -⟩ := AJ3.ok hA
   obtain ⟨A, L, items, m⟩ := g
   simp only [AJ3, Copied, capOf, reqOf] at hA
-  obtain ⟨E, -, hinv, hlt, h22, ⟨hp0, hram, hitems, hscr, hheap, hpriv, hblk⟩, -⟩ := hA
+  obtain ⟨E, -, hinv, hlt, h22, ⟨hp0, hram, hitems, hscr, hheap, hpriv, hblk⟩, -, -⟩ := hA
   dsimp only at hc ⊢
-  have he := envJ_ok (F := 600) (by decide) ⟨A, L, items, m⟩ m3
+  have he := envJ_ok (F := 600) (Ss := [S3]) (by decide) (by decide) (by decide)
+    ⟨A, L, items, m⟩ m3
   sym_simp at hc; rw [he.init_eq, E.cap] at hc; simp only [beq_iff_eq] at hc
   have hc0 : capOf m = 0 := by show (wordAt m (m.reg 10 + 16)).toNat = 0; rw [hc]; rfl
   refine ⟨fun o ho => by simp at ho, by split <;> decide, fun m4 hm4 hex hfr => ?_⟩
@@ -741,7 +706,8 @@ theorem F1.leaf_800cb588_0 :
     simp [newL, hc0]
   refine ⟨cJ4, by simp [F1.plan, vcPlan], hex, ⟨E, hex,
     hinv.step hfr (fun a h => E.inWritable' he (by decide) h) hp, hlt, by rw [r22, h22], ?_,
-    S4a, by simp, _, he, hm4, hwf.congr (by decide)⟩, ?_⟩
+    (hinv.step hfr (fun a h => E.inWritable' he (by decide) h) hp).ro E,
+    S4a, by simp, _, he.agrees (by decide), hm4, hwf.congr (by decide)⟩, ?_⟩
   · rw [r19]
     refine ⟨hp0, hram, E.blockSame he (by decide) hfr hlt hram hblk hitems,
       E.scratchKeep (by simp [wordBytes]) he (by decide) hfr hscr, ?_, ?_, hblk⟩
@@ -760,15 +726,16 @@ theorem F1.leaf_800cb588_1 :
   obtain ⟨hwf, -⟩ := AJ3.ok hA
   obtain ⟨A, L, items, m⟩ := g
   simp only [AJ3, Copied, capOf, reqOf] at hA
-  obtain ⟨E, -, hinv, hlt, h22, ⟨hp0, hram, hitems, hscr, hheap, hpriv, hblk⟩, -⟩ := hA
+  obtain ⟨E, -, hinv, hlt, h22, ⟨hp0, hram, hitems, hscr, hheap, hpriv, hblk⟩, -, -⟩ := hA
   dsimp only at hc ⊢
-  have he := envJ_ok (F := 600) (by decide) ⟨A, L, items, m⟩ m3
+  have he := envJ_ok (F := 600) (Ss := [S3]) (by decide) (by decide) (by decide)
+    ⟨A, L, items, m⟩ m3
   sym_simp at hc; rw [he.init_eq, E.cap] at hc; simp only [bne_iff_ne, ne_eq] at hc
   have hc0 : 0 < (wordAt m (m.reg 10 + 16)).toNat :=
     Nat.pos_of_ne_zero fun h => hc (BitVec.eq_of_toNat_eq (by simpa using h))
   refine ⟨fun o ho => by simp at ho, by split <;> decide, fun mc hmc hex hfr => ?_⟩
   have hp : Preserved m3 mc := preserved_of_leaf hwf hmc (by decide) hfr
-  have own : ∀ a, InWritable (envJ 600 ⟨A, L, items, m⟩ m3) SJ3 a →
+  have own : ∀ a, InWritable (envJ 600 [S3] ⟨A, L, items, m⟩ m3) SJ3 a →
       InRange (m.reg 2 - 112) 112 a ∨ InRange (m.reg 10) 24 a :=
     fun a h => E.inWritable2 he (by decide) h
   -- the call's arguments
@@ -785,7 +752,7 @@ theorem F1.leaf_800cb588_1 :
   have r13 : mc.reg 13 = 0 := by rw [← hmc.regs 13]; rfl
   have r1 : mc.reg 1 = BitVec.ofNat 64 0x800cb5a8 := by rw [← hmc.regs 1]; rfl
   have r2 : mc.reg 2 = m.reg 2 - 112 := by
-    rw [← hmc.regs 2]; show (envJ 600 ⟨A, L, items, m⟩ m3).base 0 + BitVec.ofInt 64 0 = _
+    rw [← hmc.regs 2]; show (envJ 600 [S3] ⟨A, L, items, m⟩ m3).base 0 + BitVec.ofInt 64 0 = _
     rw [he.base0]; simp
   have r19 : mc.reg 19 = m3.reg 19 := by
     rw [← hmc.regs 19]; exact envJ_fresh (i := 19) (by decide) _ _
@@ -845,7 +812,7 @@ theorem F1.leaf_800cb588_1 :
   have s19 : m4.reg 19 = p' := by rw [hret.2 19 (by decide), r19]
   refine ⟨cJ4, by simp [F1.plan, vcPlan], rfl, hpc4, ⟨E, hpc4, hinv4, hlt,
     by rw [hret.2 22 (by decide), r22, h22], ?_,
-    S4b, by simp, _, he.setVars (by decide) _, hm4, hwf4⟩, ?_⟩
+    hinv4.ro E, S4b, by simp, _, (he.setVars (by decide) _).agrees (by decide), hm4, hwf4⟩, ?_⟩
   · rw [s19]
     refine ⟨hp0, hram, ?_, ?_, hheap4, fun a h => ?_, hblk⟩
     · intro i hi
@@ -891,20 +858,21 @@ theorem F1.leaf_800cb5a8_0 :
   obtain ⟨hwf, -⟩ := AJ4.ok hA
   obtain ⟨A, L, items, m⟩ := g
   simp only [AJ4, Freed, capOf, reqOf] at hA
-  obtain ⟨E, -, hinv, hlt, h22, ⟨hp0, hram, hitems, hscr, hheap, hpriv, hblk⟩, -⟩ := hA
+  obtain ⟨E, -, hinv, hlt, h22, ⟨hp0, hram, hitems, hscr, hheap, hpriv, hblk⟩, -, -⟩ := hA
   dsimp only at hc ⊢
-  have he := envJ_ok (F := 700) (by decide) ⟨A, L, items, m⟩ m4
+  have he := envJ_ok (F := 700) (Ss := [S4a, S4b]) (by decide) (by decide) (by decide)
+    ⟨A, L, items, m⟩ m4
   refine ⟨fun o ho => ?_, by decide, fun mf hmf hex hfr => ?_⟩
   · simp at ho; subst ho
     simpa [Oblig.holds, Sym.eval, BinOp.eval,
-      show (envJ 700 ⟨A, L, items, m⟩ m4).vars 1 = m.reg 1 from he.vars 1] using E.ra
+      show (envJ 700 [S4a, S4b] ⟨A, L, items, m⟩ m4).vars 1 = m.reg 1 from he.vars 1] using E.ra
   show Post A L items m mf
   have hp := preserved_of_leaf hwf hmf (by decide) hfr
-  have own : ∀ a, InWritable (envJ 700 ⟨A, L, items, m⟩ m4) SJ4 a →
+  have own : ∀ a, InWritable (envJ 700 [S4a, S4b] ⟨A, L, items, m⟩ m4) SJ4 a →
       InRange (m.reg 2 - 112) 112 a ∨ InRange (m.reg 10) 24 a :=
     fun a h => E.inWritable2 he (by decide) h
   have hret : Returns m mf := returns_leaf hmf he.vars (by decide)
-    (by show (envJ 700 ⟨A, L, items, m⟩ m4).base 0 + BitVec.ofInt 64 112 = m.reg 2
+    (by show (envJ 700 [S4a, S4b] ⟨A, L, items, m⟩ m4).base 0 + BitVec.ofInt 64 112 = m.reg 2
         rw [he.base0]; simp [BitVec.sub_add_cancel]) hex
   have hlt' : ¬ (m.reg 12).toNat ≤ (wordAt m (m.reg 10 + 16)).toNat := by omega
   refine ⟨hret, (hinv.step hfr (fun a h => E.inWritable' he (by decide) h) hp).1, ?_⟩

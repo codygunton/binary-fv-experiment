@@ -494,3 +494,15 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `*_sail`, `*_compliance` statements textually unchanged; STATEMENTS.md updated. Built in a clean
   worktree of HEAD plus the fix: `lake build` 263 jobs OK (P2's uncommitted `Fn/F3/Proof.lean`
   edit does not build in the shared tree and is not part of this commit).
+- S5-p1b (2026-11-27): `cut_auto` closes join cuts. `Sym/Join.lean`: `joinEnv K F Ss E` (the
+  join cut's `Env` over a fixed `E`), `Agrees`, `JoinIn K Ss E m` (some incoming state matches
+  `m` under an `Env` agreeing with `E`), `JoinIn.ok` (cut lemma, via `Match.generalise_to`).
+  `Vc/Tactics.lean`: tactic `conj_assumption` (closes a goal with a conjunct of a hypothesis,
+  definitions unfolded, reducible comparison) and a second `cut_auto` rule: `cut_intro`, then
+  `JoinIn.ok` for `Env.WF`/`Match`, `conj_assumption` for `JoinIn`, `RodataLoaded` and the pc.
+  F1: join `Env`s are `envJ F Ss = joinEnv 32 F Ss (env0 ·.m)`; `AJ2`-`AJ4` end with
+  `RodataLoaded ∧ JoinIn` (producing leaves add `hinv.ro E` and `EnvOk.agrees`); the three hand
+  cut lemmas and `join_cut` deleted. `zesu_auto F1`: 21 items, auto 2 -> 5 (cut lemmas 3 of 5
+  auto), manual 19 -> 16, open 0. `Fn/F1/Vc.lean` 933 -> 903 lines (`Sym/Join.lean` 222 -> 265).
+  Built in a clean worktree of HEAD plus these files: `lake build` 263 jobs OK, `tools/verify.sh`
+  all PASS after `make -C tools/zmap map`.

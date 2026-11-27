@@ -2,6 +2,7 @@ import Lean
 import ZesuExec.Vc.Assemble
 import ZesuExec.Vc.Regions
 import ZesuExec.Sym.Tactic
+import ZesuExec.Sym.Join
 
 /-!
 # Sound automation for leaf and cut goals (programme plan S4 steps 1, 2, 4)
@@ -20,7 +21,11 @@ Tactics only build proofs the kernel checks; they guess no assertion, invariant 
 * `exit_intro`: for `ExitGoal P g m' rem e` with a literal exit, picks the cut at the exit's
   address (or the callee at the return address) and leaves its fields as goals.
 * `leaf_auto`, `cut_auto` (the `macro_rules` added to the placeholders of `Vc.Assemble`):
-  the plan's step 4; they fail unless the goal is closed.
+  the plan's step 4; they fail unless the goal is closed. A join cut (programme plan S5 probe 1:
+  `Env` `joinEnv K F Ss E`, state `generalise F Ss K`) is closed by `JoinIn.ok` when its assertion
+  has the conjuncts `JoinIn K Ss E m`, `RodataLoaded img m` and the pc equation.
+* `conj_assumption`: closes the goal with a hypothesis or a conjunct of one (nested `∧`, defined
+  propositions unfolded), compared up to reducible unfolding.
 -/
 
 namespace ZesuExec.Vc
@@ -261,5 +266,38 @@ macro_rules
       · simp
       · first | assumption | (simp_all [zesu_simp]; done)
       · first | assumption | (leaf_norm; simp_all [zesu_simp]; done) | (leaf_norm; omega)))
+
+/-- A conjunct of `t : ty` (nested `∧`, definitions unfolded) whose type is `goal`. -/
+partial def findConj (goal t ty : Expr) : MetaM (Option Expr) := do
+  if ← withReducible (isDefEq ty goal) then return some t
+  let ty ← whnf ty
+  if ty.isAppOfArity ``And 2 then
+    let a := ty.appFn!.appArg!
+    let b := ty.appArg!
+    if let some p ← findConj goal (mkApp3 (mkConst ``And.left) a b t) a then return some p
+    findConj goal (mkApp3 (mkConst ``And.right) a b t) b
+  else return none
+
+syntax (name := conjAssumption) "conj_assumption" : tactic
+
+@[tactic conjAssumption] def evalConjAssumption : Tactic := fun _ => withMainContext do
+  let g ← getMainGoal
+  let goal ← instantiateMVars (← g.getType)
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    if let some p ← findConj goal d.toExpr (← instantiateMVars d.type) then
+      g.assign p
+      replaceMainGoal []
+      return
+  throwError "conj_assumption: no hypothesis or conjunct of one is the goal"
+
+macro_rules
+  | `(tactic| cut_auto) => `(tactic| (
+      cut_intro
+      intro g m hA
+      try dsimp only at hA ⊢
+      refine ⟨(JoinIn.ok (by decide) (by decide) ?hJ).1, (JoinIn.ok (by decide) (by decide) ?hJ).2,
+        ?_, ?_⟩
+      all_goals conj_assumption))
 
 end ZesuExec.Vc
