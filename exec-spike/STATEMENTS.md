@@ -321,3 +321,65 @@ Axioms of all three: `propext`, `Classical.choice`, `Quot.sound`.
 `rlpLongLengthWrap` never excuses an F3 result (`decode_header_le`: a success has header ≤ 9, and
 the candidate accepts only payload ≤ 8). `ParentHeaderUintOver8` concerns base fee, which Sail
 decodes with `rlp_decode_u256`, not `rlp_decode_uint64`; it is not part of this comparison.
+
+## F6
+
+`rlp_decode.decodeParentHeader`, entry `0x800d5cb8`. Lean: `ZesuExec/Fn/F6/Spec.lean`.
+
+End theorem (`ZesuExec/Fn/F6/Proof.lean`, axioms `propext`, `Classical.choice`, `Quot.sound`,
+`#guard_msgs` at the end of the file):
+
+```lean
+theorem f6_spec : Spec zesuImage entry 2178 Pre Post   -- entry = 0x800d5cb8
+```
+
+It uses `F2.f2_spec` for the 17 calls of `rlp.decodeItem`, `F3.f3_spec` for the 3 calls of
+`rlp_decode.nextUint64` (both proved, not assumed) and `memcpy_spec` for the tail call. It
+transcribes `parentHeaderContractResources` / `parentHeaderContractModel`
+(`ParentHeaderContract.v`): `parentHeaderArgsWellFormed` (`:108-143`), the entry and exit resources
+(`:171-260`) and `parentHeaderAllows` (`:52-60`) with the candidate of
+`Candidates/ParentHeaderCandidate.v`.
+
+| Lean | Rocq | Note |
+|---|---|---|
+| `Kind`, `schedule` | `ParentHeaderFieldKind`, `parentHeaderFieldSchedule` (`Candidates/ParentHeaderDomain.v`) | call PCs dropped |
+| `fieldWalk` | `parentHeaderFieldWalk` (`ParentHeaderCandidate.v:76-109`) | final outcome only: `none` = `walkMissingField`/`walkRejectField`, `some vals` = `walkAccept vals`; item decoder `F2.decode` (`candidateDecodeItem`) |
+| `walk` | `parentHeaderWalk`/`parentHeaderWalkEnd` (`:112-130`) | `none` also for `walkRejectOuter` |
+| `headerFits`, `longWidth` | `headerFits`, `longLengthWidth` (`RlpDecodeItem.v:49-65`) | |
+| `ResultOK m' res vals` | `parentHeaderResult80` (`ParentHeaderRootFacts.v:20-24`) with `parentHeaderResult72` (`ParentHeader.v:51-62`) of `candidateHeaderOfValues vals` | words at 0, 8, 16; `OptIs` = `optionalWordAt` (tag byte, value word if present) at 24/32, 40/48, 56/64; bytes 72, 73 zero |
+| `ErrorOK m' res` | `parentHeaderError80` (`ParentHeaderRootFacts.v:28-30`) | byte 72 = 3, byte 73 = 0 |
+| `Pre` | `parentHeaderArgsWellFormed`, `parentHeaderEntryResources` | see differences 1-5 |
+| `Post` | `parentHeaderExitResources`, `parentHeaderAllows` (candidate conjunct of `ParentHeaderMeaningModuloKnownBugs`, `ParentHeaderRung2.v:32`) | see differences 6-9 |
+| `bound = 2178` | none | longest path, all 19 fields present with 8-byte integers: 423 own steps + 17 · 75 + 3 · 160 |
+
+`Pre m`: `RodataLoaded zesuImage m`; `StackOk m 512` (the 400-byte frame and the 112 callee
+bytes); `RetAligned m`; the input `[a1, a1 + a2)` inside `[inputLo, inputHi]` and present; the
+result `a0`: 80 bytes, `writable` (RAM), 8-aligned, present; the scratch word at
+`Layout.extraParams` present; `Disjoint` result / `[sp - 512, sp)`, scratch / result, scratch /
+`[sp - 512, sp)`; `headerFits input` for the input bytes.
+
+`Post m m'`: `Returns m m'`; `SameOutside` of result ∪ `[sp - 512, sp)` ∪ scratch; for the input
+bytes, `walk input = none → ErrorOK`, `walk input = some vals → ResultOK vals`.
+
+Differences:
+
+1. `inputPointer + inputLength ≤ zisk_input_end` is not stated: the Lean machine has no
+   `zisk_input_end` register.
+2. The result is 8-aligned (the Lean machine's stores are naturally aligned); Rocq states none.
+3. `returnAddress mod 4 = 0` is `RetAligned` (`(ra & ~1) mod 4 = 0`, weaker); `sp < ramHigh` is
+   `sp ≤ ramHi`.
+4. The two read-only constants (`0x80114fb8`, `0x801152b0`) are owned through
+   `RodataLoaded zesuImage m` (all of the image's rodata) instead of `↦ₘ∗`; every run keeps them
+   (`Preserved`).
+5. `↦ₘ?` (owned, any value) becomes "present"; the `∗` separations become `Disjoint` facts; the
+   input lies below RAM, so it is apart from the stack, the result and the scratch word.
+6. `parentHeaderScratchAfter` (unchanged on the direct path, `word64Bytes 80` on the memcpy
+   tail) is weakened to "the 8 scratch bytes are in `SameOutside`'s set".
+7. On the memcpy tail Rocq also states that the result is the memcpy source; Lean states
+   `parentHeaderError80` for both error paths (the direct path writes only the tag at 72).
+8. `headerAfterFrame` (400 bytes) and the callee area: in `SameOutside`'s set, any values.
+9. `ParentHeaderMeaningModuloKnownBugs`: its domain conjunct is `Pre`, its candidate conjunct is
+   `Post`'s result clause; its Sail conjunct belongs to S6 and is not part of `f6_spec`.
+
+Non-vacuity: `example : ∃ m, Pre m` in `Spec.lean` (empty input at `0x40000000`, result at
+`0xa0002000`, `sp = 0xa0001000`).

@@ -160,6 +160,20 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   built) `lake build ZesuExec.Fn.F4.Proof ZesuExec.Fn.F5.Proof`: 6.9 s wall, peak RSS 1.77 GB
   (Runs 3.2 s / 3.5 s, Lemmas 3.1 s, Proof 1.6 s / 1.7 s). Lines: F4 Spec 134, Regions 32,
   Runs 30, Lemmas 968, Witness 115, Proof 330; F5 Spec 26, Runs 31, Proof 338.
+- 2026-11-27 F6: `f6_spec : Spec zesuImage 0x800d5cb8 2178 Pre Post`
+  (`rlp_decode.decodeParentHeader`) proved; `#guard_msgs` axioms: `propext`, `Classical.choice`,
+  `Quot.sound`. Callees `F2.f2_spec` (17 calls), `F3.f3_spec` (3), `memcpy_spec` (tail). Files
+  `ZesuExec/Fn/F6/`: `Spec` 187 lines (`fieldWalk`/`walk` = the Rocq candidate walk over
+  `F2.decode`, `headerFits`, `ResultOK`, `ErrorOK`, `Pre`, `Post`, non-vacuity `example`),
+  `Regions` 90, `Runs` 35 (24 `sym_run`s: entry, 20 return points, 3 loop heads), `Lemmas` 1277
+  (frame invariant `Fr`, cut environment `envC`, `Fr.of_leaf`, `dcall`/`ncall` = the callees as
+  machine steps, outcome readers, `memcpy_exit`, `err_exit`, `succ_exit`, walk steps,
+  `decode_fits`), `Proof` 1751 (one theorem per cut from `after18` back to `after0`, generic
+  `loop_gen` for the three byte loops, `skip_req` for fields 0..7, `opt_skip` for 12..13,
+  `f6_spec`). Bound 2178 = 423 own steps + 17 · 75 + 3 · 160 on the longest path (all 19 fields,
+  8-byte integers). `lake build ZesuExec.Fn.F6.Proof` (deps built) passes; per module
+  `lake env lean`: Spec 0.9 s, Regions 0.8 s, Runs 9.7 s, Lemmas 4.1 s, Proof 5.2 s; peak ≤ 1.8 GB.
+  `OPEN/F6/plan.md` removed (resolved). `ZesuExec.lean` (root, not F6's) does not import F6 yet.
 
 ## Verification tools
 - ImageCheck 2026-11-27: `tools/check_image.sh [Gen.lean] [ELF]` (item 9): parses every
