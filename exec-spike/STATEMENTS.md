@@ -88,6 +88,34 @@ Deliberate differences:
   stated (no proof needs them); `alloc` and `free` are bounded by 53 and 42 instructions (the
   plan's figures); requests are `0 < bytes < 2^63`, `log2Align ≤ 3` as in `altFlAllocDomain`
   (`:227`) and `altFlFreeDomain` (`:260`). `remap` is not assumed: it is F0.
+  Assumption-interface change (S6, TX): a fixed set `Arena` (the allocator's state object and
+  heap area) with `arena_split`: under any `Heap L m`, `Arena a ↔ Priv L a ∨ InLive L a`. For
+  `alt_fl_alloc` this is what `Priv` means (the allocator's memory not handed out as a live
+  block of `L`: state object, heap words, free lists, bump region), and `alloc_spec`/`free_spec`
+  move bytes between the two halves only. TX needs it because F1, F4 and F5 name only the new
+  list in their `Post` (`Heap (L.erase old ++ [new])`): with `arena_split` a block live after
+  the call lies in `Priv g.L` or is a block of `g.L`, so `Priv` of the new list stays inside
+  `Priv g.L`, the caller's ranges (outside `Priv g.L`) stay apart from new blocks, and TX's
+  writes into its blocks fall inside the `Post` frame `Priv g.L`. Without it these facts are
+  not derivable. No proof constructs `AllocAssumptions`.
+  Fixed arena (evidence): `alt_fl_alloc.zig` (zesislar `_build/p0c-zesu-source/src/zkvm/`) has
+  no refill path: `sysAllocAligned` bumps `ZKVM_HEAP_POS` up to `ZKVM_HEAP_TOP` and returns null
+  beyond it, `free` pushes blocks on `free_lists` (oversized blocks are leaked, not returned), and
+  nothing writes `ZKVM_HEAP_TOP`. A scan of every `auipc`-relative access in
+  `zesu-zisk.elf` finds 24 sites addressing `ZKVM_HEAP_TOP` (`0xa0d34528`), all loads; the
+  stores go to `ZKVM_HEAP_POS` only. So `Arena` = `alt_fl_alloc.state`/`free_lists`
+  (`0xa0534000..`), the two heap words and `[heap base, ZKVM_HEAP_TOP)` is the same set in every
+  state; blocks on the free lists and live blocks lie in it. (Other functions inline the same
+  bump path on `ZKVM_HEAP_POS`; they stay inside the same arena.)
+  Consistency (model sketch): `Arena` as above; `Priv L a := Arena a ∧ ¬ InLive L a`;
+  `Heap L m` := the blocks of `L` are pairwise disjoint, inside `Arena` and RAM and present, and
+  `m` holds a well-formed `altFlHeapAt` state whose words, free chains and bump region lie in
+  `Priv L`. Then `priv_not_live` and `arena_split` hold by definition and `alloc`/`free` keep
+  the model. Caveat found while checking this (not caused by the new field): `heap_frame`
+  (any `m'` agreeing with `m` on `Priv L` keeps `Heap L`) together with `live_ok`'s
+  `Present m' b` forces every live block to be empty (`m'` := `m` with a live byte made absent;
+  proved in Lean, scratch `heap_blocks_empty`), so `alloc_spec`'s non-null branch is
+  unsatisfiable and the sketch above does not satisfy `heap_frame` as stated; reported to Main.
 - Every `Pre` adds `RodataLoaded zesuImage m`, `StackOk m n` (16-aligned `sp`, `n` present RAM
   bytes below it) and `RetAligned m` (`x1 & ~1` is a multiple of 4: the machine faults on a
   misaligned `jalr` target). Every `Post` has `Returns m m'` (pc = `x1 & ~1`, `sp`, `s0`–`s11`

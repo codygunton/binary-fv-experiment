@@ -182,3 +182,26 @@ items: known bug `AccessListEntryTrailingBytes`) and decodes the address and key
 `rlp_decode_word` (known bugs `AccessListAddressLength`, `AccessListKeyLength`;
 `TxAccessListBugTriggers.v`). So `Compliance/TX.lean` is possible; no
 `compliance-spec-missing` item.
+
+## S6 as built (`Fn/TX/Regions.lean`, `Runs.lean`, `Cuts.lean`)
+
+- 17 cut points: the 15 above plus the store sites `0x80000230` (key into the keys buffer) and
+  `0x80000460` (entry into the entries buffer). `storeSym` only stores at constant offsets of a
+  region; at both pcs the slot address is in `a0`, and the cut makes it region 5 (32 / 40 bytes).
+- Regions: the same five at every cut (frame `[S-576, S)`, result, `rest`, allocator object,
+  input), plus the slot at the store sites. `known` facts: the vtable word of the allocator
+  object (so the three allocator calls are direct calls into the image), its frame spill at
+  `0x80000340`/`0x80000400`, and at `0x8000010c`/`0x800001a0` the payload pointer of the
+  `decodeItem` outcome as `ptr input + var 40`.
+- Runs: 51 leaves in all (map estimate 53), 8 s for the 17 `sym_run`s together.
+- Return-site assertions are `∃ mc, Site mc ∧ callee.Post mc m` (`ARet`): the call-site
+  predicate at the machine of the call and the callee's `Post`. Callees with list/items
+  parameters (`F1`, `F4`, `F5`, `alloc`, `free`) are families (`famCallee`): `Pre` = some
+  instance holds, `Post` = the `Post` of an instance whose `Pre` held.
+- Budgets (32 per outer payload byte ahead of the read position; the keys loop also counts 32
+  per keys byte, an accepted key costs 319 ≤ 32 · 33): entry `32 len + 424`; `0x68`
+  `32 p + 323`; `0xc4` `32 r + 300`; `0xd8` `+220`; `0x10c` `+132`; `0x15c` `+37` (`r` = `s5`);
+  `0x18c` `32 (R + kr) + 738`, `0x1a0` `+658`, `0x1f8` `+439`, `0x230` `+744` (`R` = `s5 - s10`,
+  `kr` = `s6`); `0x25c` `32 R + 539`, `0x340` `+478`, `0x3d4` `+389`, `0x400` `+377`, `0x42c`
+  `+324`, `0x460` `+311`; `0x4a0` `23`.
+- Assumption interface: TX needs `AllocAssumptions.Arena`/`arena_split` (`STATEMENTS.md`).

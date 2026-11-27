@@ -71,6 +71,7 @@ def merge(static, status, reviews, ledger_rows, status_source=''):
     by_entry = {f['entry']: f for f in fns}
     contracts = reviews.get('contracts', {})
     assumed = set(reviews.get('assumed', []))
+    assumed_notes = reviews.get('assumed_notes', {})
     services = set(reviews.get('services', []))
 
     # Status rows by entry; status ids (e.g. "F1", "TX") map to static ids.
@@ -154,7 +155,8 @@ def merge(static, status, reviews, ledger_rows, status_source=''):
 
     trust = []
     for fid in sorted(assumed):
-        trust.append({'kind': 'assumed', 'fn': fid, 'name': by_id[fid]['name']})
+        trust.append({'kind': 'assumed', 'fn': fid, 'name': by_id[fid]['name'],
+                      'source': assumed_notes.get(fid)})
     for fid in sorted(services):
         trust.append({'kind': 'service', 'fn': fid, 'name': by_id[fid]['name']})
     for fid, c in sorted(contracts.items()):

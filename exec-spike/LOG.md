@@ -492,3 +492,13 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   (`STATEMENTS.md` § DTF open point 3) settled against the disassembly `0x80002a88..0x80002b28`:
   `chain_id = ((v_raw-35)>>1) mod 2^64`, `v = (v_raw-35) & 1`, as `legacyV`; snapshot
   `legacy_v_huge` gives `chain_id 0`, `v 1`. 5 min.
+- S6 TX steps 3-5 checkpoint (S1StaticMap, worktree `wt-unaligned`): `Fn/TX/Regions.lean` (regions,
+  17 cut states), `Fn/TX/Runs.lean` (17 `sym_run`, 51 leaves, 8 s total; map estimate 53),
+  `Fn/TX/Cuts.lean` (walk transcriptions `OuterWalked`/`KeysWalked`, one assertion per cut,
+  call-site predicates, 8 callees as `famCallee` families, budgets, `vcPlan`; `zesu_plan TX`,
+  `zesu_auto TX`: 5 of 68 items closed — leaves `25c_7`, `25c_8`, `340_4..6`). Cut rule: the 15
+  default cuts plus store-site cuts `0x230`/`0x460` (executor stores only at constant region
+  offsets; recorded in `OPEN/TX/CUTS.md`). Assumption interface: `AllocAssumptions.Arena` +
+  `arena_split` (approved by Main; evidence and model sketch in `STATEMENTS.md`); while checking
+  it found that `heap_frame` + `live_ok` force live blocks to be empty (reported; Main: option 1,
+  P1Joins). Leaves: 63 open. ~45 min.

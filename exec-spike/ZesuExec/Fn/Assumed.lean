@@ -69,5 +69,9 @@ structure AllocAssumptions (img : Image) where
       Heap (L.erase (m.reg 11, (m.reg 12).toNat)) m' ∧
       (∀ a, Priv (L.erase (m.reg 11, (m.reg 12).toNat)) a →
         Priv L a ∨ InRange (m.reg 11) (m.reg 12).toNat a))
+  /-- The allocator's arena (state object and heap area, fixed): under any `Heap L`, it is
+  exactly `Priv L` and the live blocks of `L` (programme plan S6, TX). -/
+  Arena : Word → Prop
+  arena_split : ∀ L m a, Heap L m → (Arena a ↔ Priv L a ∨ InLive L a)
 
 end ZesuExec.Fn

@@ -20,5 +20,9 @@
                  "source": "DTF: no zesislar contract; drafted from zesu b5483dda src/stateless/rlp_decode.zig:308-588 (decodeTxFields and field helpers), the binary (OPEN/DTF/BLOCKERS.md) and the input.Transaction layout of the debug object; STATEMENTS.md DTF"}
  },
  "assumed": ["f_80042494", "f_80041f38"],
+ "assumed_notes": {
+  "f_80042494": "AllocAssumptions (Fn/Assumed.lean): alloc_spec; structural field Arena/arena_split (S6 TX interface change, STATEMENTS.md)",
+  "f_80041f38": "AllocAssumptions (Fn/Assumed.lean): free_spec; structural field Arena/arena_split (S6 TX interface change, STATEMENTS.md)"
+ },
  "services": ["f_800e06c0"]
 }
