@@ -60,6 +60,37 @@ theorem skip_snoc : ∀ {k : Nat} {b : List Byte} {c : Nat}, skip k b = some c �
       rw [hd0]; simp only [ih, Option.map_some]; congr 1; omega
     · cases hs
 
+/-- The item after `k` top-level items fits (`Fits`'s `ItemsFit`, `k` below its count). -/
+theorem fits_at {inner : List Byte → Prop} : ∀ {k n : Nat} {b : List Byte} {c : Nat},
+    ItemsFit inner n b → skip k b = some c → k < n → TX.HeaderFits (b.drop c)
+  | 0, _ + 1, b, c, hf, hs, _ => by
+    simp only [skip, Option.some.injEq] at hs; subst hs; exact hf.1
+  | k + 1, n + 1, b, c, hf, hs, hk => by
+    simp only [skip] at hs
+    split at hs
+    · next l h p hd =>
+      obtain ⟨c', h', rfl⟩ := Option.map_eq_some_iff.mp hs
+      simp only [ItemsFit, hd] at hf
+      have := fits_at hf.2.2 h' (by omega)
+      rwa [TX.itemRest, List.drop_drop] at this
+    · cases hs
+  | _, 0, _, _, _, _, hk => absurd hk (Nat.not_lt_zero _)
+
+/-- Every arm reaching a cut reads more than `k` top-level items (`fieldCount`). -/
+def armsFit (arms : List Nat) (k : Nat) : Bool := !arms.isEmpty && arms.all (k < fieldCount ·)
+
+/-- The item after `k` top-level items fits, by `Pre`'s `Fits`, when every arm reaching the cut
+reads more than `k` items. -/
+theorem fit_of_arms {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {arms : List Nat} (ha : ArmOk σ arms)
+    {k : Nat} (h : armsFit arms k = true) {c : Nat} (hs : skip k σ.payload = some c) :
+    TX.HeaderFits (σ.payload.drop c) := by
+  simp only [armsFit, Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_eq_false_iff,
+    List.all_eq_true, decide_eq_true_eq] at h
+  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, hd, -⟩ := hpre
+  rcases ha with ha | ha
+  · exact absurd ha h.1
+  · exact fits_at hd.2 hs (h.2 _ ha)
+
 theorem payload_len {σ : Sig} (hpre : Pre σ.A σ.g σ.m) : σ.payload.length = σ.len := by
   obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, hl, -⟩ := hpre
   exact hl
@@ -275,17 +306,19 @@ theorem word_of_bytes {x y : Word} (h : ∀ t < 8, byteOf x t = byteOf y t) : x 
   rw [h 0 (by omega), h 1 (by omega), h 2 (by omega), h 3 (by omega), h 4 (by omega),
     h 5 (by omega), h 6 (by omega), h 7 (by omega)]
 
-/-- At a `decodeItem` return site with a zero error halfword and a nonzero payload length of at
-most 32: the payload pointer word at `ko` is `inp + c'` and the payload ends inside the payload
-(the header is at most 9 bytes, so the consumed length does not wrap). -/
+/-- At a `decodeItem` return site with a zero error halfword and a nonzero payload length that is
+at most 32 or of an item whose header fits (`armsFit`): the payload pointer word at `ko` is
+`inp + c'` and the payload ends inside the payload (the header is at most 9 bytes, so a short
+payload's consumed length does not wrap). -/
 theorem out_ptr {d : CutData} {σ : Sig} {m : Machine} {ko k : Nat} (hpc : d.pc ≠ entry)
     (hsrc : SrcOk d = true) (hadv : advOf d = some (ko, k)) (hA : (mkCut d).A σ m)
     (herr : (Sym.init 0 (ko + 32) 2).eval (envOf d.shape σ m) = 0)
     (hq0 : (Sym.init 0 (ko + 8) 8).eval (envOf d.shape σ m) ≠ 0)
-    (hq : ((Sym.init 0 (ko + 8) 8).eval (envOf d.shape σ m)).toNat ≤ 32) :
+    (hq : ((Sym.init 0 (ko + 8) 8).eval (envOf d.shape σ m)).toNat ≤ 32 ∨
+      armsFit d.arms k = true) :
     ∃ c', TX.wordAt m (σ.fr + w ko) = σ.inp + w c' ∧
       c' + ((Sym.init 0 (ko + 8) 8).eval (envOf d.shape σ m)).toNat ≤ σ.len := by
-  obtain ⟨c, before, -, hcl, hko, hres⟩ := f2_out hpc hsrc hadv hA
+  obtain ⟨c, before, hs, hcl, hko, hres⟩ := f2_out hpc hsrc hadv hA
   have hav : Avail σ m := (facts_of_A hpc hsrc hA).common.avail
   have hlen := payload_len hav.pre
   have hrl : (F2.result40 (σ.inp + w c) (σ.payload.drop c) before).length = 40 := by
@@ -323,6 +356,13 @@ theorem out_ptr {d : CutData} {σ : Sig} {m : Machine} {ko k : Nat} (hpc : d.pc 
     simp only [TX.itemConsumed, List.length_drop] at hcons
     have hnot : (σ.payload.drop c).head? ≠ some 128 := fun h' => by
       have := h128 h'; subst this; simp at hp0
+    have hbd : c + h + p % 2 ^ 64 ≤ σ.len := by
+      rcases hq with hq | hq
+      · omega
+      · have hf := fit_of_arms hav.pre (facts_of_A hpc hsrc hA).arms hq hs
+        obtain ⟨-, h2, h3⟩ := TX.fits_bounds hf hd
+        simp only [List.length_drop] at h2
+        rw [Nat.mod_eq_of_lt (by omega)]; omega
     refine ⟨c + h, ?_, by omega⟩
     -- the pointer word is bytes 0..7 of the outcome
     have hl := frame_load hav (o := ko) (by omega)
@@ -340,6 +380,26 @@ theorem out_ptr {d : CutData} {σ : Sig} {m : Machine} {ko k : Nat} (hpc : d.pc 
     simp only [w]; rw [F1.add_add_ofNat]
 
 /-! ## `decodeItem`'s precondition at a call -/
+
+/-- A leaf callee's 16 bytes below DTF's frame (`sp = fr` at every call). -/
+theorem stack16 {σ : Sig} {m : Machine} (hc : Common σ m) (hsp : m.reg 2 = σ.fr + w 0) :
+    StackOk m 16 := by
+  have hpre := hc.2.1
+  have hav := hc.avail
+  obtain ⟨hlo, hhi, hal⟩ := pre_sp hpre
+  have hF : σ.fr.toNat = σ.S.toNat - frameBytes := fr_toNat hpre
+  have hsp0 : (m.reg 2).toNat = σ.fr.toNat := by rw [hsp]; simp [w]
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · rw [hsp0, hF]; unfold frameBytes; omega
+  · rw [hsp0, hF]; unfold Layout.ramLo stackBytes TX.stackBytes frameBytes at *; omega
+  · rw [hsp0, hF]; unfold frameBytes; omega
+  · intro j hj
+    have := hav.stack (stackBytes - frameBytes - 16 + j) (by
+      unfold stackBytes TX.stackBytes frameBytes; omega)
+    rwa [show σ.S - w stackBytes + BitVec.ofNat 64 (stackBytes - frameBytes - 16 + j) =
+      m.reg 2 - BitVec.ofNat 64 16 + BitVec.ofNat 64 j by
+        rw [hsp]; simp only [Sig.fr, w]; unfold stackBytes TX.stackBytes frameBytes
+        bv_omega] at this
 
 theorem f2_pre_dtf {σ : Sig} {m : Machine} (hc : Common σ m) {ko c : Nat}
     (hsp : m.reg 2 = σ.fr + w 0) (hout : m.reg 10 = σ.fr + w ko) (hko : ko + 40 + 104 ≤ frameBytes)
@@ -371,17 +431,7 @@ theorem f2_pre_dtf {σ : Sig} {m : Machine} (hc : Common σ m) {ko c : Nat}
     rw [BitVec.toNat_sub, hsp0]
     rw [show (16 : Word).toNat = 16 from rfl]
     unfold Layout.ramLo stackBytes TX.stackBytes frameBytes at *; omega
-  refine ⟨hc.2.2.1, ⟨?_, ?_, ?_, ?_⟩, hra, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · rw [hsp0, hF]; unfold frameBytes; omega
-  · rw [hsp0, hF]; unfold Layout.ramLo stackBytes TX.stackBytes frameBytes at *; omega
-  · rw [hsp0, hF]; unfold frameBytes; omega
-  · intro j hj
-    have := hav.stack (stackBytes - frameBytes - 16 + j) (by
-      unfold stackBytes TX.stackBytes frameBytes; omega)
-    rwa [show σ.S - w stackBytes + BitVec.ofNat 64 (stackBytes - frameBytes - 16 + j) =
-      m.reg 2 - BitVec.ofNat 64 16 + BitVec.ofNat 64 j by
-        rw [hsp]; simp only [Sig.fr, w]; unfold stackBytes TX.stackBytes frameBytes
-        bv_omega] at this
+  refine ⟨hc.2.2.1, stack16 hc hsp, hra, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · rw [hio, hl12]
     simp only [Machine.readable, Machine.inRange, Layout.rodataLo, Layout.rodataHi,
       Layout.inputLo, Layout.inputHi, Layout.ramLo, Layout.ramHi, Bool.or_eq_true,
@@ -1027,7 +1077,7 @@ theorem tgt_ok {d d' : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx 
     simp only [SBool.eval, Sym.eval_lit, Bool.not_eq_true', BitVec.ult, decide_eq_false_iff_not,
       Nat.not_lt, BitVec.toNat_ofNat] at hqb
     have hq : ((Sym.init 0 (ko + 8) 8).eval (envOf d.shape σ m)).toNat ≤ b := by omega
-    obtain ⟨c', hw, hcl⟩ := out_ptr hpc hsrc hadv' hA herr hq0 (by omega)
+    obtain ⟨c', hw, hcl⟩ := out_ptr hpc hsrc hadv' hA herr hq0 (.inl (by omega))
     generalize hP : (Sym.init 0 (ko + 8) 8).eval (envOf d.shape σ m) = P at hq0 hq hcl
     have hcur : m'.reg (Fin.ofNat 32 cur) = σ.inp + w c' := by
       rw [reg_eval C.hm' hc32, hl1, ← loc_word_eval C.wf C.hm C.hS
@@ -1121,7 +1171,7 @@ theorem outObl_holds {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.
   have hPn : ((Sym.init 0 (ko + 8) 8).eval (envOf d.shape σ m)).toNat = L := by
     rw [hlc]; simp only [BitVec.toNat_ofNat]; omega
   obtain ⟨c', hw, hcl⟩ := out_ptr hpc hsrc hadv' hA herr
-    (fun h0 => by rw [h0] at hPn; simp at hPn; omega) (by omega)
+    (fun h0 => by rw [h0] at hPn; simp at hPn; omega) (.inl (by omega))
   have hxe := loc_word_eval hwf hm hS (loc := .slot ko)
     (by simp only [Loc.fine, decide_eq_true_eq]; omega)
   rw [inpOf_spec hx] at hxe
@@ -1132,6 +1182,127 @@ theorem outObl_holds {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d.
   rw [hPn] at hcl
   simp only [Oblig.holds, env_size3, hyx, hxc, w, BitVec.toNat_ofNat]
   omega
+
+/-- An `alloc` call's arguments: alignment `a2 ≤ 3`; size `a1` a literal in `(0, 2^63)`, or the
+payload length of the source's `decodeItem` outcome, nonzero by the leaf's condition, of an item
+whose header fits (`armsFit`: then it is at most the payload length). -/
+def allocArgs (d : CutData) (l : Leaf) : Bool :=
+  (match l.S.reg 12 with
+   | .lit v => decide (v % 2 ^ 64 ≤ 3)
+   | _ => false) &&
+  match l.S.reg 11 with
+  | .lit n => decide (0 < n % 2 ^ 64 ∧ n % 2 ^ 64 < 2 ^ 63)
+  | x => match advUse d l with
+    | some (ko, k) => x == .init 0 (ko + 8) 8 && l.conds.contains (.ne x (.lit 0)) &&
+        armsFit d.arms k
+    | none => false
+
+/-- A call's arguments by callee kind: `decodeItem` (an 8-aligned outcome slot and the `rest`
+slice, `f2Site`) or `alloc` (`allocArgs`). -/
+def argsOk (d : CutData) (l : Leaf) (s : Site) : Bool :=
+  match s.kind with
+  | .f2 => match f2Site s with
+    | some (ko, _) => decide (ko % 8 = 0)
+    | none => false
+  | .alloc => allocArgs d l
+  | _ => false
+
+/-- The payload is shorter than `2^63` (it is in the input buffer or RAM). -/
+theorem len_lt {σ : Sig} (hpre : Pre σ.A σ.g σ.m) : σ.len < 2 ^ 63 := by
+  obtain ⟨-, -, -, -, -, -, -, -, -, -, hia, -⟩ := hpre
+  have hia' : (Layout.inputLo ≤ σ.inp.toNat ∧ σ.inp.toNat + σ.len ≤ Layout.inputHi) ∨
+      (Layout.ramLo ≤ σ.inp.toNat ∧ σ.inp.toNat + σ.len ≤ Layout.ramHi) := hia
+  unfold Layout.inputHi Layout.ramHi at hia'
+  omega
+
+/-- At the end of a leaf calling the callee of the return site `s`: an index with `IdxOk` (the
+callee's precondition and DTF's live list). -/
+theorem call_idx {d : CutData} {l : Leaf} {s : Site} {σ : Sig} {m m' : Machine}
+    (C : Ctx d l σ m m') (hpc : d.pc ≠ entry) (hsrc : SrcOk d = true) (hA : (mkCut d).A σ m)
+    (hc : ∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true)
+    (hcm : Common σ m') (hshp : ShapeOk σ s.shape m') (hrst : RestOk σ m' s.rest)
+    (hSF : s.kind.SiteFine s = true) (hargs : argsOk d l s = true) (hraM : RetAligned m') :
+    ∃ x, IdxOk s.kind σ x m' := by
+  have hpre := hcm.2.1
+  unfold argsOk at hargs
+  split at hargs
+  · next hkind =>
+    split at hargs
+    case h_2 => cases hargs
+    next ko k' hf2 =>
+    simp only [decide_eq_true_eq] at hargs
+    obtain ⟨-, hko, ⟨r1, hm1, hl1, hn1, hk1⟩, ⟨r2, hm2, hl2, hn2, hk2⟩⟩ := f2Site_spec hf2
+    have hSF' := hSF
+    rw [hkind] at hSF'
+    simp only [Kind.SiteFine, hko, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hSF'
+    obtain ⟨h2, hko'⟩ := hSF'
+    have hsp : m'.reg 2 = σ.fr + w 0 := hshp.1 _ (lookup_mem (regFr_spec h2)) _ rfl
+    have hout : m'.reg 10 = σ.fr + w ko := hshp.1 _ (lookup_mem (regFr_spec hko)) _ rfl
+    obtain ⟨c1, hs1, hw1⟩ := hrst r1 hm1
+    obtain ⟨c2, hs2, hw2⟩ := hrst r2 hm2
+    rw [hk1] at hs1
+    rw [hk2, hs1] at hs2
+    simp only [Option.some.injEq] at hs2
+    subst hs2
+    rw [hl1, hn1] at hw1
+    rw [hl2, hn2] at hw2
+    simp only [Loc.word, if_true, Bool.false_eq_true, if_false] at hw1 hw2
+    have hcl : c1 ≤ σ.len := by
+      have := skip_le hs1; rw [payload_len hpre] at this; exact this
+    refine ⟨([], [], ⟨[], []⟩), ?_⟩
+    rw [hkind]
+    exact ⟨f2_pre_dtf hcm hsp hout hko' hargs hw1 hw2 hcl hraM, trivial⟩
+  · next hkind =>
+    have hSF' := hSF
+    rw [hkind] at hSF'
+    simp only [Kind.SiteFine, beq_iff_eq] at hSF'
+    have hsp : m'.reg 2 = σ.fr + w 0 := hshp.1 _ (lookup_mem (regFr_spec hSF')) _ rfl
+    obtain ⟨L, X, hlive⟩ := hcm.2.2.2.2.2.2.2.2
+    simp only [allocArgs, Bool.and_eq_true] at hargs
+    obtain ⟨h12, h11⟩ := hargs
+    have e12 : m'.reg 12 = (l.S.reg 12).eval (envOf d.shape σ m) := (C.hm'.regs 12).symm
+    have e11 : m'.reg 11 = (l.S.reg 11).eval (envOf d.shape σ m) := (C.hm'.regs 11).symm
+    have hsize : 0 < (m'.reg 11).toNat ∧ (m'.reg 11).toNat < 2 ^ 63 := by
+      rw [e11]
+      split at h11
+      · next n hn =>
+        simp only [decide_eq_true_eq] at h11
+        rw [hn]; simpa [Sym.eval] using h11
+      · next x _ =>
+        split at h11
+        case h_2 => cases h11
+        next ko k hadv =>
+        simp only [Bool.and_eq_true, beq_iff_eq, List.contains_iff_mem] at h11
+        obtain ⟨⟨hx, hne⟩, hfit⟩ := h11
+        obtain ⟨hadv', herrc⟩ := advUse_spec hadv
+        have herr := hc _ herrc
+        simp only [SBool.eval, Sym.eval_lit, beq_iff_eq] at herr
+        have hq0 := hc _ hne
+        simp only [SBool.eval, Sym.eval_lit, bne_iff_ne, ne_eq, hx] at hq0
+        obtain ⟨c', -, hcl⟩ := out_ptr hpc hsrc hadv' hA herr hq0 (.inr hfit)
+        have := len_lt hpre
+        rw [hx]
+        refine ⟨?_, by omega⟩
+        rcases Nat.eq_zero_or_pos ((Sym.init 0 (ko + 8) 8).eval (envOf d.shape σ m)).toNat with
+          h0 | h0
+        · exact absurd (BitVec.eq_of_toNat_eq (by simp [h0])) hq0
+        · exact h0
+    have halign : (m'.reg 12).toNat ≤ 3 := by
+      rw [e12]
+      split at h12
+      · next v hv => simp only [decide_eq_true_eq] at h12; rw [hv]; simpa [Sym.eval] using h12
+      · cases h12
+    refine ⟨(L, [], ⟨[], []⟩), ?_⟩
+    rw [hkind]
+    refine ⟨⟨hlive.1, hsize.1, hsize.2, halign, stack16 hcm hsp, hraM, fun a ha hP => ?_⟩, X, hlive⟩
+    rw [hsp] at ha
+    have e2 := below_fr_toNat hpre
+    have hsp' := pre_sp hpre
+    have hfr := fr_toNat hpre
+    unfold frameBytes stackBytes TX.stackBytes Layout.ramLo at *
+    exact (stack_R hpre (by rw [e2]; unfold stackBytes TX.stackBytes; omega) (by rw [e2]; omega)
+      ha).2 (priv_sub hpre hlive hP)
+  · cases hargs
 
 /-- The checks of `leaf_gen`: a leaf whose only obligations are the reads at a byte-loop
 cursor, writing only frame words below the save area, ending at a plain cut or calling
@@ -1157,15 +1328,12 @@ def GenCheck (d : CutData) (l : Leaf) : Bool :=
     match targetOf r with
     | some d' =>
       match d'.site with
-      | some s =>
-        match f2Site s with
-        | some (ko, _) => t == F2.entry && d'.pc != entry && SrcOk d' && decide (ko % 8 = 0) &&
-            s.shape.Fine && shapeHolds l.S s.shape && armsKeep d.arms s.arms &&
-            restFrom d.shape.S l.S adv (srcRest d l) s.rest &&
-            lenFrom d.shape.S l.S adv d.rest (srcRest d l) d'.rest && restRet d' s &&
-            l.S.reg 1 == .lit r && decide ((w r &&& ~~~(1 : Word)).toNat = r) &&
-            decide (r % 4 = 0) && budgetCall d.pc d'.pc F2.bound steps
-        | none => false
+      | some s => t == s.kind.entry && d'.pc != entry && SrcOk d' && argsOk d l s &&
+          s.shape.Fine && shapeHolds l.S s.shape && armsKeep d.arms s.arms &&
+          restFrom d.shape.S l.S adv (srcRest d l) s.rest &&
+          lenFrom d.shape.S l.S adv d.rest (srcRest d l) d'.rest && restRet d' s &&
+          l.S.reg 1 == .lit r && decide ((w r &&& ~~~(1 : Word)).toNat = r) &&
+          decide (r % 4 = 0) && budgetCall d.pc d'.pc s.kind.bound steps
       | none => false
     | none => false
   | _ => false
@@ -1249,12 +1417,8 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     split at hex
     case h_2 => cases hex
     rename_i s hs
-    split at hex
-    case h_2 => cases hex
-    rename_i ko k' hf2
-    obtain ⟨hkind, hko, ⟨r1, hm1, hl1, hn1, hk1⟩, ⟨r2, hm2, hl2, hn2, hk2⟩⟩ := f2Site_spec hf2
     simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq, decide_eq_true_eq] at hex
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨ht', hne⟩, hsrc'⟩, hko8⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlen⟩, hrr⟩,
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨ht', hne⟩, hsrc'⟩, hargs⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlen⟩, hrr⟩,
       hra1⟩,
       hra⟩, hr4⟩, hbud⟩ := hex
     simp only [budgetCall] at hbud
@@ -1273,47 +1437,27 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     -- the call site's facts
     have hSF : s.kind.SiteFine s = true := by
       simp only [SrcOk, hs, RetCheck, Bool.and_eq_true] at hsrc'; exact hsrc'.1.1.1
-    have hSF' := hSF
-    rw [hkind] at hSF'
-    simp only [Kind.SiteFine, hko, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hSF'
-    obtain ⟨h2, hko'⟩ := hSF'
     have hr1 : m'.reg 1 = w r := by
       rw [← C.hm'.regs 1]; show (l.S.reg 1).eval _ = _; rw [hra1]; rfl
-    have hsp : m'.reg 2 = σ.fr + w 0 := hshp.1 _ (lookup_mem (regFr_spec h2)) _ rfl
-    have hout : m'.reg 10 = σ.fr + w ko := hshp.1 _ (lookup_mem (regFr_spec hko)) _ rfl
-    obtain ⟨c1, hs1, hw1⟩ := hrst r1 hm1
-    obtain ⟨c2, hs2, hw2⟩ := hrst r2 hm2
-    rw [hk1] at hs1
-    rw [hk2, hs1] at hs2
-    simp only [Option.some.injEq] at hs2
-    subst hs2
-    rw [hl1, hn1] at hw1
-    rw [hl2, hn2] at hw2
-    simp only [Loc.word, if_true, Bool.false_eq_true, if_false] at hw1 hw2
-    have hcl : c1 ≤ σ.len := by
-      have := skip_le hs1; rw [payload_len hcm.2.1] at this; exact this
     have hraM : RetAligned m' := by unfold RetAligned; rw [hr1, hra]; exact hr4
-    have hpre2 : F2.Pre m' := f2_pre_dtf hcm hsp hout hko' hko8 hw1 hw2 hcl hraM
-    let x0 : Idx := ([], [], ⟨[], []⟩)
-    have hsite : SiteA s d'.pc σ x0 m' := ⟨by rw [hpc']; exact hr1, hcm, hshp, harm, hrst,
-      by rw [hkind]; exact ⟨hpre2, trivial⟩⟩
-    refine ⟨calleeOf .f2, x0, ?_, ?_, hpre2, fun m'' hpost => ?_⟩
+    obtain ⟨x0, hidx⟩ := call_idx C hpc hsrc hA hc hcm hshp hrst hSF hargs hraM
+    have hsite : SiteA s d'.pc σ x0 m' := ⟨by rw [hpc']; exact hr1, hcm, hshp, harm, hrst, hidx⟩
+    refine ⟨calleeOf s.kind, x0, ?_, ?_, hidx.1, fun m'' hpost => ?_⟩
     · show calleeAt r = _
       unfold calleeAt
       rw [show table.find? (·.pc = r) = targetOf r from rfl, ht]
-      simp [hs, hkind]
+      simp [hs]
     · rw [hexok, ht']; rfl
-    have hpost' : (calleeOf s.kind).Post σ x0 m' m'' := by rw [hkind]; exact hpost
-    have hpc'' : m''.pc.toNat = r := by rw [hpost.1.1.1, hr1, hra]
+    have hpc'' : m''.pc.toNat = r := by rw [(ret_common hSF hsite hpost).1.1, hr1, hra]
     refine ⟨mkCut d', List.mem_map_of_mem hd', hpc', hpc'', ?_, ?_⟩
     · simp only [mkCut, if_neg hne, ACut]
-      exact .inr ⟨s, hs, m', x0, hsite, hpost'⟩
-    · show F2.bound + budgetOf d' σ m'' ≤ budgetOf d σ m - (l.S.steps - d.shape.S.steps)
+      exact .inr ⟨s, hs, m', x0, hsite, hpost⟩
+    · show s.kind.bound + budgetOf d' σ m'' ≤ budgetOf d σ m - (l.S.steps - d.shape.S.steps)
       have hl2 : restLen d' σ m' ≤ restLen d σ m := hlen'
       have hkeep : restLen d' σ m'' = restLen d' σ m' := by
         unfold restLen
         split
-        · next r0 h0 => rw [ret_loc_keep hSF hsite hpost' hrr (List.mem_of_find?_eq_some h0)]
+        · next r0 h0 => rw [ret_loc_keep hSF hsite hpost hrr (List.mem_of_find?_eq_some h0)]
         · rfl
       unfold budgetOf
       rw [hinner, hkeep]
