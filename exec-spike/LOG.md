@@ -748,3 +748,16 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   (17 cut lemmas + 20 leaves), 21 open. Gate S6 fallback: `TX.reach_from` assembled with the 21
   open leaves as fields of `TX.Open`, listed in the map and saved one goal each in `OPEN/TX/`
   (statement, residual class, `Leaf.pp`). `tx_spec`/`tx_sail` not added (needs `TX.reach`).
+- S6 TX second hand (P2Summaries, 2026-11-27): (1) Cuts.lean assertion fix (Main-approved, S6.6
+  wrong-assertion rule): `OuterWalked`/`KeysWalked` carry `WalkFits`/`KeysFits` (HeaderFits of
+  every call the rest of the walk reaches; from `Domain` at 068_3), since `EntryOk`/`AKeyStore`
+  length facts need no-wrap and only `Domain` gives it; lemmas `fits_bounds`, `fits_rest`,
+  `keysWalk_fuel`, `entriesWalk_fuel`, `walkFits_head/entry/tail`, `keysFits_head/tail`.
+  (2) `Leaves2.lean`: `oom_err`, `rest_keep2`, `ed_congr` + `edsame_of` (EntryDone across a callee
+  whose footprint is free stack / scratch / `Priv L` / other live blocks), `growing_keep`,
+  `common_congr`, `alloc_congr`; leaves 1f8_0, 25c_0, 3d4_1, 340_0 (dead), 4a0_1, 400_0.
+  Counts: 68 items, 10 auto, 38 manual, 20 open. Found: `Site428` requires `Copied` hence
+  `Growing`'s `s11 = ec`, but leaf 400_1 sets `s11 := ec << 5` before the `free` call, so
+  400_1 is unprovable until `Site428` drops that register fact (fix in Cuts.lean: move
+  `m.reg 27 = o.ec` out of `Growing` into `Allocated`/`Site33c`/`Site3d0`, give `Site428` a
+  copy of `Copied` without it; adjust `ret_340`/`ret_400`/`ret_42c` indices).

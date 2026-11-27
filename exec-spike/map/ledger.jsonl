@@ -69,3 +69,5 @@
 {"ts": "2026-11-27T19:55:13Z", "fn": "f_80000000", "item": "leaf_800004a0_1", "kind": "leaf", "agent": "P2Summaries", "minutes": 8.0, "usd": null, "requests": null, "outcome": "closed", "note": "TX Leaves2"}
 {"ts": "2026-11-27T19:55:41Z", "fn": "f_80000000", "item": "leaf_800000c4_0", "kind": "leaf", "agent": "TXLeaves", "minutes": 15.0, "usd": null, "requests": null, "outcome": "closed", "note": "Calls.lean os_congr/ie_congr + f2_pre"}
 {"ts": "2026-11-27T19:55:41Z", "fn": "f_80000000", "item": "leaf_8000018c_0", "kind": "leaf", "agent": "TXLeaves", "minutes": 15.0, "usd": null, "requests": null, "outcome": "closed", "note": "Calls.lean os_congr/ie_congr + f2_pre"}
+{"ts": "2026-11-27T20:09:00Z", "fn": "f_80000000", "item": "leaf_80000400_0", "kind": "leaf", "agent": "P2Summaries", "minutes": 30.0, "usd": null, "requests": null, "outcome": "closed", "note": "TX Leaves2 ret400_empty"}
+{"ts": "2026-11-27T20:09:47Z", "fn": "f_80000000", "item": "tx-cuts-fits", "kind": "infra", "agent": "P2Summaries", "minutes": 40.0, "usd": null, "requests": null, "outcome": "closed", "note": "WalkFits/KeysFits in OuterWalked/KeysWalked; fuel/fits lemmas"}
