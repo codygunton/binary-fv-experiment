@@ -1,6 +1,6 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T07:09:26Z",
+ "generated": "2026-11-28T07:21:25Z",
  "coverage": {
   "headline": {
    "cut_points_closed": 41,
@@ -495,33 +495,33 @@
      0
     ],
     [
-     "budget",
-     0,
-     385,
-     1
-    ],
-    [
      "callee-pre",
      0,
-     27,
+     143,
      0
     ],
     [
      "cut",
      0,
-     12,
+     286,
+     1
+    ],
+    [
+     "none",
+     0,
+     1,
      0
     ],
     [
      "oblig",
      0,
-     140,
+     115,
      0
     ],
     [
      "post",
      0,
-     36,
+     55,
      0
     ],
     [
@@ -585,28 +585,28 @@
    ]
   },
   "rule_hits": {
-   "auto:infeasible+facts": 7,
-   "auto:infeasible": 5,
-   "auto:path+facts": 4,
+   "auto:infeasible+facts": 13,
+   "auto:path+facts": 1,
    "auto:path": 1,
+   "auto:infeasible": 2,
    "auto:cut": 3
   },
-  "hand_lines_per_manual_leaf": 10.32
+  "hand_lines_per_manual_leaf": 10.28
  },
  "effort": {
   "total": {
-   "usd": 531.78,
-   "totalTokens": 1582357177.15,
-   "requests": 4972.35,
-   "minutes": 1513.22,
-   "builds": 1279.84
+   "usd": 545.64,
+   "totalTokens": 1625663679.15,
+   "requests": 5139.35,
+   "minutes": 1574.59,
+   "builds": 1301.84
   },
-  "session_usd": 803.35,
-  "unattributed_usd": 268.87,
-  "unattributed_share": 0.3347,
+  "session_usd": 826.65,
+  "unattributed_usd": 278.31,
+  "unattributed_share": 0.3367,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
-  "infrastructure_share": 0.2934,
+  "infrastructure_share": 0.2859,
   "abandoned": {
    "usd": 0.0,
    "totalTokens": 0.0,
@@ -699,12 +699,12 @@
     ],
     [
      "rule",
-     24,
-     55.74,
-     182524128.94,
-     386.66,
-     99.27,
-     77.2
+     25,
+     69.6,
+     225830630.94,
+     553.66,
+     160.64,
+     99.2
     ],
     [
      "run",
@@ -831,19 +831,19 @@
      0
     ],
     [
+     "coordinator",
+     70.78,
+     10.79,
+     59.99,
+     0.8476,
+     0
+    ],
+    [
      "S1StaticMap",
      69.67,
      69.57,
      0.1,
      0.0015,
-     0
-    ],
-    [
-     "coordinator",
-     69.24,
-     10.79,
-     58.45,
-     0.8442,
      0
     ],
     [
@@ -876,6 +876,14 @@
      0.0,
      25.01,
      1.0,
+     0
+    ],
+    [
+     "S9Viewer",
+     24.98,
+     15.1,
+     9.88,
+     0.3954,
      0
     ],
     [
@@ -983,14 +991,6 @@
      0
     ],
     [
-     "S9Viewer",
-     17.77,
-     15.1,
-     2.67,
-     0.1503,
-     0
-    ],
-    [
      "S12Forms",
      16.88,
      13.88,
@@ -1015,26 +1015,26 @@
      0
     ],
     [
-     "TrackT",
-     14.96,
-     0.0,
-     14.96,
-     1.0,
-     0
-    ],
-    [
      "S11Auto",
-     14.55,
-     0.0,
-     14.55,
-     1.0,
+     15.76,
+     13.86,
+     1.9,
+     0.1207,
      0
     ],
     [
      "S17MapPrecision",
-     14.45,
+     15.21,
      0.0,
-     14.45,
+     15.21,
+     1.0,
+     0
+    ],
+    [
+     "TrackT",
+     14.96,
+     0.0,
+     14.96,
      1.0,
      0
     ],
@@ -1056,9 +1056,9 @@
     ],
     [
      "DTFFieldsB",
-     10.74,
+     11.81,
      0.0,
-     10.74,
+     11.81,
      1.0,
      0
     ],
@@ -1091,6 +1091,30 @@
      6.92,
      0.0,
      6.92,
+     1.0,
+     0
+    ],
+    [
+     "S14Services",
+     4.38,
+     0.0,
+     4.38,
+     1.0,
+     0
+    ],
+    [
+     "S16Generic",
+     3.77,
+     0.0,
+     3.77,
+     1.0,
+     0
+    ],
+    [
+     "S13Alloc",
+     3.38,
+     0.0,
+     3.38,
      1.0,
      0
     ],
