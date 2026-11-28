@@ -29,7 +29,23 @@
  #badgemenu{display:none;position:absolute;top:28px;left:0;z-index:20;background:var(--panel);border:1px solid var(--line);padding:6px 10px;border-radius:5px}
  #badgemenu label{display:block;cursor:pointer}
  #badgebox.open #badgemenu{display:block}
- main{position:absolute;top:40px;left:0;right:0;bottom:var(--drawer,30px);display:grid;grid-template-columns:minmax(0,1fr) 540px}
+ main{position:absolute;top:40px;left:0;right:0;bottom:var(--drawer,30px);display:grid;grid-template-columns:0 minmax(0,1fr) 540px}
+ main.source{grid-template-columns:520px minmax(0,1fr) 420px}
+ #srcpane{overflow:hidden;border-right:1px solid var(--line);background:#12161c;display:flex;flex-direction:column;min-width:0}
+ main:not(.source) #srcpane{display:none}
+ #srctree{max-height:34%;overflow:auto;padding:4px 8px;border-bottom:1px solid var(--line);flex:none}
+ #srctree details{margin:1px 0} #srctree summary{cursor:pointer;color:#aab4c3}
+ #srctree .f{cursor:pointer;padding-left:14px;white-space:nowrap} #srctree .f:hover{background:#1d232d}
+ #srctree .f.cur{color:var(--hi)} #srctree .miss{color:#f85149}
+ #srchead{padding:3px 8px;border-bottom:1px solid var(--line);color:#aab4c3;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ #srccode{overflow:auto;flex:1;font-size:11.5px;line-height:1.5}
+ #srccode .ln{white-space:pre;padding-right:8px}
+ #srccode .no{display:inline-block;width:46px;color:#4c5564;text-align:right;margin-right:8px;user-select:none}
+ #srccode .nocode .tx{color:#5a6270}
+ #srccode .fn{cursor:pointer}
+ #srccode .sel{box-shadow:inset 3px 0 0 var(--hi)}
+ #srccode .mark{outline:1px solid var(--hi)}
+ #viewsw button{padding:3px 9px}
  #stage{position:relative;overflow:hidden;min-width:0}
  #stage > canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
  #nowebgl{padding:30px;color:#f3aaaa}
@@ -61,6 +77,7 @@
 </style>
 <header>
   <h1>Zesu proof graph</h1>
+  <span id="viewsw"><button data-view="source">Source</button><button data-view="program">Program</button></span>
   <input id="search" list="names" placeholder="search name, address, id" size="30">
   <datalist id="names"></datalist>
   <label class="muted">layer <select id="layer"></select></label>
@@ -70,7 +87,8 @@
   <button id="clearfilter" title="clear filter">clear filter</button>
   <span id="counts" class="muted"></span>
 </header>
-<main>
+<main id="main">
+  <div id="srcpane"><div id="srctree"></div><div id="srchead"></div><div id="srccode"></div></div>
   <div id="stage">
     <div id="crumb"></div>
     <div id="legend"></div>
@@ -91,12 +109,12 @@
 <script src="vendor/pixi.min.js"></script>
 <script>
 window.ZMAP_DATA = 'data/';
-document.write('<script src="data/index.js"><\/script>');
+document.write('<script src="data/index.js"><\/script><script src="data/src/index.js"><\/script>');
 </script>
 <script>
 if (!window.ZMAP_INDEX) {
   window.ZMAP_DATA = '../../exec-spike/map/site/data/';
-  document.write('<script src="' + window.ZMAP_DATA + 'index.js"><\/script>');
+  document.write('<script src="' + window.ZMAP_DATA + 'index.js"><\/script><script src="' + window.ZMAP_DATA + 'src/index.js"><\/script>');
 }
 </script>
 <script>
@@ -184,12 +202,17 @@ const CUT_WHY = ['entry', 'loop', 'ret', 'join'];
 const CALL_KINDS = ['direct', 'indirect', 'tail'];
 
 // ------------------------------------------------------------------ state and URL hash
-const S = { view: 'program', fn: null, sel: null, layer: 'proof', cls: 'size', size: 'cuts',
-            badges: new Set(), cut: null, block: null, unstack: new Set(), filter: null, drawer: null, hover: null };
+const SRC = window.ZMAP_SRC || null;    // source view data (data/src/index.js); absent: no source view
+const S = { view: SRC ? 'source' : 'program', fn: null, sel: null, layer: 'proof', cls: 'size', size: 'cuts',
+            badges: new Set(), cut: null, block: null, unstack: new Set(), filter: null, drawer: null, hover: null,
+            src: null, trail: [], srcOpen: new Set(), hl: null };
 function writeHash() {
   const p = new URLSearchParams();
   if (S.view === 'fn' && S.fn) p.set('fn', S.fn);
-  if (S.sel) p.set('sel', S.sel);
+  if (S.view === 'program') p.set('view', 'program');
+  if (S.view === 'source' && S.src != null) p.set('src', srcKey(S.src));
+  if (S.view === 'fn' && S.hl != null) p.set('hl', srcKey(S.hl));
+  if (S.sel && S.view !== 'source') p.set('sel', S.sel);
   p.set('layer', S.layer);
   if (S.layer === 'class') p.set('cls', S.cls);
   if (S.size !== 'cuts') p.set('size', S.size);
@@ -197,17 +220,24 @@ function writeHash() {
   if (S.cut != null) p.set('cut', hex(S.cut));
   if (S.block != null) p.set('block', hex(S.block));
   if (S.unstack.size) p.set('unstack', [...S.unstack].join('|'));
+  if (S.srcOpen.size && S.view === 'source') p.set('open', [...S.srcOpen].join(','));
   if (S.filter) p.set('filter', S.filter);
   if (S.drawer) p.set('drawer', S.drawer);
-  const h = '#' + p.toString().replace(/%2C/g, ',').replace(/%3A/g, ':').replace(/%7C/g, '|');
+  const h = '#' + p.toString().replace(/%2C/g, ',').replace(/%3A/g, ':').replace(/%7C/g, '|').replace(/%2F/g, '/');
   if (location.hash !== h) history.replaceState(null, '', h);
 }
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   const fn = p.get('fn');
-  S.view = fn && FN.has(fn) ? 'fn' : 'program';
+  S.view = fn && FN.has(fn) ? 'fn' : (p.get('view') === 'program' || !SRC) ? 'program' : 'source';
   S.fn = S.view === 'fn' ? fn : null;
   S.sel = FN.has(p.get('sel')) ? p.get('sel') : (S.fn || null);
+  const src = SRC ? SRC_KEY.get(p.get('src')) : undefined;
+  if (SRC && S.view === 'source') {
+    const id = src != null ? src : (S.src != null ? S.src : SRC.default);
+    if (id !== S.src) { if (S.src != null && S.trail[S.trail.length - 1] !== id) S.trail.push(S.src); S.src = id; }
+  }
+  S.hl = SRC && p.get('hl') ? (SRC_KEY.get(p.get('hl')) ?? null) : (S.view === 'fn' ? S.hl : null);
   S.layer = LAYERS[p.get('layer')] ? p.get('layer') : 'proof';
   S.cls = CLASS_DIMS[p.get('cls')] ? p.get('cls') : 'size';
   S.size = ['cuts', 'instr', 'forecast'].includes(p.get('size')) ? p.get('size') : 'cuts';
@@ -215,6 +245,7 @@ function readHash() {
   S.cut = p.get('cut') ? parseInt(p.get('cut'), 16) : null;
   S.block = p.get('block') ? parseInt(p.get('block'), 16) : null;
   S.unstack = new Set((p.get('unstack') || '').split('|').filter(s => ITEM.has(s)));
+  S.srcOpen = new Set((p.get('open') || '').split(',').filter(g => ['std', 'runtime', 'compiler'].includes(g)));
   S.filter = p.get('filter') || null;
   S.drawer = ['queue', 'metrics', 'trend'].includes(p.get('drawer')) ? p.get('drawer') : null;
 }
@@ -279,6 +310,8 @@ document.getElementById('badgebtn').onclick = () => document.getElementById('bad
 document.getElementById('clearfilter').onclick = () => { S.filter = null; render(); };
 const dl = document.getElementById('names');
 for (const f of IX.functions) { const o = document.createElement('option'); o.value = f.name; o.label = `${f.id} ${hex(f.entry)}`; dl.appendChild(o); }
+// Source functions are searchable by name too (the source view's search).
+for (const f of (window.ZMAP_SRC ? window.ZMAP_SRC.functions : [])) if (f.kind === 'source') { const o = document.createElement('option'); o.value = f.name; o.label = 'source · ' + f.group; dl.appendChild(o); }
 function findFn(q) {
   q = q.trim(); if (!q) return null;
   for (const f of IX.functions) if (f.id === q || f.name === q || f.status_id === q) return f;
@@ -288,12 +321,21 @@ function findFn(q) {
   return hits.length ? hits.sort((a, b) => a.name.length - b.name.length)[0] : null;
 }
 document.getElementById('search').addEventListener('change', ev => {
+  if (S.view === 'source' && SRC) {
+    const q = ev.target.value.trim().toLowerCase();
+    const hit = SF.find(f => f.name.toLowerCase() === q) || SF.filter(f => f.name.toLowerCase().includes(q)).sort((a, b) => a.name.length - b.name.length)[0];
+    if (hit) { centreSrc(hit.id); return; }
+  }
   const f = findFn(ev.target.value);
   if (!f) { document.getElementById('counts').textContent = 'no match: ' + ev.target.value; return; }
   selectFn(f.id, true);
 });
 document.addEventListener('keydown', ev => {
-  if (ev.key === 'Escape') { if (S.view === 'fn') openProgram(); else { S.sel = null; S.filter = null; render(); } }
+  if (ev.key !== 'Escape') return;
+  if (S.view === 'fn' && S.hl != null) { const s = S.hl; S.hl = null; S.view = 'source'; S.src = s; S.fn = null; render(); showSrcOf(s); }
+  else if (S.view === 'fn') openProgram();
+  else if (S.view === 'source') { if (S.trail.length) stepBack(S.trail.length - 1); }
+  else { S.sel = null; S.filter = null; render(); }
 });
 
 // ------------------------------------------------------------------ renderer
@@ -326,7 +368,8 @@ async function initRenderer() {
   app.stage.addChild(world);
   miniLayer = new PIXI.Container(); miniLayer.visible = false;
   app.stage.addChild(miniLayer);
-  new ResizeObserver(() => requestRender()).observe(stageEl);
+  // The stage changes size with the view (the source pane is a grid column), not only the window.
+  new ResizeObserver(() => { app.resize(); requestRender(); }).observe(stageEl);
   return true;
 }
 function btext(text, size, color, anchorX = 0, anchorY = 0) {
@@ -377,11 +420,13 @@ function mixBg(c, a) {
 }
 
 // ------------------------------------------------------------------ zoom (one d3.zoom on the canvas; one transform per view)
-let zoom = null, progT = null, fnT = new Map();
+let zoom = null, progT = null, fnT = new Map(), srcT = null;
 function onZoom(ev) {
   const t = ev.transform;
   world.position.set(t.x, t.y); world.scale.set(t.k);
-  if (S.view === 'program') { progT = t; programDetail(t.k); } else { fnT.set(S.fn, t); fnDetail(t.k); }
+  if (S.view === 'program') { progT = t; programDetail(t.k); }
+  else if (S.view === 'source') srcT = t;
+  else { fnT.set(S.fn, t); fnDetail(t.k); }
   requestRender();
 }
 function setTransform(t) { d3.select(app.canvas).call(zoom.transform, t); }
@@ -619,13 +664,13 @@ function loadScript(key, map, id, file) {
   if (PENDING.has(key + id)) return PENDING.get(key + id).promise;
   let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; });
   PENDING.set(key + id, { promise, resolve });
-  const s = document.createElement('script'); s.src = `${window.ZMAP_DATA}fn/${file}`;
-  s.onerror = () => { PENDING.delete(key + id); reject(new Error('no data/fn/' + file)); };
+  const s = document.createElement('script'); s.src = `${window.ZMAP_DATA}${file}`;
+  s.onerror = () => { PENDING.delete(key + id); reject(new Error('no data/' + file)); };
   document.head.appendChild(s);
   return promise;
 }
-const loadFn = id => loadScript('m:', FNDATA, id, `${id}.js`);
-const loadDetail = id => loadScript('d:', DETAIL, id, `${id}.detail.js`);
+const loadFn = id => loadScript('m:', FNDATA, id, `fn/${id}.js`);
+const loadDetail = id => loadScript('d:', DETAIL, id, `fn/${id}.detail.js`);
 function blockIndex(fd) { if (!fd._bi) { fd._bi = new Map(); fd.blocks.start.forEach((s, i) => fd._bi.set(s, i)); } return fd._bi; }
 
 // ------------------------------------------------------------------ function level (retained scene, one per function)
@@ -866,6 +911,15 @@ function wireEvents() {
   d3.select(cv).call(zoom).on('dblclick.zoom', null);
   cv.addEventListener('click', ev => {
     if (inMini(ev)) { openProgram(); return; }
+    if (S.view === 'source') {
+      const h = srcHit(ev); if (!h) return;
+      if (h.type === 'label') { const caller = SF[h.caller], fileN = h.site[0] != null ? h.site[0] : caller.file; if (fileN != null) openSrcFile(fileN, h.site[1]); return; }
+      const row = h.o.row;
+      if (row.kind === 'group') { S.srcOpen.has(row.group) ? S.srcOpen.delete(row.group) : S.srcOpen.add(row.group); render(); return; }
+      if (h.o.side === 'centre') { showSrcOf(row.f.id); return; }
+      centreSrc(row.f.id);
+      return;
+    }
     if (S.view === 'program') {
       const o = programHit(ev);
       if (!o) { if (S.sel) { S.sel = null; render(); } return; }
@@ -889,6 +943,16 @@ function wireEvents() {
   });
   cv.addEventListener('pointermove', ev => {
     if (ev.buttons) { hideTip(); return; }
+    if (S.view === 'source') {
+      const h = srcHit(ev);
+      if (h) {
+        if (h.type === 'label') showTip(ev, `source line ${h.site[1]} in ${SF[h.caller].name}\nclick: show it in the source pane`);
+        else if (h.o.row.kind === 'group') showTip(ev, `${h.o.row.group}: ${h.o.row.members.length} folded\n` + h.o.row.members.slice(0, 20).map(f => f.name).join('\n') + (h.o.row.members.length > 20 ? '\n…' : '') + '\nclick: expand');
+        else { const f = h.o.row.f, e = h.o.row.edges[0]; showTip(ev, `${f.name}\n${f.group} · ${f.loc.length} binary locations · ${srcLayerValue(f)}` + (e ? '\n' + e.sites.slice(0, 6).map(s => `${s[1] != null ? 'L' + s[1] : 'no line'} ${SITE_KINDS[s[2]]}${s[4] ? ' ' + s[4] : ''} @ ${hex(s[3])}`).join('\n') + (e.sites.length > 6 ? '\n…' : '') : '') + (h.o.side === 'centre' ? '' : '\nclick: centre on it')); }
+        cv.style.cursor = 'pointer'; return;
+      }
+      hideTip(); cv.style.cursor = 'default'; return;
+    }
     if (S.view === 'program') {
       const o = programHit(ev);
       if (o) { const it = o.stack ? ITEM.get(o.d) : null; showTip(ev, o.stack ? `${it.stem} ×${o.members.length} (same stem)\nclick: unstack\n` + o.members.map(m => FN.get(m).name).join('\n') : fnTip(FN.get(o.d))); cv.style.cursor = 'pointer'; return; }
@@ -903,12 +967,282 @@ function wireEvents() {
   cv.addEventListener('pointerleave', hideTip);
 }
 
+// ------------------------------------------------------------------ source view (S9.4)
+// data/src/index.js: source functions (one per declaration; generics are one record), their
+// locations [binary fn, exclusive instructions, out of line, block indices], source edges with
+// sites [file, line, kind, address, extra], and the offline neighbour order (`in`, `out`).
+const SF = SRC ? SRC.functions : [];
+const SRC_FILES = SRC ? SRC.files : [];
+const SITE_KINDS = SRC ? SRC.site_kinds : [];
+const SHOWN_GROUPS = new Set(['zesu', 'accelerator']);   // default filter; other groups fold
+const SRC_KEY = new Map();
+const SRC_KEY_OF = [];
+for (const f of SF) {
+  let k = `${f.file != null ? SRC_FILES[f.file].short : '-'}:${f.name}`;
+  if (SRC_KEY.has(k)) k += `@${f.decl_line ?? f.id}`;
+  SRC_KEY.set(k, f.id); SRC_KEY_OF[f.id] = k;
+}
+function srcKey(id) { return SRC_KEY_OF[id]; }
+const SRCFILE = new Map();
+window.ZMAP_SRC_FILE = (n, data) => settle('f:', SRCFILE, n, data);
+const loadSrcFile = n => loadScript('f:', SRCFILE, n, `src/file/${n}.js`);
+const sfLocFns = f => f.loc.map(L => FN.get(L[0])).filter(Boolean);
+function srcLayerValue(f) {
+  const d = f.derived || {};
+  if (S.layer === 'proof') return d.proof || 'out';
+  if (S.layer === 'meaning') return d.meaning || 'none';
+  if (S.layer === 'trust') return d.trust || 'rests on nothing trusted';
+  if (S.layer === 'contract') return d.contract || 'none';
+  const vals = sfLocFns(f).map(g => classValue(g, S.cls)), dim = CLASS_DIMS[S.cls];
+  if (S.cls === 'size' || S.cls === 'loops') return vals.sort((a, b) => dim.values.indexOf(b) - dim.values.indexOf(a))[0] || dim.values[0];
+  return vals.includes(S.cls) ? S.cls : 'not ' + S.cls;
+}
+function srcPasses(f, filter = S.filter) {
+  if (!filter) return true;
+  const [kind, ...rest] = filter.split(':'); const v = rest.join(':');
+  if (kind === 'v') return srcLayerValue(f) === v;
+  if (kind === 'b') return sfLocFns(f).some(g => BADGES[v] && BADGES[v].text(g));
+  if (kind === 'ids') return f.loc.some(L => v.split(',').includes(L[0]));
+  return true;
+}
+function edgeLabel(e) {
+  const kinds = [...new Set(e.sites.map(s => SITE_KINDS[s[2]]))].join('+');
+  const lined = e.sites.find(s => s[1] != null);
+  return `${lined ? 'L' + lined[1] : 'no line'} ${kinds} ×${e.sites.length}`;
+}
+
+// Source pane: file tree by group, open file with clickable function spans.
+let srcFileShown = null;
+function renderSrcTree() {
+  const tree = document.getElementById('srctree');
+  if (tree.dataset.built) { for (const el of tree.querySelectorAll('.f[data-file]')) el.classList.toggle('cur', +el.dataset.file === srcFileShown); return; }
+  tree.dataset.built = '1';
+  const st = SRC.stats;
+  let h = `<div class="muted">${st.source_functions} source functions · ${SRC_FILES.length} files · ${st.instructions} instructions${(st.missing_files || []).length ? ' · missing: ' + st.missing_files.length : ''}</div>`;
+  for (const g of SRC.groups) {
+    const files = SRC_FILES.filter(f => f.group === g);
+    const loose = SF.filter(f => f.group === g && f.file == null);
+    if (!files.length && !loose.length) continue;
+    h += `<details${g === 'zesu' ? ' open' : ''}><summary>${g} (${files.length ? files.length + ' files' : loose.length + ' entries'})</summary>`;
+    for (const fl of files) h += `<div class="f${fl.missing ? ' miss' : ''}" data-file="${fl.n}">${esc(fl.short)}${fl.missing ? ' (missing)' : ''} <span class="muted">${fl.n_functions}</span></div>`;
+    for (const f of loose.slice(0, 400)) h += `<div class="f" data-sf="${f.id}">${esc(f.name)}</div>`;
+    h += '</details>';
+  }
+  tree.innerHTML = h;
+  for (const el of tree.querySelectorAll('.f[data-file]')) el.onclick = () => openSrcFile(+el.dataset.file);
+  for (const el of tree.querySelectorAll('.f[data-sf]')) el.onclick = () => centreSrc(+el.dataset.sf);
+}
+function openSrcFile(n, line) {
+  return loadSrcFile(n).then(fd => {
+    const code = document.getElementById('srccode');
+    if (srcFileShown !== n) {
+      srcFileShown = n;
+      document.getElementById('srchead').textContent = fd.short + (fd.text == null ? ' (missing on disk; functions kept)' : '');
+      if (fd.text == null) {
+        code.innerHTML = '<div class="muted" style="padding:8px">This file is named by the debug information but is not on disk.</div>' +
+          fd.functions.map(([id, lo, hi]) => `<div class="ln fn" data-sf="${id}" data-l="${lo}"><span class="no">${lo}</span><span class="tx">${esc(SF[id].name)} (lines ${lo}–${hi})</span></div>`).join('');
+      } else {
+        const lines = fd.text.split('\n'), code_ = new Set(fd.code_lines), owner = new Array(lines.length + 2).fill(-1);
+        // A line belongs to the innermost (shortest) function range holding it.
+        for (const [id, lo, hi] of [...fd.functions].sort((a, b) => (b[2] - b[1]) - (a[2] - a[1])))
+          for (let l = lo; l <= hi && l <= lines.length; l++) owner[l] = id;
+        code.innerHTML = lines.map((t, i) => {
+          const l = i + 1, o = owner[l];
+          return `<div class="ln${code_.has(l) ? '' : ' nocode'}${o >= 0 ? ' fn' : ''}" data-l="${l}"${o >= 0 ? ` data-sf="${o}"` : ''}><span class="no">${l}</span><span class="tx">${esc(t) || ' '}</span></div>`;
+        }).join('');
+      }
+      code.onclick = ev => { const el = ev.target.closest('.ln[data-sf]'); if (el) centreSrc(+el.dataset.sf, { keepFile: true }); };
+    }
+    colourSrcFile();
+    renderSrcTree();
+    if (line != null) {
+      const el = code.querySelector(`.ln[data-l="${line}"]`);
+      if (el) { for (const m of code.querySelectorAll('.mark')) m.classList.remove('mark'); el.classList.add('mark'); el.scrollIntoView({ block: 'center' }); }
+    }
+  });
+}
+function colourSrcFile() {
+  const code = document.getElementById('srccode');
+  const cache = new Map();
+  for (const el of code.querySelectorAll('.ln[data-sf]')) {
+    const id = +el.dataset.sf;
+    if (!cache.has(id)) { const f = SF[id], c = d3.color(layerColor(srcLayerValue(f))); c.opacity = srcPasses(f) ? 0.22 : 0.06; cache.set(id, c.formatRgb()); }
+    el.style.background = cache.get(id);
+    el.classList.toggle('sel', id === S.src);
+  }
+}
+
+// Centre: depth-one neighbourhood; callers left, callees right, rows in the offline order.
+const NB = { scene: null, built: null, nodes: [], qt: null, bounds: null };
+const NODE_W = 240, NODE_H = 26, PITCH = 34, COL = 400;
+function neighbourRows(edgeIdx, end) {
+  const rows = [], folded = new Map();
+  for (const i of edgeIdx) {
+    const e = SRC.edges[i], other = SF[e[end]];
+    if (SHOWN_GROUPS.has(other.group) || S.srcOpen.has(other.group)) rows.push({ kind: 'fn', f: other, edges: [e] });
+    else {
+      let r = folded.get(other.group);
+      if (!r) { r = { kind: 'group', group: other.group, members: [], edges: [] }; folded.set(other.group, r); rows.push(r); }
+      r.members.push(other); r.edges.push(e);
+    }
+  }
+  return rows;
+}
+function buildSrc() {
+  const key = `${S.src}|${[...S.srcOpen].sort()}`;
+  if (NB.built === key) return false;
+  NB.built = key;
+  if (NB.scene) NB.scene.destroy({ children: true });
+  NB.scene = new PIXI.Container(); world.addChild(NB.scene); NB.nodes = [];
+  const c = SF[S.src];
+  const left = neighbourRows(c.in, 'from'), right = neighbourRows(c.out, 'to');
+  const lines = new PIXI.Graphics(), heads = new PIXI.Graphics();
+  NB.scene.addChild(lines, heads);
+  const rects = [];
+  const node = (row, x, y, side, h = NODE_H) => {
+    const g = new PIXI.Container(); g.position.set(x, y);
+    const fill = new PIXI.Graphics().roundRect(0, -h / 2, NODE_W, h, 5).fill({ color: 0xffffff });
+    const border = new PIXI.Graphics().roundRect(0, -h / 2, NODE_W, h, 5).stroke({ width: row.kind === 'group' ? 1.5 : side === 'centre' ? 2.5 : 1, color: row.kind === 'group' ? 0x8a93a3 : side === 'centre' ? 0xffd54a : 0x0f1115 });
+    const label = row.kind === 'group' ? `${row.group} · ${row.members.length} (click: expand)` : row.f.name;
+    const t = btext(shortName(label).slice(0, 36), side === 'centre' ? 12 : 10, 0x111111, 0, 0.5); t.position.set(7, 0);
+    g.addChild(fill, border, t);
+    const o = { row, g, fill, t, side, badges: new Map() };
+    if (row.kind === 'fn') {
+      let bx = NODE_W + 3;
+      for (const [b, def] of Object.entries(BADGES)) {
+        const texts = sfLocFns(row.f).map(def.text).filter(Boolean); if (!texts.length) continue;
+        const tx = texts.length > 1 ? `${b}:${texts.length}` : texts[0], w = tx.length * 6 + 6;
+        const p = new PIXI.Container(), bg = new PIXI.Graphics().roundRect(0, -6, w, 11, 5).fill({ color: def.color });
+        const tt = btext(tx, 9, 0x111111, 0, 0.5); tt.position.set(3, -0.5); p.addChild(bg, tt);
+        p.position.set(side === 'left' ? -w - 3 : bx, side === 'centre' ? -h / 2 - 8 : 0); p.visible = false; g.addChild(p); o.badges.set(b, p);
+        bx += w + 3;
+      }
+    }
+    NB.scene.addChild(g); NB.nodes.push(o);
+    rects.push({ cx: x + NODE_W / 2, cy: y, hw: NODE_W / 2, hh: h / 2, type: 'node', o });
+    return o;
+  };
+  node({ kind: 'fn', f: c, edges: [] }, -NODE_W / 2, 0, 'centre', 40);
+  const rowsY = n => d3.range(n).map(i => (i - (n - 1) / 2) * PITCH);
+  const place = (rows, side) => {
+    const ys = rowsY(rows.length), x = side === 'left' ? -COL - NODE_W / 2 : COL - NODE_W / 2;
+    rows.forEach((row, i) => {
+      const y = ys[i];
+      node(row, x, y, side);
+      const [ax, ay, bx, by] = side === 'left' ? [x + NODE_W, y, -NODE_W / 2, 0] : [NODE_W / 2, 0, x, y];
+      const mx = (ax + bx) / 2;
+      lines.moveTo(ax, ay).bezierCurveTo(mx, ay, mx, by, bx, by);
+      arrowPoly(heads, bx - 8, by, bx, by, 4);
+      // One label per neighbour: the call's source line, its kind and the number of sites.
+      const e0 = row.edges.length === 1 ? row.edges[0] : null;
+      const text = e0 ? edgeLabel(e0) : `${row.edges.length} edges · ${row.edges.reduce((a, e) => a + e.sites.length, 0)} sites`;
+      const lx = side === 'left' ? x + NODE_W + 6 : x - 6;
+      const t = btext(text, 9, 0xaab4c3, side === 'left' ? 0 : 1, 1);
+      t.position.set(lx, y - 3); NB.scene.addChild(t);
+      const w = text.length * 5.4;
+      const site = e0 && e0.sites.find(s => s[1] != null);
+      if (site) rects.push({ cx: side === 'left' ? lx + w / 2 : lx - w / 2, cy: y - 8, hw: w / 2, hh: 6, type: 'label', site, caller: e0.from });
+    });
+  };
+  place(left, 'left'); place(right, 'right');
+  lines.stroke({ width: 1.2, color: 0x59626f }); heads.fill({ color: 0x59626f });
+  const top = Math.min(-40, ...rowsY(left.length), ...rowsY(right.length)) - 24;
+  for (const [text, x] of [[`callers (${c.in.length} edges)`, -COL], [`callees (${c.out.length} edges)`, COL]]) {
+    const t = btext(text, 11, 0x8a93a3, 0.5, 1); t.position.set(x, top); NB.scene.addChild(t);
+  }
+  NB.qt = d3.quadtree().x(d => d.cx).y(d => d.cy).addAll(rects);
+  NB.bounds = [-COL - NODE_W / 2 - 20, top - 30, COL + NODE_W / 2 + 20, -top + 30];
+  return true;
+}
+function applySrcStyle(tempFilter) {
+  const filter = tempFilter || S.filter;
+  for (const o of NB.nodes) {
+    if (o.row.kind === 'group') { o.fill.tint = 0x2a313c; o.t.tint = 0xc9d1d9; continue; }
+    const f = o.row.f;
+    o.fill.tint = layerColor(srcLayerValue(f));
+    const hov = S.hover ? f.loc.some(L => L[0] === S.hover) : true;
+    o.g.alpha = srcPasses(f, filter) && hov ? 1 : 0.15;
+    for (const [b, p] of o.badges) p.visible = S.badges.has(b);
+  }
+  requestRender();
+}
+function fitSrc() {
+  const w = stageEl.clientWidth, h = stageEl.clientHeight, [x0, y0, x1, y1] = NB.bounds;
+  const k = Math.min(1.2, w / (x1 - x0), Math.max(0.35, (h - 60) / (y1 - y0)));
+  return d3.zoomIdentity.translate(w / 2 - (x0 + x1) / 2 * k, Math.max(50 - y0 * k, h / 2 - (y0 + y1) / 2 * k)).scale(k);
+}
+function srcHit(ev) {
+  if (!NB.qt) return null;
+  const [x, y] = toWorld(ev);
+  const hits = hitRects(NB.qt, x, y, NODE_W / 2 + 10);
+  return hits.find(h => h.type === 'label') || hits[0] || null;
+}
+function centreSrc(id, opts = {}) {
+  if (id === S.src && S.view === 'source') { if (!opts.keepFile) showSrcOf(id); colourSrcFile(); return; }
+  if (S.src != null && S.view === 'source') S.trail.push(S.src);
+  S.src = id; S.view = 'source'; S.fn = null; S.block = null; S.cut = null;
+  render();
+  if (!opts.keepFile) showSrcOf(id);
+}
+function showSrcOf(id) { const f = SF[id]; if (f && f.file != null) openSrcFile(f.file, f.decl_line || f.lo); }
+function stepBack(i) { const id = S.trail[i]; S.trail = S.trail.slice(0, i); S.src = id; render(); showSrcOf(id); }
+function renderCrumbSrc() {
+  const crumb = document.getElementById('crumb');
+  crumb.style.display = 'block';
+  const tr = S.trail.slice(-6), off = S.trail.length - tr.length;
+  crumb.innerHTML = (off ? '… › ' : '') + tr.map((id, i) => `<span class="rowlink" data-i="${off + i}">${esc(shortName(SF[id].name))}</span> › `).join('') + `<b>${esc(SF[S.src].name)}</b>`;
+  for (const el of crumb.querySelectorAll('[data-i]')) el.onclick = () => stepBack(+el.dataset.i);
+}
+// Right panel: where it lives.
+function renderWhere() {
+  const f = SF[S.src], d = f.derived || {};
+  const file = f.file != null ? SRC_FILES[f.file].short : null;
+  const oof = f.loc.filter(L => L[2]), inl = f.loc.filter(L => !L[2]);
+  const row = L => { const g = FN.get(L[0]); return `<tr class="whererow" data-fn="${L[0]}"><td><span class="rowlink">${esc(g ? g.name : L[0])}</span><div class="muted">${g ? hex(g.entry) : ''} · ${L[1]} instr here · ${L[3].length} blocks${g ? ' · ' + g.n_instr + ' instr in fn' : ''}</div></td><td><span class="pill" style="background:${g ? C[g.state] || '#6e7681' : '#6e7681'}">${esc(g ? g.state : '?')}</span></td></tr>`; };
+  let h = `<h2>${esc(f.name)}</h2><div class="muted">${esc(f.group)}${file ? ' · ' + esc(file) + ':' + (f.lo ?? '?') + '–' + (f.hi ?? '?') : ''}${f.kind !== 'source' ? ' · ' + f.kind : ''}</div>`;
+  h += kv([['proof (worst)', `<span class="pill" style="background:${C[d.proof] || '#6e7681'}">${esc(d.proof)}</span>`], ['meaning', esc(d.meaning)],
+           ['contract', esc(d.contract)], ['trust', esc(d.trust)], ['callers / callees', `${f.in.length} / ${f.out.length}`]]);
+  h += '<h3>where it lives</h3>';
+  if (oof.length) h += `<div>${oof.length === 1 ? `Compiled at <b>${hex(FN.get(oof[0][0]) ? FN.get(oof[0][0]).entry : 0)}</b>` : `Compiled as <b>${oof.length}</b> instances`}</div><table>${oof.map(row).join('')}</table>`;
+  if (inl.length) h += `<div style="margin-top:6px">Inlined into <b>${inl.length}</b> function${inl.length > 1 ? 's' : ''}</div><table>${inl.map(row).join('')}</table>`;
+  if (!f.loc.length) h += '<div class="muted">no machine code in the target set</div>';
+  if (f.instances.length > 1) h += `<h3>generic instances (${f.instances.length})</h3><pre>${esc(f.instances.join('\n'))}</pre>`;
+  h += '<div class="muted" style="margin-top:6px">click a row: open its control-flow view with this function\'s blocks highlighted</div>';
+  panel.innerHTML = h;
+  for (const el of panel.querySelectorAll('.whererow')) el.onclick = () => openFnHl(el.dataset.fn, S.src);
+}
+function openFnHl(fid, sf) {
+  S.hl = sf; S.block = null; S.cut = null; fnT.delete(fid);
+  S.view = 'fn'; S.fn = fid; S.sel = fid; shownFn = null;
+  render();
+}
+// Control-flow view: the blocks of the highlighted source function, built once per (fn, source fn).
+function hlBlocks(fid, sf) { const L = SF[sf] && SF[sf].loc.find(L => L[0] === fid); return L ? L[3] : []; }
+function applyHl(sc, fid) {
+  if (!sc.hl) sc.hl = new Map();
+  for (const [k, g] of sc.hl) g.visible = k === S.hl;
+  if (S.hl == null || !SRC) return;
+  if (!sc.hl.has(S.hl)) {
+    const fd = sc.fd, g = new PIXI.Graphics();
+    for (const i of hlBlocks(fid, S.hl)) g.rect(fd.blocks.x[i] - 4, fd.blocks.y[i] - 9, fd.block_w + 8, fd.block_h + 13);
+    g.fill({ color: 0x39d0d8, alpha: 0.18 }).stroke({ width: 3, color: 0x39d0d8 });
+    sc.c.addChildAt(g, 1); sc.hl.set(S.hl, g);
+  }
+  sc.hl.get(S.hl).visible = true;
+}
+function hlFocusT(fd, fid) {
+  const bs = hlBlocks(fid, S.hl); if (!bs.length) return null;
+  const i = bs.reduce((a, b) => (fd.blocks.y[b] < fd.blocks.y[a] ? b : a), bs[0]);
+  return focusBlockT(fd, fd.blocks.start[i]);
+}
+
 // ------------------------------------------------------------------ legend, counts
 function renderLegend() {
   const L = document.getElementById('legend');
   const vals = layerValues();
   const counts = {};
-  for (const f of IX.functions) { const v = layerValue(f); counts[v] = (counts[v] || 0) + 1; }
+  if (S.view === 'source') { for (const f of SF) { const v = srcLayerValue(f); counts[v] = (counts[v] || 0) + 1; } }
+  else for (const f of IX.functions) { const v = layerValue(f); counts[v] = (counts[v] || 0) + 1; }
   let h = `<div><b>${S.layer === 'class' ? 'Class: ' + CLASS_DIMS[S.cls].label : LAYERS[S.layer].label}</b> <span class="muted">(click a value to filter)</span></div>`;
   for (const v of vals) {
     const on = !S.filter || S.filter === 'v:' + v;
@@ -943,6 +1277,7 @@ const panel = document.getElementById('panel');
 function kv(rows) { return '<table>' + rows.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${v}</td></tr>`).join('') + '</table>'; }
 const fnLink = id => FN.has(id) ? `<span class="rowlink" data-fn="${id}">${esc(FN.get(id).name)}</span>` : esc(id);
 function renderCard() {
+  if (S.view === 'source' && SRC) return renderWhere();
   if (S.view === 'fn' && S.block != null && FNDATA.has(S.fn)) return renderBlockPanel();
   const id = S.sel || S.fn;
   if (!id) {
@@ -1065,8 +1400,25 @@ function render() {
   for (const el of badgeMenu.querySelectorAll('input')) el.checked = S.badges.has(el.value);
   document.getElementById('clearfilter').style.display = S.filter ? '' : 'none';
   const crumb = document.getElementById('crumb');
+  document.getElementById('main').classList.toggle('source', S.view === 'source');
+  for (const b of document.querySelectorAll('#viewsw button')) b.classList.toggle('on', b.dataset.view === S.view || (S.view === 'fn' && b.dataset.view === (S.hl != null ? 'source' : 'program')));
   renderLegend(); renderDrawer();
   if (!app) { renderCard(); writeHash(); return; }
+  if (S.view !== 'source' && NB.scene) NB.scene.visible = false;
+  if (S.view === 'source') {
+    for (const sc of FS.values()) sc.c.visible = false;
+    progScene.visible = false; miniLayer.visible = false; shownFn = null;
+    const rebuilt = buildSrc();
+    NB.scene.visible = true;
+    applySrcStyle();
+    renderCrumbSrc();
+    const t = (!rebuilt && srcT) || fitSrc();
+    if (String(currentT()) !== String(t)) setTransform(t);
+    renderSrcTree(); colourSrcFile();
+    if (srcFileShown == null) showSrcOf(S.src);
+    renderCard(); writeHash();
+    return;
+  }
   if (S.view === 'program') {
     for (const sc of FS.values()) sc.c.visible = false;
     progScene.visible = true; miniLayer.visible = false; crumb.style.display = 'none'; shownFn = null;
@@ -1088,12 +1440,15 @@ function render() {
     progScene.visible = false;
     for (const [k, s] of FS) s.c.visible = k === id;
     miniLayer.visible = true; placeMini();
-    crumb.innerHTML = `<span class="rowlink" id="crumbprog">program</span> › <b>${esc(fd.name)}</b> <span class="muted">${fd.blocks.start.length} blocks · ${fd.calls.n.length} call sites · ${fd.loops.head.length} loops · WebGL</span>`;
+    const back = S.hl != null ? `<span class="rowlink" id="crumbsrc">source: ${esc(shortName(SF[S.hl].name))}</span> › ` : '';
+    crumb.innerHTML = `${back}<span class="rowlink" id="crumbprog">program</span> › <b>${esc(fd.name)}</b> <span class="muted">${fd.blocks.start.length} blocks · ${fd.calls.n.length} call sites · ${fd.loops.head.length} loops · WebGL${S.hl != null ? ' · ' + hlBlocks(id, S.hl).length + ' blocks highlighted' : ''}</span>`;
     document.getElementById('crumbprog').onclick = openProgram;
+    if (back) document.getElementById('crumbsrc').onclick = () => { const s = S.hl; S.hl = null; S.view = 'source'; S.src = s; S.fn = null; render(); showSrcOf(s); };
     applyFnStyle();
+    applyHl(sc, id);
     if (shownFn !== id) {
       shownFn = id;
-      const t = fnT.get(id) || (S.block != null && focusBlockT(fd, S.block)) || fitFn(fd);
+      const t = fnT.get(id) || (S.block != null && focusBlockT(fd, S.block)) || (S.hl != null && hlFocusT(fd, id)) || fitFn(fd);
       setTransform(t);
     }
     fnDetail(currentT().k);
@@ -1127,11 +1482,12 @@ function renderDrawer() {
     for (const tr of body.querySelectorAll('tr.row')) {
       const q = rows[+tr.dataset.i];
       const ids = q.type === 'blocker' ? q.functions.filter(id => FN.has(id)) : [q.fn];
-      tr.onmouseenter = () => { S.hover = ids[0]; if (S.view === 'program' && app) applyProgramStyle('ids:' + ids.join(',')); };
-      tr.onmouseleave = () => { S.hover = null; if (S.view === 'program' && app) applyProgramStyle(); };
+      tr.onmouseenter = () => { S.hover = ids[0]; if (!app) return; if (S.view === 'program') applyProgramStyle('ids:' + ids.join(',')); else if (S.view === 'source') applySrcStyle('ids:' + ids.join(',')); };
+      tr.onmouseleave = () => { S.hover = null; if (!app) return; if (S.view === 'program') applyProgramStyle(); else if (S.view === 'source') applySrcStyle(); };
       tr.onclick = () => {
         if (q.type === 'blocker') { S.filter = 'ids:' + ids.join(','); S.sel = null; if (S.view !== 'program') openProgram(); else render(); return; }
         if (q.cut != null) { S.cut = q.cut; S.block = null; S.sel = q.fn; if (S.fn !== q.fn) fnT.delete(q.fn); S.view = 'fn'; S.fn = q.fn; render(); return; }
+        if (S.view === 'source') { const sf = SF.find(f => f.loc.some(L => L[0] === q.fn && L[2])); if (sf) { centreSrc(sf.id); return; } }
         selectFn(q.fn, true);
       };
     }
@@ -1143,7 +1499,11 @@ function renderDrawer() {
 }
 
 // ------------------------------------------------------------------ start
-window.ZV = { S, render, openFn, openProgram, selectFn, setTransform, currentT, FNDATA, FS, P, get app() { return app; } };
+window.ZV = { S, render, openFn, openProgram, selectFn, setTransform, currentT, FNDATA, FS, P, NB, SF, SRC_KEY, centreSrc, openFnHl, openSrcFile, get app() { return app; } };
+for (const b of document.querySelectorAll('#viewsw button')) b.onclick = () => {
+  if (b.dataset.view === 'program') openProgram();
+  else if (SRC) { S.view = 'source'; S.fn = null; S.block = null; S.cut = null; if (S.src == null) S.src = SRC.default; render(); }
+};
 window.addEventListener('hashchange', () => { readHash(); render(); });
 readHash();
 initRenderer().then(ok => {
