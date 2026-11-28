@@ -29,7 +29,7 @@
  #badgemenu{display:none;position:absolute;top:28px;left:0;z-index:20;background:var(--panel);border:1px solid var(--line);padding:6px 10px;border-radius:5px}
  #badgemenu label{display:block;cursor:pointer}
  #badgebox.open #badgemenu{display:block}
- main{position:absolute;top:40px;left:0;right:0;bottom:var(--drawer,30px);display:grid;grid-template-columns:0 minmax(0,1fr) 540px}
+ main{position:absolute;top:40px;left:0;right:0;bottom:var(--drawer,30px);display:grid;grid-template-columns:minmax(0,1fr) 540px}
  main.source{grid-template-columns:520px minmax(0,1fr) 420px}
  #srcpane{overflow:hidden;border-right:1px solid var(--line);background:#12161c;display:flex;flex-direction:column;min-width:0}
  main:not(.source) #srcpane{display:none}
@@ -1257,14 +1257,16 @@ function renderLegend() {
   if (S.layer === 'contract') h += `<div class="t">non-vacuity theorem / snapshot test marks, rework count: S9.2</div>`;
   if (S.layer === 'class' && IX.derived.includes('classes')) h += `<div class="t">classes derived by the S10.5 rule until S10 lands</div>`;
   if (S.layer === 'meaning' && IX.derived.includes('meaning')) h += `<div class="t">meaning from reviews.json until S10.4</div>`;
-  if (S.view === 'program') {
-    h += `<div class="t">edge: solid direct, dashed indirect (orange heuristic, red unresolved), ▸| tail, × never returns, double head = returns</div>`;
+  if (S.view === 'program' || S.view === 'source') {
+    h += S.view === 'program'
+      ? `<div class="t">edge: solid direct, dashed indirect (orange heuristic, red unresolved), ▸| tail, × never returns, double head = returns</div>`
+      : `<div class="t">source functions coloured by the worst value over the binary functions they live in. Edge label: source line of the call, kind (inlined, call, tail, indirect, accelerator), sites; click it to show the line. std, runtime and compiler neighbours are folded (click to expand).</div>`;
     if (S.badges.size) {
       h += '<div class="t">badges (cost multiplier: empty until measured, S9.2):</div>';
       for (const b of S.badges) { const on = !S.filter || S.filter === 'b:' + b; h += `<span class="item${on ? '' : ' off'}" data-f="b:${b}"><span class="pill" style="background:${BADGES[b].color}">${BADGES[b].label}</span> ×—</span>`; }
     }
   } else {
-    h += `<div class="t">leaf paths: <span style="color:${LEAF_C.auto}">auto</span> <span style="color:${LEAF_C.manual}">manual</span> <span style="color:${LEAF_C.open}">open</span>; dashed = path matched approximately. back edges purple on the left; calls orange, returns green; hull = loop body</div>`;
+    h += `<div class="t">leaf paths: <span style="color:${LEAF_C.auto}">auto</span> <span style="color:${LEAF_C.manual}">manual</span> <span style="color:${LEAF_C.open}">open</span>; dashed = path matched approximately. back edges purple on the left; calls orange, returns green; hull = loop body${S.hl != null ? '; cyan = blocks of the source function opened from the source view' : ''}</div>`;
   }
   L.innerHTML = h;
   for (const el of L.querySelectorAll('[data-f]')) el.onclick = () => { S.filter = S.filter === el.dataset.f ? null : el.dataset.f; render(); };

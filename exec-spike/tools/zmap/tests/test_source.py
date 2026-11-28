@@ -15,14 +15,17 @@ from zmap import elfread, site, source  # noqa: E402
 ELF = '/home/cody/zesislar/build/stock-zisk/zesu-zisk.elf'
 OBJ = ('/home/cody/zesislar-archive/stock-inputs/'
        'dcd4b1bec1b02f94d7c4bca3d8323c386cfc7b780995235d6947790bb68d1afe-zesu.o')
-TARGET_INSTRUCTIONS = 203606
+# The plan's 203,606 is the 206-function target set before S17; S17's exact resolution grew the
+# set (222 functions), so the total comes from map.json.
 MAP = SRC = None
+TARGET_INSTRUCTIONS = None
 
 
 def setUpModule():
-    global MAP, SRC
+    global MAP, SRC, TARGET_INSTRUCTIONS
     with open(os.path.join(PACKAGE, 'map', 'map.json')) as f:
         MAP = json.load(f)
+    TARGET_INSTRUCTIONS = sum(f['n_instr'] for f in MAP['functions'] if f['set'] == 'target')
     SRC = source.load(ELF, OBJ, MAP, elfread.disassemble(ELF))
 
 
@@ -42,8 +45,6 @@ class Source(unittest.TestCase):
         compiler (runtime: binary functions the debug object has no code for)."""
         owner = SRC['pc_owner']
         self.assertEqual(len(owner), TARGET_INSTRUCTIONS)
-        self.assertEqual(sum(f['n_instr'] for f in MAP['functions'] if f['set'] == 'target'),
-                         TARGET_INSTRUCTIONS)
         kinds = {SRC['functions'][s]['kind'] for s in owner.values()}
         self.assertLessEqual(kinds, {'source', 'compiler', 'runtime'})
 
