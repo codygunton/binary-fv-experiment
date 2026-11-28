@@ -117,6 +117,8 @@ import ZesuExec.Fn.SszRoot.Lemmas
 import ZesuExec.Fn.SszRoot.SparseDefs
 import ZesuExec.Fn.SszRoot.SparseVc
 import ZesuExec.Fn.SszRoot.SparseRec
+import ZesuExec.Fn.SszRoot.SparseProof
+import ZesuExec.Fn.SszRoot.SparseSail
 import ZesuExec.Vc.AssembleW
 import ZesuExec.Fn.F1.Vc
 import ZesuExec.Fn.F2.Vc

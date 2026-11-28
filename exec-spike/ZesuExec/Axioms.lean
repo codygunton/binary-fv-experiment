@@ -30,6 +30,7 @@ import ZesuExec.Fn.DTF.Reach
 import ZesuExec.Fn.Memmove.Sail
 import ZesuExec.Fn.Memset.Sail
 import ZesuExec.Vc.SoundRec
+import ZesuExec.Fn.SszRoot.SparseSail
 
 /-! Axiom guards for every end theorem (plan Verification item 4). -/
 
@@ -416,3 +417,21 @@ info: 'ZesuExec.SailLink.sailSvc_rel' depends on axioms: [propext, Classical.cho
 -/
 #guard_msgs in
 #print axioms ZesuExec.SailLink.sailSvc_rel
+
+/--
+info: 'ZesuExec.Fn.SszRoot.Sparse.sparseRoot_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.SszRoot.Sparse.sparseRoot_spec
+
+/--
+info: 'ZesuExec.Fn.SszRoot.Sparse.sparseRoot_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.SszRoot.Sparse.sparseRoot_sail
+
+/--
+info: 'ZesuExec.Fn.SszRoot.Sparse.pre_nonvacuous' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.SszRoot.Sparse.pre_nonvacuous
