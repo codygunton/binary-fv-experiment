@@ -72,6 +72,8 @@ import ZesuExec.Fn.Memset.Spec
 import ZesuExec.Fn.Memset.Table
 import ZesuExec.Fn.Memset.Proof
 import ZesuExec.Fn.Memset.Sail
+import ZesuExec.Fn.Memmove.Snap
+import ZesuExec.Fn.Memset.Snap
 import ZesuExec.Sym.Compose
 import ZesuExec.Sym.Join
 import ZesuExec.Sym.Env
@@ -139,6 +141,8 @@ import ZesuExec.Fn.SszRoot.ProgCall
 import ZesuExec.Fn.SszRoot.ProgLeaf
 import ZesuExec.Fn.SszRoot.ProgRec
 import ZesuExec.Fn.SszRoot.ProgProof
+import ZesuExec.Fn.Sha256.Snap
+import ZesuExec.Fn.SszRoot.Snap
 import ZesuExec.Vc.AssembleW
 import ZesuExec.Fn.F1.Vc
 import ZesuExec.Fn.F2.Vc

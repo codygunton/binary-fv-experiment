@@ -33,6 +33,10 @@ import ZesuExec.Vc.SoundRec
 import ZesuExec.Fn.SszRoot.SparseSail
 import ZesuExec.Fn.SszRoot.ProgProof
 import ZesuExec.Fn.Sha256.Sail
+import ZesuExec.Fn.Memmove.Snap
+import ZesuExec.Fn.Memset.Snap
+import ZesuExec.Fn.Sha256.Snap
+import ZesuExec.Fn.SszRoot.Snap
 
 /-! Axiom guards for every end theorem (plan Verification item 4). -/
 
@@ -479,3 +483,23 @@ info: 'ZesuExec.Fn.Sha256.pre_nonvacuous' depends on axioms: [propext, Classical
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.Sha256.pre_nonvacuous
+
+/-- info: 'ZesuExec.Fn.Memmove.post_snapshot' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Memmove.post_snapshot
+
+/-- info: 'ZesuExec.Fn.Memset.post_snapshot' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Memset.post_snapshot
+
+/-- info: 'ZesuExec.Fn.Sha256.post_snapshot' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Sha256.post_snapshot
+
+/-- info: 'ZesuExec.Fn.SszRoot.Sparse.post_snapshot' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms ZesuExec.Fn.SszRoot.Sparse.post_snapshot
+
+/-- info: 'ZesuExec.Fn.SszRoot.Prog.post_snapshot' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms ZesuExec.Fn.SszRoot.Prog.post_snapshot
