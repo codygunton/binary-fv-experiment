@@ -4,8 +4,8 @@ import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 /-!
 # Simulation of the register-writing forms
 
-`lui auipc addi andi xori ori slti sltiu slli srli add sub and or xor sll srl slt sltu mul mulhu
-divu remu addiw subw slliw srliw`: `execute` reads the
+`lui auipc addi andi xori ori slti sltiu slli srli srai add sub and or xor sll srl slt sltu mul
+mulhu divu remu addiw subw slliw srliw`: `execute` reads the
 source registers, writes `x rd` and falls through; each theorem is `sim_wreg` plus the form's
 `execute_*_run` contract and the agreement of Sail's result with `Machine.exec`.
 -/
@@ -165,6 +165,18 @@ theorem iType_slti (imm : BitVec 12) (v : Word) :
 
 theorem rType_slt (a b : Word) : rTypeResult .SLT a b = if a.slt b then 1 else 0 := by
   simp only [rTypeResult]; rw [slt_bit]
+
+/-- S12b: with `00-sail-lean-asr.patch` the model's `shift_bits_right_arith` is `sshiftRight`. -/
+theorem shiftI_srai (sh : BitVec 6) (a : Word) :
+    shiftIopResult .SRAI sh a = a.sshiftRight sh.toNat := by
+  simp only [shiftIopResult, shift_bits_right_arith]
+  rw [extractLsb_field]; simp [LeanRV64DExecutable.Functions.log2_xlen, Sail.BitVec.toNatInt]
+
+/-- The S12 counterexample (`OPEN/forms/Srai.lean` until S12b): the model's `srai 1, 1` was
+`2^63` (a rotation); it is now `0`, and a negative value keeps its sign. -/
+example : shiftIopResult .SRAI 1#6 1#64 = 0#64 := by decide
+example : shiftIopResult .SRAI 1#6 0x8000000000000000#64 = 0xc000000000000000#64 := by decide
+example : rTypeResult .SRA 1#64 1#64 = 0#64 := by decide
 
 /-! ## The simulation theorems -/
 
@@ -543,5 +555,19 @@ theorem sim_auipc {rd : Fin 32} {imm : BitVec 20} (hR : Rel img m s)
   change Runs (execute_UTYPE imm (rg rd) .AUIPC) _ _ _
   refine execute_UTYPE_auipc_run _ _ imm _ m.pc (T_pc hR m.pc) ?_
   rw [sign_extend_eq]; exact wX_rg_run _ rd _
+
+theorem sim_srai {rd rs1 : Fin 32} {sh : BitVec 6} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.srai rd rs1 sh))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  change Runs (execute_SHIFTIOP sh (rg rs1) (rg rd) .SRAI) _ _ _
+  refine execute_SHIFTIOP_run _ _ sh _ _ .SRAI (m.reg rs1)
+    (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
+  rw [shiftI_srai]; exact wX_rg_run _ rd _
 
 end ZesuExec.SailLink

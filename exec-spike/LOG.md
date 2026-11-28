@@ -1229,6 +1229,48 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   per-function file exceeds 1 MB (test). S9.1 screenshots retaken in `map/site/shots/` (same
   content; `fn-decodeTxFields-webgl.png` replaces the Canvas one). `make -C tools/zmap map test`
   passes (54 tests).
+- S12b Sail model regeneration (SailRegen, 2026-11-28, branch `sailregen` from `e4b99948`):
+  both S12 defects fixed at their source; the 9 open forms added.
+  - Root cause of `srai`: `shift_bits_right_arith` in sail-riscv's `prelude.sail` calls
+    `sail_arith_shiftright` correctly; Sail 0.20.1's `lib/vector.sail` binds that builtin to
+    `BitVec.rotateRight` for Lean (the C/OCaml binding `arith_shiftr` is right). Upstream fixed it
+    in rems-project/sail `895028208155` ("Correct Lean asr builtin", in 0.20.2). Fix: that hunk
+    as `sail/00-sail-lean-asr.patch`, applied to `pkgs.ocamlPackages.sail` (`zesuSailCompiler`
+    in `nix/proof.nix`); bumping to 0.20.2 was not done (would change unrelated generated code).
+  - Regeneration: `zesuSailRiscvRaw` uses the patched compiler and
+    `-DSAIL_MODULES=main;I_insts;M_insts;Zba;Zbb;Zbs;Zbkb` (no `Zbc`); `01`/`02` patches
+    unchanged. `nix build .#zesuSailRiscvLean` 7.5 min (Lean generation 7:18), output
+    `/nix/store/ra4gifmv…-zesu-sail-riscv-lean-rv64-regenerated` copied over
+    `sail-riscv-lean/` (5 new files `BextTypes ZbaInsts ZbbInsts ZbkbInsts ZbsInsts`; most others
+    differ only by new `open`s and renumbered type-quantifier names; `InstsEnd` gains the Zb*
+    decode clauses and executes). `zesuSailRiscvLeanRegenerationCheck` passes. Versions and
+    commands in `sail/PROVENANCE.md`.
+  - Re-proofs: only `ZesuExec/Sail/Decode.lean` broke (`maximum recursion depth` in `dec_tac`'s
+    `simp` on the deeper clause chain); `set_option maxRecDepth 8192` there. Everything else,
+    including `sail_step_sim`, `Misaligned.lean`, every `*_sail` and compliance theorem, built
+    unchanged; `tools/verify.sh` passed; difftest 80/80 agree (before the forms).
+  - Forms (`srai` first, commit `127b5c9c`; then `rev8 maxu pack packh bext bset bclri clz`):
+    decoder, `Machine.exec` (`Machine.rev8` by shifts and masks; `clz` is `BitVec.clz`; `bext`
+    as `if x &&& 1 <<< k = 0 then 0 else 1`), new `BinOp`s `sra rev8 maxu pack packh bext bset
+    bclr clz` (`rev8`/`clz` ignore the second operand), `stepI`/`stepI_sound`, `dec_<form>`,
+    `sim_<form>` (bit-manipulation forms in the new `Sail/Forms/Bitmanip.lean`: result functions
+    copying the generated `execute_*` bodies, `execute_*_run` contracts, agreement lemmas; the
+    `rev8` loop is unrolled with `IntRange.forIn'.loop` and closed bitwise by a 64-way case split),
+    tests (`Test/Sym.lean` 70 forms, two ELF samples per form in `decode_s12_samples`). Decoder
+    notes: Zbb/Zbs are gated by `currentlyEnabled Ext_B = misa.B`, so `Configured.misa` (and
+    `configuredB`) now also fix `_get_Misa_B v = 1`; `dec_bclri` needs the fact that bits
+    20..31 are not one of the Zbb unary constants, `dec_pack` a case split on the RV32 `zext.h`
+    clause (`pack` with `rs2 = 0`, guarded by `xlen == 32`). `decide` now shows
+    `shiftIopResult .SRAI 1 1 = 0` (regression examples after `shiftI_srai`).
+  - Measures (forced `zmap build`; the committed `static.json` had pre-S12 `FORMS`, so the
+    S12-era map showed 141 blocked): target `blocked` 36 → 30, any blocker 37 → 31, blocked only
+    by non-CSR forms 6 → 0; target functions with an unsupported-form blocker 24 → 16 (all
+    CSR); whole map `blocked` 135 → 122. Full `lake build` 330 jobs, 12 min 17 s.
+  - Three-way difftest after the forms: 80/80 snapshots (F1, F2, TX, DTF) `agree`, with
+    `configuredB` (now including `misa.B = 1`) on every initial state. No function of the image
+    uses an added form, so the difftest is a regression check of the new model, not of the forms.
+  - Ledger: ids 22 (regeneration, 22 min), 23 (`srai`, 18 min), 24 (`rev8`, 19 min, carries the
+    shared time of the eight Zb* forms), 25–31 (the other seven, no own time), 32 (gate).
 - S12 instruction forms (S12Forms, 2026-11-28, branch `s12` from `adcabc3e`): 14 of the 23
   non-CSR forms added; 9 left unsupported under the contingency; `unimp` handled.
   - Added, each with decoder case, `Machine.exec` case, `stepI` case, `stepI_sound` case, Sail

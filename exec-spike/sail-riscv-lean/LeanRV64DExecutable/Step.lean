@@ -148,6 +148,7 @@ open f_bin_op_x_S
 open f_bin_op_f_S
 open f_bin_f_op_H
 open f_bin_f_op_D
+open extop_zbb
 open extension
 open exception
 open cregidx
@@ -155,8 +156,13 @@ open cfregidx
 open cbop_zicbop
 open cbop_zicbom
 open cacheop
+open bropw_zbb
+open brop_zbs
+open brop_zbkb
+open brop_zbb
 open breakpoint_cause
 open bop
+open biop_zbs
 open barrier_kind
 open amoop
 open agtype
@@ -204,7 +210,7 @@ open AtomicSupport
 open Architecture
 open AmocasOddRegisterReservedBehavior
 
-/-- Type quantifiers: k_ex260364_ : Bool, _step_no : Nat, 0 ≤ _step_no -/
+/-- Type quantifiers: k_ex285453_ : Bool, _step_no : Nat, 0 ≤ _step_no -/
 def run_hart_waiting (_step_no : Nat) (wr : WaitReason) (instbits : (BitVec 32)) (exit_wait : Bool) : SailM Step := do
   if ((← (shouldWakeForInterrupt ())) : Bool)
   then
@@ -366,7 +372,7 @@ def wait_is_nop (wr : WaitReason) : Bool :=
   | WAIT_WRS_STO => false
   | WAIT_WRS_NTO => false
 
-/-- Type quantifiers: k_ex260406_ : Bool, step_no : Nat, 0 ≤ step_no -/
+/-- Type quantifiers: k_ex285495_ : Bool, step_no : Nat, 0 ≤ step_no -/
 def try_step (step_no : Nat) (exit_wait : Bool) : SailM Bool := do
   let _ : Unit := (ext_pre_step_hook ())
   writeReg minstret_increment (← (should_inc_minstret (← readReg cur_privilege)))

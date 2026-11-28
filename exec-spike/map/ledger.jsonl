@@ -1761,3 +1761,25 @@
 {"schema": 2, "rec": "stop", "id": 21, "agent": "DTFFieldsC", "ts": "2026-11-28T09:06:11Z", "outcome": "open", "note": "steps 1-3 + scalar rows done; 80002dc4_0 open (loop walks, TxAt stores, buffers)"}
 {"schema": 2, "rec": "start", "id": 23, "ts": "2026-11-28T08:28:13Z", "fn": null, "item": "xparams: Layout.extraParams 0xa0000f00", "kind": "service", "agent": "XParamsFix"}
 {"schema": 2, "rec": "stop", "id": 23, "agent": "XParamsFix", "ts": "2026-11-28T09:07:51Z", "outcome": "closed", "note": "extraParams 0xa0000f00; witnesses F4/F6/TX moved; 80 snapshots re-taken, difftest agree; svc_test 0x813-reg/fn-memmove 100/100"}
+{"schema": 2, "rec": "start", "id": 22, "ts": "2026-11-28T08:02:38Z", "fn": null, "item": "S12b regenerate sail-riscv-lean (sra fix, B/Zbkb)", "kind": "infra", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 22, "agent": "SailRegen", "ts": "2026-11-28T08:24:50Z", "outcome": "closed", "note": "regenerated; check passes; build, verify.sh, difftest 80/80"}
+{"schema": 2, "rec": "start", "id": 23, "ts": "2026-11-28T08:24:50Z", "fn": null, "item": "S12b form srai", "kind": "form", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 23, "agent": "SailRegen", "ts": "2026-11-28T08:42:34Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 24, "ts": "2026-11-28T08:42:34Z", "fn": null, "item": "S12b form rev8", "kind": "form", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 24, "agent": "SailRegen", "ts": "2026-11-28T09:01:40Z", "outcome": "closed", "note": "rev8 and the 7 forms below authored together (shared Bitmanip.lean, misa.B in Configured); this item carries their common time incl. full build"}
+{"schema": 2, "rec": "start", "id": 25, "ts": "2026-11-28T09:01:41Z", "fn": null, "item": "S12b form maxu", "kind": "form", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 25, "agent": "SailRegen", "ts": "2026-11-28T09:01:41Z", "outcome": "closed", "note": "authored with rev8 (item S12b form rev8 carries the time)"}
+{"schema": 2, "rec": "start", "id": 26, "ts": "2026-11-28T09:01:41Z", "fn": null, "item": "S12b form pack", "kind": "form", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 26, "agent": "SailRegen", "ts": "2026-11-28T09:01:41Z", "outcome": "closed", "note": "authored with rev8 (item S12b form rev8 carries the time)"}
+{"schema": 2, "rec": "start", "id": 27, "ts": "2026-11-28T09:01:41Z", "fn": null, "item": "S12b form packh", "kind": "form", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 27, "agent": "SailRegen", "ts": "2026-11-28T09:01:41Z", "outcome": "closed", "note": "authored with rev8 (item S12b form rev8 carries the time)"}
+{"schema": 2, "rec": "start", "id": 28, "ts": "2026-11-28T09:01:41Z", "fn": null, "item": "S12b form bext", "kind": "form", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 28, "agent": "SailRegen", "ts": "2026-11-28T09:01:41Z", "outcome": "closed", "note": "authored with rev8 (item S12b form rev8 carries the time)"}
+{"schema": 2, "rec": "start", "id": 29, "ts": "2026-11-28T09:01:41Z", "fn": null, "item": "S12b form bset", "kind": "form", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 29, "agent": "SailRegen", "ts": "2026-11-28T09:01:41Z", "outcome": "closed", "note": "authored with rev8 (item S12b form rev8 carries the time)"}
+{"schema": 2, "rec": "start", "id": 30, "ts": "2026-11-28T09:01:41Z", "fn": null, "item": "S12b form bclri", "kind": "form", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 30, "agent": "SailRegen", "ts": "2026-11-28T09:01:41Z", "outcome": "closed", "note": "authored with rev8 (item S12b form rev8 carries the time)"}
+{"schema": 2, "rec": "start", "id": 31, "ts": "2026-11-28T09:01:41Z", "fn": null, "item": "S12b form clz", "kind": "form", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 31, "agent": "SailRegen", "ts": "2026-11-28T09:01:41Z", "outcome": "closed", "note": "authored with rev8 (item S12b form rev8 carries the time)"}
+{"schema": 2, "rec": "start", "id": 32, "ts": "2026-11-28T09:01:45Z", "fn": null, "item": "S12b gate: difftest, map, verify, docs", "kind": "infra", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 32, "agent": "SailRegen", "ts": "2026-11-28T09:08:07Z", "outcome": "closed", "note": "difftest 80/80, verify.sh, regeneration check"}

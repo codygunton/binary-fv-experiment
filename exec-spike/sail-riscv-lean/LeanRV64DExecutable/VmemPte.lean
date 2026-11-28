@@ -133,6 +133,7 @@ open f_bin_op_x_S
 open f_bin_op_f_S
 open f_bin_f_op_H
 open f_bin_f_op_D
+open extop_zbb
 open extension
 open exception
 open cregidx
@@ -140,8 +141,13 @@ open cfregidx
 open cbop_zicbop
 open cbop_zicbom
 open cacheop
+open bropw_zbb
+open brop_zbs
+open brop_zbkb
+open brop_zbb
 open breakpoint_cause
 open bop
+open biop_zbs
 open barrier_kind
 open amoop
 open agtype
@@ -255,7 +261,7 @@ def pte_is_invalid (pte_flags : (BitVec 8)) (pte_ext : (BitVec 10)) : SailM Bool
                       (← (currentlyEnabled Ext_Svrsw60t59b)))) || ((_get_PTE_Ext_reserved pte_ext) != (zeros
                       (n := 5)))))))))))
 
-/-- Type quantifiers: k_ex256300_ : Bool, k_ex256299_ : Bool -/
+/-- Type quantifiers: k_ex278167_ : Bool, k_ex278166_ : Bool -/
 def check_PTE_permission (access : (MemoryAccessType mem_payload)) (priv : Privilege) (mxr : Bool) (do_sum : Bool) (pte_flags : (BitVec 8)) (_ext : (BitVec 10)) (_ext_ptw : Unit) : SailM PTE_Check := SailME.run do
   let pte_U := (bit_to_bool (_get_PTE_Flags_U pte_flags))
   let pte_R := (bit_to_bool (_get_PTE_Flags_R pte_flags))

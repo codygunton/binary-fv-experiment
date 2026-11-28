@@ -282,9 +282,35 @@ inductive uop where | LUI | AUIPC
   deriving BEq, Inhabited, Repr
   open uop
 
+inductive extop_zbb where | SEXTB | SEXTH | ZEXTH
+  deriving BEq, Inhabited, Repr
+  open extop_zbb
+
+inductive brop_zbb where | ANDN | ORN | XNOR | MAX | MAXU | MIN | MINU | ROL | ROR
+  deriving BEq, Inhabited, Repr
+  open brop_zbb
+
+inductive bropw_zbb where | ROLW | RORW
+  deriving BEq, Inhabited, Repr
+  open bropw_zbb
+
+inductive brop_zbkb where | PACK | PACKH
+  deriving BEq, Inhabited, Repr
+  open brop_zbkb
+
+inductive biop_zbs where | BCLRI | BEXTI | BINVI | BSETI
+  deriving BEq, Inhabited, Repr
+  open biop_zbs
+
+inductive brop_zbs where | BCLR | BEXT | BINV | BSET
+  deriving BEq, Inhabited, Repr
+  open brop_zbs
+
 abbrev half := (BitVec 16)
 
 abbrev landing_pad_label := (BitVec 20)
+
+abbrev shamt_zba := (BitVec 2)
 
 abbrev word := (BitVec 32)
 
@@ -320,6 +346,29 @@ inductive instruction where
   | MULW (_ : (regidx × regidx × regidx))
   | DIVW (_ : (regidx × regidx × regidx × Bool))
   | REMW (_ : (regidx × regidx × regidx × Bool))
+  | SLLIUW (_ : ((BitVec 6) × regidx × regidx))
+  | ZBA_RTYPEUW (_ : (regidx × regidx × regidx × shamt_zba))
+  | ZBA_RTYPE (_ : (regidx × regidx × regidx × shamt_zba))
+  | RORIW (_ : ((BitVec 5) × regidx × regidx))
+  | RORI (_ : ((BitVec 6) × regidx × regidx))
+  | ZBB_RTYPEW (_ : (regidx × regidx × regidx × bropw_zbb))
+  | ZBB_RTYPE (_ : (regidx × regidx × regidx × brop_zbb))
+  | ZBB_EXTOP (_ : (regidx × regidx × extop_zbb))
+  | REV8 (_ : (regidx × regidx))
+  | ORCB (_ : (regidx × regidx))
+  | CPOP (_ : (regidx × regidx))
+  | CPOPW (_ : (regidx × regidx))
+  | CLZ (_ : (regidx × regidx))
+  | CLZW (_ : (regidx × regidx))
+  | CTZ (_ : (regidx × regidx))
+  | CTZW (_ : (regidx × regidx))
+  | ZBS_IOP (_ : ((BitVec 6) × regidx × regidx × biop_zbs))
+  | ZBS_RTYPE (_ : (regidx × regidx × regidx × brop_zbs))
+  | ZBKB_RTYPE (_ : (regidx × regidx × regidx × brop_zbkb))
+  | ZBKB_PACKW (_ : (regidx × regidx × regidx))
+  | ZIP (_ : (regidx × regidx))
+  | UNZIP (_ : (regidx × regidx))
+  | BREV8 (_ : (regidx × regidx))
   deriving Inhabited, Repr
   open instruction
 

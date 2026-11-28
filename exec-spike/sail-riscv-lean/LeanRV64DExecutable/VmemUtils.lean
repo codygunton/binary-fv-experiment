@@ -137,6 +137,7 @@ open f_bin_op_x_S
 open f_bin_op_f_S
 open f_bin_f_op_H
 open f_bin_f_op_D
+open extop_zbb
 open extension
 open exception
 open cregidx
@@ -144,8 +145,13 @@ open cfregidx
 open cbop_zicbop
 open cbop_zicbom
 open cacheop
+open bropw_zbb
+open brop_zbs
+open brop_zbkb
+open brop_zbb
 open breakpoint_cause
 open bop
+open biop_zbs
 open barrier_kind
 open amoop
 open agtype
@@ -222,7 +228,7 @@ def misaligned_order (n : Int) : (Int × Int × Int) :=
   then ((n -i 1), 0, (Neg.neg 1))
   else (0, (n -i 1), 1)
 
-/-- Type quantifiers: k_ex256780_ : Bool -/
+/-- Type quantifiers: k_ex278647_ : Bool -/
 def plat_misaligned_exception (access : (MemoryAccessType mem_payload)) (res : Bool) : SailM (Option misaligned_exception) := do
   assert (not (is_amo_access access)) "sys/vmem_utils.sail:85.35-85.36"
   if (res : Bool)
@@ -241,7 +247,7 @@ def transform_effective_address (vaddr : virtaddr) (access : (MemoryAccessType m
   then (pure (pm_transform_PA vaddr pmlen))
   else (pure (pm_transform_VA vaddr pmlen))
 
-/-- Type quantifiers: k_ex256793_ : Bool, k_ex256792_ : Bool, k_ex256791_ : Bool, width : Nat, width
+/-- Type quantifiers: k_ex278660_ : Bool, k_ex278659_ : Bool, k_ex278658_ : Bool, width : Nat, width
   ≥ 0, is_mem_width(width) -/
 def vmem_read_addr (vaddr : virtaddr) (width : Nat) (access : (MemoryAccessType mem_payload)) (aq : Bool) (rl : Bool) (res : Bool) : SailM (Result (BitVec (8 * width)) ExecutionResult) := SailME.run do
   if ((not (is_aligned_vaddr vaddr width)) : Bool)
@@ -300,7 +306,7 @@ def vmem_read_addr (vaddr : virtaddr) (width : Nat) (access : (MemoryAccessType 
     ((BitVec (8 * n * bytes)) × Bool × Nat) )
   (pure (Ok data))
 
-/-- Type quantifiers: k_ex256829_ : Bool, k_ex256828_ : Bool, k_ex256827_ : Bool, width : Nat, width
+/-- Type quantifiers: k_ex278696_ : Bool, k_ex278695_ : Bool, k_ex278694_ : Bool, width : Nat, width
   ≥ 0, is_mem_width(width) -/
 def vmem_write_addr (vaddr : virtaddr) (width : Nat) (data : (BitVec (8 * width))) (access : (MemoryAccessType mem_payload)) (aq : Bool) (rl : Bool) (res : Bool) : SailM (Result Bool ExecutionResult) := SailME.run do
   if ((not (is_aligned_vaddr vaddr width)) : Bool)
@@ -383,7 +389,7 @@ def get_transformed_data_addr (base : regidx) (offset : (BitVec 64)) (acc : (Mem
       let vaddr ← do (transform_effective_address vaddr acc)
       (pure (Ext_DataAddr_OK vaddr)))
 
-/-- Type quantifiers: k_ex256882_ : Bool, k_ex256881_ : Bool, k_ex256880_ : Bool, width : Nat, width
+/-- Type quantifiers: k_ex278749_ : Bool, k_ex278748_ : Bool, k_ex278747_ : Bool, width : Nat, width
   ≥ 0, is_mem_width(width) -/
 def vmem_read (rs : regidx) (offset : (BitVec 64)) (width : Nat) (access : (MemoryAccessType mem_payload)) (aq : Bool) (rl : Bool) (res : Bool) : SailM (Result (BitVec (8 * width)) ExecutionResult) := SailME.run do
   let vaddr ← (( do
@@ -394,7 +400,7 @@ def vmem_read (rs : regidx) (offset : (BitVec 64)) (width : Nat) (access : (Memo
     ) : SailME (Result (BitVec (8 * width)) ExecutionResult) virtaddr )
   (vmem_read_addr vaddr width access aq rl res)
 
-/-- Type quantifiers: k_ex256892_ : Bool, k_ex256891_ : Bool, k_ex256890_ : Bool, width : Nat, width
+/-- Type quantifiers: k_ex278759_ : Bool, k_ex278758_ : Bool, k_ex278757_ : Bool, width : Nat, width
   ≥ 0, is_mem_width(width) -/
 def vmem_write (rs_addr : regidx) (offset : (BitVec 64)) (width : Nat) (data : (BitVec (8 * width))) (access : (MemoryAccessType mem_payload)) (aq : Bool) (rl : Bool) (res : Bool) : SailM (Result Bool ExecutionResult) := SailME.run do
   let vaddr ← (( do
