@@ -5,8 +5,14 @@ Schema 1 (S1 to S9, `zmap ledger log`, retired): one row per finished item with 
 
 Schema 2: an item is a `start` record and a `stop` record with the same `id`.
 
-    {"schema": 2, "rec": "start", "id": N, "ts": ..., "fn": ..., "item": ..., "kind": ..., "agent": ...}
+    {"schema": 2, "rec": "start", "id": N, "ts": ..., "fn": ..., "item": ..., "kind": ...,
+     "agent": ..., "tier": 1|2[, "escalates": M]}
     {"schema": 2, "rec": "stop", "id": N, "agent": ..., "ts": ..., "outcome": ..., "note": ...}
+
+`tier` is the model tier the item runs at (plan rule 14: 1 the `prover` model, 2 the strongest
+model); `zmap check` fails on a start record without it unless the record is older than
+`tier_required_from` in `map/waivers.json`. Such older records count as tier 2 (until S26 every
+kind started at tier 2). `escalates` is the id of the item this one continues at a higher tier.
 
 Ids are `max + 1` in the file; branches merged later may repeat an id, so an item is keyed by
 (`agent`, `id`) and `stop --id N` picks the open item with that id.
@@ -20,7 +26,8 @@ import json
 import os
 
 KINDS = ('contract', 'assertion', 'cut', 'cut_lemma', 'leaf', 'run', 'rule', 'review',
-         'compliance', 'form', 'service', 'infra')
+         'compliance', 'form', 'service', 'infra', 'replay')
+TIERS = (1, 2)
 OUTCOMES = ('closed', 'open', 'abandoned')
 TYPED = ('minutes', 'usd', 'dollars', 'requests', 'tokens', 'builds')
 
@@ -79,9 +86,11 @@ def _append_locked(path, build):
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
-def start(path, fn, item, kind, agent, now=None):
+def start(path, fn, item, kind, agent, tier, escalates=None, now=None):
     if kind not in KINDS:
         raise ValueError(f'kind must be one of {KINDS}')
+    if tier not in TIERS:
+        raise ValueError(f'tier must be one of {TIERS}')
 
     def build(rows):
         held = open_items(rows, agent)
@@ -90,9 +99,14 @@ def start(path, fn, item, kind, agent, now=None):
             raise ValueError(f'agent {agent} has item {h["id"]} ({h["item"]}) open since '
                              f'{h["ts"]}; stop it first')
         ids = [r['id'] for r in rows if is_v2(r) and r.get('rec') == 'start']
-        return {'schema': 2, 'rec': 'start', 'id': max(ids, default=0) + 1, 'ts': now_ts(now),
-                'fn': None if fn in (None, '-') else fn, 'item': item, 'kind': kind,
-                'agent': agent}
+        if escalates is not None and escalates not in ids:
+            raise ValueError(f'--escalates {escalates}: no started item with that id')
+        rec = {'schema': 2, 'rec': 'start', 'id': max(ids, default=0) + 1, 'ts': now_ts(now),
+               'fn': None if fn in (None, '-') else fn, 'item': item, 'kind': kind,
+               'agent': agent, 'tier': tier}
+        if escalates is not None:
+            rec['escalates'] = escalates
+        return rec
     return _append_locked(path, build)
 
 
@@ -134,8 +148,12 @@ def register(sub, default_ledger):
     s.add_argument('--item', required=True)
     s.add_argument('--kind', required=True, choices=KINDS)
     s.add_argument('--agent', required=True, help='session-log file stem; coordinator for the top level')
+    s.add_argument('--tier', required=True, type=int, choices=TIERS,
+                   help='model tier (plan rule 14): 1 the prover model, 2 the strongest model')
+    s.add_argument('--escalates', type=int, help='id of the item this one continues at a higher tier')
     s.add_argument('--ledger', default=default_ledger)
-    s.set_defaults(func=run(lambda a: start(a.ledger, a.fn, a.item, a.kind, a.agent)))
+    s.set_defaults(func=run(lambda a: start(a.ledger, a.fn, a.item, a.kind, a.agent, a.tier,
+                                            a.escalates)))
 
     t = lsub.add_parser('stop', help='close an item')
     t.add_argument('--id', required=True, type=int)

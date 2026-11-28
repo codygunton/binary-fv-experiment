@@ -13,7 +13,8 @@ session logs; minutes from timestamps), the raw ledger rows (for automation shar
 5. for the target set, function counts and feature sums by state;
 6. cost drivers: dollars per cut point in proved functions with a class against those without;
 7. unattributed cost per agent;
-8. the forecast (25th, 50th, 75th percentile totals) from `metrics.json`.
+8. the forecast (25th, 50th, 75th percentile totals in dollars and tokens, from dollars and
+   tokens per cut point of fully ledgered functions) from `metrics.json`.
 """
 import os
 import re
@@ -208,23 +209,27 @@ def render(m, items, rows, met):
 
     fc = (met or {}).get('forecast') or {}
     tot = fc.get('totals_usd') or {}
+    tok = fc.get('totals_tokens') or {}
     lines += ['', '## Forecast', '',
-              'Open cut points per size band x items per cut point x dollars per item, both '
-              'measured on proved functions with costed items (sample: '
-              f'{", ".join(fc.get("sample_functions") or []) or "none"}). Bands without a sample '
-              'use the pooled sample. Revision 2 lifts the "no extrapolated total" rule.', '',
+              'Open cut points x dollars and tokens per cut point, measured only on functions '
+              'whose whole proof is in the ledger (plan S29: proved or conditional, with a '
+              '`contract` item, not in `waivers.json` `not_fully_ledgered`; sample: '
+              f'{", ".join(fc.get("sample_functions") or []) or "none"}). Totals sum the size '
+              'bands; a band without a sample uses the pooled sample. Revision 2 lifts the '
+              '"no extrapolated total" rule.', '',
               f'Totals: p25 ${_fmt(tot.get("p25"))}, p50 ${_fmt(tot.get("p50"))}, '
-              f'p75 ${_fmt(tot.get("p75"))} for {fc.get("open_cut_points", "-")} open cut points; '
+              f'p75 ${_fmt(tot.get("p75"))}; tokens p25 {_fmt(tok.get("p25"))}, '
+              f'p50 {_fmt(tok.get("p50"))}, p75 {_fmt(tok.get("p75"))}; '
+              f'for {fc.get("open_cut_points", "-")} open cut points; '
               f'share of open cut points in a class with no closed sample: '
-              f'{"-" if fc.get("unsampled_share") is None else f"{100 * fc["unsampled_share"]:.0f}%"}.', '']
-    bb = fc.get('by_band') or {'columns': [], 'rows': []}
-    if bb['columns']:
-        lines += ['| ' + ' | '.join(bb['columns']) + ' |', '|---|' + '---:|' * (len(bb['columns']) - 1)]
-        lines += ['| ' + ' | '.join(_fmt(x) for x in r) + ' |' for r in bb['rows']]
-    bc = fc.get('by_class') or {'columns': [], 'rows': []}
-    if bc['columns']:
-        lines += ['', '| ' + ' | '.join(bc['columns']) + ' |', '|---|---:|---:|']
-        lines += ['| ' + ' | '.join(_fmt(x) for x in r) + ' |' for r in bc['rows']]
+              f'{"-" if fc.get("unsampled_share") is None else f"{100 * fc["unsampled_share"]:.0f}%"}.']
+    for key in ('sample', 'by_band', 'by_class'):
+        t = fc.get(key) or {'columns': [], 'rows': []}
+        if t['columns']:
+            text = 3 if key == 'sample' else 1
+            lines += ['', '| ' + ' | '.join(t['columns']) + ' |',
+                      '|' + '---|' * text + '---:|' * (len(t['columns']) - text)]
+            lines += ['| ' + ' | '.join(_fmt(x) for x in r) + ' |' for r in t['rows']]
     return '\n'.join(lines) + '\n'
 
 

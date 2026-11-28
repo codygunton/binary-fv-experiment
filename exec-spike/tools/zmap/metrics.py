@@ -2,9 +2,9 @@
 
 `compute(map, items, per_agent, build)` returns `metrics.json`: one object per group of plan
 S10.4 (`coverage`, `trust`, `contracts`, `meaning`, `automation`, `effort`, `build`,
-`map_precision`, `census`, `fragility`, `forecast`), each a dict of named values and tables
-(`{"columns": [...], "rows": [[...]]}`). It also sets each function's `forecast` in the map.
-Groups without data say so in `note`.
+`map_precision`, `census`, `fragility`, `forecast`) and of S29 (`tiers`, `replay`, `reuse`,
+`varloc`, `fit`), each a dict of named values and tables (`{"columns": [...], "rows": [[...]]}`).
+It also sets each function's `forecast` in the map. Groups without data say so in `note`.
 
 `append_history` adds one line per commit to `history.jsonl` (the line of the same commit is
 replaced): the coverage headline and every target function's state and meaning level.
@@ -23,7 +23,8 @@ from .merge import CLASSES, CLOSED, MEANING, PROVED, STATES
 UNITS = ('functions', 'instructions', 'cut_points', 'loops', 'call_sites')
 BUCKETS = ('closed', 'closed-on-assumptions', 'conditional', 'open')
 GROUPS = ('coverage', 'trust', 'contracts', 'meaning', 'automation', 'effort', 'build',
-          'map_precision', 'census', 'fragility', 'forecast')
+          'map_precision', 'census', 'fragility', 'forecast', 'tiers', 'replay', 'reuse',
+          'varloc', 'fit')
 ADDR = re.compile(r'0x800[0-9a-fA-F]{2,}')
 PCTS = (25, 50, 75)
 
@@ -368,76 +369,283 @@ def fragility(m, package_dir):
     return {'address_literals': table(('fn', 'name', 'literals'), rows)}
 
 
-def forecast(m, target, items):
-    """Open cut points per size band x items per cut point x dollars per item (plan S10.4).
-
-    Samples: proved functions with costed items (excluding `infra`). For each size band the
-    25th/50th/75th percentiles of the sample's items per cut point and dollars per item; a band
-    without a sample takes the pooled sample. A function's open cut points are all its cuts when
-    unproved, the cuts with an open item when it has a plan."""
+def ledger_by_fn(m, items):
+    """Costed items per map function id (status aliases resolved)."""
+    by_fn = {f['id'] for f in m['functions']}
+    alias = {f['status_id']: f['id'] for f in m['functions'] if f.get('status_id')}
     led = defaultdict(list)
-    by_fn = {f['id']: f for f in m['functions']}
-    alias = {f['status_id']: f['id'] for f in m['functions'] if f['status_id']}
     for i in items:
         fid = alias.get(i.get('fn'), i.get('fn'))
-        if fid in by_fn and i.get('kind') != 'infra':
+        if fid in by_fn:
             led[fid].append(i)
-    sample = [f for f in m['functions'] if f['state'] in PROVED and led.get(f['id'])]
+    return led
+
+
+def fully_ledgered(m, led, excluded=()):
+    """Functions whose whole proof is in the ledger (plan S29): proved or conditional, with a
+    `contract` item (the proof was ledgered from its contract on), and not listed in
+    `waivers.json` `not_fully_ledgered` (proved before the ledger, later items cover only
+    refinements)."""
+    return [f for f in m['functions']
+            if (f['state'] in PROVED or f['state'] == 'conditional') and f['id'] not in excluded
+            and any(i.get('kind') == 'contract' for i in led.get(f['id'], ()))]
+
+
+def forecast(m, target, items, excluded=()):
+    """Open cut points x measured dollars and tokens per cut point (plan S10.4, S29).
+
+    Sample: the fully ledgered functions; each gives one rate, all its items' dollars (tokens)
+    over its cut points. Totals sum over size bands (a function is in exactly one) the band's
+    open cut points times the 25th/50th/75th percentile of the band's sample rates; a band
+    without a sample takes the pooled sample. A function's open cut points are all its cuts
+    when unproved, the cuts with an open item when it has a plan."""
+    led = ledger_by_fn(m, items)
+    sample = fully_ledgered(m, led, excluded)
     band = {f['id']: f['classes'][0] for f in m['functions']}
     sampled_classes = {c for f in sample for c in f['classes']}
 
+    def rate(f, key):
+        return sum((i.get('cost') or {}).get(key) or 0 for i in led[f['id']]) / max(len(f['cuts']), 1)
+
     def rates(fs):
-        ipc = [len(led[f['id']]) / max(len(f['cuts']), 1) for f in fs]
-        dpi = [(i.get('cost') or {}).get('usd') or 0 for f in fs for i in led[f['id']]]
-        return ipc, dpi
+        return [rate(f, 'usd') for f in fs], [rate(f, 'totalTokens') for f in fs]
 
     pooled = rates(sample)
-    per_band = {}
-    for b in sorted({band[f['id']] for f in target}):
-        fs = [f for f in sample if band[f['id']] == b]
-        per_band[b] = (rates(fs), bool(fs))
+
+    def rates_for(fs):
+        return (rates(fs), True) if fs else (pooled, False)
 
     def open_cuts(f):
         if f['state'] in PROVED or f['service']:
             return 0
         return f['open_cuts'] if f['vc_cuts'] else len(f['cuts'])
 
-    totals = {p: 0.0 for p in PCTS}
-    rows = []
-    unsampled = 0
-    open_total = 0
-    for b, ((ipc, dpi), has) in per_band.items():
-        if not has:
-            ipc, dpi = pooled
+    def q(vals, p):
+        return pct(vals, p) if vals else None
+
+    def row(label, oc, fs):
+        (usd, tok), has = rates_for(fs)
+        u = {p: q(usd, p) for p in PCTS}
+        t = {p: q(tok, p) for p in PCTS}
+        return ([label, oc, len(fs) if has else 'pooled']
+                + [_r(u[50], 2), None if t[50] is None else round(t[50])]
+                + [None if u[p] is None else round(oc * u[p]) for p in PCTS]
+                + [None if t[p] is None else round(oc * t[p]) for p in PCTS]), u, t
+
+    tot_usd = {p: 0.0 for p in PCTS}
+    tot_tok = {p: 0.0 for p in PCTS}
+    by_band = []
+    band_rates = {}
+    for b in sorted({band[f['id']] for f in target}):
         oc = sum(open_cuts(f) for f in target if band[f['id']] == b)
-        q = {p: (pct(ipc, p) * pct(dpi, p) if ipc and dpi else None) for p in PCTS}
+        r, u, t = row(b, oc, [f for f in sample if band[f['id']] == b])
+        band_rates[b] = (u, t)
+        by_band.append(r)
         for p in PCTS:
-            if q[p] is not None:
-                totals[p] += oc * q[p]
-        rows.append([b, oc, 'yes' if has else 'pooled'] +
-                    [_r(pct(ipc, 50), 2) if ipc else None, _r(pct(dpi, 50), 2) if dpi else None] +
-                    [round(oc * q[p], 0) if q[p] is not None else None for p in PCTS])
+            tot_usd[p] += oc * (u[p] or 0)
+            tot_tok[p] += oc * (t[p] or 0)
+    open_total = unsampled = 0
     for f in target:
         oc = open_cuts(f)
         open_total += oc
         if any(c not in sampled_classes for c in f['classes']):
             unsampled += oc
-        (ipc, dpi), has = per_band.get(band[f['id']], (pooled, False))
-        if not has:
-            ipc, dpi = pooled
-        f['forecast'] = ({f'p{p}': round(oc * pct(ipc, p) * pct(dpi, p), 2) for p in PCTS}
-                         if oc and ipc and dpi else None)
-    by_class = []
-    for c in CLASSES:
-        oc = sum(open_cuts(f) for f in target if c in f['classes'])
-        by_class.append([c, oc, sum(1 for f in sample if c in f['classes'])])
+        u, t = band_rates[band[f['id']]]
+        f['forecast'] = (dict({f'p{p}': round(oc * u[p], 2) for p in PCTS},
+                              **{f'tokens_p{p}': round(oc * t[p]) for p in PCTS})
+                         if oc and u[50] is not None else None)
+    by_class = [row(c, sum(open_cuts(f) for f in target if c in f['classes']),
+                    [f for f in sample if c in f['classes']])[0] for c in CLASSES]
+    rate_rows = [[f['id'], f['name'], f['state'], len(f['cuts']), len(led[f['id']]),
+                  round(sum((i.get('cost') or {}).get('usd') or 0 for i in led[f['id']]), 2),
+                  _r(rate(f, 'usd'), 2), round(rate(f, 'totalTokens'))] for f in sample]
+    cols = ('open cut points', 'sample functions', '$/cut p50', 'tokens/cut p50',
+            '$ p25', '$ p50', '$ p75', 'tokens p25', 'tokens p50', 'tokens p75')
     return {'sample_functions': [f['id'] for f in sample],
-            'totals_usd': {f'p{p}': round(totals[p], 0) for p in PCTS},
+            'excluded': sorted(excluded),
+            'totals_usd': {f'p{p}': round(tot_usd[p]) for p in PCTS},
+            'totals_tokens': {f'p{p}': round(tot_tok[p]) for p in PCTS},
             'open_cut_points': open_total,
             'unsampled_share': _r(unsampled / open_total) if open_total else None,
-            'by_band': table(('size band', 'open cut points', 'sample', 'items/cut p50',
-                              '$/item p50', '$ p25', '$ p50', '$ p75'), rows),
-            'by_class': table(('class', 'open cut points', 'closed sample functions'), by_class)}
+            'sample': table(('fn', 'name', 'state', 'cut points', 'items', 'usd', 'usd/cut',
+                             'tokens/cut'), rate_rows),
+            'by_band': table(('size band',) + cols, by_band),
+            'by_class': table(('class',) + cols, by_class)}
+
+
+# ---------------------------------------------------------------------------------- S29 groups
+
+def tier_of(i):
+    """An item's model tier; ledger records without one predate S29 and ran at tier 2 (plan rule
+    14: every kind started at tier 2 until S26)."""
+    return i.get('tier') or 2
+
+
+def tiers(m, items):
+    """Cost per item and per cut point by tier, share of items closed at tier 1, escalations."""
+    v2 = [i for i in items if not i.get('backfill')]
+    by_fn = {f['id']: f for f in m['functions']}
+    led = ledger_by_fn(m, v2)
+    rows = []
+    for t in (1, 2):
+        its = [i for i in v2 if tier_of(i) == t]
+        s = _sum(its)
+        fns = {fid for fid, its_f in led.items() if any(tier_of(i) == t for i in its_f)
+               and by_fn[fid]['state'] in PROVED}
+        cuts = sum(len(by_fn[fid]['cuts']) for fid in fns)
+        fusd = sum((i.get('cost') or {}).get('usd') or 0 for fid in fns for i in led[fid]
+                   if tier_of(i) == t)
+        ftok = sum((i.get('cost') or {}).get('totalTokens') or 0 for fid in fns for i in led[fid]
+                   if tier_of(i) == t)
+        rows.append([t, len(its), sum(i.get('outcome') == 'closed' for i in its),
+                     sum(1 for i in its if i.get('tier') is None), s['usd'], s['totalTokens'],
+                     _r(s['usd'] / len(its), 2) if its else None,
+                     round(s['totalTokens'] / len(its)) if its else None,
+                     len(fns), cuts, _r(fusd / cuts, 2) if cuts else None,
+                     round(ftok / cuts) if cuts else None])
+    closed = [i for i in v2 if i.get('outcome') == 'closed']
+    esc = [[i.get('id'), i.get('agent'), i.get('fn'), i.get('item'), i.get('escalates'),
+            i.get('outcome')] for i in v2 if i.get('escalates') is not None]
+    return {'tier1_closed_share': _r(sum(tier_of(i) == 1 for i in closed) / len(closed))
+            if closed else None,
+            'closed_items': len(closed), 'escalations': len(esc),
+            'by_tier': table(('tier', 'items', 'closed', 'without tier (pre-S29)', 'usd', 'tokens',
+                              'usd/item', 'tokens/item', 'proved functions', 'their cut points',
+                              'usd/cut', 'tokens/cut'), rows),
+            'escalated_items': table(('id', 'agent', 'fn', 'item', 'escalates', 'outcome'), esc)}
+
+
+def _read_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def replay(package_dir, items):
+    """S26 replay results (`map/replay.jsonl`): per kind and residual class, hit rate, attempts,
+    tier-1 cost per item, beside the ledger's tier-2 dollars per closed item of that kind."""
+    p = os.path.join(package_dir, 'map', 'replay.jsonl')
+    try:
+        with open(p) as f:
+            rs = [json.loads(line) for line in f if line.strip()]
+    except FileNotFoundError:
+        rs = []
+    routing = os.path.exists(os.path.join(package_dir, 'map', 'routing.json'))
+    if not rs:
+        return {'note': 'no data (map/replay.jsonl missing)', 'routing_json': routing}
+    t2 = defaultdict(list)
+    for i in items:
+        if tier_of(i) == 2 and i.get('outcome') == 'closed':
+            t2[i.get('kind')].append((i.get('cost') or {}).get('usd') or 0)
+    groups = defaultdict(list)
+    for r in rs:
+        groups[(r.get('kind') or '-', r.get('class') or '-')].append(r)
+    rows = []
+    for (k, c), g in sorted(groups.items()):
+        hits = sum(bool(r.get('hit')) for r in g)
+        rows.append([k, c, len(g), hits, _r(hits / len(g), 2),
+                     _r(statistics.mean(r.get('attempts') or 0 for r in g), 2),
+                     _r(sum(r.get('usd') or 0 for r in g) / len(g), 3),
+                     round(sum(r.get('tokens') or 0 for r in g) / len(g)),
+                     _r(statistics.mean(t2[k]), 2) if t2.get(k) else None])
+    hits = sum(bool(r.get('hit')) for r in rs)
+    return {'items': len(rs), 'hits': hits, 'hit_rate': _r(hits / len(rs)),
+            'usd': round(sum(r.get('usd') or 0 for r in rs), 2), 'routing_json': routing,
+            'by_class': table(('kind', 'class', 'items', 'hits', 'hit rate', 'attempts mean',
+                               'tier-1 usd/item', 'tier-1 tokens/item',
+                               'ledger tier-2 usd/closed item'), rows)}
+
+
+def reuse(m, items):
+    """Family reuse ratios: per stem with two or more ledgered copies, each later copy's dollars
+    and tokens over the first copy's (the copy whose first item is earliest)."""
+    led = ledger_by_fn(m, items)
+    fams = defaultdict(list)
+    for f in m['functions']:
+        if f['set'] == 'target' and 'generic-copy' in f['classes'] and led.get(f['id']):
+            fams[f['stem']].append(f)
+
+    def tot(f, k):
+        return sum((i.get('cost') or {}).get(k) or 0 for i in led[f['id']])
+    rows = []
+    for s, fs in sorted(fams.items()):
+        if len(fs) < 2:
+            continue
+        fs.sort(key=lambda f: min(i.get('ts') or '' for i in led[f['id']]))
+        first = fs[0]
+        u0, t0 = tot(first, 'usd'), tot(first, 'totalTokens')
+        for f in fs[1:]:
+            rows.append([s, first['id'], f['id'], f['state'], round(u0, 2), round(tot(f, 'usd'), 2),
+                         _r(tot(f, 'usd') / u0, 2) if u0 else None,
+                         _r(tot(f, 'totalTokens') / t0, 2) if t0 else None])
+    if not rows:
+        return {'note': 'no data (no family with two ledgered copies)'}
+    return {'ratios': table(('stem', 'first copy', 'copy', 'state', 'first usd', 'copy usd',
+                             'usd ratio', 'tokens ratio'), rows)}
+
+
+def varloc(m, target, package_dir):
+    """S23 coverage: variables in scope at cut points with a machine location, from
+    `map/varloc/index.json` (else the per-function files' `coverage`)."""
+    d = os.path.join(package_dir, 'map', 'varloc')
+    idx = _read_json(os.path.join(d, 'index.json'))
+    per = {}
+    if isinstance(idx, dict):
+        fns = idx.get('functions') if isinstance(idx.get('functions'), dict) else idx
+        per = {k: v for k, v in fns.items() if k.startswith('f_') and isinstance(v, dict)}
+    for f in target:
+        if f['id'] not in per:
+            cov = (_read_json(os.path.join(d, f['id'] + '.json')) or {}).get('coverage')
+            if cov:
+                per[f['id']] = cov
+    if not per:
+        return {'note': 'no data (map/varloc/ missing)'}
+    tids = {f['id'] for f in target}
+    have = [k for k in per if k in tids]
+    ins = sum(per[k].get('in_scope') or 0 for k in have)
+    loc = sum(per[k].get('located') or 0 for k in have)
+    by_id = {f['id']: f for f in target}
+    rows = [[k, by_id[k]['name'], per[k].get('in_scope'), per[k].get('located'),
+             _r(per[k]['located'] / per[k]['in_scope'], 3) if per[k].get('in_scope') else None]
+            for k in sorted(have)]
+    return {'target_functions': len(target), 'functions_with_table': len(have),
+            'in_scope': ins, 'located': loc, 'located_share': _r(loc / ins) if ins else None,
+            'by_function': table(('fn', 'name', 'in scope', 'located', 'share'), rows)}
+
+
+FIT_RE = re.compile(r'\b(assertions|leaves)\b\W*(\d+)\s+of\s+(\d+)', re.I)
+
+
+def fit(package_dir):
+    """S24 fit counts (`OPEN/checkable/fit.json`, else `FIT.md` lines `assertions: n of m`,
+    `leaves: n of m`) and snapshot-screen results (`map/screen.json`)."""
+    out = {}
+    d = os.path.join(package_dir, 'OPEN', 'checkable')
+    fj = _read_json(os.path.join(d, 'fit.json'))
+    counts = {}
+    if isinstance(fj, dict):
+        counts = {k: fj[k] for k in ('assertions', 'leaves') if isinstance(fj.get(k), dict)}
+    else:
+        try:
+            with open(os.path.join(d, 'FIT.md')) as f:
+                for k, n, t in FIT_RE.findall(f.read()):
+                    counts.setdefault(k.lower(), {'fit': int(n), 'total': int(t)})
+        except FileNotFoundError:
+            pass
+    for k in ('assertions', 'leaves'):
+        c = counts.get(k)
+        out[f'{k}_fit'] = c.get('fit') if c else None
+        out[f'{k}_total'] = c.get('total') if c else None
+        out[f'{k}_share'] = _r(c['fit'] / c['total']) if c and c.get('total') else None
+    sc = _read_json(os.path.join(package_dir, 'map', 'screen.json'))
+    if isinstance(sc, list) and sc:
+        res = Counter(r.get('result') or '-' for r in sc)
+        out['screen'] = table(('result', 'assertions'), sorted(res.items()))
+    if not counts and 'screen' not in out:
+        return {'note': 'no data (OPEN/checkable/FIT.md, map/screen.json missing)'}
+    return out
 
 
 # ---------------------------------------------------------------------------------- compute
@@ -464,7 +672,8 @@ def compute(m, items, per_agent, build_json=None, package_dir='.', reviews_csr=N
     target = [f for f in m['functions'] if f['set'] == 'target']
     if history is None:
         history = read_history(os.path.join(package_dir, 'map', 'history.jsonl'))
-    pre = set(load_waivers(package_dir).get('pre_revision', []))
+    waivers = load_waivers(package_dir)
+    pre = set(waivers.get('pre_revision', []))
     if reviews_csr is None:
         rp = os.path.join(package_dir, 'map', 'reviews.json')
         reviews_csr = {}
@@ -483,7 +692,12 @@ def compute(m, items, per_agent, build_json=None, package_dir='.', reviews_csr=N
             'map_precision': map_precision(m, target),
             'census': census(package_dir),
             'fragility': fragility(m, package_dir),
-            'forecast': forecast(m, target, items)}
+            'forecast': forecast(m, target, items, set(waivers.get('not_fully_ledgered', {}))),
+            'tiers': tiers(m, items),
+            'replay': replay(package_dir, items),
+            'reuse': reuse(m, items),
+            'varloc': varloc(m, target, package_dir),
+            'fit': fit(package_dir)}
 
 
 def _git(package_dir, *args):
@@ -601,8 +815,45 @@ def brief(m, fid_or_name, items):
 
 # ---------------------------------------------------------------------------------- check
 
+def family_dir(f):
+    """`<Family>` when the function's proof module is under `ZesuExec/Fn/<Family>/`, else None."""
+    p = (f.get('status_id') or '').split('.')
+    return p[2] if len(p) >= 4 and p[:2] == ['ZesuExec', 'Fn'] else None
+
+
+def family_failures(m):
+    """Plan rule 16, S29: every copy with proof material of a stem that has several target
+    copies, one of them proved, is in `ZesuExec/Fn/<Family>/`; all such copies use one family
+    directory, and that directory serves no other stem."""
+    stems = defaultdict(list)
+    dir_stems = defaultdict(set)
+    for f in m['functions']:
+        if f.get('set') == 'target':
+            stems[f.get('stem')].append(f)
+        if family_dir(f):
+            dir_stems[family_dir(f)].add(f.get('stem'))
+    fails = []
+    for s, fs in sorted(stems.items(), key=lambda kv: str(kv[0])):
+        if len(fs) < 2 or not any(f['state'] in PROVED for f in fs):
+            continue
+        proofs = [f for f in fs if f.get('status_id')]
+        for f in proofs:
+            if family_dir(f) is None:
+                fails.append(f'{f["id"]} {f["name"]} shares stem {s} with a proved copy but is '
+                             f'proved outside ZesuExec/Fn/<Family>/ ({f["status_id"]})')
+        dirs = sorted({family_dir(f) for f in proofs} - {None})
+        if len(dirs) > 1:
+            fails.append(f'copies of {s} are proved in several directories: '
+                         + ', '.join(f'Fn/{d}' for d in dirs))
+        for d in dirs:
+            other = sorted(str(x) for x in dir_stems[d] - {s})
+            if other:
+                fails.append(f'family directory Fn/{d} of {s} also serves {", ".join(other)}')
+    return fails
+
+
 def check(package_dir, now=None):
-    """Failures of plan S10.7's `zmap check`; [] when it passes."""
+    """Failures of plan S10.7's and S29's `zmap check`; [] when it passes."""
     from . import ledger
     from .cost import parse_ts
     mp = os.path.join(package_dir, 'map')
@@ -618,12 +869,19 @@ def check(package_dir, now=None):
             typed = [k for k in ledger.TYPED if k in r]
             if typed:
                 fails.append(f'ledger line {i + 1}: schema-2 record carries typed {", ".join(typed)}')
+    w_all = load_waivers(package_dir)
+    since = w_all.get('tier_required_from')
+    for it in ledger.pair(rows):
+        if it.get('tier') not in ledger.TIERS and (since is None or it['ts'] >= since):
+            fails.append(f'ledger item {it["id"]} ({it["agent"]}: {it["item"]}) started '
+                         f'{it["ts"]} has no tier')
     try:
         with open(os.path.join(mp, 'map.json')) as f:
             m = json.load(f)
     except FileNotFoundError:
         return fails + ['map/map.json missing']
-    waivers = load_waivers(package_dir).get('waivers', {})
+    waivers = w_all.get('waivers', {})
+    fails += family_failures(m)
     for f in m['functions']:
         if f['state'] not in CLOSED:
             continue

@@ -337,3 +337,49 @@ rodata as in F1) and discharged by `A.alloc_spec`, so no allocator leaf is re-pr
 the request (`len + 2^align + 23 ≤ 2^62`) to rule out wraparound, which makes two branches
 infeasible. Rework on the five callers: one edit per free site (5 sites: F1, F4/F5 shared
 `free_step`, TX, DTF) plus a mechanical rename; no leaf re-proved. Cost: ledger items 23–25, 33, 34.
+
+## S29
+
+**Built.** `tools/zmap` only (Python), tests in `tests/test_tracking.py`.
+
+- Ledger records carry the model tier: `zmap ledger start --fn F --item I --kind K --agent A
+  --tier 1|2 [--escalates N]` (`--tier` required; `--escalates` names the item a higher-tier
+  item continues). New kind `replay` (S26). `cost.attribute` carries `tier` and `escalates`.
+- `zmap check` also fails (a) on a start record without a tier at or after
+  `waivers.json` `tier_required_from` (older records are grandfathered and count as tier 2, plan
+  rule 14); (b) when a stem with several target copies has a proved copy and a copy with proof
+  material sits outside `ZesuExec/Fn/<Family>/`, when copies use more than one family directory,
+  or when a family directory also serves another stem. Today: pass (`Fn/Rotate`, `Fn/MergeInPlace`).
+- Forecast (fixes the large-band error of revision 3's status): open cut points x dollars and
+  tokens per cut point, each sample function's rate being all its ledger dollars (tokens) over
+  its cut points; no more items-per-cut x dollars-per-item. Sample: only functions whose whole
+  proof is in the ledger: proved or conditional, with a `contract` item, not listed in
+  `waivers.json` `not_fully_ledgered` (F1 `ensureTo`: proved in the spike before S0). Totals
+  over size bands; per-class table with the same columns; per-function `forecast` gains
+  `tokens_p25/50/75`.
+- New metric groups in `metrics.json`: `tiers` (cost per item and per cut point by tier,
+  tier-1 share of closed items, escalations), `replay` (`map/replay.jsonl`: hit rate, attempts,
+  tier-1 cost per item per kind and class, beside the ledger's tier-2 dollars per closed item;
+  `routing.json` present), `reuse` (family reuse ratios, dollars and tokens of each later copy
+  over the first), `varloc` (S23 `map/varloc/index.json` / `<id>.json` `coverage`), `fit` (S24
+  `OPEN/checkable/fit.json` or `FIT.md` `assertions: n of m`, `leaves: n of m`; `map/screen.json`).
+  Groups without files say `no data`.
+
+**Measured (map at 8b63dd09 + this branch).**
+
+| | p25 | p50 | p75 |
+|---|---:|---:|---:|
+| Forecast dollars, 10,147 open cut points | 15,724 | 24,562 | 44,000 |
+| Forecast tokens | 42.8 G | 69.5 G | 132.0 G |
+
+Sample rates ($/cut, tokens/cut): txAccessList 5.68 / 16.7M; decodeTxFields (conditional) 1.80 /
+5.5M; sparseRoot 5.25 / 16.2M; mergeInPlace__anon_7964 1.23 / 3.1M; mem.rotate__anon_8330 2.83 /
+7.5M; mergeInPlace__anon_11564 1.10 / 3.0M. The >3,000-instruction band (7,652 open cut points,
+no sample, pooled) now forecasts $17,722 at p50 (was $2,887 under the old formula). 78% of open
+cut points are in a class with no closed sample. Reuse: mem.rotate copies 0.09 and 0.03 of the
+first; mergeInPlace 0.94. Tiers: 73 schema-2 items, all pre-S29 (tier 2), $417.58, $2.01 per cut
+point of the proved functions they touch; tier-1 share 0; no escalations. Replay, varloc, fit: no
+data yet on this branch. Unattributed share 27%.
+
+**Gate S29.** `make -C tools/zmap map test`: 86 tests OK; `zmap check: pass`; the forecast shows
+tokens. Cost: ledger item S29Tracking 42.
