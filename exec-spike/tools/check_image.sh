@@ -15,11 +15,13 @@ import re, subprocess, sys, tempfile, os
 gen, elf, objdump, objcopy = sys.argv[1:5]
 src = open(gen).read()
 
-# def NAME : Seg|RoSeg where  base := 0x…  words|bytes := [ … ]
+# def NAME : Seg|RoSeg where  base := 0x…  words|bytes := [ … ] ++ [ … ] …  (gen_image.py chunks
+# lists of more than 256 entries)
 seg_re = re.compile(
     r"def\s+(\S+)\s*:\s*(Seg|RoSeg)\s+where\s+base\s*:=\s*(0x[0-9a-fA-F]+)\s+"
-    r"(words|bytes)\s*:=\s*\[([^\]]*)\]", re.S)
-segs = [(m[1], m[2], int(m[3], 16), [int(x, 0) for x in m[5].replace("\n", " ").split(",") if x.strip()])
+    r"(words|bytes)\s*:=\s*(\[[^\]]*\](?:\s*\+\+\s*\[[^\]]*\])*)", re.S)
+segs = [(m[1], m[2], int(m[3], 16),
+         [int(x, 0) for x in re.sub(r"\]\s*\+\+\s*\[", ",", m[5]).strip("[]").split(",") if x.strip()])
         for m in seg_re.finditer(src)]
 if not segs:
     sys.exit(f"check_image: no segments parsed from {gen}")

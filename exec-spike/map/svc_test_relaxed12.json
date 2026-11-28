@@ -18,5 +18,75 @@
   },
   "emulator_errors": {},
   "pass": true
+ },
+ {
+  "check": "fn-sha256",
+  "definition": "zkvm_sha256 (0x800ea180) run by ziskemu (rev8 sites through harness stubs) vs Sha256.Post: digest (Lean Sha256.hash and hashlib), a0, callee-saved, return to ra, bump words, memory outside Written (needs a ziskemu that loads csrsi 0x816,2)",
+  "cases": 100,
+  "lean_none": 0,
+  "parts": {
+   "digest": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "bump words": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "regs": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "callee-saved": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "returned to ra": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "unchanged input [a0-off, +512)": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "unchanged out-64..out+96 except out": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "unchanged sp-0x200..sp+0x100 except frame": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "unchanged bump-64..bump+80 except bump": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "unchanged extra params 0xa0000f00+256 except staging": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "digest = hashlib": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "flipped hashlib digest rejected": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   }
+  },
+  "emulator_errors": {},
+  "pass": true
  }
 ]

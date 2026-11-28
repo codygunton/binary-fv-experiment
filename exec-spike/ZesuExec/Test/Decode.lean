@@ -3,8 +3,9 @@ import ZesuExec.Image.Expected
 
 /-!
 Every emitted word decodes, and to the constructor `llvm-objdump -M no-aliases` names.
-The exception is `csrrs` (`memcpy`, `memmove`, `memset`): it must not decode, because `step` never
-executes it; `next` substitutes `ziskMemcpy` at `Layout.memcpyEntry` and a registry service step
+The exceptions are `csrrs` and `csrrsi` (`memcpy`, `memmove`, `memset`, `zkvm_sha256`): they must
+not decode, because `step` never executes them; `next` substitutes `ziskMemcpy` at
+`Layout.memcpyEntry` and a registry service step
 (`ZesuExec.svc`) elsewhere.
 
 The check is split in two linear passes (a per-entry `zesuImage.word?` lookup is quadratic in the
@@ -23,14 +24,14 @@ def mnemonicAgrees : Nat × Nat × String → Bool
   | (_, w, mn) =>
     match decodeNat w with
     | some i => i.mnemonic == mn
-    | none => mn == "csrrs"
+    | none => mn == "csrrs" || mn == "csrrsi"
 
 theorem table_pairs : Expected.table.map (fun e => (e.1, e.2.1)) = pairsOf zesuImage := by
   decide +kernel
 
 theorem decode_table : Expected.table.all mnemonicAgrees = true := by decide +kernel
 
-theorem decode_table_size : Expected.table.length = 5436 := by decide +kernel
+theorem decode_table_size : Expected.table.length = 5836 := by decide +kernel
 
 /-- Words of the forms added in S12 and S12b, taken from functions outside the image (address,
 word, mnemonic as `llvm-objdump -M no-aliases` prints them). -/
