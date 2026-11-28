@@ -134,6 +134,7 @@ open f_bin_op_x_S
 open f_bin_op_f_S
 open f_bin_f_op_H
 open f_bin_f_op_D
+open extop_zbb
 open extension
 open exception
 open cregidx
@@ -141,8 +142,13 @@ open cfregidx
 open cbop_zicbop
 open cbop_zicbom
 open cacheop
+open bropw_zbb
+open brop_zbs
+open brop_zbkb
+open brop_zbb
 open breakpoint_cause
 open bop
+open biop_zbs
 open barrier_kind
 open amoop
 open agtype
@@ -593,7 +599,7 @@ def undefined_pma_check_opts (_ : Unit) : SailM pma_check_opts := do
           ssccptr := ← (undefined_bool ())
           svadu := ← (undefined_bool ()) })
 
-/-- Type quantifiers: k_ex261121_ : Bool -/
+/-- Type quantifiers: k_ex286210_ : Bool -/
 def check_pma_regions (regions : (List PMA_Region)) (prev_base : (BitVec 64)) (prev_size : (BitVec 64)) (check_opts : pma_check_opts) (found_valid_svadu_pma : Bool) : Bool := ExceptM.run do
   match regions with
   | [] =>
@@ -794,7 +800,7 @@ def check_pmp (_ : Unit) : Bool :=
     valid)
   else valid
 
-/-- Type quantifiers: k_ex261263_ : Bool -/
+/-- Type quantifiers: k_ex286352_ : Bool -/
 def check_required_sstvala_option (name : String) (value : Bool) : Bool :=
   if ((not value) : Bool)
   then

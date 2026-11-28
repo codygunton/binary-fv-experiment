@@ -131,6 +131,7 @@ open f_bin_op_x_S
 open f_bin_op_f_S
 open f_bin_f_op_H
 open f_bin_f_op_D
+open extop_zbb
 open extension
 open exception
 open cregidx
@@ -138,8 +139,13 @@ open cfregidx
 open cbop_zicbop
 open cbop_zicbom
 open cacheop
+open bropw_zbb
+open brop_zbs
+open brop_zbkb
+open brop_zbb
 open breakpoint_cause
 open bop
+open biop_zbs
 open barrier_kind
 open amoop
 open agtype
@@ -219,9 +225,6 @@ def _set_PTE_Flags_A (r_ref : (RegisterRef (BitVec 8))) (v : (BitVec 1)) : SailM
 def _set_Pmpcfg_ent_A (r_ref : (RegisterRef (BitVec 8))) (v : (BitVec 2)) : SailM Unit := do
   let r ← do (reg_deref r_ref)
   writeRegRef r_ref (_update_Pmpcfg_ent_A r v)
-
-def _get_Misa_B (v : (BitVec 64)) : (BitVec 1) :=
-  (Sail.BitVec.extractLsb v 1 1)
 
 def _update_Misa_B (v : (BitVec 64)) (x : (BitVec 1)) : (BitVec 64) :=
   (Sail.BitVec.updateSubrange v 1 1 x)
@@ -1232,7 +1235,7 @@ def _set_Satp64_Mode (r_ref : (RegisterRef (BitVec 64))) (v : (BitVec 4)) : Sail
   let r ← do (reg_deref r_ref)
   writeRegRef r_ref (_update_Satp64_Mode r v)
 
-/-- Type quantifiers: vectored_alignment_exp : Nat, k_ex249398_ : Bool, direct_alignment_exp : Nat, k_ex249396_
+/-- Type quantifiers: vectored_alignment_exp : Nat, k_ex271241_ : Bool, direct_alignment_exp : Nat, k_ex271239_
   : Bool, 2 ≤ direct_alignment_exp ∧ direct_alignment_exp ≤ 24, 2 ≤ vectored_alignment_exp
   ∧ vectored_alignment_exp ≤ 24 -/
 def legalize_tvec (o : (BitVec 64)) (v : (BitVec 64)) (direct_supported : Bool) (direct_alignment_exp : Nat) (vectored_supported : Bool) (vectored_alignment_exp : Nat) : SailM (BitVec 64) := do

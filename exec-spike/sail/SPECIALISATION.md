@@ -3,6 +3,8 @@
 Two patches against the pinned sail-riscv source, applied by `zesuSailRiscvRaw` in
 `nix/proof.nix` before the stock `postPatch`. The generated tree is committed at
 `exec-spike/sail-riscv-lean` and checked by `nix build .#zesuSailRiscvLeanRegenerationCheck`.
+The third patch, `00-sail-lean-asr.patch`, is a fix to the Sail compiler's library (not to the
+model; see `PROVENANCE.md`); the module list (S12b) adds `Zba;Zbb;Zbs;Zbkb`.
 
 ## `01-profile-config.patch`: changed configuration keys (`config/config.json.in`)
 

@@ -17,6 +17,10 @@ open LeanRV64DExecutable.Functions
 open Register
 open Decode
 
+-- With the B and Zbkb modules the decoder's clause chain (`encdec_backwards`) is nested
+-- deeper than the default limit allows `simp` to traverse.
+set_option maxRecDepth 8192
+
 theorem extractLsb_field {n : Nat} (w : BitVec n) (hi lo : Nat) :
     Sail.BitVec.extractLsb w hi lo = BitVec.ofNat (hi - lo + 1) (w.toNat / 2 ^ lo) := by
   simp [Sail.BitVec.extractLsb, BitVec.extractLsb, BitVec.extractLsb', Nat.shiftRight_eq_div_pow]

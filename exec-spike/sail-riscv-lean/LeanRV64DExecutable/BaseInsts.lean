@@ -131,6 +131,7 @@ open f_bin_op_x_S
 open f_bin_op_f_S
 open f_bin_f_op_H
 open f_bin_f_op_D
+open extop_zbb
 open extension
 open exception
 open cregidx
@@ -138,8 +139,13 @@ open cfregidx
 open cbop_zicbop
 open cbop_zicbom
 open cacheop
+open bropw_zbb
+open brop_zbs
+open brop_zbkb
+open brop_zbb
 open breakpoint_cause
 open bop
+open biop_zbs
 open barrier_kind
 open amoop
 open agtype
@@ -462,7 +468,7 @@ def rtype_mnemonic_backwards_matches (arg_ : String) : Bool :=
   | "sra" => true
   | _ => false
 
-/-- Type quantifiers: k_ex256909_ : Bool, k_n : Nat, k_n ≥ 0, 0 < k_n ∧ k_n ≤ xlen -/
+/-- Type quantifiers: k_ex278776_ : Bool, k_n : Nat, k_n ≥ 0, 0 < k_n ∧ k_n ≤ xlen -/
 def extend_value (is_unsigned : Bool) (value : (BitVec k_n)) : (BitVec 64) :=
   if (is_unsigned : Bool)
   then (zero_extend (m := 64) value)
@@ -477,7 +483,7 @@ def maybe_u_backwards (arg_ : String) : SailM Bool := do
       assert false "Pattern match failure at unknown location"
       throw Error.Exit)
 
-/-- Type quantifiers: k_ex256910_ : Bool -/
+/-- Type quantifiers: k_ex278777_ : Bool -/
 def maybe_u_forwards_matches (arg_ : Bool) : Bool :=
   match arg_ with
   | true => true
@@ -541,7 +547,7 @@ def shiftiwop_mnemonic_backwards_matches (arg_ : String) : Bool :=
   | "sraiw" => true
   | _ => false
 
-/-- Type quantifiers: k_ex256911_ : Bool -/
+/-- Type quantifiers: k_ex278778_ : Bool -/
 def effective_fence_set (set : (BitVec 4)) (fiom : Bool) : (BitVec 4) :=
   if (fiom : Bool)
   then
