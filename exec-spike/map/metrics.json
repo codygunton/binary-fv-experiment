@@ -1,9 +1,9 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T17:06:47Z",
+ "generated": "2026-11-28T18:09:13Z",
  "coverage": {
   "headline": {
-   "cut_points_closed": 169,
+   "cut_points_closed": 174,
    "cut_points_closed_on_assumptions": 0,
    "cut_points_total": 10489
   },
@@ -19,26 +19,26 @@
    "rows": [
     [
      "functions",
-     17,
+     18,
      0,
      1,
-     204,
+     203,
      222
     ],
     [
      "instructions",
-     2979,
+     3067,
      0,
      2825,
-     201330,
+     201242,
      207134
     ],
     [
      "cut_points",
-     169,
+     174,
      0,
      153,
-     10167,
+     10162,
      10489
     ],
     [
@@ -51,10 +51,10 @@
     ],
     [
      "call_sites",
-     50,
+     51,
      0,
      87,
-     2822,
+     2821,
      2959
     ]
    ]
@@ -71,10 +71,10 @@
    "rows": [
     [
      "size:<=150",
-     69,
+     74,
      0,
      0,
-     395,
+     390,
      464
     ],
     [
@@ -103,10 +103,10 @@
     ],
     [
      "loops:0",
-     45,
+     50,
      0,
      0,
-     464,
+     459,
      509
     ],
     [
@@ -151,10 +151,10 @@
     ],
     [
      "indirect-call",
-     50,
+     55,
      0,
      153,
-     4547,
+     4542,
      4750
     ],
     [
@@ -186,10 +186,10 @@
   "states": {
    "closed+compliance": 4,
    "conditional": 1,
-   "waiting": 131,
+   "ready": 49,
+   "waiting": 123,
    "blocked": 28,
-   "ready": 42,
-   "closed+sail": 11,
+   "closed+sail": 12,
    "closed": 2,
    "assumed": 1,
    "contract-draft": 2
@@ -226,7 +226,7 @@
    "configured": 26
   },
   "contracts_reviewed": 0,
-  "contracts_unreviewed": 20,
+  "contracts_unreviewed": 21,
   "rests_on": {
    "columns": [
     "fn",
@@ -326,6 +326,12 @@
      "-"
     ],
     [
+     "f_800db7a4",
+     "scratch_arena.alloc",
+     "closed+sail",
+     "-"
+    ],
+    [
      "f_800db904",
      "scratch_arena.free",
      "closed+sail",
@@ -359,7 +365,7 @@
      "unreviewed",
      "ZesuExec.Fn.TX.pre_nonvacuous",
      "-",
-     8
+     9
     ],
     [
      "f_8000050c",
@@ -377,7 +383,7 @@
      "unreviewed",
      "ZesuExec.Fn.Alloc.FreeF.pre_nonvacuous",
      "ZesuExec.Fn.Alloc.FreeF.post_snapshot",
-     1
+     2
     ],
     [
      "f_8004218c",
@@ -395,7 +401,7 @@
      "unreviewed",
      "ZesuExec.Fn.Alloc.AllocF.pre_nonvacuous",
      "ZesuExec.Fn.Alloc.AllocF.post_snapshot",
-     1
+     2
     ],
     [
      "f_8004f388",
@@ -449,7 +455,7 @@
      "unreviewed",
      "ZesuExec.Fn.F1.pre_nonvacuous",
      "-",
-     14
+     15
     ],
     [
      "f_800d5cb8",
@@ -458,7 +464,7 @@
      "unreviewed",
      "-",
      "-",
-     8
+     9
     ],
     [
      "f_800d6274",
@@ -494,7 +500,16 @@
      "unreviewed",
      "-",
      "-",
-     7
+     8
+    ],
+    [
+     "f_800db7a4",
+     "scratch_arena.alloc",
+     "draft",
+     "unreviewed",
+     "ZesuExec.Fn.Scratch.SA.pre_nonvacuous",
+     "ZesuExec.Fn.Scratch.SA.post_snapshot",
+     0
     ],
     [
      "f_800db904",
@@ -503,7 +518,7 @@
      "unreviewed",
      "ZesuExec.Fn.Scratch.FS.pre_nonvacuous",
      "ZesuExec.Fn.Scratch.FS.post_snapshot",
-     1
+     2
     ],
     [
      "f_800db944",
@@ -512,7 +527,7 @@
      "unreviewed",
      "ZesuExec.Fn.Scratch.RS.pre_nonvacuous",
      "ZesuExec.Fn.Scratch.RS.post_snapshot",
-     1
+     2
     ],
     [
      "f_800e06d0",
@@ -541,14 +556,14 @@
   "functions": {
    "spec-sail": 4,
    "model": 0,
-   "machine-only": 16,
-   "none": 202
+   "machine-only": 17,
+   "none": 201
   },
   "cut_points": {
    "spec-sail": 61,
    "model": 0,
-   "machine-only": 263,
-   "none": 10165
+   "machine-only": 268,
+   "none": 10160
   },
   "meaning_complete_cut_points": 8,
   "compliance_lines": {
@@ -656,6 +671,12 @@
      265
     ],
     [
+     "f_800db7a4",
+     "scratch_arena.alloc",
+     "machine-only",
+     0
+    ],
+    [
      "f_800db904",
      "scratch_arena.free",
      "machine-only",
@@ -671,15 +692,15 @@
   }
  },
  "automation": {
-  "auto_share": 0.0214,
+  "auto_share": 0.0211,
   "leaves": {
-   "manual": 868,
+   "manual": 881,
    "auto": 19,
    "open": 1
   },
-  "auto_share_after_revision": 0.0082,
+  "auto_share_after_revision": 0.0078,
   "leaves_after_revision": {
-   "manual": 243,
+   "manual": 256,
    "auto": 2
   },
   "by_residual_class": {
@@ -723,7 +744,7 @@
     [
      "none",
      0,
-     87,
+     100,
      0
     ],
     [
@@ -853,6 +874,14 @@
      0.0
     ],
     [
+     "f_800db7a4",
+     "scratch_arena.alloc",
+     0,
+     13,
+     0,
+     0.0
+    ],
+    [
      "f_800db904",
      "scratch_arena.free",
      0,
@@ -877,22 +906,22 @@
    "auto:path": 1,
    "auto:cut": 3
   },
-  "hand_lines_per_manual_leaf": 11.47
+  "hand_lines_per_manual_leaf": 11.73
  },
  "effort": {
   "total": {
-   "usd": 820.57,
-   "totalTokens": 2436855468.15,
-   "requests": 7910.35,
-   "minutes": 2427.69,
-   "builds": 1907.84
+   "usd": 823.87,
+   "totalTokens": 2443996630.15,
+   "requests": 7979.35,
+   "minutes": 2444.17,
+   "builds": 1912.84
   },
-  "session_usd": 1226.41,
-  "unattributed_usd": 403.14,
-  "unattributed_share": 0.3287,
+  "session_usd": 1232.48,
+  "unattributed_usd": 405.91,
+  "unattributed_share": 0.3293,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
-  "infrastructure_share": 0.265,
+  "infrastructure_share": 0.264,
   "abandoned": {
    "usd": 0.0,
    "totalTokens": 0.0,
@@ -922,12 +951,12 @@
     ],
     [
      "compliance",
-     4,
-     36.71,
-     109146373.4,
-     427.4,
-     81.02,
-     94.6
+     5,
+     40.01,
+     116287535.4,
+     496.4,
+     97.5,
+     99.6
     ],
     [
      "contract",
@@ -1171,6 +1200,19 @@
      0.01
     ],
     [
+     "f_800db7a4",
+     "scratch_arena.alloc",
+     "closed+sail",
+     1,
+     3.31,
+     7141162.0,
+     69.0,
+     16.48,
+     5.0,
+     0.66,
+     0.0376
+    ],
+    [
      "f_800db904",
      "scratch_arena.free",
      "closed+sail",
@@ -1210,10 +1252,10 @@
    "rows": [
     [
      "coordinator",
-     99.75,
+     105.16,
      10.79,
-     88.96,
-     0.8919,
+     94.38,
+     0.8974,
      0
     ],
     [
@@ -1635,9 +1677,9 @@
     [
      "S13ScratchAlloc",
      3.7,
-     0.0,
-     3.7,
-     1.0,
+     3.31,
+     0.4,
+     0.1068,
      0
     ],
     [
@@ -1670,6 +1712,14 @@
      1.58,
      0.25,
      0.1376,
+     0
+    ],
+    [
+     "Sha256Land",
+     0.66,
+     0.0,
+     0.66,
+     1.0,
      0
     ],
     [
@@ -1706,7 +1756,7 @@
    "cpu_s": 1631.2,
    "peak_rss_mb_max": 4299.1
   },
-  "cpu_s_per_proved_instruction": 0.5476,
+  "cpu_s_per_proved_instruction": 0.5318,
   "modules": {
    "columns": [
     "module",
@@ -2645,6 +2695,11 @@
      26
     ],
     [
+     "f_800db7a4",
+     "scratch_arena.alloc",
+     81
+    ],
+    [
      "f_800db904",
      "scratch_arena.free",
      81
@@ -2668,15 +2723,16 @@
    "f_800cb40c",
    "f_800d6274",
    "f_800d6960",
+   "f_800db7a4",
    "f_800db904"
   ],
   "totals_usd": {
-   "p25": 1655.0,
-   "p50": 5472.0,
-   "p75": 27059.0
+   "p25": 1699.0,
+   "p50": 5750.0,
+   "p75": 23622.0
   },
-  "open_cut_points": 10167,
-  "unsampled_share": 0.831,
+  "open_cut_points": 10162,
+  "unsampled_share": 0.8314,
   "by_band": {
    "columns": [
     "size band",
@@ -2711,23 +2767,23 @@
     ],
     [
      "size:<=150",
-     394,
+     389,
      "yes",
      0.25,
-     2.14,
-     86.0,
-     211.0,
-     1503.0
+     2.28,
+     82.0,
+     222.0,
+     1031.0
     ],
     [
      "size:>3000",
      7652,
      "pooled",
      0.25,
-     1.37,
-     768.0,
-     2619.0,
-     17794.0
+     1.51,
+     816.0,
+     2887.0,
+     14830.0
     ]
    ]
   },
@@ -2740,8 +2796,8 @@
    "rows": [
     [
      "size:<=150",
-     394,
-     7
+     389,
+     8
     ],
     [
      "size:151-600",
@@ -2760,8 +2816,8 @@
     ],
     [
      "loops:0",
-     463,
-     2
+     458,
+     3
     ],
     [
      "loops:1-3",
@@ -2790,8 +2846,8 @@
     ],
     [
      "indirect-call",
-     4548,
-     2
+     4543,
+     3
     ],
     [
      "accelerator",
