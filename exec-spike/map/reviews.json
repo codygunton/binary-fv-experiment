@@ -72,6 +72,22 @@
       "reviewer": "",
       "source": "S14 zkvm_sha256: Fn/Sha256/Spec.lean drafted from the code; STATEMENTS.md S14",
       "emulator_test": "svc_test fn-sha256 on ziskemu-relaxed12 (rev8 sites through harness stubs: ZisK eed62f4d9 decodes rev8 as reserved/halt), 100/100 on every Post clause: digest = Lean Sha256.hash = hashlib, a0 = 0, sp/s0-s11, return to ra & ~1, bump words, memory outside Written over 5 windows (1840 bytes, 1560 outside Written); flipped-digest mutant rejected 100/100; map/svc_test_relaxed12.json"
+    },
+    "f_80042c0c": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S15 ssz_output.sparseRoot: Fn/SszRoot/Spec.lean (SparsePre/SparsePost) drafted from the code and ssz_output.zig:41-166; model Fn/SszRoot/Model.lean; STATEMENTS.md S15",
+      "model": "ZesuExec.Fn.SszRoot.sparseRoot",
+      "meaning": "model"
+    },
+    "f_80042b2c": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S15 ssz_output.progressiveRootAt: Fn/SszRoot/Spec.lean (ProgPre/ProgPost) drafted from the code and ssz_output.zig:41-166; model Fn/SszRoot/Model.lean; STATEMENTS.md S15",
+      "model": "ZesuExec.Fn.SszRoot.progressiveRootAt",
+      "meaning": "model"
     }
   },
   "assumed": [

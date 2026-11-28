@@ -680,3 +680,35 @@ Open (to settle before review):
   it; all F1, F2, TX, DTF snapshots re-taken (only the scratch page and the staged bytes moved).
 - **Emulator:** `tools/svc_test.py --check 0x813-reg fn-memmove` compares the staging word at
   `0xa0000f00` and the untouched old cell `0xa0400f00` against `ziskemu`.
+
+## S15 (recursion)
+
+- **Rule:** `ZesuExec.Vc.vc_sound_rec` (`Vc/SoundRec.lean`, guarded in `Axioms.lean`). `PlanR`
+  extends `Plan`; its `leaves i` are the leaves of `cuts[i]` (by index, so several cuts may share
+  a pc). Extra call exits: `SelfGoal` (the callee is the plan itself: some cut's assertion for
+  parameters chosen by the leaf, its budget at most the remaining budget, and after any run of at
+  most that budget ending in `Post`, a cut's assertion at the return address within the rest) and
+  `DGoal` (a `CalleeD`, whose budget depends on the caller's parameters). Both give the caller the
+  callee's run (`RunsIn`). Proof: the strong induction of `vc_sound`.
+- **Model (meaning level `model`):** `Fn/SszRoot/Model.lean`: `zeroHash`, `sparseRoot`,
+  `progressiveRootAt` over `List (List Byte)`, `sha2 a b = Sha256.hash (a ++ b)`, from
+  `ssz_output.zig:41-166`. `zeroHash_eq_table`: the 26 rodata segments `0x80113728 + 32 i` are
+  `zeroHash i` (`decide +kernel`: 25 hashes, ~61 s kernel time).
+- **Contracts (draft, unreviewed):** `Fn/SszRoot/Spec.lean`.
+  `sparseRoot` (`0x80042c0c`): `SparsePre`: `a3 ≤ 26` (index bound of `ZERO_HASHES`, unchecked
+  by the code; `a3` arrives unmasked in recursive calls), `PreN (sparseStack a3)`: rodata loaded,
+  `0x120 (a3 + 1) + 0xe0` bytes of present 16-aligned RAM stack below `sp`, `ra` aligned, the
+  `32 a2` chunk bytes at `a1` readable and present, the 32 result bytes at `a0`, `zkvm_sha256`'s
+  bump words and the staging word present RAM, stack/result/bump/staging/chunks pairwise
+  disjoint (the chunk range even when empty). `SparsePost`: `Returns`, the 32 bytes at `a0` are
+  `sparseRoot (chunksOf m a1 a2) a3`, memory changed only in stack, result, bump, staging.
+  Budget `sparseCost a3 a2`. `progressiveRootAt` (`0x80042b2c`): `ProgPre`: `progFits a2 a3`
+  (every `sparseRoot` depth it asks is ≤ 26) and `PreN (progStack a2 a3)`; `ProgPost` with
+  `progressiveRootAt`; budget `progCost`. The `zkvm_sha256` calls use `ShaSpec` (`sha256_spec 64`
+  of `Fn/Sha256/Proof.lean`), taken as a hypothesis until that theorem exists.
+- **State:** `sparseRoot` plan `Sparse.plan` (30 cuts: entry, after the left call, after the
+  right call, after `zkvm_sha256`, 26 cuts at `0x80042cc4` one per `s4 = k`, since the executor
+  reads rodata only at literal addresses). Proved: all 5 kinds of cut lemma, the leaves of the
+  entry (both depth-0 returns and both left self-calls), of `c94`, of the 26 `ccK k` and of `c54`.
+  Open: the 2 leaves of `c70` (to `ccK (depth-1)`, and the right self-call), the assembly by
+  `vc_sound_rec`, `sparseRoot_spec`/`_sail`/`pre_nonvacuous`. `progressiveRootAt`: contract only.

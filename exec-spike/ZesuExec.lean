@@ -106,6 +106,13 @@ import ZesuExec.Vc.Regions
 import ZesuExec.Vc.Tactics
 import ZesuExec.Vc.RunWith
 import ZesuExec.Vc.SoundW
+import ZesuExec.Vc.SoundRec
+import ZesuExec.Fn.SszRoot.Model
+import ZesuExec.Fn.SszRoot.Spec
+import ZesuExec.Fn.SszRoot.Lemmas
+import ZesuExec.Fn.SszRoot.SparseDefs
+import ZesuExec.Fn.SszRoot.SparseVc
+import ZesuExec.Fn.SszRoot.SparseRec
 import ZesuExec.Vc.AssembleW
 import ZesuExec.Fn.F1.Vc
 import ZesuExec.Fn.F2.Vc

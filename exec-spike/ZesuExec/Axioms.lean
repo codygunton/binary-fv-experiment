@@ -25,6 +25,7 @@ import ZesuExec.Fn.F1.Vc
 import ZesuExec.Fn.DTF.Reach
 import ZesuExec.Fn.Memmove.Sail
 import ZesuExec.Fn.Memset.Sail
+import ZesuExec.Vc.SoundRec
 
 /-! Axiom guards for every end theorem (plan Verification item 4). -/
 
@@ -207,6 +208,12 @@ info: 'ZesuExec.Vc.vc_soundW' depends on axioms: [propext, Classical.choice, Quo
 -/
 #guard_msgs in
 #print axioms ZesuExec.Vc.vc_soundW
+
+/--
+info: 'ZesuExec.Vc.vc_sound_rec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Vc.vc_sound_rec
 
 /--
 info: 'ZesuExec.Fn.F6.F6.reach' depends on axioms: [propext, Classical.choice, Quot.sound]
