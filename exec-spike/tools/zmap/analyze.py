@@ -6,7 +6,7 @@ tables, source hints) are labelled as such and are never used in proofs.
 import bisect
 from collections import Counter, defaultdict
 
-from . import elfread
+from . import elfread, precision
 
 M64 = (1 << 64) - 1
 
@@ -24,6 +24,7 @@ LOADS = {'ld': (8, True), 'c.ld': (8, True), 'c.ldsp': (8, True), 'lw': (4, True
          'c.lw': (4, True), 'c.lwsp': (4, True), 'lwu': (4, False)}
 SHIFT_FOR_WIDTH = {8: 3, 4: 2}
 TABLE_CAP = 4096
+PRECISION_ROUNDS = 4
 
 
 def imm(text):
@@ -390,19 +391,6 @@ def split_blocks(f, insns, ctrl, extra_leaders):
     return blocks
 
 
-def resolve_icall(binary, block, insn, c):
-    """Indirect call: candidates from function-pointer tables when the target came from `ld t, k(b)`."""
-    if c['off'] != 0:
-        return [], 'unresolved'
-    v = evaluate(block, insn.pc)(c['rs'])
-    if v[0] == 'ld' and v[1] == 8 and v[4] >= 0 and v[4] % 8 == 0:
-        slot = v[4] // 8
-        cands = sorted({t['slots'][slot] for t in binary.fn_tables if len(t['slots']) > slot})
-        if cands:
-            return cands, 'table-heuristic'
-    return [], 'unresolved'
-
-
 def resolve_ijump(binary, f, block, insn, c, pcs):
     """Jump table: target loaded from base + (idx << 2|3), base a constant in .rodata/.text."""
     v = evaluate(block, insn.pc)(c['rs'])
@@ -443,31 +431,16 @@ def resolve_ijump(binary, f, block, insn, c, pcs):
             'targets': sorted(set(targets))}
 
 
-def function_cfg(binary, f):
-    """Blocks, edges, calls and exits of one function (call blocks still fall through)."""
+def function_cfg(binary, f, summaries=None):
+    """Blocks, edges, calls and exits of one function (call blocks still fall through).
+    `summaries`: see `precision.flow`."""
     insns = binary.function_insns(f)
-    pcs = {i.pc for i in insns}
     ctrl = classify(binary, f, insns)
 
-    # Pass 1: blocks without table targets; resolve indirect transfers block-locally.
-    blocks1 = split_blocks(f, insns, ctrl, ())
-    tables = {}
-    for block in blocks1:
-        last = block[-1]
-        c = ctrl.get(last.pc)
-        if c is None:
-            continue
-        if c['kind'] == 'icall':
-            c['targets'], c['resolution'] = resolve_icall(binary, block, last, c)
-        elif c['kind'] == 'ijump':
-            jt = resolve_ijump(binary, f, block, last, c, pcs)
-            if jt:
-                tables[last.pc] = jt
-                c['targets'], c['resolution'] = jt['targets'], 'table-heuristic'
-            else:
-                c['targets'], c['resolution'] = [], 'unresolved'
-    extra = {t for jt in tables.values() for t in jt['targets']}
-    blocks = split_blocks(f, insns, ctrl, extra) if extra else blocks1
+    # Indirect calls and jumps: resolution by abstract interpretation (S17, `precision`);
+    # blocks are re-split at the jump targets found.
+    blocks, tables, fl = precision.resolve_function(binary, f, insns, ctrl, split_blocks,
+                                                    resolve_ijump, summaries)
     starts = [b[0].pc for b in blocks]
     start_set = set(starts)
 
@@ -527,7 +500,26 @@ def function_cfg(binary, f):
             edge(s, last.next, 'fall')
     return {'f': f, 'insns': insns, 'ctrl': ctrl, 'tables': tables, 'blocks': blocks,
             'starts': starts, 'succ': succ, 'edges': edges, 'calls': calls, 'exits': exits,
-            'call_at': call_at}
+            'call_at': call_at, 'flow': fl}
+
+
+def sync_indirect_calls(binary, cfg):
+    """Copy the final resolution of each indirect call (after `precision.Interproc`) into its
+    call record: targets as function ids, `slice` (the pointer term), `reason` (unknown
+    sites), `targets_complete` (false when some value of the pointer is not known)."""
+    ctrl = cfg['ctrl']
+    for call in cfg['calls']:
+        if call['kind'] != 'indirect':
+            continue
+        c = ctrl[call['site']]
+        call['targets'] = sorted({binary.function_at(t).id for t in c['targets']
+                                  if binary.function_at(t)})
+        call['resolution'] = c['resolution']
+        call['slice'] = c['slice']
+        call['targets_complete'] = (c['resolution'] == 'exact'
+                                    or bool(c.get('targets_complete')))
+        if c['reason']:
+            call['reason'] = c['reason']
 
 
 def no_return_call(call, noreturn):
@@ -632,6 +624,18 @@ def analyze_function(binary, cfg, noreturn, join_cuts=False):
         for j in candidates:
             cuts.setdefault(j, 'join')
         leaves, fanin = segments(cuts)
+    # Cycle cuts (S17): `vc_sound` needs every cycle to pass a cut. Loop heads cut every cycle
+    # of reducible flow; a cycle of an irreducible region that passes no cut gets one at an
+    # entry of its region. This replaces the `irreducible` blocker.
+    reach = [s for s in starts if s in idom]
+    n_cuts_before = len(cuts)
+    uncut_before = precision.uncut_regions(reach, succ, cuts)
+    cycle_added = precision.cycle_cuts(reach, succ, cuts) if uncut_before else []
+    if cycle_added:
+        for pc in cycle_added:
+            cuts.setdefault(pc, 'cycle')
+        leaves, fanin = segments(cuts)
+    regions = precision.multi_entry_regions(f.entry, reach, succ) if irreducible else []
 
     # Layout: longest path layer over the forward graph, order by address.
     layer = {}
@@ -681,14 +685,12 @@ def analyze_function(binary, cfg, noreturn, join_cuts=False):
         blockers.append({'kind': 'unsupported-form', 'detail': dict(sorted(unsupported.items()))})
     if compressed:
         blockers.append({'kind': 'compressed', 'detail': compressed})
-    ic = [c['site'] for c in calls if c['kind'] == 'indirect' and c['resolution'] == 'unresolved']
+    ic = [c['site'] for c in calls if c['kind'] == 'indirect' and c['resolution'] == 'unknown']
     if ic:
         blockers.append({'kind': 'indirect-call-unresolved', 'detail': ic})
     ij = [pc for pc, c in sorted(ctrl.items()) if c['kind'] == 'ijump' and c['resolution'] == 'unresolved']
     if ij:
         blockers.append({'kind': 'indirect-jump-unresolved', 'detail': ij})
-    if irreducible:
-        blockers.append({'kind': 'irreducible', 'detail': [list(e) for e in sorted(irreducible)]})
     if ecalls:
         blockers.append({'kind': 'ecall', 'detail': ecalls})
 
@@ -696,7 +698,8 @@ def analyze_function(binary, cfg, noreturn, join_cuts=False):
     for pc, c in sorted(ctrl.items()):
         if c['kind'] == 'ijump':
             jt = tables.get(pc)
-            row = {'site': pc, 'resolution': c['resolution'], 'targets': c['targets']}
+            row = {'site': pc, 'resolution': c['resolution'], 'targets': c['targets'],
+                   'slice': c['slice']}
             if jt:
                 row.update(table=jt['table'], entry_size=jt['entry_size'], entries=jt['entries'],
                            relative_to=jt['relative_to'])
@@ -712,6 +715,9 @@ def analyze_function(binary, cfg, noreturn, join_cuts=False):
         'id': f.id, 'name': f.name, 'aliases': f.aliases, 'entry': f.entry, 'size': f.size,
         'n_instr': len(insns), 'set': 'other', 'recursive': False,
         'irreducible': bool(irreducible),
+        'irreducible_regions': regions,
+        'cycle': {'cuts_before': n_cuts_before, 'uncut_regions_before': len(uncut_before),
+                  'added': cycle_added},
         'blocks': out_blocks, 'edges': edges, 'calls': calls,
         'jump_tables': jump_tables,
         'loops': [{'head': h, 'body': sorted(loop_bodies[h])} for h in sorted(heads)],
@@ -797,7 +803,28 @@ def build(elf, start_symbol='_start', join_cuts=True):
     binary = Binary(insns, functions, sections, data)
     binary.scan_fn_tables()
 
-    cfgs = [function_cfg(binary, f) for f in functions]
+    # Rounds of the analysis until the write summaries are stable: each round resolves the
+    # indirect sites (precondition sites from the callers) and recomputes the summaries (S17).
+    summaries = None
+    for _ in range(PRECISION_ROUNDS):
+        cfgs = [function_cfg(binary, f, summaries) for f in functions]
+        precision.Interproc(binary, cfgs).run()
+        new = precision.write_summaries(cfgs)
+        if new == summaries:
+            break
+        summaries = new
+    # Vtable references: every slot of a function-pointer table whose address a function
+    # materialises. The slots may be called through sites that do not resolve, so they count
+    # for reachability (not for the call graph).
+    refs = {}
+    for cfg in cfgs:
+        sync_indirect_calls(binary, cfg)
+        entries = set()
+        for t in binary.fn_tables:
+            if any(t['addr'] <= a < t['addr'] + 8 * len(t['slots']) for a in cfg['flow']['refs']):
+                entries |= set(t['slots'])
+        refs[cfg['f'].id] = sorted({binary.by_entry[e].id for e in entries} - {cfg['f'].id})
+        del cfg['flow']
     # Functions that never return: greatest fixpoint, starting from "none returns".
     noreturn = {f.id for f in functions}
     changed = True
@@ -823,7 +850,8 @@ def build(elf, start_symbol='_start', join_cuts=True):
     start = binary.function_at(elfread.symbol_value(elf, start_symbol))
     target, stack = {start.id}, [start.id]
     while stack:
-        for b in callees[stack.pop()]:
+        a = stack.pop()
+        for b in callees[a] + refs[a]:
             if b not in target:
                 target.add(b)
                 stack.append(b)
@@ -848,6 +876,7 @@ def build(elf, start_symbol='_start', join_cuts=True):
         fn['recursive'] = fid in recursive
         fn['callees'] = callees[fid]
         fn['callers'] = sorted(callers[fid])
+        fn['address_refs'] = refs[fid]
 
     csr = Counter()
     for i in insns.values():
@@ -868,4 +897,5 @@ def build(elf, start_symbol='_start', join_cuts=True):
         'functions': fns,
         'tables': tables,
         'csr_numbers': dict(sorted(csr.items())),
+        'precision': precision.measures(fns),
     }

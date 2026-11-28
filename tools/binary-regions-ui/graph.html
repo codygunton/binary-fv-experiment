@@ -198,7 +198,7 @@ const RES_C = { exact: '#56d364', precondition: '#58a6ff', 'table-heuristic': '#
 const EXITS = [null, 'call', 'tail', 'table', 'ret'];
 const BLOCK_KINDS = ['plain', 'join', 'loop_head'];
 const EDGE_KINDS = ['fall', 'taken', 'jump', 'back', 'table'];
-const CUT_WHY = ['entry', 'loop', 'ret', 'join'];
+const CUT_WHY = ['entry', 'loop', 'ret', 'join', 'cycle'];
 const CALL_KINDS = ['direct', 'indirect', 'tail'];
 
 // ------------------------------------------------------------------ state and URL hash

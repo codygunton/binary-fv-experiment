@@ -1741,3 +1741,7 @@
 {"schema": 2, "rec": "stop", "id": 18, "agent": "S12Forms", "ts": "2026-11-28T06:48:56Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 19, "ts": "2026-11-28T06:48:56Z", "fn": null, "item": "S12 measure: map rebuild, blocked counts, gate", "kind": "infra", "agent": "S12Forms"}
 {"schema": 2, "rec": "stop", "id": 19, "agent": "S12Forms", "ts": "2026-11-28T06:55:28Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:10:38Z", "fn": null, "item": "S11 budget_auto/oblig_auto: baseline measures, goal grammar, tactics", "kind": "rule", "agent": "S11Auto"}
+{"schema": 2, "rec": "stop", "id": 2, "agent": "S11Auto", "ts": "2026-11-28T07:12:00Z", "outcome": "closed", "note": "budget_auto/oblig_auto/leaf_diag one pass; TX zesu_auto moved to Facts; 39 TX budget subproofs -> budget_auto; toy leaf auto"}
+{"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:10:10Z", "fn": null, "item": "S17 exact indirect-call resolution (backward slice)", "kind": "infra", "agent": "S17MapPrecision"}
+{"schema": 2, "rec": "stop", "id": 2, "agent": "S17MapPrecision", "ts": "2026-11-28T07:19:34Z", "outcome": "closed", "note": "S17 gate measured; make map test passes"}

@@ -250,4 +250,18 @@ theorem grow_val {x : Word} (hx : x.toNat < 2 ^ 32) :
     (σ.m.reg 1 &&& ~~~(1 : Word)).toNat % 4 = 0 :=
   hc.2.1.2.2.1
 
+/-- `envP` changes only variables: an initial-memory read is `envB`'s (a `leaf_norm` normal form,
+so the facts stated over `envB`, such as `common_ra`, apply at the cuts with `envP`). -/
+@[zesu_simp] theorem envP_init (k : Nat) (σ : Sig) (m : Machine) (r off n : Nat) :
+    Sym.eval (envP k σ m) (Sym.init r off n) = Sym.eval (envB σ m) (Sym.init r off n) := rfl
+
+/-- `envS` appends a sixth region to `envB`'s five: a read of region 0 is `envB`'s. -/
+@[zesu_simp] theorem envS_init (k : Nat) (σ : Sig) (m : Machine) (off n : Nat) :
+    Sym.eval (envS k σ m) (Sym.init 0 off n) = Sym.eval (envB σ m) (Sym.init 0 off n) := rfl
+
+/-! `zesu_auto TX` runs here, with the facts above and before the hand-written leaf modules, so
+every leaf is attempted with the facts and its residual class is recorded with them. -/
+
+zesu_auto TX
+
 end ZesuExec.Fn.TX
