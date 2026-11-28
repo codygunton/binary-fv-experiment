@@ -1,6 +1,6 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T08:07:05Z",
+ "generated": "2026-11-28T08:25:42Z",
  "coverage": {
   "headline": {
    "cut_points_closed": 41,
@@ -186,12 +186,13 @@
   "states": {
    "closed-on-assumptions": 4,
    "conditional": 1,
-   "blocked": 141,
+   "blocked": 139,
    "waiting": 38,
    "ready": 31,
    "assumed": 3,
    "closed+sail": 1,
-   "closed+compliance": 3
+   "closed+compliance": 3,
+   "contract-draft": 2
   }
  },
  "trust": {
@@ -201,8 +202,8 @@
    "f_80042494"
   ],
   "csr": {
-   "defined": 0,
-   "emulator_tested": 0,
+   "defined": 4,
+   "emulator_tested": 3,
    "total": 14,
    "numbers": [
     "0x800",
@@ -222,13 +223,13 @@
    ]
   },
   "trusted_lines": {
-   "contracts": 1741,
-   "service_definitions": 58,
+   "contracts": 1783,
+   "service_definitions": 494,
    "sail_patch_hunks": 18,
    "configured": 25
   },
   "contracts_reviewed": 0,
-  "contracts_unreviewed": 9,
+  "contracts_unreviewed": 11,
   "rests_on": {
    "columns": [
     "fn",
@@ -380,24 +381,42 @@
      "-",
      "-",
      0
+    ],
+    [
+     "f_800e06d0",
+     "memmove",
+     "draft",
+     "unreviewed",
+     "-",
+     "-",
+     0
+    ],
+    [
+     "f_800e06f0",
+     "memset",
+     "draft",
+     "unreviewed",
+     "-",
+     "-",
+     0
     ]
    ]
   },
-  "missing_nonvacuity": 7,
-  "missing_snapshot": 9
+  "missing_nonvacuity": 9,
+  "missing_snapshot": 11
  },
  "meaning": {
   "functions": {
    "spec-sail": 4,
    "model": 0,
-   "machine-only": 5,
-   "none": 213
+   "machine-only": 7,
+   "none": 211
   },
   "cut_points": {
    "spec-sail": 61,
    "model": 0,
-   "machine-only": 183,
-   "none": 10245
+   "machine-only": 185,
+   "none": 10243
   },
   "meaning_complete_cut_points": 8,
   "compliance_lines": {
@@ -595,18 +614,18 @@
  },
  "effort": {
   "total": {
-   "usd": 621.17,
-   "totalTokens": 1874855572.15,
-   "requests": 5759.35,
-   "minutes": 1760.44,
-   "builds": 1350.84
+   "usd": 638.23,
+   "totalTokens": 1926154902.15,
+   "requests": 5966.35,
+   "minutes": 1809.96,
+   "builds": 1379.84
   },
-  "session_usd": 943.33,
-  "unattributed_usd": 319.46,
-  "unattributed_share": 0.3387,
+  "session_usd": 964.34,
+  "unattributed_usd": 323.41,
+  "unattributed_share": 0.3354,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
-  "infrastructure_share": 0.3425,
+  "infrastructure_share": 0.3334,
   "abandoned": {
    "usd": 0.0,
    "totalTokens": 0.0,
@@ -714,6 +733,15 @@
      52.98,
      14.14,
      11.11
+    ],
+    [
+     "service",
+     1,
+     17.06,
+     51299330.0,
+     207.0,
+     49.52,
+     29.0
     ]
    ]
   },
@@ -809,6 +837,19 @@
      0.5,
      0.29,
      0.01
+    ],
+    [
+     "f_800e06d0",
+     "memmove",
+     "contract-draft",
+     1,
+     17.06,
+     51299330.0,
+     207.0,
+     49.52,
+     29.0,
+     17.06,
+     5.6857
     ]
    ]
   },
@@ -832,10 +873,10 @@
     ],
     [
      "coordinator",
-     80.49,
+     82.57,
      10.79,
-     69.7,
-     0.866,
+     71.79,
+     0.8694,
      0
     ],
     [
@@ -871,11 +912,27 @@
      0
     ],
     [
+     "S13Alloc",
+     25.68,
+     0.0,
+     25.68,
+     1.0,
+     0
+    ],
+    [
      "TXLeavesC",
      25.29,
      24.45,
      0.84,
      0.0332,
+     0
+    ],
+    [
+     "S16Generic",
+     25.06,
+     0.0,
+     25.06,
+     1.0,
      0
     ],
     [
@@ -911,27 +968,11 @@
      0
     ],
     [
-     "S16Generic",
-     24.18,
-     0.0,
-     24.18,
-     1.0,
-     0
-    ],
-    [
      "DTFAuth",
      24.15,
      23.36,
      0.79,
      0.0326,
-     0
-    ],
-    [
-     "S13Alloc",
-     24.06,
-     0.0,
-     24.06,
-     1.0,
      0
     ],
     [
@@ -967,19 +1008,19 @@
      0
     ],
     [
+     "S14Services",
+     21.44,
+     17.06,
+     4.38,
+     0.2045,
+     0
+    ],
+    [
      "DTFPipeline",
      20.98,
      19.41,
      1.57,
      0.0747,
-     0
-    ],
-    [
-     "S14Services",
-     20.33,
-     0.0,
-     20.33,
-     1.0,
      0
     ],
     [
@@ -1087,6 +1128,14 @@
      0
     ],
     [
+     "DTFFieldsC",
+     11.28,
+     0.0,
+     11.28,
+     1.0,
+     0
+    ],
+    [
      "S10Tracking",
      9.32,
      7.01,
@@ -1119,10 +1168,26 @@
      0
     ],
     [
-     "DTFFieldsC",
-     4.88,
+     "SailRegen",
+     4.75,
      0.0,
-     4.88,
+     4.75,
+     1.0,
+     0
+    ],
+    [
+     "S13AllocB",
+     3.27,
+     0.0,
+     3.27,
+     1.0,
+     0
+    ],
+    [
+     "S16GenericB",
+     2.37,
+     0.0,
+     2.37,
      1.0,
      0
     ],
@@ -1131,14 +1196,6 @@
      1.84,
      0.0,
      1.84,
-     1.0,
-     0
-    ],
-    [
-     "SailRegen",
-     1.5,
-     0.0,
-     1.5,
      1.0,
      0
     ],

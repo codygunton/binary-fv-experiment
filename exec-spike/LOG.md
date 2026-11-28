@@ -1159,6 +1159,37 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     (CUTS.md § Open).
   - Checks: `lake build ZesuExec.Fn.DTF.Reach` (647 items, 646 manual, 1 open), `tools/verify.sh`
     pass; no `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no `maxHeartbeats` change.
+- S7 cont. (DTFFieldsB, 2026-11-28, branch `dtf`): field rows, stage 2 steps 1-3 (arms 0-2
+  committed), bridge lemmas. **Counts before → after: manual 646 → 646, open 1 → 1** after each
+  arm step (arm 0: 281 entries; arms 0-1: 592; arms 0-2: 963; each: `gen_leaves.py` 415 instances,
+  `lake build ZesuExec.Fn.DTF.Reach` 647 items, 646 manual, 1 open).
+  - `OPEN/DTF/shape.py --fields <arms>` runs `OPEN/DTF/fields_infer.lean` (greatest-fixpoint
+    must-analysis over the leaves with `Gen.lean`'s own `fieldOk`, per arm; backward pruning from
+    the entries at `0x80002dc4` and the allocator sites' copy arguments; a final pass re-checks every
+    leaf's packed row) and writes `ZesuExec/Fn/DTF/Rows.lean` (generated; types in `Field.lean`).
+  - Carry rules (`Gen.lean`): `guardOk` also accepts "every arm of the target's guard reaching the
+    source is in the source's guard"; clamp literals compared mod 2^64 (u128 limb 0); address copy:
+    `raw` from bytes of a 20-byte payload read at the outcome pointer (`payBytes`) and zero bytes of
+    an empty one (`zeroBytes`); sub-word loads/stores: `rawKept` compares bytes (`Fields.lean`
+    `byteAt`, `byteAt_sound`); both-kind cuts (`0x80002a6c`) take the `cutFields` entries the call
+    site also states (`srcFieldsOf`). `keptOk`/`keptOk_sound` factor the source-only rules;
+    `Slot.lean` `keptCarry` for store-cut sources (no `Ctx`), `Keep.lean` `loc_word_eval0`.
+  - Hand proofs: `CallFacts.fields` (the call site's `FieldsOk`, from `CallChk`) replaces the
+    eleven `siteFields … = []` proofs; `AuthFields.field_call` lost its `hfl`; `Jump`'s `ArmCheck`
+    checks the arm heads' rows are empty.
+  - Measured (all arms, not committed): 2481 entries; every scalar field of every arm reaches
+    `0x80002dc4` at the locations the success write reads, except legacy `chainId` (`s10`), its tag
+    (`a4`) and `v` (`s7`), computed from `vRaw` in the leaves `0x80001fac_3..5`, `0x80002004_1..3`.
+    Arm 3 rows break `HashStore.lean` (the store cut's two leaves use `fieldsOk_nil`/`siteFields
+    0x80002180 = []`; replace by `keptCarry_sound … (by decide)` with `store_src` returning the
+    source's `FieldsOk`), same for `AuthStore.lean` with arm 4.
+  - `Bridge.lean`: `StepV`/`ReadsV` values of the field helpers (`numOf`, `payOf`, `addrOf`, `alOf`),
+    `body_legacy`, `head_run`, `body_typed`, `body_blob`, `body_auth`, `decode_legacy`,
+    `decode_typed` (`decode t b = some (legacyOf/typedOf …)` from `ChecksL (armChecks t) b`).
+    `restOf` is irreducible (nested ones unfold to exponentially many `F2.decode`s).
+  - Not done: arms 3-4 rows committed, legacy `v` values, `Extra 0x80002dc4` (`ChecksOk σ
+    (fieldCount σ.t)` plus buffers), the 16 leaves into `0x80002db8/dbc/dc4` by hand, `TxAt` from
+    the stores, the buffers (data copy, access list image, hashes, tuples) — CUTS.md § Open.
 - S9.3 step 1 (S9Viewer, 2026-11-28, branch `viewer`): S9.1 viewer measured before any change,
   in omp's managed headless Chromium 157 on this machine (WebGL 2 via ANGLE), 1365x768 window,
   site served from `map/site` on a scratch port. Pan = one d3-zoom `translateBy` per animation
@@ -1402,3 +1433,20 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
 - Proved: `memmove_spec/_sail`, `memset_spec/_sail` (+ `pre_nonvacuous` each), guarded in
   Axioms.lean. Image gains `memmove`, `memset` (`tools/gen_image.sh`).
 - `zkvm_sha256`: blocked on `rev8`; contract drafted, not proved (coordinator decision B).
+- S7 cont. (DTFFieldsC, 2026-11-28, branch `dtf`): merged `exec-spike` (S11/S12/S17/S9.4; union of
+  LOG/ledger/history, map regenerated). Stage 2 step 1 done: arms 3-4 rows (`shape.py --fields
+  0,1,2,3,4`, 2481 entries; `gen_leaves.py` 415 instances). `store_src`/`astore_src` return the
+  source's `FieldsOk`; the four store-cut leaves (`HashStore.lean`, `AuthStore.lean`) prove their
+  targets' rows by `keptCarry_sound … (by decide)`. **Counts before → after: manual 646 → 646,
+  open 1 → 1** (`lake build ZesuExec.Fn.DTF.Reach`: 647 items).
+- S7 cont. (DTFFieldsC, 2026-11-28, branch `dtf`): stage 2 steps 2-3 and the scalar part of step 4.
+  New value kinds (`Field.lean`, `FieldVal.At`): `lc`/`lt`/`lv` (legacy chain id, tag, `v` from
+  `v_raw`'s limbs, rule `legacyOk`, arithmetic `lt_word`/`lv35`/`lv27`/`lc35` in `Fields.lean`),
+  `ty` (`a2` in `s2`, rows at `0x80000574` and the arm heads proved in `Entry.lean`/`Jump.lean`),
+  `cst` (constant tags and empty slices, `cstOk`). `Extra` at `0x80002db8/dbc/dc4` =
+  `ChecksOk σ (fieldCount σ.t)`, proved by `leaf_gen` (`succOk`, `extra_succ`). `Rows.lean`: 2687
+  entries; the row at `0x80002dc4` carries every scalar `TxAt` reads on every arm. `gen_leaves.py`
+  415 instances. **Counts before → after: manual 646 → 646, open 1 → 1** (`lake build
+  ZesuExec.Fn.DTF.Reach`: 647 items). `80002dc4_0` still open: needs the hash/tuple walks in the
+  loop invariants (arms 3/4 `decode`), the `TxAt` store proof, and the buffers (CUTS.md § Stage 2
+  status, items 1-3). `tools/verify.sh`, `zmap check` pass.

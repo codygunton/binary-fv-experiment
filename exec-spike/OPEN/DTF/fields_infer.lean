@@ -49,7 +49,13 @@ def packed (rs : Rows) (key : Bool × Nat) (seeds : List Field) : List Field :=
 def seedSite (r : Nat) : List Field :=
   if (siteArms r).any active.contains then [] else siteFields r
 
-def cfOf (rs : Rows) (pc : Nat) : List Field := packed rs (false, pc) []
+/-- The transaction type `a2` in `s2` (`.ty`) at the jump-table load and the arm heads (`Entry.lean`,
+`Jump.lean` prove these rows by hand). -/
+def seedCut (pc : Nat) : List Field :=
+  if pc == 0x80000574 || [0x80000588, 0x8000081c, 0x8000069c, 0x8000075c, 0x800005dc].contains pc
+  then [⟨.reg 18, [], .ty⟩] else []
+
+def cfOf (rs : Rows) (pc : Nat) : List Field := packed rs (false, pc) (seedCut pc)
 def sfOf (rs : Rows) (r : Nat) : List Field := packed rs (true, r) (seedSite r)
 
 /-- The jump-table targets (reached by the `.jumpInd` leaf of `0x80000574`, before any item). -/
@@ -62,6 +68,12 @@ def srcKnown (rs : Rows) (d : CutData) (t : Nat) : Bool :=
   | none => (lookupArm rs (false, d.pc) t).isSome
   | some _ => ((lookupArm rs (true, d.pc) t).isSome || !active.contains t) &&
       (!d.plain || (lookupArm rs (false, d.pc) t).isSome)
+
+/-- Locations the success write reads constants from on some arm (tags, empty slices, the blob
+fee): candidates for `.cst`. -/
+def cstLocs : List Loc :=
+  [.reg 14, .reg 15, .reg 25, .slot 0x78, .slot 0x90, .slot 0x98, .slot 0xc0, .slot 0xc8,
+    .slot 0xd8, .slot 0xe0]
 
 def sizes : List (Nat × Nat) := [(8, 1), (16, 2), (32, 4)]
 
@@ -90,11 +102,24 @@ def produce (src : List (Sym × Field)) (d : CutData) (l : Leaf) (t : Nat) : Lis
   let fromOut := match advOf d with
     | some (ko, k) => (syms.flatMap fun p => (kindsAt d l ko k).map (p.1, ·)).filter fieldFrom'
     | none => []
+  let ks := (src.filterMap fun a => match a.2.v with
+    | .num k 32 0 => some k
+    | _ => none).eraseDups
+  let legs := (syms.flatMap fun p => ks.flatMap fun k =>
+      [(p.1, FieldVal.lc k), (p.1, FieldVal.lt k), (p.1, FieldVal.lv k)]).filter fun e =>
+    e.1.fine && legacyOk src d l ⟨e.1, [t], e.2⟩
   let loops := (src.flatMap fun a => match a.2.v with
       | .acc k n i cur fin => syms.flatMap fun p => [(p.1, FieldVal.acc k n i cur fin),
           (p.1, FieldVal.num k n i)]
       | _ => []).filter (loopFrom src d l [t])
-  (kept ++ fromOut ++ loops).eraseDups
+  let csts := cstLocs.flatMap fun loc =>
+    let s := loc.sym l.S
+    (match s with
+     | .lit v => [(loc, FieldVal.cst v)]
+     | _ => []) ++ l.conds.filterMap fun c => match c with
+       | .eq a (.lit v) => if a == s then some (loc, FieldVal.cst v) else none
+       | _ => none
+  (kept ++ fromOut ++ loops ++ legs ++ csts).eraseDups
 where fieldFrom' (e : Ent) : Bool := e.1.fine && fieldFrom d l e
 
 /-- A leaf of `d` into key `key` (`true`: the call site returning to it). -/
@@ -148,6 +173,11 @@ def deps (rs : Rows) (d : CutData) (l : Leaf) (t : Nat) (e : Ent) : List (Nat ×
         (i == i' || i + 1 == i')
     | .acc k n i _ _, .num k' n' i' => k == k' && n == n' && (i == i' || i + 1 == i')
     | _, _ => false
+  let leg := match e.2 with
+    | .lc k | .lt k | .lv k => src.filter fun a =>
+        (List.range 4).any fun i => a.2.v == .num k 32 i && guardOk d.arms a.2.arms [t]
+    | _ => []
+  let loop := loop ++ leg
   -- back to source locations: a source entry is identified by its field and symbol
   let srcLocs := allLocs.filter fun loc => loc.fine
   ((kept ++ loop).flatMap fun a =>
@@ -202,6 +232,11 @@ def valStr : FieldVal → String
   | .nz k => s!".nz {k}"
   | .raw k o n => s!".raw {k} {o} {n}"
   | .acc k n i c f => s!".acc {k} {n} {i} {c} {f}"
+  | .lc k => s!".lc {k}"
+  | .lt k => s!".lt {k}"
+  | .lv k => s!".lv {k}"
+  | .ty => ".ty"
+  | .cst v => s!".cst {v}"
 
 end Infer
 
@@ -211,12 +246,13 @@ open Infer in
   let (rs, left) := fix init 200
   IO.println s!"PASSES_LEFT {left}"
   let rs := if PRUNE then prune rs else rs
-  for (key, _) in rs do
+  let outKeys := rs.map (·.1) ++ (heads.map ((false, ·))).filter fun k => !(rs.map (·.1)).contains k
+  for key in outKeys do
     let fs := if key.1 then sfOf rs key.2 else cfOf rs key.2
     for f in fs do
       IO.println s!"ROW {if key.1 then "site" else "cut"} {key.2} {locStr f.loc} {f.arms} {valStr f.v}"
   -- every leaf carries its target's packed row (`fieldsCarry`, as the proofs check it)
-  for (d, l, key) in edges do
+  for (d, l, key) in edges.filter (·.1.pc != entry) do
     let tgt := if key.1 then sfOf rs key.2 else cfOf rs key.2
     let src := srcFieldsOf (cfOf rs) (sfOf rs) d
     for f in tgt do

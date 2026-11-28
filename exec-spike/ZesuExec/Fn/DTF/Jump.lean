@@ -61,7 +61,8 @@ def ArmCheck (t : Nat) : Bool :=
       w (tgtPc t) &&
     decide (tgtIdx t < table.length) && decide (tgtPc t ≠ entry) &&
     (w (tgtPc t) &&& ~~~1) == w (tgtPc t) && decide ((w (tgtPc t)).toNat % 4 = 0) &&
-    decide (tgtPc t < 2 ^ 64) && (cutFields d'.pc).isEmpty
+    decide (tgtPc t < 2 ^ 64) && cutFields d'.pc == [⟨.reg 18, [], .ty⟩] &&
+    l.S.reg 18 == .var 18
 
 set_option maxRecDepth 20000 in
 theorem armCheck_all : ∀ t < 5, ArmCheck t = true := by decide
@@ -90,6 +91,7 @@ theorem DTF.leaf_80000574_0 :
   have hr14 : ((leavesAt 0x80000574)[0]!).S.reg 14 = .var 14 := by decide
   have hr21 : ((leavesAt 0x80000574)[0]!).S.reg 21 = .var 21 := by decide
   have hr22 : ((leavesAt 0x80000574)[0]!).S.reg 22 = .bin .add (.ptr 3 0) (.var 54) := by decide
+  have hcf1 : cutFields (table[1]!).pc = [⟨.reg 18, [], .ty⟩] := by decide
   have hsteps : ((leavesAt 0x80000574)[0]!).S.steps - (table[1]!).shape.S.steps = 5 := by decide
   have hlow : writesLow ((leavesAt 0x80000574)[0]!).S = true := by decide
   have hb1 : (budgetAt 0x80000574).1 = 34359750715 := by decide
@@ -100,7 +102,7 @@ theorem DTF.leaf_80000574_0 :
   simp only [mkCut] at hwf hm hc
   simp only [mkCut, if_neg hne, ACut, hsite, reduceCtorEq, false_and, exists_false,
     or_false] at hA
-  obtain ⟨-, hpcm, hcm, -, -, hrst, hex, -⟩ := hA
+  obtain ⟨-, hpcm, hcm, -, -, hrst, hex, -, -, hfs0⟩ := hA
   have hpre := hcm.2.1
   have h10 : m.reg 10 = w (0x80110050 + 8 * σ.t) := by
     unfold Extra at hex; rw [hpc, if_pos rfl] at hex; exact hex
@@ -110,8 +112,8 @@ theorem DTF.leaf_80000574_0 :
   have hck := armCheck_all σ.t ht5
   simp only [ArmCheck, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq,
     List.isEmpty_iff] at hck
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hpc', hpl'⟩, harms'⟩, hx'⟩, hrest'⟩, hfine'⟩, hsh'⟩, hnx⟩, hin'⟩, hbud'⟩,
-    hal⟩, hword⟩, hidx⟩, hne'⟩, hand⟩, hal4⟩, h64⟩, hfl⟩ := hck
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hpc', hpl'⟩, harms'⟩, hx'⟩, hrest'⟩, hfine'⟩, hsh'⟩, hnx⟩, hin'⟩, hbud'⟩,
+    hal⟩, hword⟩, hidx⟩, hne'⟩, hand⟩, hal4⟩, h64⟩, hfl⟩, hr18⟩ := hck
   have htw : (Sym.init 4 0 8).eval (envOf (table[1]!).shape σ m) = w (tgtPc σ.t) := by
     rw [table_word hx hcm.2.2.1 ht5 h10, hword]
   have htgt : (Sym.bin .and (.init 4 0 8) (.lit 18446744073709551614)).eval
@@ -153,6 +155,9 @@ theorem DTF.leaf_80000574_0 :
   have e21 : m'.reg 21 = m.reg 21 := by
     rw [hreg' 21, show (21 : Fin 32).val = 21 from rfl, hr21]
     simp [Sym.eval, envOf]
+  have e18 : m'.reg 18 = m.reg 18 := by
+    rw [hreg' 18, show (18 : Fin 32).val = 18 from rfl, hr18]
+    simp [Sym.eval, envOf]
   have hmem' : mkCut (table[tgtIdx σ.t]!) ∈ vcPlan.cuts := List.mem_map_of_mem (by
     rw [getElem!_pos table _ hidx]; exact List.getElem_mem _)
   have hpcm' : m'.pc.toNat = tgtPc σ.t := by
@@ -166,13 +171,21 @@ theorem DTF.leaf_80000574_0 :
   · simp only [mkCut, if_neg hne'', ACut]
     refine .inl ⟨hpl', hpcm'.trans hpc'.symm, hcm', shapeOk_of_holds hwf' hm' hR0 hfine' hsh',
       .inr (by rw [harms']; exact List.mem_singleton_self _), ?_, ?_, hinner.2,
-      fun i hi => by rw [hrest'] at hi; simp [chkCount] at hi, fieldsOk_nil hfl⟩
+      fun i hi => by rw [hrest'] at hi; simp [chkCount] at hi, fun f hf _ => ?_⟩
     · rw [hrest']
       intro r hr
       have := hrst r (by rw [hrest0]; exact hr)
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
       rcases hr with rfl | rfl | rfl | rfl <;> simpa [Loc.word, e13, e14, e21, e22] using this
     · exact extra_of_no hnx σ m'
+    · rw [hfl, List.mem_singleton] at hf
+      subst hf
+      have h0 := hfs0 ⟨.reg 18, [], .ty⟩ (by rw [hcf1]; exact List.mem_singleton_self _) (.inl rfl)
+      intro c hs l h p hd
+      have h' := h0 c hs l h p hd
+      show m'.reg (Fin.ofNat 32 18) = _
+      rw [show (Fin.ofNat 32 18 : Fin 32) = 18 from rfl, e18]
+      exact h'
   · show budgetOf (table[tgtIdx σ.t]!) σ m' ≤ budgetOf (table[1]!) σ m -
       (((leavesAt 0x80000574)[0]!).S.steps - (table[1]!).shape.S.steps)
     unfold budgetOf restLen

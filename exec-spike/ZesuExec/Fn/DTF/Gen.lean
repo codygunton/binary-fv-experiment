@@ -1774,6 +1774,7 @@ def fieldFrom (d : CutData) (l : Leaf) (f : Loc × FieldVal) : Bool :=
         (zeroBytes (f.1.sym l.S) n && l.conds.contains (.eq (.init 0 (ko + 8) 8) (.lit 0))) ||
         (decide (o + n ≤ 20 ∧ ko % 8 = 0) && l.conds.contains (.eq (.init 0 (ko + 8) 8) (.lit 20)) &&
           payBytes (f.1.sym l.S) (.var (64 + ko / 8)) o n)
+    | .lc _ | .lt _ | .lv _ | .ty | .cst _ => false
     | .acc _ n _ cur fin => f.1.sym l.S == .lit 0 && decide (cur < 32 ∧ fin < 32) &&
         l.S.reg cur == (Loc.slot ko).sym d.shape.S &&
         l.S.reg fin == .bin .add ((Loc.slot ko).sym d.shape.S) (.init 0 (ko + 8) 8) &&
@@ -1907,6 +1908,7 @@ theorem fieldFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
       rw [F1.add_add_ofNat]
     · rw [h0]
       simp [Sym.eval, limb, be, F2.bigEndian, w]
+  | lc _ | lt _ | lv _ | ty | cst _ => simp at h
 
 /-- `s` is `A` shifted up by a byte with `B` below. -/
 def orShift (s A B : Sym) : Bool :=
@@ -2156,11 +2158,183 @@ theorem keptOk_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
     exact holds_free hfree this
   · exact rawKept_sound harm hsrcF hg hloc h
 
+/-! ## Legacy chain id, tag and `v` (the leaves from `0x80001fac` and `0x80002004`) -/
+
+/-- The source's symbolic value of limb `i` of item `k`'s `u256`, its guard implied by `g`. -/
+def limbSym (src : List (Sym × Field)) (arms g : List Nat) (k i : Nat) : Option Sym :=
+  (src.find? fun a => a.2.v == .num k 32 i && guardOk arms a.2.arms g).map (·.1)
+
+theorem limbSym_spec {src : List (Sym × Field)} {arms g : List Nat} {k i : Nat} {s : Sym}
+    (h : limbSym src arms g k i = some s) :
+    ∃ a ∈ src, a.1 = s ∧ a.2.v = .num k 32 i ∧ guardOk arms a.2.arms g = true := by
+  unfold limbSym at h
+  obtain ⟨a, ha, rfl⟩ := Option.map_eq_some_iff.mp h
+  have hp := List.find?_some ha
+  simp only [Bool.and_eq_true, beq_iff_eq] at hp
+  exact ⟨a, List.mem_of_find?_eq_some ha, rfl, hp.1, hp.2⟩
+
+/-- `v_raw < q` (1 or 0) as the binary computes it from the limbs `A0..A3`. -/
+def ltSym (A0 A1 A2 A3 : Sym) (q : Nat) : Sym :=
+  .bin .and (.bin .sltu (.bin .or A1 (.bin .or A2 A3)) (.lit 1)) (.bin .sltu A0 (.lit q))
+
+/-- The legacy chain id `(v_raw - 35) / 2 mod 2^64` as the binary computes it from limbs 0, 1. -/
+def lcSym (A0 A1 : Sym) : Sym :=
+  .bin .or (.bin .srl (.bin .add A0 (.lit (2 ^ 64 - 35))) (.lit 1))
+    (.bin .sll (.bin .add (.bin .add A1 (.bin .sltu (.bin .add A0 (.lit (2 ^ 64 - 35))) A0))
+      (.lit (2 ^ 64 - 1))) (.lit 63))
+
+/-- A target legacy chain id, tag or `v` (`legacyV`) from the source's limbs of `v_raw` (item `k`,
+guards implied) under the leaf's conditions on `v_raw < 35` and `v_raw < 27`: the chain id
+`lcSym` when `35 ≤ v_raw` (anything otherwise); the tag 1 when `35 ≤ v_raw`, else 0 (a literal or
+a value the conditions say is zero); `v` the low bit of `v_raw - 35`, `v_raw - 27` when
+`27 ≤ v_raw < 35`, or 0 below 27. -/
+def legacyOk (src : List (Sym × Field)) (d : CutData) (l : Leaf) (f : Field) : Bool :=
+  match limbSym src d.arms f.arms f.v.k 0, limbSym src d.arms f.arms f.v.k 1,
+    limbSym src d.arms f.arms f.v.k 2, limbSym src d.arms f.arms f.v.k 3 with
+  | some A0, some A1, some A2, some A3 =>
+    let s := f.loc.sym l.S
+    let ge := fun q => l.conds.contains (.eq (ltSym A0 A1 A2 A3 q) (.lit 0))
+    let lt := fun q => l.conds.contains (.ne (ltSym A0 A1 A2 A3 q) (.lit 0))
+    match f.v with
+    | .lc _ => lt 35 || (ge 35 && s == lcSym A0 A1)
+    | .lt _ => (ge 35 && s == .lit 1) ||
+        (lt 35 && (s == .lit 0 || l.conds.contains (.eq s (.lit 0))))
+    | .lv _ => (ge 35 && s == .bin .and (.bin .add A0 (.lit (2 ^ 64 - 35))) (.lit 1)) ||
+        (lt 35 && ge 27 && s == .bin .add A0 (.lit (2 ^ 64 - 27))) || (lt 27 && s == .lit 0)
+    | _ => false
+  | _, _, _, _ => false
+
+theorem numVal32_lt (p : Nat) (bs : List Byte) (h : Nat) :
+    numVal 32 p (TX.itemPayload bs h p) < 2 ^ 256 := by
+  unfold numVal
+  split
+  · exact Nat.sub_lt (Nat.two_pow_pos _) (by decide)
+  · have hb := be_lt (TX.itemPayload bs h p)
+    have hl : (TX.itemPayload bs h p).length ≤ 32 := by
+      simp only [TX.itemPayload, List.length_take]; omega
+    calc _ < 256 ^ _ := hb
+      _ ≤ 256 ^ 32 := Nat.pow_le_pow_right (by decide) hl
+      _ = 2 ^ 256 := rfl
+
+theorem legacyOk_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
+    (harm : ArmOk σ d.arms) {src : List (Sym × Field)}
+    (hsrcF : ∀ a ∈ src, ArmOk σ a.2.arms → a.2.v.Holds σ m (a.1.eval (envOf d.shape σ m)))
+    (hc : ∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true)
+    {f : Field} (hg : ArmOk σ f.arms)
+    (hloc : f.loc.word σ m' = (f.loc.sym l.S).eval (envOf d.shape σ m))
+    (h : legacyOk src d l f = true) : f.v.Holds σ m' (f.loc.word σ m') := by
+  unfold legacyOk at h
+  split at h
+  case h_2 => cases h
+  next A0 A1 A2 A3 h0 h1 h2 h3 =>
+  have hlimb : ∀ {i A}, limbSym src d.arms f.arms f.v.k i = some A →
+      FieldVal.Holds σ m (.num f.v.k 32 i) (A.eval (envOf d.shape σ m)) := by
+    intro i A hA
+    obtain ⟨a, ha, rfl, hv, hga⟩ := limbSym_spec hA
+    have := hsrcF a ha (guard_ok hga harm hg)
+    rwa [hv] at this
+  have H0 := hlimb h0; have H1 := hlimb h1; have H2 := hlimb h2; have H3 := hlimb h3
+  rw [hloc]
+  intro c hs l' hh p hd
+  have e0 : A0.eval (envOf d.shape σ m) = _ := H0 c hs l' hh p hd
+  have e1 : A1.eval (envOf d.shape σ m) = _ := H1 c hs l' hh p hd
+  have e2 : A2.eval (envOf d.shape σ m) = _ := H2 c hs l' hh p hd
+  have e3 : A3.eval (envOf d.shape σ m) = _ := H3 c hs l' hh p hd
+  generalize hV : numVal 32 p (TX.itemPayload (σ.payload.drop c) hh p) = V at e0 e1 e2 e3
+  have hV256 : V < 2 ^ 256 := hV ▸ numVal32_lt p _ hh
+  have hlt : ∀ q, q < 2 ^ 64 → (ltSym A0 A1 A2 A3 q).eval (envOf d.shape σ m) =
+      if V < q then 1 else 0 := fun q hq => by
+    simp only [ltSym, Sym.eval_bin, BinOp.eval, Sym.eval_lit, e0, e1, e2, e3]
+    exact lt_word hV256 hq
+  have hge : ∀ q, q < 2 ^ 64 → SBool.eq (ltSym A0 A1 A2 A3 q) (.lit 0) ∈ l.conds → q ≤ V :=
+    fun q hq hm => by
+      have := hc _ hm
+      simp only [SBool.eval, hlt q hq, Sym.eval_lit, beq_iff_eq] at this
+      by_cases hn : V < q
+      · rw [if_pos hn] at this
+        exact absurd this (by decide)
+      · omega
+  have hlt' : ∀ q, q < 2 ^ 64 → SBool.ne (ltSym A0 A1 A2 A3 q) (.lit 0) ∈ l.conds → V < q :=
+    fun q hq hm => by
+      have := hc _ hm
+      simp only [SBool.eval, hlt q hq, Sym.eval_lit, bne_iff_ne, ne_eq] at this
+      by_cases hn : V < q
+      · exact hn
+      · rw [if_neg hn] at this
+        exact absurd rfl this
+  obtain ⟨loc, g, v⟩ := f
+  cases v with
+  | lc k =>
+    simp only [Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, List.contains_iff_mem] at h
+    show 35 ≤ _ → _ = _
+    rw [hV]
+    intro h35
+    rcases h with hm | ⟨-, hs'⟩
+    · exact absurd (hlt' 35 (by decide) hm) (by omega)
+    · rw [hs']
+      simp only [lcSym, Sym.eval_bin, BinOp.eval, Sym.eval_lit, e0, e1]
+      exact lc35 h35
+  | lt k =>
+    simp only [Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, List.contains_iff_mem] at h
+    show _ = if 35 ≤ _ then 1 else 0
+    rw [hV]
+    rcases h with ⟨hm, hs'⟩ | ⟨hm, hs' | hs'⟩
+    · rw [hs', if_pos (hge 35 (by decide) hm)]; rfl
+    · rw [hs', if_neg (by have := hlt' 35 (by decide) hm; omega)]; rfl
+    · have := hc _ hs'
+      simp only [SBool.eval, Sym.eval_lit, beq_iff_eq] at this
+      rw [this, if_neg (by have := hlt' 35 (by decide) hm; omega)]; rfl
+  | lv k =>
+    simp only [Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, List.contains_iff_mem] at h
+    show _ = w (legacyV _).2
+    rw [hV]
+    rcases h with (⟨hm, hs'⟩ | ⟨⟨hm, hm'⟩, hs'⟩) | ⟨hm, hs'⟩
+    · have h35 := hge 35 (by decide) hm
+      rw [hs']
+      simp only [Sym.eval_bin, BinOp.eval, Sym.eval_lit, e0]
+      rw [lv35 h35]
+      simp only [legacyV, if_pos h35]
+    · have h35 := hlt' 35 (by decide) hm
+      have h27 := hge 27 (by decide) hm'
+      rw [hs']
+      simp only [Sym.eval_bin, BinOp.eval, Sym.eval_lit, e0]
+      rw [lv27 h27 h35]
+      simp only [legacyV, if_neg (show ¬ 35 ≤ V by omega), if_pos h27]
+    · have h27 := hlt' 27 (by decide) hm
+      rw [hs']
+      simp only [legacyV, if_neg (show ¬ 35 ≤ V by omega), if_neg (show ¬ 27 ≤ V by omega)]
+      rfl
+  | _ => simp at h
+
+/-- A target constant word: the leaf's literal, or a value the leaf's conditions fix. -/
+def cstOk (l : Leaf) (f : Field) : Bool :=
+  match f.v with
+  | .cst v => f.loc.sym l.S == .lit v || l.conds.contains (.eq (f.loc.sym l.S) (.lit v))
+  | _ => false
+
+theorem cstOk_sound {l : Leaf} {σ : Sig} {m' : Machine} {env : Env} {f : Field}
+    (hc : ∀ b ∈ l.conds, b.eval env = true)
+    (hloc : f.loc.word σ m' = (f.loc.sym l.S).eval env) (h : cstOk l f = true) :
+    f.v.Holds σ m' (f.loc.word σ m') := by
+  obtain ⟨loc, g, v⟩ := f
+  cases v with
+  | cst v =>
+    simp only [cstOk, Bool.or_eq_true, beq_iff_eq, List.contains_iff_mem] at h
+    intro _ _ _ _ _ _
+    show _ = _
+    rw [hloc]
+    rcases h with h | h
+    · rw [h]; rfl
+    · have := hc _ h
+      simpa [SBool.eval] using this
+  | _ => simp [cstOk] at h
+
 /-- A target item value: one that rests on the source's row (`keptOk`), from the source's
-`decodeItem` outcome (`fieldFrom`), or a byte-loop step (`loopFrom`). -/
+`decodeItem` outcome (`fieldFrom`), a byte-loop step (`loopFrom`), the legacy chain id, tag
+or `v` from the source's limbs of `v_raw` (`legacyOk`), or a constant (`cstOk`). -/
 def fieldOk (src : List (Sym × Field)) (d : CutData) (l : Leaf) (f : Field) : Bool :=
   f.loc.fine && (keptOk src d l f || fieldFrom d l (f.loc, f.v) ||
-    loopFrom src d l f.arms (f.loc, f.v))
+    loopFrom src d l f.arms (f.loc, f.v) || legacyOk src d l f || cstOk l f)
 
 /-- The carry check of a leaf for the target's item values `fs`, from the source's `src`. -/
 def fieldsCarry (src : List (Sym × Field)) (d : CutData) (l : Leaf) (fs : List Field) : Bool :=
@@ -2174,10 +2348,12 @@ theorem fieldsCarry_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
   intro f hf hg
   have h1 := List.all_eq_true.mp h f hf
   simp only [fieldOk, Bool.and_eq_true, Bool.or_eq_true] at h1
-  obtain ⟨hfine, (h1 | h1) | h1⟩ := h1
+  obtain ⟨hfine, (((h1 | h1) | h1) | h1) | h1⟩ := h1
   · exact keptOk_sound C.F.arms hsrcF hg (loc_word_eval C.wf' C.hm' C.hS' hfine) h1
   · exact fieldFrom_sound C hpc hsrc hA hc hfine h1
   · exact loopFrom_sound C hc hsrcF hg hfine h1
+  · exact legacyOk_sound C.F.arms hsrcF hc hg (loc_word_eval C.wf' C.hm' C.hS' hfine) h1
+  · exact cstOk_sound hc (loc_word_eval C.wf' C.hm' C.hS' hfine) h1
 
 /-! ## Checks of the current item (open assertion item 2) -/
 
@@ -2704,6 +2880,46 @@ theorem ret_len {d d' : CutData} {l : Leaf} {s : Site} {σ : Sig} {x : Idx}
           simp only [hd', Loc.word, Nat.le_refl]
       omega
 
+/-- A success-write cut (`Extra`: every item checked). -/
+def succPc (pc : Nat) : Bool := pc == 0x80002db8 || pc == 0x80002dbc || pc == 0x80002dc4
+
+/-- A leaf into a success-write cut: from another one (reached by jumps), or from a one-arm source
+whose leaf checks the arm's last item (`chkStep` up to `fieldCount t`). -/
+def succOk (d : CutData) (l : Leaf) (pc' : Nat) : Bool :=
+  succPc pc' && ((succPc d.pc && d.site.isNone) ||
+    match d.arms with
+    | [t] => chkStep d l (fieldCount t)
+    | _ => false)
+
+theorem extra_succ {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (hpc : d.pc ≠ entry)
+    (hsrc : SrcOk d = true) (hA : (mkCut d).A σ m)
+    (hc : ∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) (F : Facts d σ m) {pc' : Nat}
+    (h : succOk d l pc' = true) : Extra pc' σ m' := by
+  have hsx : ∀ pc, succPc pc = true → ∀ m, Extra pc σ m = ChecksOk σ (fieldCount σ.t) := by
+    intro pc hp m
+    simp only [succPc, Bool.or_eq_true, beq_iff_eq] at hp
+    unfold Extra
+    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega),
+      if_neg (by omega), if_pos (by omega)]
+  simp only [succOk, Bool.and_eq_true, Bool.or_eq_true, Option.isNone_iff_eq_none] at h
+  obtain ⟨hp', h⟩ := h
+  rw [hsx _ hp']
+  rcases h with ⟨hp, hs⟩ | h
+  · have hA' := hA
+    simp only [mkCut, if_neg hpc, ACut, hs, reduceCtorEq, false_and, exists_false,
+      or_false] at hA'
+    have := hA'.2.2.2.2.2.2.1
+    rwa [hsx _ hp] at this
+  · split at h
+    case h_2 => cases h
+    next t ht =>
+    have hst : σ.t = t := by
+      rcases F.arms with h0 | h0
+      · rw [ht] at h0; cases h0
+      · rw [ht] at h0; simpa using h0
+    rw [hst]
+    exact chkStep_sound hpc hsrc hA hc F h
+
 /-- The checks of `leaf_gen`: a leaf whose only obligations are the reads at a byte-loop
 cursor, writing only frame words below the save area, ending at a plain cut or calling
 `decodeItem` with a return site, whose target facts hold (`shapeHolds`, `armsKeep`, `restFrom`
@@ -2718,7 +2934,8 @@ def GenCheck (d : CutData) (l : Leaf) : Bool :=
   match l.exit with
   | .at pc' =>
     match targetOf pc' with
-    | some d' => d'.pc != entry && d'.plain && (noExtra d'.pc || errDone d'.pc l) &&
+    | some d' => d'.pc != entry && d'.plain &&
+        (noExtra d'.pc || errDone d'.pc l || succOk d l d'.pc) &&
         d'.shape.extra.isEmpty &&
         d'.shape.Fine && shapeHolds l.S d'.shape && armsKeep d.arms d'.arms &&
         restFrom d.shape.S l.S adv (srcRest d l) d'.rest &&
@@ -2806,9 +3023,10 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
       refine .inl ⟨hpl, hexok.trans hpc'.symm, hcm, hshp, harm, hrst, ?_, hcur',
         chkStep_sound hpc hsrc hA hc F hchk, fieldsCarry_sound C hpc hsrc hA hc hfc⟩
       simp only [Bool.or_eq_true] at hnx
-      rcases hnx with hnx | hnx
+      rcases hnx with (hnx | hnx) | hnx
       · exact extra_of_no hnx σ m'
       · exact extra_err C hnx
+      · exact extra_succ hpc hsrc hA hc F hnx
     · show budgetOf d' σ m' ≤ budgetOf d σ m - (l.S.steps - d.shape.S.steps)
       omega
   | call t r =>
