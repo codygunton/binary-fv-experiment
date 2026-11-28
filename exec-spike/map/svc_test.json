@@ -11,22 +11,14 @@
     "first": null
    },
    "staging@0xa0000f00": {
-    "agree": 0,
-    "disagree": 100,
-    "first": {
-     "case": 0,
-     "emu": "0900000000000000",
-     "lean": "7371462b025c69e8"
-    }
+    "agree": 100,
+    "disagree": 0,
+    "first": null
    },
-   "staging@0xa0400f00": {
-    "agree": 0,
-    "disagree": 100,
-    "first": {
-     "case": 0,
-     "emu": "3bd5f5dc3f5194a2",
-     "lean": "0900000000000000"
-    }
+   "old@0xa0400f00": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
    },
    "regs": {
     "agree": 100,
@@ -35,7 +27,7 @@
    }
   },
   "emulator_errors": {},
-  "pass": false
+  "pass": true
  },
  {
   "check": "0x813-imm",
@@ -166,22 +158,14 @@
     "first": null
    },
    "staging@0xa0000f00": {
-    "agree": 0,
-    "disagree": 100,
-    "first": {
-     "case": 0,
-     "emu": "0a00000000000000",
-     "lean": "ed2895f2f2fc767b"
-    }
+    "agree": 100,
+    "disagree": 0,
+    "first": null
    },
-   "staging@0xa0400f00": {
-    "agree": 0,
-    "disagree": 100,
-    "first": {
-     "case": 0,
-     "emu": "2c220fcadaa40426",
-     "lean": "0a00000000000000"
-    }
+   "old@0xa0400f00": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
    },
    "regs": {
     "agree": 100,
@@ -190,7 +174,7 @@
    }
   },
   "emulator_errors": {},
-  "pass": false
+  "pass": true
  },
  {
   "check": "fn-memset",

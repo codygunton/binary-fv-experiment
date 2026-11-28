@@ -17,6 +17,10 @@ open LeanRV64DExecutable.Functions
 open Register
 open Decode
 
+-- With the B and Zbkb modules the decoder's clause chain (`encdec_backwards`) is nested
+-- deeper than the default limit allows `simp` to traverse.
+set_option maxRecDepth 8192
+
 theorem extractLsb_field {n : Nat} (w : BitVec n) (hi lo : Nat) :
     Sail.BitVec.extractLsb w hi lo = BitVec.ofNat (hi - lo + 1) (w.toNat / 2 ^ lo) := by
   simp [Sail.BitVec.extractLsb, BitVec.extractLsb, BitVec.extractLsb', Nat.shiftRight_eq_div_pow]
@@ -96,7 +100,7 @@ macro "dec_tac" : tactic =>
     have h14 := fld_of_field (field_14_1 w.toNat)
     have h12 := fld_of_field (field_12_2 w.toNat)
     simp only [Nat.reducePow] at *
-    obtain ⟨hpriv, ⟨sb, hsec⟩, ⟨mi, hmisa, hm⟩⟩ := Configured.decodeReads hc
+    obtain ⟨hpriv, ⟨sb, hsec⟩, ⟨mi, hmisa, hm, hmb⟩⟩ := Configured.decodeReads hc
     unfold Runs ext_decode
     simp [encdec_backwards, currentlyEnabled, get_xLPE, hartSupports, bool_bit_backwards,
       PreSail.readReg, EStateM.run, Bind.bind, Pure.pure,
@@ -121,7 +125,7 @@ macro "dec_tac" : tactic =>
 theorem Configured.decodeReads {s : State} (hc : Configured s) :
     s.regs.get? cur_privilege = some .Machine ∧
     (∃ v, s.regs.get? Register.mseccfg = some v) ∧
-    (∃ v, s.regs.get? Register.misa = some v ∧ _get_Misa_M v = 1#1) := by
+    (∃ v, s.regs.get? Register.misa = some v ∧ _get_Misa_M v = 1#1 ∧ _get_Misa_B v = 1#1) := by
   obtain ⟨v, hv, _⟩ := hc.mseccfg
   exact ⟨hc.privilege, ⟨v, hv⟩, hc.misa⟩
 
@@ -341,6 +345,70 @@ theorem dec_slt (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0)
     Runs (ext_decode w) s s (toSail (.slt (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
   have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
 
+theorem dec_srai (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 5)
+    (hf6 : field w.toNat 26 6 = 0x10) :
+    Runs (ext_decode w) s s (toSail (.srai (reg w.toNat 7) (reg w.toNat 15)
+      (BitVec.ofNat 6 (field w.toNat 20 6)))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf6; dec_tac
+
+theorem dec_rev8 (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 5)
+    (hf12 : field w.toNat 20 12 = 0x6b8) :
+    Runs (ext_decode w) s s (toSail (.rev8 (reg w.toNat 7) (reg w.toNat 15))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf12
+  have := fld_of_field (show field w.toNat 26 6 = 0x1a by simp only [field] at hf12 ⊢; omega)
+  have := fld_of_field (show field w.toNat 25 7 = 0x35 by simp only [field] at hf12 ⊢; omega)
+  dec_tac
+
+theorem dec_clz (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 1)
+    (hf12 : field w.toNat 20 12 = 0x600) :
+    Runs (ext_decode w) s s (toSail (.clz (reg w.toNat 7) (reg w.toNat 15))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf12
+  have := fld_of_field (show field w.toNat 26 6 = 0x18 by simp only [field] at hf12 ⊢; omega)
+  have := fld_of_field (show field w.toNat 25 7 = 0x30 by simp only [field] at hf12 ⊢; omega)
+  dec_tac
+
+theorem dec_bclri (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 1)
+    (hf6 : field w.toNat 26 6 = 0x12) :
+    Runs (ext_decode w) s s (toSail (.bclri (reg w.toNat 7) (reg w.toNat 15)
+      (BitVec.ofNat 6 (field w.toNat 20 6)))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf6
+  -- The Zbb unary clauses (`clz` … `sext.h`) compare bits 20..31 with constants `0x60c`;
+  -- their top six bits are not `0x12`.
+  have hx : ∀ c : Nat, c / 64 ≠ 0x12 → (w.toNat / 1048576 % 4096 = c) = False := by
+    intro c hc; simp only [field] at hf6; apply propext; constructor
+    · intro h; omega
+    · intro h; exact h.elim
+  dec_tac
+
+theorem dec_maxu (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0x05)
+    (hf3 : field w.toNat 12 3 = 7) :
+    Runs (ext_decode w) s s (toSail (.maxu (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_pack (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0x04)
+    (hf3 : field w.toNat 12 3 = 4) :
+    Runs (ext_decode w) s s (toSail (.pack (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7
+  -- The RV32 `zext.h` clause is `pack` with `rs2 = 0`; it does not apply (`xlen = 64`).
+  by_cases hz : field w.toNat 20 12 = 0x080
+  · have := fld_of_field hz; dec_tac
+  · simp only [field] at hz; dec_tac
+
+theorem dec_packh (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0x04)
+    (hf3 : field w.toNat 12 3 = 7) :
+    Runs (ext_decode w) s s (toSail (.packh (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_bext (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0x24)
+    (hf3 : field w.toNat 12 3 = 5) :
+    Runs (ext_decode w) s s (toSail (.bext (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_bset (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0x14)
+    (hf3 : field w.toNat 12 3 = 1) :
+    Runs (ext_decode w) s s (toSail (.bset (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
 end forms
 
 /-- Case split on an `if` in a hypothesis `ite c a b = x`. -/
@@ -350,7 +418,7 @@ theorem ite_imp {α : Type} {c : Prop} [Decidable c] {a b x : α} {P : Prop}
   · intro h; exact h1 hc (by simpa [hc] using h)
   · intro h; exact h2 hc (by simpa [hc] using h)
 
-/-- Sail's decoder agrees with `decodeWord` on every word of the 46 forms, from any configured
+/-- Sail's decoder agrees with `decodeWord` on every word of the 55 forms, from any configured
 state, without changing it. -/
 theorem decode_sound {w : BitVec 32} {i : Instr} {s : State} (h : decodeWord w = some i)
     (hc : Configured s) : Runs (ext_decode w) s s (toSail i) := by
@@ -409,6 +477,15 @@ theorem decode_sound {w : BitVec 32} {i : Instr} {s : State} (h : decodeWord w =
         | exact dec_remu w hc (by assumption) (by assumption) (by assumption)
         | exact dec_slliw w hc (by assumption) (by assumption) (by assumption)
         | exact dec_slti w hc (by assumption) (by assumption)
-        | exact dec_slt w hc (by assumption) (by assumption) (by assumption))
+        | exact dec_slt w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_srai w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_rev8 w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_clz w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_bclri w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_maxu w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_pack w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_packh w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_bext w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_bset w hc (by assumption) (by assumption) (by assumption))
 
 end ZesuExec.SailLink

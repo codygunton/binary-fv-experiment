@@ -213,6 +213,15 @@ def stepI (img : Image) (pc : Nat) (i : Instr) (S : SState) :
   | .slliw rd rs1 sh => wr rd (mkSext 32 (mkBin .sll (S.reg rs1) (.lit sh.toNat)))
   | .slti rd rs1 imm => wr rd (mkBin .slt (S.reg rs1) (wlit (sx imm)))
   | .slt rd rs1 rs2 => wr rd (mkBin .slt (S.reg rs1) (S.reg rs2))
+  | .srai rd rs1 sh => wr rd (mkBin .sra (S.reg rs1) (.lit sh.toNat))
+  | .rev8 rd rs1 => wr rd (mkBin .rev8 (S.reg rs1) (.lit 0))
+  | .maxu rd rs1 rs2 => wr rd (mkBin .maxu (S.reg rs1) (S.reg rs2))
+  | .pack rd rs1 rs2 => wr rd (mkBin .pack (S.reg rs1) (S.reg rs2))
+  | .packh rd rs1 rs2 => wr rd (mkBin .packh (S.reg rs1) (S.reg rs2))
+  | .bext rd rs1 rs2 => wr rd (mkBin .bext (S.reg rs1) (S.reg rs2))
+  | .bset rd rs1 rs2 => wr rd (mkBin .bset (S.reg rs1) (S.reg rs2))
+  | .bclri rd rs1 sh => wr rd (mkBin .bclr (S.reg rs1) (.lit sh.toNat))
+  | .clz rd rs1 => wr rd (mkBin .clz (S.reg rs1) (.lit 0))
 
 /-- Fetch and decode at `pc` (inside `.text`, 4-aligned). -/
 def fetchI (img : Image) (pc : Nat) : Option Instr :=

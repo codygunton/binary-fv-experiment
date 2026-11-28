@@ -85,11 +85,24 @@ let
 
   # exec-spike S1: the pinned model with the Zesu profile configuration and the reviewed
   # specialisation patch; otherwise identical to sailRiscvRegeneratedRaw/sailRiscvRegenerated.
+  # S12b: the Sail compiler carries upstream rems-project/sail 895028208155 (in 0.20.2): its
+  # 0.20.1 library binds `sail_arith_shiftright` to `BitVec.rotateRight` for Lean; and the model
+  # also compiles the Zba, Zbb, Zbs (`B_insts` minus `Zbc`) and Zbkb modules.
+  zesuSailCompiler = pkgs.ocamlPackages.sail.overrideAttrs (old: {
+    patches = (old.patches or [ ]) ++ [ ../exec-spike/sail/00-sail-lean-asr.patch ];
+  });
+
   zesuSailRiscvRaw = sailRiscvRegeneratedRaw.overrideAttrs (_: {
     pname = "zesu-sail-riscv-lean-rv64";
     patches = [
       ../exec-spike/sail/01-profile-config.patch
       ../exec-spike/sail/02-specialise.patch
+    ];
+    nativeBuildInputs = [ pkgs.cmake pkgs.ninja zesuSailCompiler pkgs.pkg-config pkgs.z3 ];
+    cmakeFlags = [
+      "-DDOWNLOAD_CLI11=OFF"
+      "-DDOWNLOAD_JSONCONS=OFF"
+      "-DSAIL_MODULES=main;I_insts;M_insts;Zba;Zbb;Zbs;Zbkb"
     ];
   });
 

@@ -13,8 +13,8 @@ and an instruction pattern. The pattern runs twice:
   machine and prints the same bytes.
 
 A check passes when the bytes agree on every case. Parts of a dump are compared separately
-(`parts`), so a known divergence (the `memcpy` staging word, `OPEN/services/extra_params.md`) is
-reported without hiding the rest.
+(`parts`), so a divergence in one part (e.g. the `memcpy` staging word,
+`OPEN/services/extra_params.md`) is reported without hiding the rest.
 
 `ziskemu` is built from `/home/cody/zisk` (`eed62f4d9`) as recorded in `LOG.md` (S14); it needs
 `LD_LIBRARY_PATH` to find `libiomp5.so`.
@@ -41,8 +41,8 @@ LIBDIR = '/home/cody/.local/lib'
 OUTPUT_ADDR = 0xa0010000
 PAT_PC = 0x80001000          # where the Lean image holds the pattern
 WIN = 0xa0100000             # data window
-EXTRA_ZISK = 0xa0000f00      # EXTRA_PARAMS_ADDR, core/src/mem.rs:147
-EXTRA_LEAN = 0xa0400f00      # Layout.extraParams
+EXTRA_ZISK = 0xa0000f00      # EXTRA_PARAMS_ADDR, core/src/mem.rs:147 = Layout.extraParams
+EXTRA_OLD = 0xa0400f00       # Layout.extraParams before the correction; must stay untouched
 MARCHID_ADDR = 0xa0008000 + 8 * 0xf12
 ARCH_ID = 0xFFFEEEE
 POOL = [5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17]   # registers a pattern may use; all dumped
@@ -103,10 +103,10 @@ def case_813_reg(rng):
     n = rng.randrange(0, 64 - max(od, os_) + 1)
     regs = base_regs(rng)
     regs.update({rs: WIN + os_, rd: WIN + od, rn: n})
-    regions = [(WIN, rbytes(rng, 64)), (EXTRA_ZISK, rbytes(rng, 8)), (EXTRA_LEAN, rbytes(rng, 8))]
+    regions = [(WIN, rbytes(rng, 64)), (EXTRA_ZISK, rbytes(rng, 8)), (EXTRA_OLD, rbytes(rng, 8))]
     return Case(regs, regions, [csrrs(0, 0x813, rs), add(0, rd, rn)], 8,
                 [('window', WIN, 64), ('staging@0xa0000f00', EXTRA_ZISK, 8),
-                 ('staging@0xa0400f00', EXTRA_LEAN, 8)])
+                 ('old@0xa0400f00', EXTRA_OLD, 8)])
 
 
 def case_813_imm(rng):
@@ -191,9 +191,9 @@ def case_fn_memmove(rng):
     od, os_ = rng.randrange(64), rng.randrange(64)
     n = rng.randrange(0, 64 - max(od, os_) + 1)
     regs.update({10: WIN + od, 11: WIN + os_, 12: n})
-    regions = [(WIN, rbytes(rng, 64)), (EXTRA_ZISK, rbytes(rng, 8)), (EXTRA_LEAN, rbytes(rng, 8))]
+    regions = [(WIN, rbytes(rng, 64)), (EXTRA_ZISK, rbytes(rng, 8)), (EXTRA_OLD, rbytes(rng, 8))]
     return Case(regs, regions, [], 0, [('window', WIN, 64), ('staging@0xa0000f00', EXTRA_ZISK, 8),
-                                       ('staging@0xa0400f00', EXTRA_LEAN, 8)], fn='memmove')
+                                       ('old@0xa0400f00', EXTRA_OLD, 8)], fn='memmove')
 
 
 def case_fn_memset(rng):

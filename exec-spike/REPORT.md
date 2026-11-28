@@ -102,7 +102,9 @@ table in LOG.md S1: stock 474 reachable defs / 87 registers on the `addi` path; 
 - Items 2, 3, 9: `tools/verify.sh` PASS (forbidden constructs, layering, image vs ELF: 1138 words, 128 rodata bytes).
 - Item 4: `ZesuExec/Axioms.lean` guards build. Items 5, 6, 10: `Test/Sym.lean`, `Test/Budget.lean`, non-vacuity examples build.
 - Item 7: three-way difftest agrees on 45/45 F1/F2 snapshots (TrackT2, after the config fix).
-- Item 8: `zesuSailRiscvLeanRegenerationCheck` passes (TrackT2).
+- Item 8: `zesuSailRiscvLeanRegenerationCheck` passes (TrackT2). S12b (2026-11-28) regenerated the
+  model (Sail compiler patch `sail/00-sail-lean-asr.patch`, modules `Zba;Zbb;Zbs;Zbkb`); the check
+  passes on the new committed tree (`sail/PROVENANCE.md`).
 
 ## Programme status (ZESU_VERIFICATION_PROGRAMME_PLAN.md, 2026-11-27)
 

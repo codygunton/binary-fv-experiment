@@ -126,6 +126,7 @@ open f_bin_op_x_S
 open f_bin_op_f_S
 open f_bin_f_op_H
 open f_bin_f_op_D
+open extop_zbb
 open extension
 open exception
 open cregidx
@@ -133,8 +134,13 @@ open cfregidx
 open cbop_zicbop
 open cbop_zicbom
 open cacheop
+open bropw_zbb
+open brop_zbs
+open brop_zbkb
+open brop_zbb
 open breakpoint_cause
 open bop
+open biop_zbs
 open barrier_kind
 open amoop
 open agtype
@@ -182,11 +188,11 @@ open AtomicSupport
 open Architecture
 open AmocasOddRegisterReservedBehavior
 
-/-- Type quantifiers: k_ex246438_ : Nat, k_ex246438_ ∈ {16, 32, 64, 128} -/
-def float_is_positive (op : (BitVec k_ex246438_)) : Bool :=
+/-- Type quantifiers: k_ex267998_ : Nat, k_ex267998_ ∈ {16, 32, 64, 128} -/
+def float_is_positive (op : (BitVec k_ex267998_)) : Bool :=
   (is_highest_zero op)
 
-/-- Type quantifiers: k_ex246440_ : Nat, k_ex246440_ ∈ {16, 32, 64, 128} -/
-def float_is_negative (op : (BitVec k_ex246440_)) : Bool :=
+/-- Type quantifiers: k_ex268000_ : Nat, k_ex268000_ ∈ {16, 32, 64, 128} -/
+def float_is_negative (op : (BitVec k_ex268000_)) : Bool :=
   (is_highest_one op)
 

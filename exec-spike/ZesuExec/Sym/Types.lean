@@ -9,7 +9,9 @@ No nested or mutual inductives: Lean 4.29 cannot derive `DecidableEq` for them.
 
 namespace ZesuExec.Sym
 
+/-- `rev8` and `clz` are unary: they ignore their second operand (`.lit 0`). -/
 inductive BinOp | add | sub | and | or | xor | sll | srl | sltu | mul | mulhu | divu | remu | slt
+  | sra | rev8 | maxu | pack | packh | bext | bset | bclr | clz
   deriving DecidableEq, Repr, Lean.ToExpr, Inhabited
 
 inductive Sym
