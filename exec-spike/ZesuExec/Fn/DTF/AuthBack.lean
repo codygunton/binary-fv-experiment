@@ -116,22 +116,37 @@ theorem mulhu0 {n : Nat} (hn : n < 2 ^ 40) : BinOp.eval .mulhu (w n) (w 144) = 0
 
 /-! ## The state across a call: frame words below the outcome, the live list -/
 
-/-- Every frame word below `0x2e0` (the outcome slot of the list loop's `decodeItem`) kept. -/
+/-- Every (aligned) frame word below `0x2e0` (the outcome slot of the list loop's `decodeItem`)
+kept. -/
 def LowKeep (σ : Sig) (m m' : Machine) : Prop :=
-  ∀ o, o + 8 ≤ 0x2e0 → m'.load (σ.fr + w o) 8 = m.load (σ.fr + w o) 8
+  ∀ o, o % 8 = 0 → o + 8 ≤ 0x2e0 → m'.load (σ.fr + w o) 8 = m.load (σ.fr + w o) 8
 
-theorem lk {σ : Sig} {m m' : Machine} (h : LowKeep σ m m') {o : Nat} (ho : o + 8 ≤ 0x2e0)
-    {v : Word} (hv : m.load (σ.fr + w o) 8 = some v) : m'.load (σ.fr + w o) 8 = some v := by
-  rw [h o ho]; exact hv
+theorem lk {σ : Sig} {m m' : Machine} (h : LowKeep σ m m') {o : Nat}
+    (ho : o % 8 = 0 ∧ o + 8 ≤ 0x2e0) {v : Word} (hv : m.load (σ.fr + w o) 8 = some v) :
+    m'.load (σ.fr + w o) 8 = some v := by
+  rw [h o ho.1 ho.2]; exact hv
 
 theorem out_lk {σ : Sig} {m m' : Machine} (h : LowKeep σ m m') {n j c hh p : Nat}
     (ho : AuthOut σ m n j c hh p) : AuthOut σ m' n j c hh p :=
-  authOut_mono (h _ (by decide)) (h _ (by decide)) (h _ (by decide)) ho
+  authOut_mono (h _ (by decide) (by decide)) (h _ (by decide) (by decide))
+    (h _ (by decide) (by decide)) ho
 
 theorem buf_lk {σ : Sig} {m m' : Machine} (h : LowKeep σ m m')
     (hL : ∀ L X, Live σ m L X → Live σ m' L X) {n r : Nat} (hb : AuthBuf σ m n r) :
     AuthBuf σ m' n r :=
-  authBuf_mono (h _ (by decide)) (h _ (by decide)) hL hb
+  authBuf_mono (h _ (by decide) (by decide)) (h _ (by decide) (by decide)) hL hb
+
+/-- The leaf keeps every aligned frame word below `0x2e0`. -/
+def lowKept (d : CutData) (l : Leaf) : Bool :=
+  (List.range 92).all fun k => (Loc.slot (8 * k)).sym l.S == (Loc.slot (8 * k)).sym d.shape.S
+
+theorem ctx_lowKeep {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
+    (h : lowKept d l = true) : LowKeep σ m m' := by
+  intro o h8 ho
+  obtain ⟨k, rfl⟩ : ∃ k, o = 8 * k := ⟨o / 8, by omega⟩
+  have hk := List.all_eq_true.mp h k (List.mem_range.mpr (by omega))
+  simp only [beq_iff_eq] at hk
+  exact ctx_load C (by unfold frameBytes; omega) hk
 
 theorem addr_lk {σ : Sig} {m m' : Machine} (h : LowKeep σ m m') (ha : AddrOk σ m) :
     AddrOk σ m' := by
@@ -184,7 +199,7 @@ theorem ret_keep {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
     (hpost : (calleeOf s.kind).Post σ x mc m)
     (hk : ∀ o, o + 8 ≤ 0x2e0 → s.kind.Keeps s o = true) : LowKeep σ mc m := by
   obtain ⟨-, -, hkeep⟩ := ret_common hSF hsite hpost
-  exact fun o ho => hkeep o (by unfold frameBytes; omega) (hk o ho)
+  exact fun o _ ho => hkeep o (by unfold frameBytes; omega) (hk o ho)
 
 theorem remap_live {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
     (hk : Kind.SiteFine .remap s = true) (hsite : SiteA s r σ x mc) (hq : F0.Post mc m)
