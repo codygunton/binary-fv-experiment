@@ -526,6 +526,19 @@ def function(fn, fn_names=None):
         hulls.append({'head': h, 'depth': depth[h], 'n': len(bodies[h]),
                       'pts': [[round(x, 1), round(y, 1)] for x, y in _hull(pts)]})
 
+    # Irreducible regions (S17 `irreducible_regions`): one hull per multi-entry region, with its
+    # entry blocks, drawn hatched by the page.
+    irr = []
+    for reg in fn.get('irreducible_regions') or []:
+        pts = []
+        for s in reg['nodes']:
+            if s in box:
+                x, y = box[s]
+                pts += [(x - 9, y - 9 - CUT_H), (x + BW + 9, y - 9 - CUT_H), (x - 9, y + BH + 9), (x + BW + 9, y + BH + 9)]
+        if pts:
+            irr.append({'entries': [s for s in reg['entries'] if s in box],
+                        'pts': [[round(x, 1), round(y, 1)] for x, y in _hull(pts)]})
+
     exits = block_exits(fn)
     of = block_index(fn)
 
@@ -612,7 +625,7 @@ def function(fn, fn_names=None):
     out_blocks = [{'start': b['start'], 'x': box[b['start']][0], 'y': box[b['start']][1],
                    'w': BW, 'h': BH, 'exit': exits.get(b['start'])} for b in blocks]
     xs = [p[0] for e in edges for p in e['pts']] + [-12 - 9 * (max(depth.values(), default=0) + 1)]
-    return {'blocks': out_blocks, 'edges': edges, 'hulls': hulls, 'calls': calls,
+    return {'blocks': out_blocks, 'edges': edges, 'hulls': hulls, 'irr': irr, 'calls': calls,
             'callee_stubs': list(callee_stubs.values()), 'caller_stubs': caller_stubs,
             'drains': drains, 'exit_bar': exit_bar, 'loop_depth': depth,
             'leaf_paths': leaf_paths(fn, exits),

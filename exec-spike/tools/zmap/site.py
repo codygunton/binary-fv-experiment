@@ -304,6 +304,8 @@ def fn_data(m, f, insns, sources, names):
                          for s in lay['caller_stubs']],
         'stub_w': layout.STUB_W, 'stub_h': layout.STUB_H,
         'hulls': {'depth': [h['depth'] for h in lay['hulls']], 'pts': [flat(h['pts']) for h in lay['hulls']]},
+        'irr': {'pts': [flat(r['pts']) for r in lay['irr']],
+                'entries': [[index[s] for s in r['entries']] for r in lay['irr']]},
         'drains': [flat(d['pts']) for d in lay['drains']],
         'exit_bar': {'x0': round(lay['exit_bar']['x0']), 'x1': round(lay['exit_bar']['x1']),
                      'y': round(lay['exit_bar']['y']),

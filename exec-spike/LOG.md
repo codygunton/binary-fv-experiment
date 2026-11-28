@@ -1361,3 +1361,17 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   1 when it fits; MSAA back on (GPU: `f_8001e8fc` pans at 60 fps at zoom 1.5/0.6/0.1/0.03).
   Screenshots `map/site/shots/fb-*.png` (DPR 1 and 2, hovers, resized panes); `make -C
   tools/zmap map test` passes (80 tests).
+- S9.2 + viewer follow-up (S9Viewer, 2026-11-28, branch `viewer`): views the user has not moved
+  are refitted when the stage changes size (splitter drag, window resize). HTML label overlay
+  (S9.3 contingency) at pixel ratio < 1.5: node, block and edge labels are HTML spans in a layer
+  that follows the stage transform (one CSS transform per frame). S9.2 layers: Cost spent and
+  Forecast (dollar bands from `cost.all.usd` and `forecast.p50`), Automation (`auto_share`);
+  Meaning edges drawn thick green from `meaning_link` (0 true in today's map, so none show);
+  Metrics drawer renders every group of `metrics.json`; Trend drawer lists `history.jsonl`
+  (17 commits) and a click moves the time slider, which recolours Proof and Meaning as of that
+  commit (program, source and control-flow views); block panel lists the leaves through the
+  block with theorem name, file:lines and closing rule (S10.2); badge legend shows the cost
+  multiplier per driver ($ per cut point in closed functions with ÷ without; "not measured"
+  where either side has no cost); indirect calls coloured exact / precondition / unknown (S17);
+  irreducible regions hatched with entry marks from `irreducible_regions`. Screenshots
+  `map/site/shots/s92-*.png`; `make -C tools/zmap map test` passes (80 tests).
