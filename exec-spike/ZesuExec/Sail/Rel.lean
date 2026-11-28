@@ -5,7 +5,7 @@ import ZesuExec.Image
 # Relating the concrete machine to the specialised Sail model
 
 `Configured` fixes the registers that the specialised `try_step` reads on the retiring path of the
-33 forms, other than `x1 … x31`, `PC` and `nextPC` (`tools/reach.py` lists the candidates; the
+46 forms, other than `x1 … x31`, `PC` and `nextPC` (`tools/reach.py` lists the candidates; the
 retiring path reads `cur_privilege`, `hart_state`, `misa`, `mstatus`, `mseccfg`, `pma_regions`,
 `mcountinhibit`, `minstretcfg`, `minstret`). Each field fixes presence and, where the path
 branches on the value, the value. Three further fields state the profile invariants that the
@@ -182,7 +182,7 @@ structure Rel (img : Image) (m : Machine) (s : State) : Prop where
 /-- Sail's register index of `x i`. -/
 def rg (i : Fin 32) : regidx := .Regidx (BitVec.ofNat 5 i.val)
 
-/-- Sail's AST for each of the 33 forms. -/
+/-- Sail's AST for each of the 46 forms. -/
 def toSail : Instr → instruction
   | .lui rd imm => .UTYPE (imm, rg rd, .LUI)
   | .auipc rd imm => .UTYPE (imm, rg rd, .AUIPC)

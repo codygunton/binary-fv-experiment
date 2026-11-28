@@ -1,7 +1,7 @@
 import ZesuExec.Machine
 
 /-!
-# The 33 RV64IM instruction forms used by F0–F6, `alloc` and `free`
+# The 46 RV64IM instruction forms of the executor (F0–F6, `alloc`, `free`, and the S12 forms)
 
 `decodeNat` works on `Nat` with `/` and `%` so that kernel evaluation uses GMP arithmetic.
 Every other word decodes to `none`.
@@ -77,7 +77,7 @@ def immU (w : Nat) : BitVec 20 := BitVec.ofNat 20 (field w 12 20)
 end Decode
 
 open Decode in
-/-- Decoder for the 33 forms; any other word (including words `≥ 2^32`) is `none`. -/
+/-- Decoder for the 46 forms; any other word (including words `≥ 2^32`) is `none`. -/
 def decodeNat (w : Nat) : Option Instr :=
   if w < 4294967296 then
     let opc := field w 0 7

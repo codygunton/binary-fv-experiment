@@ -5,7 +5,9 @@ import ZesuExec.Sym.Smart
 
 `stepI` executes one decoded instruction on a symbolic state; `run` follows fall-through and
 literal jumps, forks at conditional branches, and stops with a `Leaf` at a cut, a call, a
-return, another indirect jump or the `memcpy` entry. Every function is structural recursion on
+return, another indirect jump or the `memcpy` entry. At an address where nothing decodes (an
+`unimp`, a form `decodeNat` lacks) it stops with a leaf carrying `Oblig.unreachable`, which never
+holds: that leaf is a goal that its path is infeasible. Every function is structural recursion on
 fuel or on lists, so the kernel evaluates it (`ZesuExec.Sym.Tactic`).
 -/
 
@@ -227,7 +229,7 @@ def go (img : Image) (cuts : List Nat) :
     if (started && cuts.contains pc) || pc == Layout.memcpyEntry then some [⟨S, .at pc, cs, os⟩]
     else
       match fetchI img pc with
-      | none => none
+      | none => some [⟨S, .at pc, cs, os ++ [.unreachable pc]⟩]
       | some i =>
         match stepI img pc i S with
         | none => none

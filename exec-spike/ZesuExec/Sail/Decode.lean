@@ -350,7 +350,7 @@ theorem ite_imp {α : Type} {c : Prop} [Decidable c] {a b x : α} {P : Prop}
   · intro h; exact h1 hc (by simpa [hc] using h)
   · intro h; exact h2 hc (by simpa [hc] using h)
 
-/-- Sail's decoder agrees with `decodeWord` on every word of the 33 forms, from any configured
+/-- Sail's decoder agrees with `decodeWord` on every word of the 46 forms, from any configured
 state, without changing it. -/
 theorem decode_sound {w : BitVec 32} {i : Instr} {s : State} (h : decodeWord w = some i)
     (hc : Configured s) : Runs (ext_decode w) s s (toSail i) := by

@@ -67,6 +67,7 @@ def Exit.pp : Exit → String
 def Oblig.pp : Oblig → String
   | .inBounds r off idx scale n => s!"inBounds R{r} {ppHex off}+{scale}*{idx.pp}+{n}"
   | .aligned x n => s!"aligned {x.pp} {n}"
+  | .unreachable pc => s!"unreachable {ppHex pc}"
 
 def Write.pp (w : Write) : String := s!"R{w.r}[{ppHex w.off}]:{w.n} := {w.v.pp}"
 

@@ -14,6 +14,10 @@ M64 = (1 << 64) - 1
 FORMS = frozenset('''lui auipc jal jalr beq bne blt bltu bgeu lb lbu lhu lw ld sb sh sw sd
 addi andi xori sltiu slli srli add sub and or sll sltu mul mulhu xor addiw bge lwu srliw
 subw lh ori srl divu remu slliw slti slt'''.split())
+# Words that always trap. The executor ends a path at any word it cannot decode with a leaf whose
+# obligation `Oblig.unreachable` never holds (a goal that the path is infeasible), so a trap word
+# does not block a function; any other undecodable word does, because its path can be feasible.
+TRAPS = frozenset({'unimp'})
 CSR = frozenset({'csrrw', 'csrrs', 'csrrc', 'csrrwi', 'csrrsi', 'csrrci'})
 STORES = frozenset({'sb', 'sh', 'sw', 'sd', 'c.sd', 'c.sw', 'c.sdsp', 'c.swsp', 'c.fsd', 'c.fsdsp'})
 LOADS = {'ld': (8, True), 'c.ld': (8, True), 'c.ldsp': (8, True), 'lw': (4, True),
@@ -670,7 +674,7 @@ def analyze_function(binary, cfg, noreturn, join_cuts=False):
             ecalls.append(i.pc)
         elif i.mn in CSR:
             unsupported[f'{i.mn}:{csr_number(i)}'] += 1
-        elif i.mn not in FORMS:
+        elif i.mn not in FORMS and i.mn not in TRAPS:
             unsupported[i.mn] += 1
     blockers = []
     if unsupported:

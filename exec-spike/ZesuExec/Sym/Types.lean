@@ -67,6 +67,10 @@ inductive Oblig
   | inBounds (r off : Nat) (idx : Sym) (scale n : Nat)
   /-- `x mod n = 0` -/
   | aligned (x : Sym) (n : Nat)
+  /-- the path reaches `pc`, where no instruction can be fetched and decoded (an `unimp`, a form
+  the executor lacks, or an address outside `.text`): never holds, so a leaf carrying it is a goal
+  that its path is infeasible -/
+  | unreachable (pc : Nat)
   deriving DecidableEq, Repr, Lean.ToExpr, Inhabited
 
 inductive Exit

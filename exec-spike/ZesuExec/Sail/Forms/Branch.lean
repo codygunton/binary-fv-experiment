@@ -3,7 +3,7 @@ import ZesuExec.Sail.Forms.Common
 /-!
 # Simulation of the conditional branches
 
-`beq bne blt bltu bgeu`: the generated comparison reads `rs1`, `rs2` and agrees with
+`beq bne blt bge bltu bgeu`: the generated comparison reads `rs1`, `rs2` and agrees with
 `Machine.branch`'s condition; a taken branch is `sim_ctl` (no link), a not-taken one `sim_fall`.
 -/
 

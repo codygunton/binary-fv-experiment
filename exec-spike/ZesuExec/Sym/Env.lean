@@ -89,6 +89,7 @@ def memByte (env : Env) (ws : List Write) (r j : Nat) : Byte :=
 def Oblig.holds (env : Env) : Oblig → Prop
   | .inBounds r off idx scale n => off + scale * (idx.eval env).toNat + n ≤ env.size r
   | .aligned x n => (x.eval env).toNat % n = 0
+  | .unreachable _ => False
 
 /-- Region shapes: no wrap, pairwise disjoint, sizes and alignments as `S.regions` states,
 writable regions in RAM, the others in rodata, input or RAM. -/

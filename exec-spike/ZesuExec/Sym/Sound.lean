@@ -651,7 +651,10 @@ theorem go_sound {img : Image} {cuts : List Nat} {env : Env} :
     · next hcut =>
       have hmc : pc ≠ Layout.memcpyEntry := by intro e; apply hcut; simp [e]
       cases hf : fetchI img pc with
-      | none => simp [hf] at h
+      | none =>
+        simp [hf] at h; subst h
+        refine ⟨_, List.mem_singleton_self _, hcs, fun o ho => by simp [ho], fun hl => ?_⟩
+        exact absurd (hl (.unreachable pc) (by simp)) (by simp [Oblig.holds])
       | some i =>
         simp only [hf] at h
         cases hs : stepI img pc i S with

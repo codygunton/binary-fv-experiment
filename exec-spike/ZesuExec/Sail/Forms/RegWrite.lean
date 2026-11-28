@@ -4,7 +4,8 @@ import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 /-!
 # Simulation of the register-writing forms
 
-`lui auipc addi andi xori sltiu slli srli add sub and or sll sltu mul mulhu`: `execute` reads the
+`lui auipc addi andi xori ori slti sltiu slli srli add sub and or xor sll srl slt sltu mul mulhu
+divu remu addiw subw slliw srliw`: `execute` reads the
 source registers, writes `x rd` and falls through; each theorem is `sim_wreg` plus the form's
 `execute_*_run` contract and the agreement of Sail's result with `Machine.exec`.
 -/

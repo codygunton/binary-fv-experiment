@@ -292,7 +292,7 @@ def goW (img : Image) (sums : Nat → Option Summary) (cuts : List Nat) (F0 : Na
       some [⟨⟨S, .at pc, cs, os⟩, cl, wr⟩]
     else
       match fetchI img pc with
-      | none => none
+      | none => some [⟨⟨S, .at pc, cs, os ++ [.unreachable pc]⟩, cl, wr⟩]
       | some i =>
         match stepI img pc i S with
         | none => none
@@ -466,7 +466,10 @@ theorem goW_follow {img : Image} {sums : Nat → Option Summary} {cuts : List Na
     · simp at h; subst h
       exact ⟨_, List.mem_singleton_self _, hcs, fun o ho => ho, ⟨[], by simp⟩, ⟨[], by simp⟩⟩
     · cases hf : fetchI img pc with
-      | none => simp [hf] at h
+      | none =>
+        simp [hf] at h; subst h
+        exact ⟨_, List.mem_singleton_self _, hcs, fun o ho => by simp [ho], ⟨[], by simp⟩,
+          ⟨[], by simp⟩⟩
       | some i =>
         simp only [hf] at h
         cases hs : stepI img pc i S with
@@ -535,7 +538,7 @@ theorem goW_calls {img : Image} {sums : Nat → Option Summary} {cuts : List Nat
     split at h
     · simp at h; subst h; intro l hl; simp at hl; subst hl; exact ⟨[], by simp⟩
     · cases hf : fetchI img pc with
-      | none => simp [hf] at h
+      | none => simp [hf] at h; subst h; intro l hl; simp at hl; subst hl; exact ⟨[], by simp⟩
       | some i =>
         simp only [hf] at h
         cases hs : stepI img pc i S with
@@ -652,7 +655,10 @@ theorem goW_sound :
     · next hcut =>
       have hmc : pc ≠ Layout.memcpyEntry := by intro e; apply hcut; simp [e]
       cases hf : fetchI img pc with
-      | none => simp [hf] at h
+      | none =>
+        simp [hf] at h; subst h
+        exact ConclW.vac (os := os) (ob := [.unreachable pc]) (by simp [Oblig.holds])
+          ⟨_, List.mem_singleton_self _, hcs, fun o ho => ho, ⟨[], by simp⟩, ⟨[], by simp⟩⟩
       | some i =>
         simp only [hf] at h
         cases hs : stepI img pc i S with

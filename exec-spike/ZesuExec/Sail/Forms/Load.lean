@@ -3,7 +3,7 @@ import ZesuExec.Sail.Forms.Misaligned
 /-!
 # Simulation of the loads
 
-`ld lw lhu lbu lb`: `Machine.load` succeeds for a range inside rodata, input or RAM whose bytes
+`ld lw lwu lh lhu lbu lb`: `Machine.load` succeeds for a range inside rodata, input or RAM whose bytes
 are all present, at any alignment (a misaligned one runs `vmem_read_any_run`'s split path); `Rel.mem` puts those bytes in Sail's byte map, the
 profile's PMA regions allow the read, and the generated load returns their little-endian value.
 -/
