@@ -10,9 +10,9 @@ from . import elfread
 
 M64 = (1 << 64) - 1
 
-# The 32 instruction forms of the executor (`ZesuExec/Decode.lean`, `inductive Instr`).
+# The instruction forms of the executor (`ZesuExec/Decode.lean`, `inductive Instr`).
 FORMS = frozenset('''lui auipc jal jalr beq bne blt bltu bgeu lb lbu lhu lw ld sb sh sw sd
-addi andi xori sltiu slli srli add sub and or sll sltu mul mulhu'''.split())
+addi andi xori sltiu slli srli add sub and or sll sltu mul mulhu xor'''.split())
 CSR = frozenset({'csrrw', 'csrrs', 'csrrc', 'csrrwi', 'csrrsi', 'csrrci'})
 STORES = frozenset({'sb', 'sh', 'sw', 'sd', 'c.sd', 'c.sw', 'c.sdsp', 'c.swsp', 'c.fsd', 'c.fsdsp'})
 LOADS = {'ld': (8, True), 'c.ld': (8, True), 'c.ldsp': (8, True), 'lw': (4, True),

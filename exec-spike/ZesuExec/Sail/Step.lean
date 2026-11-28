@@ -59,6 +59,7 @@ theorem sail_step_sim {img : Image} {m m' : Machine} {s : State} (h : Rel img m 
         | sltu rd rs1 rs2 => exact sim_sltu h hw hd hs n
         | mul rd rs1 rs2 => exact sim_mul h hw hd hs n
         | mulhu rd rs1 rs2 => exact sim_mulhu h hw hd hs n
+        | xor rd rs1 rs2 => exact sim_xor h hw hd hs n
       · cases hs'
     · cases hs'
   · cases hs'

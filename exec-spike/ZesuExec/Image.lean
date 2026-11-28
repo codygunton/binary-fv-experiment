@@ -93,6 +93,7 @@ def exec (m : Machine) : Instr → Option Machine
   | .mul rd rs1 rs2 => m.writeReg rd (m.reg rs1 * m.reg rs2)
   | .mulhu rd rs1 rs2 =>
     m.writeReg rd (BitVec.ofNat 64 ((m.reg rs1).toNat * (m.reg rs2).toNat / 2 ^ 64))
+  | .xor rd rs1 rs2 => m.writeReg rd (m.reg rs1 ^^^ m.reg rs2)
 
 end Machine
 

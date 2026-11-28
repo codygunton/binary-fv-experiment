@@ -42,6 +42,7 @@ inductive Instr
   | sltu (rd rs1 rs2 : Fin 32)
   | mul (rd rs1 rs2 : Fin 32)
   | mulhu (rd rs1 rs2 : Fin 32)
+  | xor (rd rs1 rs2 : Fin 32)
   deriving DecidableEq, Repr
 
 namespace Decode
@@ -111,6 +112,7 @@ def decodeNat (w : Nat) : Option Instr :=
         if f3 = 0 then some (.add rd rs1 rs2)
         else if f3 = 1 then some (.sll rd rs1 rs2)
         else if f3 = 3 then some (.sltu rd rs1 rs2)
+        else if f3 = 4 then some (.xor rd rs1 rs2)
         else if f3 = 6 then some (.or rd rs1 rs2)
         else if f3 = 7 then some (.and rd rs1 rs2)
         else none
@@ -134,6 +136,6 @@ def Instr.mnemonic : Instr → String
   | .sd .. => "sd" | .addi .. => "addi" | .andi .. => "andi" | .xori .. => "xori"
   | .sltiu .. => "sltiu" | .slli .. => "slli" | .srli .. => "srli" | .add .. => "add"
   | .sub .. => "sub" | .and .. => "and" | .or .. => "or" | .sll .. => "sll"
-  | .sltu .. => "sltu" | .mul .. => "mul" | .mulhu .. => "mulhu"
+  | .sltu .. => "sltu" | .mul .. => "mul" | .mulhu .. => "mulhu" | .xor .. => "xor"
 
 end ZesuExec

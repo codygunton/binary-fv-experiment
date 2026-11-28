@@ -52,6 +52,7 @@ theorem rType_add (a b : Word) : rTypeResult .ADD a b = a + b := rfl
 theorem rType_sub (a b : Word) : rTypeResult .SUB a b = a - b := rfl
 theorem rType_and (a b : Word) : rTypeResult .AND a b = a &&& b := rfl
 theorem rType_or (a b : Word) : rTypeResult .OR a b = a ||| b := rfl
+theorem rType_xor (a b : Word) : rTypeResult .XOR a b = a ^^^ b := rfl
 theorem rType_sltu (a b : Word) : rTypeResult .SLTU a b = if a.ult b then 1 else 0 := by
   simp only [rTypeResult]; rw [ult_bit]
 theorem rType_sll (a b : Word) : rTypeResult .SLL a b = a <<< (b.toNat % 64) := by
@@ -285,6 +286,21 @@ theorem sim_mulhu {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
   refine execute_MUL_run _ _ _ _ _ _ (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
     (rX_rg_run hag rs2) ?_
   rw [mul_high_uu]; exact wX_rg_run _ rd _
+
+theorem sim_xor {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.xor rd rs1 rs2))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  have hag := RegsAgree.T (m := m) hR.regs m.pc
+  change Runs (execute_RTYPE (rg rs2) (rg rs1) (rg rd) .XOR) _ _ _
+  refine execute_RTYPE_run _ _ _ _ _ .XOR (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
+    (rX_rg_run hag rs2) ?_
+  rw [rType_xor]; exact wX_rg_run _ rd _
 
 theorem sim_lui {rd : Fin 32} {imm : BitVec 20} (hR : Rel img m s)
     (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.lui rd imm))
