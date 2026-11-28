@@ -155,6 +155,56 @@ theorem fieldsOk_filter {σ : Sig} {m : Machine} {fs : List Field} (keep : Field
   · exact h1 f (List.mem_filter.mpr ⟨hf, hk⟩) ha
   · exact h2 f (List.mem_filter.mpr ⟨hf, by simpa using hk⟩) ha
 
+/-- `AtChk` with only the target's entries `keep` selects by the carry rules. -/
+def AtChkF (keep : Field → Bool) (d : CutData) (l : Leaf) (d' : CutData) : Bool :=
+  d'.pc != entry && d'.plain && d'.shape.Fine && shapeHolds l.S d'.shape &&
+    armsKeep d.arms d'.arms && restFrom d.shape.S l.S (advUse d l) (srcRest d l) d'.rest &&
+    chkStep d l (chkCount d'.rest) && decide (l.S.steps - d.shape.S.steps ≤ (budgetAt d.pc).1) &&
+    fieldsCarry (srcFields d) d l ((cutFields d'.pc).filter keep)
+
+/-- `leaf_at_x` with the target's entries `keep` rejects proved by hand (`hH`, from the target's
+`Extra`). -/
+theorem leaf_at_xf (keep : Field → Bool) (d d' : CutData) (l : Leaf) (hpc : d.pc ≠ entry)
+    (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true) (hck : CoreChk0 d l = true)
+    (hO : ∀ σ m, (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
+      ∀ o ∈ l.obligs, o.holds (envOf d.shape σ m))
+    (hex : l.exit = .at d'.pc) (ht : targetOf d'.pc = some d') (hat : AtChkF keep d l d' = true)
+    (hX : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
+      Ctx d l σ m m' → Extra d'.pc σ m' ∧ CurOk σ m' (budgetAt d'.pc).2 ∧
+        budgetOf d' σ m' + (l.S.steps - d.shape.S.steps) ≤ budgetOf d σ m)
+    (hH : ∀ σ m m', (mkCut d).A σ m → Ctx d l σ m m' → Extra d'.pc σ m' →
+      FieldsOk σ m' ((cutFields d'.pc).filter fun f => !keep f)) :
+    LeafGoal vcPlan (mkCut d) l := by
+  intro σ m hA hc
+  simp only [mkCut] at hc
+  obtain ⟨-, hctx⟩ := core_ctx0 hpc hcut hsrc hck hA hc
+  have hob := hO σ m hA hc
+  have F := facts_of_A hpc hsrc hA
+  unfold AtChkF at hat
+  simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, decide_eq_true_eq] at hat
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨hne, hpl⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hchk⟩, hst⟩, hfc⟩ := hat
+  cases hexit : l.exit with
+  | «at» pc' =>
+    rw [hexit] at hex
+    cases hex
+    refine ⟨hob, ?_, fun m' hm' hexok hso => ?_⟩
+    · show l.S.steps - d.shape.S.steps ≤ budgetOf d σ m
+      unfold budgetOf; omega
+    simp only [mkCut] at hm' hso
+    simp only [ExitOk] at hexok
+    have C := hctx m' hm' hso
+    obtain ⟨hcm, hshp, harm, hrst⟩ := target_facts C hfine' hsh harms hrest
+    obtain ⟨hx, hcur, hbud⟩ := hX σ m m' hA hc C
+    refine ExitGoal.at_cut rfl
+      ⟨mkCut d', List.mem_map_of_mem (targetOf_spec ht).1, hexok, ?_, ?_⟩
+    · simp only [mkCut, if_neg hne, ACut]
+      exact .inl ⟨hpl, hexok, hcm, hshp, harm, hrst, hx, hcur,
+        chkStep_sound hpc hsrc hA hc F hchk,
+        fieldsOk_filter keep (fieldsCarry_sound C hpc hsrc hA hc hfc) (hH σ m m' hA C hx)⟩
+    · show budgetOf d' σ m' ≤ budgetOf d σ m - (l.S.steps - d.shape.S.steps)
+      omega
+  | _ => rw [hexit] at hex; cases hex
+
 /-- The call-side checks of a call leaf other than the callee's index, `SiteX` and the budget;
 the call site's item values `keep` selects by the carry rules (`fieldsCarry`), the others are the
 hand proof's. -/

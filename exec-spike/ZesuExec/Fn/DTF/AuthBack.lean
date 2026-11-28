@@ -154,15 +154,16 @@ theorem addr_lk {σ : Sig} {m m' : Machine} (h : LowKeep σ m m') (ha : AddrOk �
   exact ⟨a, lk h (by decide) la, hle⟩
 
 theorem end_lk {σ : Sig} {m m' : Machine} (h : LowKeep σ m m')
-    (hL : ∀ L X, Live σ m L X → Live σ m' L X) (he : AuthEnd σ m) : AuthEnd σ m' := by
-  obtain ⟨c, hh, p, n, j, k, ho, l50, hb, hs, hk, l48, ha⟩ := he
-  exact ⟨c, hh, p, n, j, k, out_lk h ho, lk h (by decide) l50, buf_lk h hL hb, hs, hk,
-    lk h (by decide) l48, addr_lk h ha⟩
+    (hL : ∀ L X, Live σ m L X → Live σ m' L X) {f : Nat} {cur : Bool} (he : AuthEnd σ m f cur) :
+    AuthEnd σ m' f false :=
+  end_mono (fun o ho => h o
+    (by simp only [endSlots, List.mem_cons, List.not_mem_nil, or_false] at ho; omega)
+    (by simp only [endSlots, List.mem_cons, List.not_mem_nil, or_false] at ho; omega)) hL he
 
 theorem cur_lk {σ : Sig} {m m' : Machine} (h : LowKeep σ m m') {n : Nat} (hc : AuthCur σ m n) :
     AuthCur σ m' n := by
-  obtain ⟨c, hh, p, j, k, ho, hs, hk, l48⟩ := hc
-  exact ⟨c, hh, p, j, k, out_lk h ho, hs, hk, lk h (by decide) l48⟩
+  obtain ⟨c, hh, p, j, k, ho, hs, hk, l48, hok⟩ := hc
+  exact ⟨c, hh, p, j, k, out_lk h ho, hs, hk, lk h (by decide) l48, hok⟩
 
 theorem app_lk {σ : Sig} {m m' : Machine} (h : LowKeep σ m m') {n : Nat} (ha : AuthApp σ m n) :
     AuthApp σ m' n := by
@@ -189,8 +190,9 @@ theorem new_lk {σ : Sig} {m m' : Machine} (h : LowKeep σ m m') {L X : List (Wo
 theorem done_lk {σ : Sig} {m m' : Machine} (h : LowKeep σ m m')
     (hL : ∀ L X, Live σ m L X → Live σ m' L X) {n : Nat} (hd : AuthDone σ m n) :
     AuthDone σ m' n := by
-  obtain ⟨c, hh, p, hl, hs, hn, l78, l30, hp, hb⟩ := hd
-  exact ⟨c, hh, p, hl, hs, hn, lk h (by decide) l78, lk h (by decide) l30, hp, buf_lk h hL hb⟩
+  obtain ⟨c, hh, p, hl, hs, hn, l78, l30, hp, hb, hok⟩ := hd
+  exact ⟨c, hh, p, hl, hs, hn, lk h (by decide) l78, lk h (by decide) l30, hp, buf_lk h hL hb,
+    hok⟩
 
 /-- What a return gives at the return site: the frame below the outcome slot and the live list
 kept, for `decodeItem` (outcome at `0x2e0`) and `remap`. -/
@@ -233,29 +235,148 @@ theorem memcpy_live {σ : Sig} {mc m : Machine} (hc : Common σ mc) (hq : Memcpy
 
 /-! ## After the tuple's last field -/
 
-theorem end_2868 {σ : Sig} {m : Machine} (hA : (mkCut (table[137]!)).A σ m) : AuthEnd σ m := by
+theorem end_2868 {σ : Sig} {m : Machine} (hA : (mkCut (table[137]!)).A σ m) :
+    AuthEnd σ m 6 false := by
   have hx := extra_of_A (d := table[137]!) (by decide) (by decide) hA
   rw [show (table[137]!).pc = 0x80002868 by decide] at hx
   simpa [Extra, AuthExtra] using hx
 
-theorem end_2820 {σ : Sig} {m : Machine} (hA : (mkCut (table[136]!)).A σ m) : AuthEnd σ m := by
-  obtain ⟨mc, x, hsite, hpost⟩ := ret_parts (i := 136) (by decide) (by decide) hA
-  have hsx := hsite.2.2.2.2.2.2.2.2
+/-- At a return site `table[i]!` of a `decodeItem` call (outcome at `fr + ko`): the call
+machine's `SiteX`, the frame below the outcome, the live list, `s6`/`s7` kept, and the outcome
+of the call on any payload slice its input was. -/
+theorem f2_ret {i : Nat} {σ : Sig} {m : Machine} (hne : (table[i]!).pc ≠ entry)
+    (hpl : (table[i]!).plain = false) (hkd : (siteAt i).kind = .f2)
+    (hSF : (siteAt i).kind.SiteFine (siteAt i) = true) {ko : Nat}
+    (h10 : regFr (siteAt i) 10 = some ko) (hko : ko + 40 + 104 ≤ frameBytes)
+    (hA : (mkCut (table[i]!)).A σ m) :
+    ∃ mc x, SiteX (table[i]!).pc σ x mc ∧ ArmOk σ (siteAt i).arms ∧ Pre σ.A σ.g σ.m ∧
+      (∀ o, o + 8 ≤ ko → m.load (σ.fr + w o) 8 = mc.load (σ.fr + w o) 8) ∧
+      (∀ L X, Live σ mc L X → Live σ m L X) ∧ m.reg 22 = mc.reg 22 ∧ m.reg 23 = mc.reg 23 ∧
+      ∀ X n, mc.reg 11 = σ.inp + w X → mc.reg 12 = w n → X + n ≤ σ.len →
+        ∃ before, BytesAt m (σ.fr + w ko)
+          (F2.result40 (σ.inp + w X) ((σ.payload.drop X).take n) before) := by
+  obtain ⟨mc, x, hsite, hpost⟩ := ret_parts hne hpl hA
+  have hq : F2.Post mc m := by have := hpost.1; rw [hkd] at this; exact this
+  have hSF' : Kind.SiteFine .f2 (siteAt i) = true := by rw [← hkd]; exact hSF
+  obtain ⟨hret, -, hkeep⟩ := ret_common hSF hsite hpost
+  have hout : mc.reg 10 = σ.fr + w ko := hsite.2.2.1.1 _ (lookup_mem (regFr_spec h10)) _ rfl
+  refine ⟨mc, x, hsite.2.2.2.2.2.2.2.2, hsite.2.2.2.1, hsite.2.1.2.1, fun o ho => hkeep o
+    (by omega) (by rw [hkd]; simp only [Kind.Keeps, h10, decide_eq_true_eq]; omega),
+    fun L X hl => f2_live hSF' hsite hq hpost.2 hl, hret.2 22 (by decide), hret.2 23 (by decide),
+    fun X n h11 h12 hXn => f2_post_cur hsite.2.1 hq hout (by omega) h11 h12 hXn⟩
+
+/-- A field's outcome (`fr + 0x2e0`) on `n` payload bytes from `X` whose header fits: no error and
+not a list give the string's header `h` and payload length `p`, the payload length and consumed
+words, and (nonempty) the payload at `X + h`. -/
+theorem field_dec {sh : Shape} {σ : Sig} {m : Machine} {X n : Nat} {before : List Byte}
+    (hav : Avail σ m)
+    (hres : BytesAt m (σ.fr + w 0x2e0)
+      (F2.result40 (σ.inp + w X) ((σ.payload.drop X).take n) before))
+    (hf : TX.HeaderFits ((σ.payload.drop X).take n))
+    (herr : (Sym.init 0 768 2).eval (envOf sh σ m) = 0)
+    (hnl : (isL 0x2e0).eval (envOf sh σ m) = 0) :
+    ∃ h p, F2.decode ((σ.payload.drop X).take n) = .success false h p ∧
+      (Sym.init 0 744 8).eval (envOf sh σ m) = w p ∧
+      (Sym.init 0 760 8).eval (envOf sh σ m) = w (h + p) ∧ 1 ≤ h + p ∧ h + p ≤ n ∧
+      h + p < 2 ^ 64 ∧ (p ≠ 0 → TX.wordAt m (σ.fr + w 0x2e0) = σ.inp + w (X + h)) ∧
+      (h = 0 → p = 1) := by
+  have hne := res_ok (ko := 0x2e0) (by decide) hres herr
+  cases hd : F2.decode ((σ.payload.drop X).take n) with
+  | error => exact absurd hd hne
+  | success l h p =>
+  obtain ⟨hL, hP, hK, hW⟩ := res_words (sh := sh) hav (by decide) hres hd
+  have hl : l = false := by
+    cases l with
+    | false => rfl
+    | true => rw [hL, if_pos rfl] at hnl; exact absurd hnl (by decide)
+  subst hl
+  obtain ⟨h0, hle, h64⟩ := TX.fits_bounds hf hd
+  simp only [List.length_take, List.length_drop] at hle
+  refine ⟨h, p, rfl, hP, hK, by omega, by omega, h64, fun hp => ?_, fun h0 => ?_⟩
+  · rw [hW, if_neg (fun h128 => hp (by simp [(decode_hdr hd).2 h128]))]
+    simp only [w]; rw [F1.add_add_ofNat]
+  · subst h0; exact decode_h0 hd
+
+/-- An item that decodes is not empty. -/
+theorem decode_ne_nil {b : List Byte} {l : Bool} {h p : Nat} (hd : F2.decode b = .success l h p) :
+    0 < b.length := by
+  cases b with
+  | nil => simp [F2.decode] at hd
+  | cons => simp
+
+/-- At `s`'s return site (`0x80002820`): the tuple state without the field cursor, and the
+outcome on the slice from field 5. -/
+theorem end_2820 {σ : Sig} {m : Machine} (hA : (mkCut (table[136]!)).A σ m) :
+    ∃ c hh p n j ht pt q before, EndAt σ m 5 c hh p n j ht pt q ∧
+      BytesAt m (σ.fr + w 0x2e0) (F2.result40 (σ.inp + w (c + hh + j + ht + q))
+        ((σ.payload.drop (c + hh + j + ht + q)).take (pt - q)) before) := by
+  obtain ⟨mc, x, hsx, harm, hpre, hk, hL, -, -, hout⟩ := f2_ret (i := 136) (ko := 0x2e0)
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) hA
   rw [show (table[136]!).pc = 0x80002820 by decide] at hsx
   simp only [SiteX, AuthSite, Nat.reduceEqDiff, if_false, if_true, or_false] at hsx
-  have hkd : (siteAt 136).kind = .f2 := by decide
-  have hSF : (siteAt 136).kind.SiteFine (siteAt 136) = true := by decide
-  have h10 : regFr (siteAt 136) 10 = some 0x2e0 := by decide
-  have hk := ret_keep hSF hsite hpost fun o ho => by
-    rw [hkd]; simp only [Kind.Keeps, h10, decide_eq_true_eq]; omega
-  have hq : F2.Post mc m := by have := hpost.1; rw [hkd] at this; exact this
-  have hSF' : Kind.SiteFine .f2 (siteAt 136) = true := by rw [← hkd]; exact hSF
-  exact end_lk hk (fun L X hl => f2_live hSF' hsite hq hpost.2 hl) hsx.1
+  obtain ⟨c, hh, p, n, j, ht, pt, q, he, hcur⟩ := hsx
+  obtain ⟨a11, a12⟩ := hcur rfl
+  have h4 : σ.t = 4 := arm4 harm (by decide)
+  obtain ⟨hjp, hcl, -⟩ := out_n hpre h4 he.1
+  have hle := he.2.2.2.2.2.2.2.2.1
+  have hqp := he.2.2.2.2.2.2.2.2.2.2.1
+  obtain ⟨before, hres⟩ := hout _ _ a11 a12 (by omega)
+  refine ⟨c, hh, p, n, j, ht, pt, q, before, endAt_mono (fun o ho => hk o (by
+    simp only [endSlots, List.mem_cons, List.not_mem_nil, or_false] at ho; omega)) hL he,
+    hres⟩
+
+/-- At `0x80002820` without the field cursor. -/
+theorem end_2820a {σ : Sig} {m : Machine} (hA : (mkCut (table[136]!)).A σ m) :
+    AuthEnd σ m 5 false := by
+  obtain ⟨c, hh, p, n, j, ht, pt, q, -, he, -⟩ := end_2820 hA
+  exact ⟨c, hh, p, n, j, ht, pt, q, he, fun h => absurd h (by decide)⟩
+
+/-- `s`'s check from its outcome: no error, not a list, at most 32 bytes. -/
+theorem end_s {sh : Shape} {σ : Sig} {m : Machine} (hpre : Pre σ.A σ.g σ.m) (h4 : σ.t = 4)
+    (hav : Avail σ m) {c hh p n j ht pt q : Nat} {before : List Byte}
+    (he : EndAt σ m 5 c hh p n j ht pt q)
+    (hres : BytesAt m (σ.fr + w 0x2e0) (F2.result40 (σ.inp + w (c + hh + j + ht + q))
+      ((σ.payload.drop (c + hh + j + ht + q)).take (pt - q)) before))
+    (herr : (Sym.init 0 768 2).eval (envOf sh σ m) = 0)
+    (hnl : (isL 0x2e0).eval (envOf sh σ m) = 0)
+    (hp32 : ((Sym.init 0 744 8).eval (envOf sh σ m)).toNat ≤ 32) :
+    EndAt σ m 6 c hh p n j ht pt q ∧ ∃ h' p0, (Sym.init 0 744 8).eval (envOf sh σ m) = w p0 ∧
+      p0 ≤ 32 ∧ (Sym.init 0 760 8).eval (envOf sh σ m) = w (h' + p0) ∧ 1 ≤ h' + p0 ∧
+      h' + p0 ≤ pt - q ∧
+      (p0 ≠ 0 → TX.wordAt m (σ.fr + w 0x2e0) = σ.inp + w (c + hh + j + ht + q + h')) := by
+  obtain ⟨ho, l50, hb, hs, h22, l48, ha, hd, hle, h5, hq, hs5, hok⟩ := he
+  obtain ⟨hjp, hcl, -⟩ := out_n hpre h4 ho
+  have hlen := payload_len hpre
+  have hqp : q < pt := by
+    have hne := res_ok (ko := 0x2e0) (sh := sh) (by decide) hres herr
+    refine Nat.lt_of_not_le fun hh' => hne ?_
+    rw [show pt - q = 0 by omega]
+    simp [F2.decode]
+  have hf := field_fits hpre h4 ho.1 ho.2.1 (by have := ho.2.2.1; omega)
+    (by rw [List.length_drop, hlen]; omega) hd hle hs5 (by omega)
+  rw [tupPay_drop hle] at hf
+  obtain ⟨h', p0, hd', hP, hK, h1, hkn, h64, hW, -⟩ := field_dec hav hres hf herr hnl
+  have hp0 : p0 ≤ 32 := by
+    rw [hP] at hp32; simp only [w, BitVec.toNat_ofNat] at hp32; omega
+  refine ⟨⟨ho, l50, hb, hs, h22, l48, ha, hd, hle, h5, hq, hs5,
+    tupOk_succ hok hs5 (by rw [tupPay_drop hle]; exact hd') (by simp [tupLen]; omega)⟩,
+    h', p0, hP, hp0, hK, h1, hkn, hW⟩
+
+/-- At `0x80002820` with `s` checked (empty `s`'s leaves). -/
+theorem end_2820s {σ : Sig} {m : Machine} (hA : (mkCut (table[136]!)).A σ m) (h4 : σ.t = 4)
+    (hpre : Pre σ.A σ.g σ.m) (hav : Avail σ m)
+    (herr : (Sym.init 0 768 2).eval (envOf (table[136]!).shape σ m) = 0)
+    (hnl : (isL 0x2e0).eval (envOf (table[136]!).shape σ m) = 0)
+    (hp32 : ((Sym.init 0 744 8).eval (envOf (table[136]!).shape σ m)).toNat ≤ 32) :
+    AuthEnd σ m 6 false := by
+  obtain ⟨c, hh, p, n, j, ht, pt, q, before, he, hres⟩ := end_2820 hA
+  exact ⟨c, hh, p, n, j, ht, pt, q, (end_s hpre h4 hav he hres herr hnl hp32).1,
+    fun h => absurd h (by decide)⟩
 
 /-- A leaf after the tuple's last field writes `n + 1`, `16 n`, `128 n` and keeps the list
 cursor, the payload and tuple lengths and the buffer. -/
 theorem end_app {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    (h4 : σ.t = 4) (he : AuthEnd σ m)
+    (h4 : σ.t = 4) (he : AuthEnd σ m 6 false)
     (k70 : (Loc.slot 0x70).sym l.S = (Loc.slot 0x70).sym d.shape.S)
     (k68 : (Loc.slot 0x68).sym l.S = (Loc.slot 0x68).sym d.shape.S)
     (k30 : (Loc.slot 0x30).sym l.S = (Loc.slot 0x30).sym d.shape.S)
@@ -271,7 +392,17 @@ theorem end_app {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d 
       m'.load (σ.fr + w 0x60) 8 = some cap ∧ BufIs σ m' n 0 bp cap ∧ n < 2 ^ 32 ∧
       (Sym.init 0 0x50 8).eval (envOf d.shape σ m) = w n ∧
       (Sym.init 0 0x60 8).eval (envOf d.shape σ m) = cap := by
-  obtain ⟨c, hh, p, n, j, k, ho, l50, ⟨bp, cap, l58, l60, hbi⟩, hs, hk, l48, -⟩ := he
+  obtain ⟨c, hh, p, n, j, ht, pt, q, ⟨ho, l50, ⟨bp, cap, l58, l60, hbi⟩, hs, hk, l48, -, hd, hle,
+    h5, -, hs5, hok⟩, -⟩ := he
+  have h6 : 6 ≤ pt := by
+    obtain ⟨_, _, hd5, -⟩ := hok 5 (by decide) q hs5
+    have h1 := decode_ne_nil hd5
+    have h2 : (tupPay σ c hh p j ht pt).length ≤ pt := by
+      simp only [tupPay, TX.itemPayload]; exact List.length_take_le _ _
+    rw [List.length_drop] at h1
+    omega
+  have hok' : AuthsOk (TX.itemPayload (σ.payload.drop c) hh p) (n + 1) :=
+    authsOk_succ ho.2.2.2.2.2.2 ho.2.1 (tupleOk_of hd h6 hok)
   have hpre := C.F.common.2.1
   obtain ⟨-, -, hn⟩ := out_n hpre h4 ho
   have e50 : (Sym.init 0 0x50 8).eval (envOf d.shape σ m) = w n := by
@@ -287,9 +418,9 @@ theorem end_app {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d 
     (by omega)] at l40
   rw [show BitVec.ofNat 64 7 = w 7 from rfl, w_sll (c := 128) (by decide) (by decide)
     (by omega)] at l38
-  refine ⟨n, bp, cap, ⟨⟨c, hh, p, j, k, authOut_mono (ctx_load C (by decide) k70)
+  refine ⟨n, bp, cap, ⟨⟨c, hh, p, j, ht + pt, authOut_mono (ctx_load C (by decide) k70)
     (ctx_load C (by decide) k68) (ctx_load C (by decide) k30) ho, hs, hk,
-    ctx_keep C (by decide) k48 l48⟩, l78, l40, l38⟩, ctx_keep C (by decide) k58 l58,
+    ctx_keep C (by decide) k48 l48, hok'⟩, l78, l40, l38⟩, ctx_keep C (by decide) k58 l58,
     ctx_keep C (by decide) k60 l60, bufIs_mono (fun L X hl => ctx_live C hl) hbi, hn, e50, e60⟩
 
 end ZesuExec.Fn.DTF

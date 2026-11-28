@@ -54,14 +54,14 @@ theorem astore_out {σ : Sig} {m m' : Machine} {l : Leaf}
   simp only [mkCut] at hwf hm
   have hx : (table[124]!).shape.extra = [slotR 0x90] := by decide
   have hS : (table[124]!).shape.S.regions = baseRegions ++ [slotR 0x90] := by decide
-  obtain ⟨hcm, harm, -, hslot, ⟨n, ⟨⟨c, h, p, j, k, ho, hsk1, hk22, l48⟩, l78, l40, l38⟩,
+  obtain ⟨hcm, harm, -, hslot, ⟨n, ⟨⟨c, h, p, j, k, ho, hsk1, hk22, l48, hok⟩, l78, l40, l38⟩,
     ⟨bp, cap, l58, l60, hn1, hn2, L, X, hlive, hmem⟩, bp', l58', r10⟩, -⟩ := astore_src hA
   rw [l58, Option.some.injEq] at l58'
   subst l58'
   have hpre := hcm.2.1
   have h4 : σ.t = 4 := arm4 harm (by decide)
-  obtain ⟨hl, hsk, hnj, l70, l68, l30⟩ := ho
-  obtain ⟨-, hle, hn32⟩ := out_n hpre h4 ⟨hl, hsk, hnj, l70, l68, l30⟩
+  obtain ⟨hl, hsk, hnj, l70, l68, l30, hok0⟩ := ho
+  obtain ⟨-, hle, hn32⟩ := out_n hpre h4 ⟨hl, hsk, hnj, l70, l68, l30, hok0⟩
   have hjk : j + k ≤ p := by
     have := skip_le hsk1
     simp only [TX.itemPayload, List.length_take, List.length_drop] at this
@@ -122,7 +122,7 @@ theorem astore_out {σ : Sig} {m m' : Machine} {l : Leaf}
   have hp3 : (Sym.ptr 3 0).eval (envOf (table[124]!).shape σ m) = σ.inp := by
     simp only [Sym.eval, env_base3]; simp
   refine ⟨c, h, p, n, j, k, hl, hsk1, by omega, hk22, hjk, hsub, i120, hn32,
-    ⟨hl, hsk1, by omega, ?_, ?_, by rw [e30]; exact l30⟩, by rw [e78]; exact l78,
+    ⟨hl, hsk1, by omega, ?_, ?_, by rw [e30]; exact l30, hok⟩, by rw [e78]; exact l78,
     ⟨bp, cap, by rw [e58]; exact l58, by rw [e60]; exact l60, by omega, by omega, L, X, hlive',
       hmem⟩, hcm', l68, e336, e344⟩
   · rw [w112]
@@ -259,9 +259,9 @@ theorem DTF.leaf_80002434_0 :
   have hra : RetAligned m' := by unfold RetAligned; rw [hr1]; decide
   have hidx : IdxOk (siteAt 156).kind σ ([], [], ⟨[], []⟩) m' := by
     rw [hkind]; exact ⟨⟨hcm'.2.2.1, stack16 hcm' hsp, hra⟩, trivial⟩
-  obtain ⟨-, -, -, -, -, l30⟩ := ho
+  obtain ⟨-, -, -, -, -, l30, hok⟩ := ho
   have hdone : AuthDone σ m' (n + 1) :=
-    ⟨c, h, p, hl, by rw [hsk1, hpjk], by omega, l78, l30, fun _ => by omega, hb⟩
+    ⟨c, h, p, hl, by rw [hsk1, hpjk], by omega, l78, l30, fun _ => by omega, hb, hok⟩
   have hrst' : RestOk σ m' (siteAt 156).rest := by
     rw [hrest, hrest0]
     rw [hrest0] at hrst
