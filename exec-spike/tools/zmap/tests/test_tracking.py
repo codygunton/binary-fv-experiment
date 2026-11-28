@@ -51,10 +51,17 @@ class Ledger(unittest.TestCase):
     def test_start_stop_pairing(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, 'ledger.jsonl')
-            a = ledger.start(p, '-', 'x', 'infra', 'A', now=ts('2026-01-01T00:00:00Z'))
+            a = ledger.start(p, '-', 'x', 'infra', 'A', 2, now=ts('2026-01-01T00:00:00Z'))
             with self.assertRaises(ValueError):  # one open item per agent
-                ledger.start(p, 'f_1', 'y', 'leaf', 'A')
-            b = ledger.start(p, 'f_1', 'y', 'leaf', 'B', now=ts('2026-01-01T00:01:00Z'))
+                ledger.start(p, 'f_1', 'y', 'leaf', 'A', 1)
+            with self.assertRaises(ValueError):  # tier is 1 or 2
+                ledger.start(p, 'f_1', 'y', 'leaf', 'B', 3)
+            with self.assertRaises(ValueError):  # escalates names a started item
+                ledger.start(p, 'f_1', 'y', 'leaf', 'B', 2, escalates=7)
+            b = ledger.start(p, 'f_1', 'y', 'leaf', 'B', 2, escalates=1,
+                             now=ts('2026-01-01T00:01:00Z'))
+            self.assertEqual((a['tier'], b['tier'], b['escalates']), (2, 2, 1))
+            self.assertNotIn('escalates', a)
             self.assertEqual((a['id'], b['id']), (1, 2))
             ledger.stop(p, 1, 'closed', note='n', now=ts('2026-01-01T00:05:00Z'))
             with self.assertRaises(ValueError):
@@ -87,6 +94,22 @@ class Ledger(unittest.TestCase):
             write_jsonl(p, rows[:2])
             with self.assertRaises(ValueError):  # ambiguous: both open
                 ledger.stop(p, 1, 'closed')
+
+    def test_cli_requires_tier(self):
+        import argparse
+        p = argparse.ArgumentParser()
+        sub = p.add_subparsers(dest='cmd')
+        ledger.register(sub, 'unused.jsonl')
+        with self.assertRaises(SystemExit), open(os.devnull, 'w') as null:
+            stderr, sys.stderr = sys.stderr, null
+            try:
+                p.parse_args(['ledger', 'start', '--fn', '-', '--item', 'x', '--kind', 'infra',
+                              '--agent', 'A'])
+            finally:
+                sys.stderr = stderr
+        a = p.parse_args(['ledger', 'start', '--fn', '-', '--item', 'x', '--kind', 'replay',
+                          '--agent', 'A', '--tier', '1'])
+        self.assertEqual((a.tier, a.escalates), (1, None))
 
 
 class SessionLogs(unittest.TestCase):
@@ -325,8 +348,10 @@ PER_AGENT = {'A': {'session': {'usd': 10.0, 'unknown': 0, 'requests': 4},
 
 class Metrics(unittest.TestCase):
     def setUp(self):
+        # F2 and F3: whole proofs in the ledger (a contract item); F0: items without a contract
         self.items = items_for('F2', 4, 1.0) + items_for('F3', 2, 2.0) + \
-            items_for(None, 1, 5.0, kind='infra')
+            items_for(None, 1, 5.0, kind='infra') + items_for('F2', 1, 0.0, kind='contract') + \
+            items_for('F3', 1, 0.0, kind='contract') + items_for('F0', 1, 0.0, kind='run')
         self.m = merged(with_alloc_hyp(STATUS, 'f_800d677c'), self.items, reviews=alloc_assumed())
         self.met = metrics.compute(self.m, self.items, PER_AGENT, None, PACKAGE,
                                    reviews_csr={}, history=[])
@@ -349,15 +374,87 @@ class Metrics(unittest.TestCase):
     def test_forecast(self):
         fc = self.met['forecast']
         self.assertEqual(set(fc['sample_functions']), {'f_800d6960', 'f_800d6274'})
+        by = {f['id']: f for f in self.m['functions']}
+        # rate = all the function's dollars (tokens) over its cut points, whatever the item count
+        rates = {r[0]: r for r in fc['sample']['rows']}
+        for fid, usd, tok in (('f_800d6960', 4.0, 50), ('f_800d6274', 4.0, 30)):
+            cuts = len(by[fid]['cuts'])
+            self.assertAlmostEqual(rates[fid][6], round(usd / cuts, 2))
+            self.assertEqual(rates[fid][7], round(tok / cuts))
         t = fc['totals_usd']
         self.assertTrue(0 < t['p25'] <= t['p50'] <= t['p75'])
+        tk = fc['totals_tokens']
+        self.assertTrue(0 < tk['p25'] <= tk['p50'] <= tk['p75'])
         self.assertGreater(fc['open_cut_points'], 0)
         self.assertTrue(0 <= fc['unsampled_share'] <= 1)
-        by = {f['id']: f for f in self.m['functions']}
         self.assertIsNone(by['f_800d6960']['forecast'])  # proved: nothing open
-        self.assertTrue(any(f.get('forecast') for f in self.m['functions']))
+        fs = [f['forecast'] for f in self.m['functions'] if f.get('forecast')]
+        self.assertTrue(fs and all('tokens_p50' in x for x in fs))
         md = metrics.render_group('forecast', fc)
         self.assertIn('| size band |', md)
+        self.assertIn('tokens p50', md)
+
+    def test_forecast_large_band_uses_dollars_per_cut(self):
+        # revision 3: one sample function with one $100 item over its cut points; an unsampled
+        # band takes that rate per cut point, not items-per-cut x dollars-per-item
+        items = items_for('F2', 1, 100.0, kind='contract')
+        m = merged(STATUS, items)
+        fc = metrics.forecast(m, [f for f in m['functions'] if f['set'] == 'target'], items)
+        cuts = len(next(f for f in m['functions'] if f['id'] == 'f_800d6960')['cuts'])
+        big = next(r for r in fc['by_band']['rows'] if r[0] == 'size:>3000')
+        self.assertEqual(big[2], 'pooled')
+        self.assertEqual(big[3], round(100.0 / cuts, 2))
+        self.assertEqual(big[5], round(big[1] * 100.0 / cuts))
+        self.assertEqual(metrics.forecast(m, [], items, excluded={'f_800d6960'})['sample_functions'], [])
+
+    def test_s29_groups(self):
+        items = [dict(i, tier=t, id=k, backfill=False, ts=f'2026-01-0{k + 1}T00:00:00Z',
+                      escalates=e)
+                 for k, (i, t, e) in enumerate([(items_for('F2', 1, 1.0)[0], 1, None),
+                                                (items_for('F2', 1, 3.0)[0], 2, 0),
+                                                (items_for('F3', 1, 2.0)[0], None, None)])]
+        tr = metrics.tiers(self.m, items)
+        rows = {r[0]: r for r in tr['by_tier']['rows']}
+        self.assertEqual(rows[1][1:5], [1, 1, 0, 1.0])
+        self.assertEqual(rows[2][1:5], [2, 2, 1, 5.0])  # the untiered record counts as tier 2
+        self.assertAlmostEqual(tr['tier1_closed_share'], 1 / 3, places=4)
+        self.assertEqual(tr['escalations'], 1)
+        with tempfile.TemporaryDirectory() as d:
+            for g, fn in (('replay', lambda: metrics.replay(d, items)),
+                          ('varloc', lambda: metrics.varloc(self.m, [], d)),
+                          ('fit', lambda: metrics.fit(d))):
+                self.assertIn('no data', fn()['note'], g)
+            write_jsonl(os.path.join(d, 'map', 'replay.jsonl'), [
+                {'fn': 'f_1', 'item': 'a', 'kind': 'leaf', 'class': 'oblig', 'hit': True,
+                 'attempts': 2, 'tokens': 100, 'usd': 0.1},
+                {'fn': 'f_1', 'item': 'b', 'kind': 'leaf', 'class': 'oblig', 'hit': False,
+                 'attempts': 5, 'tokens': 300, 'usd': 0.3}])
+            rp = metrics.replay(d, items)
+            self.assertEqual((rp['items'], rp['hits'], rp['hit_rate']), (2, 1, 0.5))
+            self.assertEqual(rp['by_class']['rows'][0], ['leaf', 'oblig', 2, 1, 0.5, 3.5, 0.2, 200,
+                                                         2.5])
+            target = [f for f in self.m['functions'] if f['set'] == 'target']
+            os.makedirs(os.path.join(d, 'map', 'varloc'))
+            with open(os.path.join(d, 'map', 'varloc', target[0]['id'] + '.json'), 'w') as f:
+                json.dump({'coverage': {'in_scope': 10, 'located': 8}}, f)
+            vl = metrics.varloc(self.m, target, d)
+            self.assertEqual((vl['functions_with_table'], vl['in_scope'], vl['located'],
+                              vl['located_share']), (1, 10, 8, 0.8))
+            with open(os.path.join(d, 'map', 'varloc', 'index.json'), 'w') as f:
+                json.dump({'coverage': {'in_scope': 30, 'located': 9},
+                           'functions': {target[1]['id']: {'in_scope': 20, 'located': 1}}}, f)
+            self.assertEqual(metrics.varloc(self.m, target, d)['in_scope'], 30)
+            os.makedirs(os.path.join(d, 'OPEN', 'checkable'))
+            with open(os.path.join(d, 'OPEN', 'checkable', 'FIT.md'), 'w') as f:
+                f.write('# Fit\n\n- **Assertions:** 61 of 100 fit\n- Leaves: 90 of 245\n')
+            ft = metrics.fit(d)
+            self.assertEqual((ft['assertions_fit'], ft['assertions_total'], ft['leaves_share']),
+                             (61, 100, round(90 / 245, 4)))
+        rows = [dict(i, ts='2026-01-01T00:00:00Z') for i in items_for('f_8006464c', 1, 20.0)] + \
+            [dict(i, ts='2026-01-02T00:00:00Z') for i in items_for('f_8007cc68', 1, 2.0)]
+        ru = metrics.reuse(merged(STATUS, rows), rows)
+        self.assertEqual(ru['ratios']['rows'][0][:3], ['mem.rotate', 'f_8006464c', 'f_8007cc68'])
+        self.assertEqual(ru['ratios']['rows'][0][6], 0.1)
 
     def test_history_one_line_per_commit(self):
         with tempfile.TemporaryDirectory() as d:
@@ -399,17 +496,19 @@ class Metrics(unittest.TestCase):
 
 
 class Check(unittest.TestCase):
-    def make(self, d, ledger_rows, fn_overrides, metrics_newer=True, waivers=None):
+    def make(self, d, ledger_rows, fn_overrides, metrics_newer=True, waivers=None, extra_fns=(),
+             tier_from=None):
         mp = os.path.join(d, 'map')
         os.makedirs(mp)
         write_jsonl(os.path.join(mp, 'ledger.jsonl'), ledger_rows)
         fns = [dict({'id': 'f_1', 'name': 'one', 'state': 'closed+sail', 'hyps': [],
                      'nonvacuity': 'X.pre_nonvacuous', 'snapshot': 'X.post_snapshot'},
-                    **fn_overrides)]
+                    **fn_overrides)] + list(extra_fns)
         with open(os.path.join(mp, 'map.json'), 'w') as f:
             json.dump({'functions': fns}, f)
         with open(os.path.join(mp, 'waivers.json'), 'w') as f:
-            json.dump({'pre_revision': [], 'waivers': waivers or {}}, f)
+            json.dump(dict({'pre_revision': [], 'waivers': waivers or {}},
+                           **({'tier_required_from': tier_from} if tier_from else {})), f)
         mt = os.path.join(mp, 'metrics.json')
         with open(mt, 'w') as f:
             f.write('{}')
@@ -424,9 +523,9 @@ class Check(unittest.TestCase):
     def test_failures(self):
         now = cost.parse_ts('2026-01-03T00:00:00Z')
         rows = [{'schema': 2, 'rec': 'start', 'id': 1, 'ts': '2026-01-01T00:00:00Z', 'agent': 'A',
-                 'fn': None, 'item': 'x', 'kind': 'infra'},
+                 'fn': None, 'item': 'x', 'kind': 'infra', 'tier': 2},
                 {'schema': 2, 'rec': 'start', 'id': 2, 'ts': '2026-01-02T23:00:00Z', 'agent': 'B',
-                 'fn': None, 'item': 'y', 'kind': 'infra', 'minutes': 5}]
+                 'fn': None, 'item': 'y', 'kind': 'infra', 'tier': 1, 'minutes': 5}]
         with tempfile.TemporaryDirectory() as d:
             fails = metrics.check(self.make(d, rows, {'hyps': [{'name': 'A'}], 'snapshot': None},
                                             metrics_newer=False), now=now)
@@ -448,6 +547,46 @@ class Check(unittest.TestCase):
             self.assertEqual(metrics.check(self.make(
                 d, [], {'state': 'closed-on-assumptions', 'hyps': [{'name': 'A'}],
                         'nonvacuity': None})), [])
+
+    def test_tier(self):
+        def start(i, t, **kw):
+            return dict({'schema': 2, 'rec': 'start', 'id': i, 'ts': t, 'agent': f'A{i}',
+                         'fn': None, 'item': 'x', 'kind': 'infra'}, **kw)
+        rows = [start(1, '2026-01-01T00:00:00Z'), start(2, '2026-01-02T00:00:00Z'),
+                start(3, '2026-01-02T00:00:00Z', tier=1)]
+        rows += [{'schema': 2, 'rec': 'stop', 'id': i, 'agent': f'A{i}', 'outcome': 'closed',
+                  'ts': '2026-01-02T01:00:00Z', 'note': None} for i in (1, 2, 3)]
+        with tempfile.TemporaryDirectory() as d:  # no cutoff: every record needs a tier
+            fails = metrics.check(self.make(d, rows, {}))
+        self.assertEqual(len(fails), 2)
+        self.assertTrue(all('has no tier' in x for x in fails))
+        with tempfile.TemporaryDirectory() as d:  # records before the cutoff are grandfathered
+            fails = metrics.check(self.make(d, rows, {}, tier_from='2026-01-01T12:00:00Z'))
+        self.assertEqual(len(fails), 1)
+        self.assertIn('ledger item 2 (A2: x)', fails[0])
+
+    def test_family(self):
+        def copy_(i, state, sid, stem='s.f'):
+            return {'id': f'f_{i}', 'name': f'{stem}__anon_{i}', 'stem': stem, 'set': 'target',
+                    'state': state, 'status_id': sid, 'hyps': [], 'nonvacuity': 'n',
+                    'snapshot': 's'}
+        ok = [copy_(2, 'closed', 'ZesuExec.Fn.Fam.C2.R2'), copy_(3, 'in-proof', 'ZesuExec.Fn.Fam.C3.R3'),
+              copy_(4, 'ready', None)]
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(metrics.check(self.make(d, [], {}, extra_fns=ok)), [])
+        bad = [copy_(2, 'closed', 'ZesuExec.Fn.Fam.C2.R2'), copy_(3, 'in-proof', 'S3'),
+               copy_(4, 'in-proof', 'ZesuExec.Fn.Other.R4'),
+               copy_(5, 'closed', 'ZesuExec.Fn.Fam.G', stem='g')]
+        with tempfile.TemporaryDirectory() as d:
+            fails = metrics.check(self.make(d, [], {}, extra_fns=bad))
+        text = '\n'.join(fails)
+        self.assertIn('f_3 s.f__anon_3 shares stem s.f with a proved copy but is proved outside', text)
+        self.assertIn('copies of s.f are proved in several directories: Fn/Fam, Fn/Other', text)
+        self.assertIn('family directory Fn/Fam of s.f also serves g', text)
+        self.assertEqual(len(fails), 3)
+        unproved = [copy_(2, 'in-proof', 'S2'), copy_(3, 'ready', None)]
+        with tempfile.TemporaryDirectory() as d:  # no proved copy yet: no family rule
+            self.assertEqual(metrics.check(self.make(d, [], {}, extra_fns=unproved)), [])
 
 
 class BuildStat(unittest.TestCase):

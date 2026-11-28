@@ -241,8 +241,9 @@ def attribute(ledger_rows, backfill, agents, now=None):
     """Costed items and per-agent totals.
 
     Returns (items, per_agent): items are dicts with `fn`, `item`, `kind`, `agent`, `outcome`,
-    `minutes`, `cost` (usd, tokens, requests, builds, unknown), `backfill`, `open`; per_agent maps
-    an agent to {session, items, unattributed} cost totals.
+    `minutes`, `cost` (usd, tokens, requests, builds, unknown), `backfill`, `open`, and for
+    schema-2 items `id`, `tier` (None when the start record has none) and `escalates`;
+    per_agent maps an agent to {session, items, unattributed} cost totals.
     """
     from . import ledger as led
     now = now if now is not None else datetime.datetime.now(datetime.timezone.utc).timestamp()
@@ -272,7 +273,7 @@ def attribute(ledger_rows, backfill, agents, now=None):
                       'agent': a, 'outcome': stop.get('outcome') if stop else None,
                       'minutes': round((t1 - t0) / 60, 2), 'backfill': False,
                       'open': stop is None, 'cost': rounded(acc), 'ts': it['ts'],
-                      'id': it['id']})
+                      'id': it['id'], 'tier': it.get('tier'), 'escalates': it.get('escalates')})
     per_agent = {}
     for a, rs in agents.rows.items():
         sess, inside = _zero(), _zero()

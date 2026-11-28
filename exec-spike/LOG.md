@@ -1651,3 +1651,9 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   five functions `closed+sail` with their theorem names, `pre_nonvacuous` and `post_snapshot`;
   `tools/verify.sh` all PASS, `zmap check: pass`. `memcpy` still shows `assumed` although
   `reviews.json` lists it as a service (S22 step 4, not changed here).
+- S29 gate (branch s29): ledger `--tier 1|2` (required) and `--escalates`, kind `replay`; check
+  fails on untiered starts after `waivers.json` `tier_required_from` and on stem-shared proofs
+  outside one family directory; forecast in dollars and tokens per cut point from fully ledgered
+  functions (p50 $24,562, 69.5G tokens over 10,147 open cut points; >3,000 band $17,722 p50, was
+  $2,887); new metric groups tiers, replay, reuse, varloc, fit. `make -C tools/zmap map test` 86
+  OK, `zmap check: pass`.
