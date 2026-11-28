@@ -1270,3 +1270,21 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     not measured) vs new `leaf_diag` 281 s, budget passing on all 486 leaves.
   - `lake build` 325 jobs OK; no `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no
     `maxHeartbeats` change. Ledger item 2 (S11Auto), $15.07 session.
+- S17 map precision (S17MapPrecision, 2026-11-28, branch `s17`): gate measured; `make -C
+  tools/zmap test` passes (see GO.md § S17 for the tables).
+  - `tools/zmap/precision.py`: one forward abstract interpretation per function (registers,
+    frame slots, terms over entry arguments, read-only loads, bounded indices from byte loads,
+    masks and `bltu`/`bgeu` bounds, small constant sets) gives each indirect call/jump a target
+    term (`calls[].slice`). Kinds: `exact` (all values enumerated from constants and
+    `.rodata`), `precondition` (an argument or a load chain from one; `targets` substituted from
+    every caller's state, `targets_complete`), `unknown` (`reason`). Write summaries (argument,
+    offset window) per function, least fixpoint over rounds; memcpy/memmove/memset modelled.
+    `table-heuristic` is gone for calls; jumps use it only when nothing else applies (now none
+    in the target set).
+  - Indirect calls of the 458 sites: exact 49, precondition 392 (296 complete, 44 without a
+    target), unknown 17. Jumps: runDispatch 174/174 and memset exact; 5 tables bounded by an
+    argument. Recursive target functions 19 -> 7. Target set 206 -> 222 (vtable slots referenced
+    by target code count for reachability). ready 18 -> 31, waiting 44 -> 38.
+  - Irreducible: every multi-entry region listed (`irreducible_regions`); cycle cuts (`why:
+    cycle`) +3 in `computeHash`, +3 in `sort.block.block__anon_10892`, 0 elsewhere; the
+    `irreducible` blocker is removed.

@@ -62,21 +62,22 @@ class Structure(unittest.TestCase):
         self.assertEqual(fn('_start')['set'], 'target')
 
 
-class Heuristics(unittest.TestCase):
+class Resolution(unittest.TestCase):
+    """Indirect transfers resolved by `precision` (plan S17)."""
+
     def test_tx_access_list_indirect_calls(self):
         f = fn('rlp_decode.txAccessList')
         ind = [c for c in f['calls'] if c['kind'] == 'indirect']
         self.assertEqual(len(ind), 3)
-        self.assertTrue(all(c['resolution'] == 'table-heuristic' for c in ind))
-        cands = set().union(*(names(c['targets']) for c in ind))
-        self.assertLessEqual({'alt_fl_alloc.alloc', 'alt_fl_alloc.remap', 'alt_fl_alloc.free'},
-                             cands)
+        self.assertTrue(all(c['resolution'] == 'precondition' for c in ind))
+        self.assertEqual(set().union(*(names(c['targets']) for c in ind)),
+                         {'alt_fl_alloc.alloc', 'alt_fl_alloc.remap', 'alt_fl_alloc.free'})
 
     def test_decode_tx_fields_jump_table(self):
         f = fn('rlp_decode.decodeTxFields')
         jt = [j for j in f['jump_tables'] if j['site'] == 0x80000584]
         self.assertEqual(len(jt), 1)
-        self.assertEqual(jt[0]['resolution'], 'table-heuristic')
+        self.assertEqual(jt[0]['resolution'], 'precondition')  # index: the tx type argument
         self.assertEqual(len(jt[0]['targets']), 5)
 
 
@@ -96,7 +97,7 @@ class JoinCuts(unittest.TestCase):
             self.assertEqual(g['join_cut_candidates'], f['join_cut_candidates'])
             for j in f['join_cut_candidates']:
                 self.assertIn(j, cuts)
-            base = {c['pc'] for c in f['cuts']}
+            base = {c['pc'] for c in f['cuts'] if c['why'] != 'cycle'}
             self.assertEqual({pc for pc, why in cuts.items() if why == 'join'},
                              set(f['join_cut_candidates']) - base)
         tx_base = next(f for f in plain if f['name'] == 'rlp_decode.txAccessList')
