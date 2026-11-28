@@ -7,10 +7,9 @@ ledger start/stop, cost backfill/agents, metrics, brief, check, costmodel).
 import argparse
 import json
 import os
-import shutil
 import sys
 
-from . import analyze, cost, costmodel, elfread, ledger, merge, metrics, workqueue
+from . import analyze, cost, costmodel, elfread, ledger, merge, metrics, site, workqueue
 
 PACKAGE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_LEDGER = os.path.join(PACKAGE, 'map', 'ledger.jsonl')
@@ -84,21 +83,6 @@ def cmd_next(args):
         print(f'{it["rank"]:4d}. {workqueue.describe(it)}')
 
 
-def cmd_site(args):
-    m = load(args.map)
-    queue = load(args.queue) if os.path.exists(args.queue) else []
-    os.makedirs(os.path.join(args.out, 'vendor'), exist_ok=True)
-    shutil.copy(os.path.join(args.ui, 'map.html'), os.path.join(args.out, 'map.html'))
-    shutil.copy(os.path.join(args.ui, 'vendor', 'd3.min.js'),
-                os.path.join(args.out, 'vendor', 'd3.min.js'))
-    with open(os.path.join(args.out, 'map-data.js'), 'w') as f:
-        f.write('window.ZMAP = ')
-        json.dump(m, f, separators=(',', ':'))
-        f.write(';\nwindow.ZQUEUE = ')
-        json.dump(queue, f, separators=(',', ':'))
-        f.write(';\n')
-    print(f'zmap: site -> {os.path.join(args.out, "map.html")}')
-
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog='zmap')
@@ -132,12 +116,7 @@ def main(argv=None):
     nx.add_argument('--queue', default=DEFAULT_QUEUE)
     nx.set_defaults(func=cmd_next)
 
-    st = sub.add_parser('site', help='write the page (map.html, map-data.js)')
-    st.add_argument('--map', default=DEFAULT_MAP)
-    st.add_argument('--queue', default=DEFAULT_QUEUE)
-    st.add_argument('--ui', default=UI, help='directory with map.html and vendor/d3.min.js')
-    st.add_argument('--out', required=True)
-    st.set_defaults(func=cmd_site)
+    site.register(sub, PACKAGE, UI)
 
     ledger.register(sub, DEFAULT_LEDGER)
     cost.register(sub, PACKAGE)

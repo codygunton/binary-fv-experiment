@@ -252,7 +252,7 @@ def merge(static, status, reviews, items, status_source=''):
             f['meaning'] = 'spec-sail'
         elif own and own in consts:
             f['meaning'] = 'model'
-        elif f['theorems']['spec'] or f['theorems']['reach']:
+        elif f['contract'] or f['theorems']['spec'] or f['theorems']['reach']:
             f['meaning'] = 'machine-only'
         else:
             f['meaning'] = 'none'

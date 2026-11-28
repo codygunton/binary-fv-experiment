@@ -1,6 +1,6 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T06:01:26Z",
+ "generated": "2026-11-28T06:03:49Z",
  "coverage": {
   "headline": {
    "cut_points_closed": 41,
@@ -390,14 +390,14 @@
   "functions": {
    "spec-sail": 4,
    "model": 0,
-   "machine-only": 4,
-   "none": 198
+   "machine-only": 5,
+   "none": 197
   },
   "cut_points": {
    "spec-sail": 61,
    "model": 0,
-   "machine-only": 30,
-   "none": 10109
+   "machine-only": 183,
+   "none": 9956
   },
   "meaning_complete_cut_points": 8,
   "compliance_lines": {
@@ -417,7 +417,7 @@
     [
      "f_8000050c",
      "rlp_decode.decodeTxFields",
-     "none",
+     "machine-only",
      0
     ],
     [
@@ -595,18 +595,18 @@
  },
  "effort": {
   "total": {
-   "usd": 472.45,
-   "totalTokens": 1413505669.13,
-   "requests": 4379.25,
-   "minutes": 1220.69,
+   "usd": 478.53,
+   "totalTokens": 1428128945.13,
+   "requests": 4468.25,
+   "minutes": 1238.17,
    "builds": 1141.88
   },
-  "session_usd": 713.68,
-  "unattributed_usd": 241.19,
-  "unattributed_share": 0.3379,
+  "session_usd": 716.18,
+  "unattributed_usd": 237.6,
+  "unattributed_share": 0.3318,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
-  "infrastructure_share": 0.2939,
+  "infrastructure_share": 0.3028,
   "abandoned": {
    "usd": 0.0,
    "totalTokens": 0.0,
@@ -672,11 +672,11 @@
     ],
     [
      "infra",
-     31,
-     138.85,
-     399524456.83,
-     1405.11,
-     533.25,
+     32,
+     144.92,
+     414147732.83,
+     1494.11,
+     550.73,
      320.5
     ],
     [
@@ -831,10 +831,10 @@
     ],
     [
      "coordinator",
-     64.2,
+     64.83,
      10.51,
-     53.69,
-     0.8363,
+     54.32,
+     0.8379,
      0
     ],
     [
@@ -918,6 +918,14 @@
      0
     ],
     [
+     "DTFAuth3",
+     21.62,
+     0.0,
+     21.62,
+     1.0,
+     0
+    ],
+    [
      "DTFAuth2",
      21.45,
      20.24,
@@ -931,14 +939,6 @@
      19.41,
      1.57,
      0.0747,
-     0
-    ],
-    [
-     "DTFAuth3",
-     20.97,
-     0.0,
-     20.97,
-     1.0,
      0
     ],
     [
@@ -1006,19 +1006,19 @@
      0
     ],
     [
+     "S10Tracking",
+     9.21,
+     7.01,
+     2.2,
+     0.2389,
+     0
+    ],
+    [
      "ProveF45",
      9.02,
      0.0,
      9.02,
      1.0,
-     0
-    ],
-    [
-     "S10Tracking",
-     8.0,
-     7.01,
-     0.99,
-     0.1238,
      0
     ],
     [
@@ -1032,9 +1032,9 @@
     [
      "S9Viewer",
      7.49,
-     0.0,
-     7.49,
-     1.0,
+     6.08,
+     1.41,
+     0.1883,
      0
     ],
     [

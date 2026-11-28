@@ -1642,3 +1642,5 @@
 {"ts": "2026-11-28T05:13:59Z", "fn": "f_8000050c", "item": "leaf_80002f54_1", "kind": "leaf", "agent": "DTFAuth2", "minutes": 0.0, "usd": null, "requests": null, "outcome": "open", "note": "reopened: target 0x800022e4/0x80002ecc now has Extra AuthDone/AuthOwn (toOwnedSlice state)"}
 {"schema": 2, "rec": "start", "id": 1, "ts": "2026-11-28T05:41:49Z", "fn": null, "item": "S10 tracking", "kind": "infra", "agent": "S10Tracking"}
 {"schema": 2, "rec": "stop", "id": 1, "agent": "S10Tracking", "ts": "2026-11-28T06:01:24Z", "outcome": "closed", "note": "S10.1-S10.7; gate passed in worktree"}
+{"schema": 2, "rec": "start", "id": 1, "ts": "2026-11-28T05:43:26Z", "fn": null, "item": "S9.1 viewer", "kind": "infra", "agent": "S9Viewer"}
+{"schema": 2, "rec": "stop", "id": 1, "agent": "S9Viewer", "ts": "2026-11-28T06:00:55Z", "outcome": "closed", "note": null}

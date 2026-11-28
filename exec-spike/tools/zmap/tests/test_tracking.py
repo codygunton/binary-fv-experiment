@@ -265,7 +265,8 @@ class StateRule(unittest.TestCase):
         self.assertEqual(by['f_800d6274']['meaning'], 'spec-sail')
         self.assertEqual(by['f_8004218c']['meaning'], 'machine-only')
         tx = by['f_80000000']
-        self.assertEqual(tx['meaning'], 'none')
+        self.assertEqual(tx['meaning'], 'machine-only')  # a contract, no theorem in the fixture
+        self.assertEqual(by['f_80042494']['meaning'], 'none')
         self.assertIn('size:151-600', tx['classes'])
         self.assertIn('loops:1-3', tx['classes'])
         self.assertIn('indirect-call', tx['classes'])
@@ -337,7 +338,7 @@ class Metrics(unittest.TestCase):
         line = lines[0]
         tx = line['fns']['f_80000000']
         self.assertEqual(line['state_codes'][tx[0]], 'waiting')
-        self.assertEqual(line['meaning_codes'][tx[1]], 'none')
+        self.assertEqual(line['meaning_codes'][tx[1]], 'machine-only')
 
     def test_rework(self):
         h = [{'hashes': {'f': {'pre': 'a', 'post': 'b', 'dep': False}}},
