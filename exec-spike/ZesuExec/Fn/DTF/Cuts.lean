@@ -288,7 +288,7 @@ def Kind.Pre : Kind → Sig → Idx → Machine → Prop
 
 def Kind.Post : Kind → Sig → Idx → Machine → Machine → Prop
   | .f2, _, _ => F2.Post
-  | .f1, σ, x => F1.Post σ.A x.1 x.2.1
+  | .f1, σ, x => F1.PostKeep σ.A x.1 x.2.1
   | .f4, σ, x => F4.Post σ.A x.1 x.2.1
   | .memcpy, _, _ => MemcpyPost
   | .tx, σ, x => TX.Post σ.A x.2.2
@@ -299,7 +299,7 @@ def Kind.Post : Kind → Sig → Idx → Machine → Machine → Prop
 theorem Kind.spec : ∀ (k : Kind) (σ : Sig) (x : Idx),
     Spec zesuImage k.entry k.bound (k.Pre σ x) (k.Post σ x)
   | .f2, _, _ => F2.f2_spec
-  | .f1, σ, x => F1.f1_spec σ.A x.1 x.2.1
+  | .f1, σ, x => F1.f1_spec_keep σ.A x.1 x.2.1
   | .f4, σ, x => F4.f4_spec σ.A x.1 x.2.1
   | .memcpy, _, _ => memcpy_spec zesuImage
   | .tx, σ, x => TX.tx_spec σ.A x.2.2
@@ -316,16 +316,23 @@ def MemDst (σ : Sig) (m : Machine) : Prop :=
   (m.reg 12).toNat = 0 ∨ ∃ L X, Live σ m L X ∧
     ∃ b ∈ X, ∀ j < (m.reg 12).toNat, InRange b.1 b.2 (m.reg 10 + BitVec.ofNat 64 j)
 
+/-- A list buffer `{p, cap}` of 32-byte elements is one of DTF's blocks (when it has one). -/
+def BufOwn (X : List (Word × Nat)) (p c : Word) : Prop := 0 < c.toNat → (p, c.toNat * 32) ∈ X
+
 /-- What the call site says about the callee's index: the callee's precondition, and the live list
 is DTF's `Live` list (allocator calls, F1, F4, TX; TX's parameters carry it too); a `memcpy`
-writes into one of DTF's blocks. The return-site cut lemmas need these (`Live` after an `alloc`,
-its size positive; `Common` after a `memcpy`). -/
+writes into one of DTF's blocks; the list buffer F1 or F4 is handed is one of DTF's blocks. The
+return-site cut lemmas need these (`Live` after an `alloc`, its size positive; `Common` after a
+`memcpy`, F1 or F4). -/
 def IdxOk (k : Kind) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   k.Pre σ x m ∧
   match k with
   | .f2 | .remap => True
   | .memcpy => MemDst σ m
   | .tx => x.2.2.L = x.1 ∧ ∃ X, Live σ m x.1 X
+  | .f1 => ∃ X, Live σ m x.1 X ∧
+      BufOwn X (F1.wordAt m (m.reg 10)) (F1.wordAt m (m.reg 10 + 16))
+  | .f4 => ∃ X, Live σ m x.1 X ∧ BufOwn X (ToOwned.listPtr m) (ToOwned.listCap m)
   | _ => ∃ X, Live σ m x.1 X
 
 /-! ## Budgets -/

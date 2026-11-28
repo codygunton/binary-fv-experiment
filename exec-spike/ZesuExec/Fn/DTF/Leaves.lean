@@ -8,9 +8,9 @@ The cut lemmas of the 70 cut points reached only by jumps and branches whose sta
 region, by `cut_plain` (`Lemmas.lean`); each instance checks by `decide` that the cut is not the
 entry, has no call site, no extra region and a well-formed shape.
 
-The cut lemmas of the 76 return sites of `decodeItem`, `alloc`, `remap` and TX, by `cut_ret`
-(`Ret.lean`); each instance checks by `decide` the return site's shape against its call site
-(`RetCheck`) and that the return address is even.
+The cut lemmas of the return sites of `decodeItem`, `alloc`, `remap`, TX, `memcpy`, F1 and F4, by
+`cut_ret` (`Ret.lean`); each instance checks by `decide` the return site's shape against its call
+site (`RetCheck`) and that the return address is even.
 
 The entry's cut lemma (`cut_entry`) and the three hand-placed cuts with region 4: the jump-table
 word (`cut_table`) and the two buffer slots (`cut_slot`).
@@ -328,6 +328,10 @@ theorem DTF.cut_80002a38 : CutOK DTF.plan DTF.plan.cuts[143]! :=
   cut_ret (table[143]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
 theorem DTF.cut_80002ee0 : CutOK DTF.plan DTF.plan.cuts[154]! :=
   cut_ret (table[154]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+theorem DTF.cut_8000211c : CutOK DTF.plan DTF.plan.cuts[109]! :=
+  cut_ret (table[109]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+theorem DTF.cut_80002180 : CutOK DTF.plan DTF.plan.cuts[111]! :=
+  cut_ret (table[111]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
 
 /-! ## The entry and the cuts with region 4 -/
 
