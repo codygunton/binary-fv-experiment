@@ -21,8 +21,8 @@
  },
  "assumed": ["f_80042494", "f_80041f38"],
  "assumed_notes": {
-  "f_80042494": "AllocAssumptions (Fn/Assumed.lean): alloc_spec; structural field Arena/arena_split (S6 TX interface change, STATEMENTS.md)",
-  "f_80041f38": "AllocAssumptions (Fn/Assumed.lean): free_spec; structural field Arena/arena_split (S6 TX interface change, STATEMENTS.md)"
+  "f_80042494": "AllocAssumptions (Fn/Assumed.lean): alloc_spec; structural field Arena/arena_split (S6 TX interface change, STATEMENTS.md); log2 alignment a2 <= 4 (S7 trust-base change approved by the user, diverges from zesislar's altFlMaxLog2Alignment := 3; evidence from alt_fl_alloc.zig and the disassembly in STATEMENTS.md)",
+  "f_80041f38": "AllocAssumptions (Fn/Assumed.lean): free_spec; structural field Arena/arena_split (S6 TX interface change, STATEMENTS.md); log2 alignment a3 <= 4 (S7 trust-base change approved by the user, diverges from zesislar's altFlMaxLog2Alignment := 3; evidence in STATEMENTS.md)"
  },
  "services": ["f_800e06c0"]
 }

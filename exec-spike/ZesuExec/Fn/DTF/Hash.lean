@@ -185,7 +185,7 @@ theorem DTF.leaf_800020ac_0 :
   have hout : m'.reg 10 = σ.fr + w 0x2e0 := CF.shape.1 (10, .fr 0x2e0) (by decide) _ rfl
   have hf2 : F2.Pre m' := f2_pre_cur CF.common hsp hout (by decide) (by decide)
     (e11.trans r23) (e12.trans r22) (by omega) CF.aligned
-  have hsx : SiteX (table[108]!).pc σ m' := by
+  have hsx : SiteX (table[108]!).pc σ ([], [], ⟨[], []⟩) m' := by
     rw [show (table[108]!).pc = 0x800020c0 by decide]
     simp only [SiteX, if_true]
     exact ⟨hloop, e11.trans e23.symm, e12.trans e22.symm⟩
@@ -496,8 +496,8 @@ theorem DTF.leaf_80002064_2 :
   have hao : m'.reg 12 = σ.ao + w 0 := CF.shape.1 (12, .ao 0) (by decide) _ rfl
   obtain ⟨L, X, items, hpre4, hlive, hbuf⟩ := f4_pre_dtf CF.common hsp hres hhdr hao
     (by decide) (by decide) (by decide) (by decide) (by decide) hdr CF.aligned
-  have hsx : SiteX (table[111]!).pc σ m' := by
-    rw [show (table[111]!).pc = 0x80002180 by decide]; exact siteX_of_no (by decide) σ m'
+  have hsx : SiteX (table[111]!).pc σ (L, items, ⟨[], []⟩) m' := by
+    rw [show (table[111]!).pc = 0x80002180 by decide]; exact siteX_of_no (by decide) σ _ m'
   have hidx : IdxOk (siteAt 111).kind σ (L, items, ⟨[], []⟩) m' := by
     rw [show (siteAt 111).kind = .f4 by decide]; exact ⟨hpre4, X, hlive, hbuf⟩
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩

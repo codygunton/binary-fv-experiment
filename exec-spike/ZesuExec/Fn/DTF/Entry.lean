@@ -66,8 +66,8 @@ theorem DTF.leaf_8000050c_0 :
   have hrest0 : (table[0]!).rest = [⟨.reg 13, false, 0⟩, ⟨.reg 14, true, 0⟩] := by decide
   have hfine1 : (table[1]!).shape.Fine = true := by decide
   have hsh1 : shapeHolds ((leavesAt 0x8000050c)[0]!).S (table[1]!).shape = true := by decide
-  have hb0 : (budgetAt 0x8000050c).1 = 34359750421 := by decide
-  have hb1 : (budgetAt 0x80000574).1 = 34359750395 := by decide
+  have hb0 : (budgetAt 0x8000050c).1 = 34359750741 := by decide
+  have hb1 : (budgetAt 0x80000574).1 = 34359750715 := by decide
   have hi0 : (budgetAt 0x8000050c).2 = .none := rfl
   have hi1 : (budgetAt 0x80000574).2 = .none := rfl
   have hmem1 : mkCut (table[1]!) ∈ vcPlan.cuts := List.mem_map_of_mem (by
@@ -152,8 +152,8 @@ theorem DTF.leaf_8000050c_0 :
     unfold budgetOf restLen
     rw [hrest1, hrest0, hpc1, hpc, entry_eq, hb0, hb1, hi0, hi1, hsteps]
     simp only [List.find?, Loc.word, innerOf]
-    show 34359750395 + 256 * (m'.reg 14).toNat + 0 ≤
-      34359750421 + 256 * (σ.m.reg 14).toNat + 0 - 26
+    show 34359750715 + 256 * (m'.reg 14).toNat + 0 ≤
+      34359750741 + 256 * (σ.m.reg 14).toNat + 0 - 26
     rw [e14]
     omega
 

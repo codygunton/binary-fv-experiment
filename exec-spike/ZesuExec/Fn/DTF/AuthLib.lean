@@ -130,15 +130,22 @@ theorem field_consumed {b : List Byte} {l : Bool} {h p : Nat} (hd : F2.decode b 
 theorem authOut_mono {σ : Sig} {m m' : Machine} {n j c h p : Nat}
     (h70 : m'.load (σ.fr + w 0x70) 8 = m.load (σ.fr + w 0x70) 8)
     (h68 : m'.load (σ.fr + w 0x68) 8 = m.load (σ.fr + w 0x68) 8)
+    (h30 : m'.load (σ.fr + w 0x30) 8 = m.load (σ.fr + w 0x30) 8)
     (ho : AuthOut σ m n j c h p) : AuthOut σ m' n j c h p := by
-  obtain ⟨hl, hs, hnj, l70, l68⟩ := ho
-  exact ⟨hl, hs, hnj, h70.trans l70, h68.trans l68⟩
+  obtain ⟨hl, hs, hnj, l70, l68, l30⟩ := ho
+  exact ⟨hl, hs, hnj, h70.trans l70, h68.trans l68, h30.trans l30⟩
+
+theorem bufIs_mono {σ : Sig} {m m' : Machine} {n r : Nat} {bp cap : Word}
+    (hL : ∀ L X, Live σ m L X → Live σ m' L X) (hb : BufIs σ m n r bp cap) :
+    BufIs σ m' n r bp cap := by
+  obtain ⟨h1, h2, L, X, hlive, hx⟩ := hb
+  exact ⟨h1, h2, L, X, hL L X hlive, hx⟩
 
 theorem authBuf_mono {σ : Sig} {m m' : Machine} {n r : Nat}
     (h58 : m'.load (σ.fr + w 0x58) 8 = m.load (σ.fr + w 0x58) 8)
     (h60 : m'.load (σ.fr + w 0x60) 8 = m.load (σ.fr + w 0x60) 8)
     (hL : ∀ L X, Live σ m L X → Live σ m' L X) (hb : AuthBuf σ m n r) : AuthBuf σ m' n r := by
-  obtain ⟨bp, cap, l58, l60, hnr, L, X, hlive, hx⟩ := hb
-  exact ⟨bp, cap, h58.trans l58, h60.trans l60, hnr, L, X, hL L X hlive, hx⟩
+  obtain ⟨bp, cap, l58, l60, hb⟩ := hb
+  exact ⟨bp, cap, h58.trans l58, h60.trans l60, bufIs_mono hL hb⟩
 
 end ZesuExec.Fn.DTF

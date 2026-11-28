@@ -328,6 +328,10 @@ theorem DTF.cut_80002a38 : CutOK DTF.plan DTF.plan.cuts[143]! :=
   cut_ret (table[143]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
 theorem DTF.cut_80002ee0 : CutOK DTF.plan DTF.plan.cuts[154]! :=
   cut_ret (table[154]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+theorem DTF.cut_80002f14 : CutOK DTF.plan DTF.plan.cuts[155]! :=
+  cut_ret (table[155]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+theorem DTF.cut_80002a6c : CutOK DTF.plan DTF.plan.cuts[144]! :=
+  cut_both (table[144]!) (by decide) (by decide) (by decide) (by decide) (by decide)
 theorem DTF.cut_8000211c : CutOK DTF.plan DTF.plan.cuts[109]! :=
   cut_ret (table[109]!) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
 theorem DTF.cut_80002180 : CutOK DTF.plan DTF.plan.cuts[111]! :=

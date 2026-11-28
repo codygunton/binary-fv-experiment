@@ -55,7 +55,7 @@ def ArmCheck (t : Nat) : Bool :=
   d'.pc == tgtPc t && d'.plain && d'.arms == [t] && d'.shape.extra.isEmpty &&
     d'.rest == [⟨.reg 13, false, 0⟩, ⟨.reg 14, true, 0⟩, ⟨.reg 21, true, 0⟩, ⟨.reg 22, false, 0⟩] &&
     d'.shape.Fine && shapeHolds l.S d'.shape && noExtra d'.pc && (budgetAt d'.pc).2.isNone &&
-    decide ((budgetAt d'.pc).1 + 5 ≤ 34359750395) && decide (tgtPc t % 4 = 0) &&
+    decide ((budgetAt d'.pc).1 + 5 ≤ 34359750715) && decide (tgtPc t % 4 = 0) &&
     ofBytesLE (byteList
       (fun j => BitVec.ofNat 8 ((zesuImage.rodataByte? (0x80110050 + 8 * t + j)).getD 0)) 0 8) ==
       w (tgtPc t) &&
@@ -92,7 +92,7 @@ theorem DTF.leaf_80000574_0 :
   have hr22 : ((leavesAt 0x80000574)[0]!).S.reg 22 = .bin .add (.ptr 3 0) (.var 54) := by decide
   have hsteps : ((leavesAt 0x80000574)[0]!).S.steps - (table[1]!).shape.S.steps = 5 := by decide
   have hlow : writesLow ((leavesAt 0x80000574)[0]!).S = true := by decide
-  have hb1 : (budgetAt 0x80000574).1 = 34359750395 := by decide
+  have hb1 : (budgetAt 0x80000574).1 = 34359750715 := by decide
   have hi1 : (budgetAt 0x80000574).2 = .none := rfl
   have hnot : (BitVec.ofNat 64 18446744073709551614 : Word) = ~~~1 := by decide
   intro σ m hA hc
@@ -179,7 +179,7 @@ theorem DTF.leaf_80000574_0 :
     rw [hrest', hrest0, hpc, hb1, hi1, hsteps, hinner.1]
     simp only [List.find?, Loc.word, innerOf]
     show (budgetAt (table[tgtIdx σ.t]!).pc).1 + 256 * (m'.reg 14).toNat + 0 ≤
-      34359750395 + 256 * (m.reg 14).toNat + 0 - 5
+      34359750715 + 256 * (m.reg 14).toNat + 0 - 5
     rw [e14]
     omega
 

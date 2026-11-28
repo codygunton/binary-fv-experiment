@@ -153,8 +153,7 @@ def Kind.SiteFine : Kind → Site → Bool
       (match regFr s 10, regFr s 11 with
        | some k, some k' => decide (k + 24 + 104 ≤ frameBytes ∧ k' + 24 + 104 ≤ frameBytes)
        | _, _ => false)
-  | .alloc, s | .remap, s | .memcpy, s => regFr s 2 == some 0
-  | _, _ => false
+  | .alloc, s | .remap, s | .memcpy, s | .free, s => regFr s 2 == some 0
 
 /-- The frame word at `o` survives the call. -/
 def Kind.Keeps : Kind → Site → Nat → Bool
@@ -170,8 +169,7 @@ def Kind.Keeps : Kind → Site → Nat → Bool
   | .f4, s, o => match regFr s 10, regFr s 11 with
     | some k, some k' => decide ((o + 8 ≤ k ∨ k + 24 ≤ o) ∧ (o + 8 ≤ k' ∨ k' + 24 ≤ o))
     | _, _ => false
-  | .alloc, _, _ | .remap, _, _ | .memcpy, _, _ => true
-  | _, _, _ => false
+  | .alloc, _, _ | .remap, _, _ | .memcpy, _, _ | .free, _, _ => true
 
 theorem sp_fr {σ : Sig} {s : Site} {x : Idx} {r : Nat} {mc : Machine} (hsite : SiteA s r σ x mc)
     (h : regFr s 2 = some 0) : mc.reg 2 = σ.fr + w 0 :=
@@ -533,6 +531,43 @@ theorem live_swap {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {mc m : Machine} {L X :
     exact ⟨hpos, hram, fun a ha => added_priv hpre hp (List.Perm.refl _) hheap
       (List.mem_singleton_self _) ha⟩
 
+/-- `free` takes back one of DTF's blocks (`IdxOk .free`): it writes that block, the
+allocator's memory and its stack frame. -/
+theorem ret_free {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
+    (hkd : s.kind = .free) (hk : Kind.SiteFine .free s = true) (hsite : SiteA s r σ x mc)
+    (hq : freePost σ.A x.1 mc m) (hp : Preserved mc m) : RetOut σ .free s mc m := by
+  have hc := hsite.2.1
+  have hpre := hc.2.1
+  have hfr := fr_toNat hpre
+  have hix := hsite.2.2.2.2.2.1
+  rw [hkd] at hix
+  obtain ⟨-, X, hlive, hb⟩ := hix
+  simp only [Kind.SiteFine, beq_iff_eq] at hk
+  have r2 := sp_fr hsite hk
+  have e2 := below_fr_toNat hpre
+  obtain ⟨hret, hso, hheap, -⟩ := hq
+  have hRs : ∀ a, InRange (mc.reg 2 - 16) 16 a → CallR σ a ∧ ¬ σ.A.Priv σ.g.L a := by
+    intro a h
+    rw [r2] at h
+    have hsp := pre_sp hpre
+    unfold frameBytes stackBytes TX.stackBytes Layout.ramLo at *
+    exact stack_R hpre (by rw [e2]; unfold stackBytes TX.stackBytes; omega) (by rw [e2]; omega) h
+  have hbP : ∀ a, InRange (mc.reg 11) (mc.reg 12).toNat a → σ.A.Priv σ.g.L a :=
+    fun a ha => (hlive.2.2 _ hb).2.2 a ha
+  refine ⟨hret, common_keep hc hp hso (fun a h => ?_) ⟨_, _, live_drop hlive hb hheap⟩,
+    fun o ho _ => ?_⟩
+  · rcases h with h | h | h
+    · exact priv_R hpre (priv_sub hpre hlive h)
+    · exact priv_R hpre (hbP a h)
+    · exact (hRs a h).1
+  · refine frame_keep hpre hso ho fun a h => ?_
+    rcases h with h | h | h
+    · exact frame_not_priv hpre ho (priv_sub hpre hlive h)
+    · exact frame_not_priv hpre ho (hbP a h)
+    · have hsp := pre_sp hpre
+      unfold frameBytes stackBytes TX.stackBytes Layout.ramLo at *
+      rw [r2] at h; simp only [InRange, e2] at h; omega
+
 /-- The stack a callee with an `n`-byte frame uses below DTF's frame (`sp = fr`). -/
 theorem below_fr_toNat' {σ : Sig} (hpre : Pre σ.A σ.g σ.m) {n : Nat} (hn : n ≤ TX.stackBytes) :
     (σ.fr + w 0 - BitVec.ofNat 64 n).toNat = σ.fr.toNat - n := by
@@ -700,6 +735,7 @@ theorem ret_common {s : Site} {σ : Sig} {x : Idx} {r : Nat} {mc m : Machine}
   case memcpy => exact ret_memcpy hkd hsite hq hp
   case f1 => exact ret_f1 hkd hk hsite hq hp
   case f4 => exact ret_f4 hkd hk hsite hq hp
+  case free => exact ret_free hkd hk hsite hq hp
   all_goals simp [Kind.SiteFine] at hk
 
 /-! ## The cut lemma of a return site -/
@@ -761,5 +797,22 @@ theorem cut_ret (d : CutData) (hpc : d.pc ≠ entry) (hpl : d.plain = false)
     rw [Shape.S, hx, List.append_nil]
     exact Env.WF.of_regions this (regionsOf_base hx σ m)
   exact ⟨hwf, match_plain hc.avail hsh hx hfine, hc.2.2.1, hpcm⟩
+
+/-- The cut lemma of a return site also reached by a jump (`0x80002a6c`): the plain branch as
+`cut_plain`, the return branch as `cut_ret`. -/
+theorem cut_both (d : CutData) (hpc : d.pc ≠ entry) (hx : d.shape.extra = [])
+    (hfine : d.shape.Fine = true) (hck : RetCheck d = true)
+    (hra : (w d.pc &&& ~~~(1 : Word)).toNat = d.pc) : CutOK vcPlan (mkCut d) := by
+  intro σ m hA
+  have hA' := hA
+  simp only [mkCut, if_neg hpc, ACut] at hA'
+  rcases hA' with ⟨-, hpcm, hc, hsh, -⟩ | ⟨s, hs, hret⟩
+  · have hwf : Env.WF (envOf d.shape σ m) d.shape.S := by
+      have := pre_wf hc.2.1 m d.shape.ov d.shape.known
+      rw [Shape.S, hx, List.append_nil]
+      exact Env.WF.of_regions this (regionsOf_base hx σ m)
+    exact ⟨hwf, match_plain hc.avail hsh hx hfine, hc.2.2.1, hpcm⟩
+  · exact cut_ret { d with plain := false } hpc rfl hx hfine hck hra σ m
+      (by simp only [mkCut, if_neg hpc, ACut]; exact .inr ⟨s, hs, hret⟩)
 
 end ZesuExec.Fn.DTF

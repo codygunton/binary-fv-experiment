@@ -41,8 +41,10 @@ open until those conjuncts are added.
 
 Budgets: `K + 256 · (rest length) + inner`, `K` the longest path to the return over the cut graph
 (back edges of the two list loops and the byte loops' self edges removed, callee bounds added,
-640 for every entry into a byte loop), `inner` = `20 · (end - cursor)` at a byte-loop head and
-`256 · (list bytes left)` inside the hash and authorization list loops.
+640 for every entry into a byte loop, 704 into one of the five inside the authorization list),
+`inner` = `20 · (end - cursor)` at a byte-loop head (`22 ·` inside the authorization list: the
+chainId and r loops take 22 instructions a byte) and `256 · (list bytes left)` inside the hash
+and authorization list loops.
 -/
 
 namespace ZesuExec.Fn.DTF
@@ -259,17 +261,22 @@ def AuthList (σ : Sig) (c h p : Nat) : Prop :=
   skip 9 σ.payload = some c ∧ F2.decode (σ.payload.drop c) = .success true h p
 
 /-- The list cursor after `n` tuples, `j` bytes of the list payload: `S-0x300 = inp + c + h + j`,
-`S-0x308 = p - j` (the budget's list term). -/
+`S-0x308 = p - j` (the budget's list term); the payload length `p` at `S-0x340`. -/
 def AuthOut (σ : Sig) (m : Machine) (n j c h p : Nat) : Prop :=
   AuthList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧ n ≤ j ∧
     m.load (σ.fr + w 0x70) 8 = some (σ.inp + w (c + h + j)) ∧
-    m.load (σ.fr + w 0x68) 8 = some (w (p - j))
+    m.load (σ.fr + w 0x68) 8 = some (w (p - j)) ∧ m.load (σ.fr + w 0x30) 8 = some (w p)
 
-/-- The tuple buffer `{S-0x318 = p, S-0x310 = cap}` with room for `n + r` tuples of `0x90` bytes,
-one of DTF's blocks when it has one. -/
+/-- A tuple buffer `{bp, cap}` with room for `n + r` tuples of `0x90` bytes and at most
+`2 (n + r) + 1` (the growth rule keeps it so), one of DTF's blocks when it has one. -/
+def BufIs (σ : Sig) (m : Machine) (n r : Nat) (bp cap : Word) : Prop :=
+  n + r ≤ cap.toNat ∧ cap.toNat ≤ 2 * (n + r) + 1 ∧
+    ∃ L X, Live σ m L X ∧ (0 < cap.toNat → (bp, cap.toNat * 0x90) ∈ X)
+
+/-- The tuple buffer `{S-0x318 = bp, S-0x310 = cap}` (`BufIs`). -/
 def AuthBuf (σ : Sig) (m : Machine) (n r : Nat) : Prop :=
   ∃ bp cap : Word, m.load (σ.fr + w 0x58) 8 = some bp ∧ m.load (σ.fr + w 0x60) 8 = some cap ∧
-    n + r ≤ cap.toNat ∧ ∃ L X, Live σ m L X ∧ (0 < cap.toNat → (bp, cap.toNat * 0x90) ∈ X)
+    BufIs σ m n r bp cap
 
 /-- The loop head `0x800024d0`: `n` tuples, the count at `S-0x2f8`. -/
 def AuthLoop (σ : Sig) (m : Machine) : Prop :=
@@ -295,19 +302,88 @@ def AuthTup (σ : Sig) (m : Machine) (b : Nat) (nx : Bool) : Prop :=
 def AddrOk (σ : Sig) (m : Machine) : Prop :=
   ∃ a, m.load (σ.fr + w 0x78) 8 = some (σ.inp + w a) ∧ a + 20 ≤ σ.len
 
-/-- After the tuple's last field: the tuple consumed `k ≥ 17` bytes (`S-0x328`). -/
+/-- After the tuple's last field: the tuple consumed `k ≥ 22` bytes (`S-0x328`). -/
 def AuthEnd (σ : Sig) (m : Machine) : Prop :=
   ∃ c h p n j k, AuthOut σ m n j c h p ∧ m.load (σ.fr + w 0x50) 8 = some (w n) ∧
     AuthBuf σ m n 0 ∧ skip (n + 1) (TX.itemPayload (σ.payload.drop c) h p) = some (j + k) ∧
-    17 ≤ k ∧ m.load (σ.fr + w 0x48) 8 = some (w k) ∧ AddrOk σ m
+    22 ≤ k ∧ m.load (σ.fr + w 0x48) 8 = some (w k) ∧ AddrOk σ m
 
 /-- `a1`/`a2` hold a slice of the payload. -/
 def CurSlice (σ : Sig) (m : Machine) : Prop :=
   ∃ c n, m.reg 11 = σ.inp + w c ∧ m.reg 12 = w n ∧ c + n ≤ σ.len
 
+/-- The `n + 1`-th tuple consumed `k ≥ 22` bytes from the list cursor (`S-0x328`). -/
+def AuthCur (σ : Sig) (m : Machine) (n : Nat) : Prop :=
+  ∃ c h p j k, AuthOut σ m n j c h p ∧
+    skip (n + 1) (TX.itemPayload (σ.payload.drop c) h p) = some (j + k) ∧ 22 ≤ k ∧
+    m.load (σ.fr + w 0x48) 8 = some (w k)
+
+/-- Appending the `n + 1`-th tuple (from `0x800028c0`): `S-0x2f8 = n + 1`, `S-0x330 = 16 n`,
+`S-0x338 = 128 n`. -/
+def AuthApp (σ : Sig) (m : Machine) (n : Nat) : Prop :=
+  AuthCur σ m n ∧ m.load (σ.fr + w 0x78) 8 = some (w (n + 1)) ∧
+    m.load (σ.fr + w 0x40) 8 = some (w (16 * n)) ∧ m.load (σ.fr + w 0x38) 8 = some (w (128 * n))
+
+/-- The growth rule's capacity for a full buffer of `n` tuples: `(n + 1) + (n + 1) / 2 + 1`. -/
+def newCap (n : Nat) : Nat := n + 2 + (n + 1) / 2
+
+/-- Growing the full buffer (`cap = n`, `0x80002900` on): the new capacity at `S-0x368`, its
+`128`/`16` multiples at `S-0x360`/`S-0x358`, no overflow (`S-0x320 = 0`). -/
+def AuthGrow (σ : Sig) (m : Machine) (n : Nat) : Prop :=
+  AuthApp σ m n ∧ AuthBuf σ m n 0 ∧ m.load (σ.fr + w 0x60) 8 = some (w n) ∧
+    m.load (σ.fr + w 0x08) 8 = some (w (newCap n)) ∧
+    m.load (σ.fr + w 0x10) 8 = some (w (128 * newCap n)) ∧
+    m.load (σ.fr + w 0x18) 8 = some (w (16 * newCap n)) ∧ m.load (σ.fr + w 0x50) 8 = some (w 0)
+
+/-- The new block `newp` (`S-0x320`) of `newCap n · 0x90` bytes beside the old one `bp`. -/
+def AuthNew (σ : Sig) (m : Machine) (n : Nat) : Prop :=
+  AuthApp σ m n ∧ ∃ bp newp : Word, m.load (σ.fr + w 0x58) 8 = some bp ∧
+    m.load (σ.fr + w 0x60) 8 = some (w n) ∧ m.load (σ.fr + w 0x08) 8 = some (w (newCap n)) ∧
+    m.load (σ.fr + w 0x50) 8 = some newp ∧ ∃ L X, Live σ m L X ∧
+    (newp, newCap n * 0x90) ∈ X ∧ (0 < n → (bp, n * 0x90) ∈ X)
+
+/-- The new block after the old one went back to the allocator (or there was none). -/
+def AuthNewF (σ : Sig) (m : Machine) (n : Nat) : Prop :=
+  AuthApp σ m n ∧ ∃ newp : Word, m.load (σ.fr + w 0x08) 8 = some (w (newCap n)) ∧
+    m.load (σ.fr + w 0x50) 8 = some newp ∧ ∃ L X, Live σ m L X ∧ (newp, newCap n * 0x90) ∈ X
+
+/-- The store slot `a0 = bp + 0x90 n` of `0x80002434`. -/
+def AuthSlot (σ : Sig) (m : Machine) : Prop :=
+  ∃ n, AuthApp σ m n ∧ AuthBuf σ m n 1 ∧
+    ∃ bp, m.load (σ.fr + w 0x58) 8 = some bp ∧ m.reg 10 = bp + w (n * 0x90)
+
+/-- The list used up after `n` tuples (`toOwnedSlice`): the count at `S-0x2f8`, the payload
+length at `S-0x340` (nonzero: some tuple), the buffer. -/
+def AuthDone (σ : Sig) (m : Machine) (n : Nat) : Prop :=
+  ∃ c h p, AuthList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some p ∧
+    n ≤ p ∧ m.load (σ.fr + w 0x78) 8 = some (w n) ∧ m.load (σ.fr + w 0x30) 8 = some (w p) ∧
+    (p ≠ 0 → 0 < n) ∧ AuthBuf σ m n 0
+
+/-- `toOwnedSlice`'s copy of `0x90 n` bytes (`s9`) into the new block `S-0x2a8`, if any. -/
+def AuthOwn (σ : Sig) (m : Machine) (n : Nat) : Prop :=
+  AuthDone σ m n ∧ m.reg 25 = w (n * 0x90) ∧
+    (n = 0 ∨ ∃ bp cap newp : Word, m.load (σ.fr + w 0x58) 8 = some bp ∧
+      m.load (σ.fr + w 0x60) 8 = some cap ∧ m.load (σ.fr + w 0xc8) 8 = some newp ∧
+      ∃ L X, Live σ m L X ∧ (newp, n * 0x90) ∈ X ∧
+        (0 < cap.toNat → (bp, cap.toNat * 0x90) ∈ X))
+
+/-- The tuple buffer `{bp, cap}` with the live list `L` (the allocator call's index): across
+`alloc` its block stays one of DTF's. -/
+def BufL (σ : Sig) (m : Machine) (L : List (Word × Nat)) : Prop :=
+  ∃ bp cap : Word, ∃ X, m.load (σ.fr + w 0x58) 8 = some bp ∧
+    m.load (σ.fr + w 0x60) 8 = some cap ∧ Live σ m L X ∧
+    (0 < cap.toNat → (bp, cap.toNat * 0x90) ∈ X)
+
+/-- The new block with the live list `L` (the `free` call's index): across `free` of the old
+block it stays one of DTF's. -/
+def NewL (σ : Sig) (m : Machine) (n : Nat) (L : List (Word × Nat)) : Prop :=
+  ∃ newp : Word, ∃ X, m.load (σ.fr + w 0x50) 8 = some newp ∧ Live σ m L X ∧
+    (newp, newCap n * 0x90) ∈ X
+
 /-- The cuts of the tuple loop with an `Extra` conjunct. -/
 def authExtraPcs : List Nat :=
-  [0x800024d0, 0x80002574, 0x80002690, 0x80002710, 0x8000279c, 0x80002868]
+  [0x800024d0, 0x80002574, 0x80002690, 0x80002710, 0x8000279c, 0x80002868, 0x80002420,
+    0x8000241c, 0x800029c4, 0x800029c8, 0x80002a1c, 0x80002a6c, 0x800022e4, 0x80002ecc]
 
 def AuthExtra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
   if pc = 0x800024d0 then AuthLoop σ m
@@ -315,41 +391,68 @@ def AuthExtra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
   else if pc = 0x80002868 then AuthEnd σ m
   else if pc = 0x80002690 ∨ pc = 0x80002710 ∨ pc = 0x8000279c then
     AuthTup σ m 21 true ∧ AddrOk σ m
+  else if pc = 0x80002420 then ∃ n, AuthApp σ m n ∧ AuthBuf σ m n 1
+  else if pc = 0x8000241c then
+    ∃ n, AuthApp σ m n ∧ ∃ cap, m.load (σ.fr + w 0x60) 8 = some cap ∧ BufIs σ m n 1 (m.reg 10) cap
+  else if pc = 0x800029c4 then (∃ n, AuthGrow σ m n) ∧ m.reg 10 = 0
+  else if pc = 0x800029c8 then (∃ n, AuthGrow σ m n) ∧ m.reg 10 = 0
+  else if pc = 0x80002a1c then ∃ n, AuthNew σ m n
+  else if pc = 0x80002a6c then ∃ n, AuthNewF σ m n
+  else if pc = 0x800022e4 then ∃ n, AuthDone σ m n
+  else if pc = 0x80002ecc then ∃ n, AuthOwn σ m n
   else True
 
 /-- The return sites of the tuple loop's calls with a `SiteX` conjunct. -/
 def authSitePcs : List Nat :=
-  [0x800024ec, 0x8000252c, 0x80002600, 0x80002654, 0x800026d4, 0x80002754, 0x80002820]
+  [0x800024ec, 0x8000252c, 0x80002600, 0x80002654, 0x800026d4, 0x80002754, 0x80002820,
+    0x800029a8, 0x80002a08, 0x80002a38, 0x80002a6c, 0x80002f54, 0x80002c68, 0x80002ee0]
 
-def AuthSite (r : Nat) (σ : Sig) (m : Machine) : Prop :=
+/-- The index of every callee: the live list, the list bytes (F1, F4), TX's parameters. -/
+abbrev Idx := List (Word × Nat) × List Byte × TX.Params
+
+def AuthSite (r : Nat) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   if r = 0x800024ec then AuthPre σ m
   else if r = 0x8000252c ∨ r = 0x80002600 then
     AuthTup σ m 0 false ∧ m.reg 11 = m.reg 22 ∧ m.reg 12 = m.reg 23
   else if r = 0x80002654 ∨ r = 0x800026d4 ∨ r = 0x80002754 then
     AuthTup σ m 21 false ∧ AddrOk σ m ∧ m.reg 11 = m.reg 22 ∧ m.reg 12 = m.reg 23
   else if r = 0x80002820 then AuthEnd σ m ∧ CurSlice σ m
+  else if r = 0x800029a8 then ∃ n, AuthGrow σ m n
+  else if r = 0x80002a08 then
+    ∃ n, AuthGrow σ m n ∧ m.reg 11 = w (newCap n * 0x90) ∧ BufL σ m x.1
+  else if r = 0x80002a38 then
+    ∃ n, AuthNew σ m n ∧ m.load (σ.fr + w 0x50) 8 = some (m.reg 10) ∧ m.reg 12 = w (n * 0x90)
+  else if r = 0x80002a6c then
+    ∃ n, AuthNew σ m n ∧ m.load (σ.fr + w 0x58) 8 = some (m.reg 11) ∧
+      m.reg 12 = w (n * 0x90) ∧ NewL σ m n x.1
+  else if r = 0x80002f54 then ∃ n, AuthDone σ m n
+  else if r = 0x80002c68 then
+    ∃ n, AuthDone σ m n ∧ m.reg 11 = w (n * 0x90) ∧ m.reg 25 = w (n * 0x90) ∧ BufL σ m x.1
+  else if r = 0x80002ee0 then
+    ∃ n, AuthOwn σ m n ∧ m.reg 12 = w (n * 0x90) ∧
+      (n = 0 ∨ m.load (σ.fr + w 0xc8) 8 = some (m.reg 10))
   else True
 
 theorem authExtra_none {pc : Nat} (h : authExtraPcs.contains pc = false) (σ : Sig)
     (m : Machine) : AuthExtra pc σ m := by
   simp only [authExtraPcs, List.contains_cons, List.contains_nil, Bool.or_false,
     Bool.or_eq_false_iff, beq_eq_false_iff_ne, ne_eq] at h
-  obtain ⟨h1, h2, h3, h4, h5, h6⟩ := h
   unfold AuthExtra
-  rw [if_neg h1, if_neg h2, if_neg h6, if_neg (by omega)]; trivial
+  repeat rw [if_neg (by omega)]
+  trivial
 
-theorem authSite_none {r : Nat} (h : authSitePcs.contains r = false) (σ : Sig) (m : Machine) :
-    AuthSite r σ m := by
+theorem authSite_none {r : Nat} (h : authSitePcs.contains r = false) (σ : Sig) (x : Idx)
+    (m : Machine) : AuthSite r σ x m := by
   simp only [authSitePcs, List.contains_cons, List.contains_nil, Bool.or_false,
     Bool.or_eq_false_iff, beq_eq_false_iff_ne, ne_eq] at h
-  obtain ⟨h1, h2, h3, h4, h5, h6, h7⟩ := h
   unfold AuthSite
-  rw [if_neg h1, if_neg (by omega), if_neg (by omega), if_neg h7]; trivial
+  repeat rw [if_neg (by omega)]
+  trivial
 
 def Extra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
   if pc = 0x80000574 then m.reg 10 = w (0x80110050 + 8 * σ.t)
   else if pc = 0x80002138 then SlotOk σ m 32 ∧ HashItem σ m 1 ∧ HashSlot σ m
-  else if pc = 0x80002434 then SlotOk σ m 0x90
+  else if pc = 0x80002434 then SlotOk σ m 0x90 ∧ AuthSlot σ m
   else if pc = 0x800011f8 then Done σ m
   else if pc = 0x800020ac then HashLoop σ m
   else AuthExtra pc σ m
@@ -358,15 +461,12 @@ def Extra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
 `decodeItem` (`0x800020c0`, its input `a1`/`a2` the cursor `s7`/`s6`) and the list's
 `ensureTotalCapacity` (`0x8000211c`, the request `a2 = s9 + 1`); the tuple loop's
 (`AuthSite`). -/
-def SiteX (r : Nat) (σ : Sig) (m : Machine) : Prop :=
+def SiteX (r : Nat) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   if r = 0x800020c0 then HashLoop σ m ∧ m.reg 11 = m.reg 23 ∧ m.reg 12 = m.reg 22
   else if r = 0x8000211c then HashItem σ m 0 ∧ m.reg 12 = m.reg 25 + 1
-  else AuthSite r σ m
+  else AuthSite r σ x m
 
 /-! ## Callees -/
-
-/-- The index of every callee: the live list, the list bytes (F1, F4), TX's parameters. -/
-abbrev Idx := List (Word × Nat) × List Byte × TX.Params
 
 def famCallee (entry bound : Nat) (P : Sig → Idx → Machine → Prop)
     (Q : Sig → Idx → Machine → Machine → Prop)
@@ -379,7 +479,7 @@ def famCallee (entry bound : Nat) (P : Sig → Idx → Machine → Prop)
   spec := fun σ x m hpc hx => Reaches.preserve (h σ x m hpc hx)
 
 def allocPre (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m : Machine) : Prop :=
-  A.Heap L m ∧ 0 < (m.reg 11).toNat ∧ (m.reg 11).toNat < 2 ^ 63 ∧ (m.reg 12).toNat ≤ 3 ∧
+  A.Heap L m ∧ 0 < (m.reg 11).toNat ∧ (m.reg 11).toNat < 2 ^ 63 ∧ (m.reg 12).toNat ≤ 4 ∧
     StackOk m 16 ∧ RetAligned m ∧ CalleeFrameFree (A.Priv L) m
 
 def allocPost (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m m' : Machine) : Prop :=
@@ -392,7 +492,7 @@ def allocPost (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m m' : 
 
 def freePre (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m : Machine) : Prop :=
   A.Heap L m ∧ (m.reg 11, (m.reg 12).toNat) ∈ L ∧ 0 < (m.reg 12).toNat ∧
-    (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 3 ∧ StackOk m 16 ∧ RetAligned m ∧
+    (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 4 ∧ StackOk m 16 ∧ RetAligned m ∧
     CalleeFrameFree (A.Priv L) m
 
 def freePost (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m m' : Machine) : Prop :=
@@ -456,9 +556,9 @@ def BufOwn (X : List (Word × Nat)) (p c : Word) : Prop := 0 < c.toNat → (p, c
 
 /-- What the call site says about the callee's index: the callee's precondition, and the live list
 is DTF's `Live` list (allocator calls, F1, F4, TX; TX's parameters carry it too); a `memcpy`
-writes into one of DTF's blocks; the list buffer F1 or F4 is handed is one of DTF's blocks. The
-return-site cut lemmas need these (`Live` after an `alloc`, its size positive; `Common` after a
-`memcpy`, F1 or F4). -/
+writes into one of DTF's blocks; the list buffer F1 or F4 is handed is one of DTF's blocks; the
+block `free` takes back is one of DTF's. The return-site cut lemmas need these (`Live` after an
+`alloc`, its size positive; `Common` after a `memcpy`, F1, F4 or `free`). -/
 def IdxOk (k : Kind) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   k.Pre σ x m ∧
   match k with
@@ -468,6 +568,7 @@ def IdxOk (k : Kind) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   | .f1 => ∃ X, Live σ m x.1 X ∧
       BufOwn X (F1.wordAt m (m.reg 10)) (F1.wordAt m (m.reg 10 + 16))
   | .f4 => ∃ X, Live σ m x.1 X ∧ BufOwn X (ToOwned.listPtr m) (ToOwned.listCap m)
+  | .free => ∃ X, Live σ m x.1 X ∧ (m.reg 11, (m.reg 12).toNat) ∈ X
   | _ => ∃ X, Live σ m x.1 X
 
 /-! ## Budgets -/
@@ -485,14 +586,14 @@ inductive Inner
 
 /-- `(pc, K, inner)` per cut point (generated from the leaves, `OPEN/DTF/CUTS.md`). -/
 def budgetTable : List (Nat × Nat × Inner) := [
-  (0x8000050c, 34359750421, .none),
-  (0x80000574, 34359750395, .none),
+  (0x8000050c, 34359750741, .none),
+  (0x80000574, 34359750715, .none),
   (0x80000588, 5649, .none),
   (0x8000059c, 5569, .none),
-  (0x800005dc, 34359750390, .none),
-  (0x800005f0, 34359750310, .none),
-  (0x80000634, 34359749653, .be 10 11),
-  (0x8000065c, 34359749568, .none),
+  (0x800005dc, 34359750710, .none),
+  (0x800005f0, 34359750630, .none),
+  (0x80000634, 34359749973, .be 10 11),
+  (0x8000065c, 34359749888, .none),
   (0x8000069c, 34359745912, .none),
   (0x800006b0, 34359745832, .none),
   (0x800006f4, 34359745175, .be 10 11),
@@ -511,14 +612,14 @@ def budgetTable : List (Nat × Nat × Inner) := [
   (0x80000994, 4079, .none),
   (0x800009d8, 3422, .be 10 11),
   (0x80000a00, 3337, .none),
-  (0x80000a48, 34359748911, .be 10 11),
-  (0x80000a70, 34359748826, .none),
-  (0x80000ac4, 34359748165, .be 10 11),
-  (0x80000af8, 34359748077, .none),
-  (0x80000b4c, 34359747416, .be 10 11),
-  (0x80000b80, 34359747328, .none),
-  (0x80000bc4, 34359746671, .be 10 11),
-  (0x80000bec, 34359746586, .none),
+  (0x80000a48, 34359749231, .be 10 11),
+  (0x80000a70, 34359749146, .none),
+  (0x80000ac4, 34359748485, .be 10 11),
+  (0x80000af8, 34359748397, .none),
+  (0x80000b4c, 34359747736, .be 10 11),
+  (0x80000b80, 34359747648, .none),
+  (0x80000bc4, 34359746991, .be 10 11),
+  (0x80000bec, 34359746906, .none),
   (0x80000c34, 34359744433, .be 10 11),
   (0x80000c5c, 34359744348, .none),
   (0x80000cb0, 34359743687, .be 10 11),
@@ -550,8 +651,8 @@ def budgetTable : List (Nat × Nat × Inner) := [
   (0x800013c8, 2466, .none),
   (0x800013fc, 19, .none),
   (0x80001400, 18, .none),
-  (0x80001468, 34359746479, .none),
-  (0x800014bc, 34359745818, .be 10 11),
+  (0x80001468, 34359746799, .none),
+  (0x800014bc, 34359746138, .be 10 11),
   (0x8000155c, 34359742001, .none),
   (0x800015b0, 34359741340, .be 10 11),
   (0x80001650, 34359743379, .none),
@@ -562,8 +663,8 @@ def budgetTable : List (Nat × Nat × Inner) := [
   (0x800017c4, 2382, .none),
   (0x800017d8, 2302, .none),
   (0x80001828, 1642, .be 10 11),
-  (0x800018a4, 34359745715, .none),
-  (0x800018fc, 34359745640, .none),
+  (0x800018a4, 34359746035, .none),
+  (0x800018fc, 34359745960, .none),
   (0x80001940, 34359741237, .none),
   (0x80001998, 34359741162, .none),
   (0x800019dc, 34359742615, .none),
@@ -576,9 +677,9 @@ def budgetTable : List (Nat × Nat × Inner) := [
   (0x80001b60, 864, .be 10 11),
   (0x80001bcc, 1545, .none),
   (0x80001c24, 883, .be 10 11),
-  (0x80001c84, 34359745630, .none),
-  (0x80001c98, 6833, .none),
-  (0x80001ccc, 6745, .none),
+  (0x80001c84, 34359745950, .none),
+  (0x80001c98, 7153, .none),
+  (0x80001ccc, 7065, .none),
   (0x80001d40, 34359741152, .none),
   (0x80001d54, 2355, .none),
   (0x80001d88, 2267, .none),
@@ -610,18 +711,18 @@ def budgetTable : List (Nat × Nat × Inner) := [
   (0x8000241c, 2568, .list (.slot 0x68)),
   (0x80002420, 2567, .list (.slot 0x68)),
   (0x80002434, 2562, .list (.slot 0x68)),
-  (0x800024d0, 6723, .list (.slot 0x68)),
-  (0x800024ec, 6641, .list (.slot 0x68)),
-  (0x8000252c, 6552, .list (.slot 0x68)),
-  (0x80002574, 5897, .beL 10 11 (.slot 0x68)),
-  (0x80002600, 5791, .list (.slot 0x68)),
-  (0x80002654, 5698, .list (.slot 0x68)),
-  (0x80002690, 5046, .beL 10 11 (.slot 0x68)),
-  (0x800026d4, 4955, .list (.slot 0x68)),
-  (0x80002710, 4303, .beL 10 11 (.slot 0x68)),
-  (0x80002754, 4212, .list (.slot 0x68)),
-  (0x8000279c, 3557, .beL 10 11 (.slot 0x68)),
-  (0x80002820, 3453, .list (.slot 0x68)),
+  (0x800024d0, 7043, .list (.slot 0x68)),
+  (0x800024ec, 6961, .list (.slot 0x68)),
+  (0x8000252c, 6872, .list (.slot 0x68)),
+  (0x80002574, 6153, .beL 10 11 (.slot 0x68)),
+  (0x80002600, 6047, .list (.slot 0x68)),
+  (0x80002654, 5954, .list (.slot 0x68)),
+  (0x80002690, 5238, .beL 10 11 (.slot 0x68)),
+  (0x800026d4, 5147, .list (.slot 0x68)),
+  (0x80002710, 4431, .beL 10 11 (.slot 0x68)),
+  (0x80002754, 4340, .list (.slot 0x68)),
+  (0x8000279c, 3621, .beL 10 11 (.slot 0x68)),
+  (0x80002820, 3517, .list (.slot 0x68)),
   (0x80002868, 2798, .beL 10 11 (.slot 0x68)),
   (0x800029a8, 2714, .list (.slot 0x68)),
   (0x800029c4, 2708, .list (.slot 0x68)),
@@ -669,7 +770,7 @@ def PlainA (d : CutData) (σ : Sig) (m : Machine) : Prop :=
 def SiteA (s : Site) (r : Nat) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   m.reg 1 = w r ∧ Common σ m ∧ ShapeOk σ s.shape m ∧ ArmOk σ s.arms ∧ RestOk σ m s.rest ∧
     IdxOk s.kind σ x m ∧ FieldsOk σ m (siteFields r) ∧ ChecksOk σ (chkCount s.rest) ∧
-    SiteX r σ m
+    SiteX r σ x m
 
 def RetA (s : Site) (r : Nat) (σ : Sig) (m : Machine) : Prop :=
   ∃ mc x, SiteA s r σ x mc ∧ (calleeOf s.kind).Post σ x mc m
@@ -687,7 +788,7 @@ def innerOf (σ : Sig) (m : Machine) : Inner → Nat
   | .none => 0
   | .be cur fin => 20 * (m.reg (Fin.ofNat 32 fin) - m.reg (Fin.ofNat 32 cur)).toNat
   | .list l => 256 * (l.word σ m).toNat
-  | .beL cur fin l => 20 * (m.reg (Fin.ofNat 32 fin) - m.reg (Fin.ofNat 32 cur)).toNat +
+  | .beL cur fin l => 22 * (m.reg (Fin.ofNat 32 fin) - m.reg (Fin.ofNat 32 cur)).toNat +
       256 * (l.word σ m).toNat
 
 /-- The budget at a cut. Deliberately not unfolded by `zesu_simp`: with `budgetAt` rows as

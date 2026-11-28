@@ -98,7 +98,7 @@ theorem stage3 (E : Entry elemBytes A L items m) {env : Env} {m3 : Machine} {p' 
   · rw [Match.reg_eq hmc 12 12 rfl]
     show (BinOp.eval .sll ((Sym.init 2 16 8).eval env) (BitVec.ofNat 64 5)).toNat = _
     rw [he.init_eq _ _ _ (.inl rfl), E.cap, sll5, ofNat_toNat_lt E.capBound]
-  · rw [Match.reg_eq hmc 13 13 rfl]; show (BitVec.ofNat 64 0).toNat ≤ 3; decide
+  · rw [Match.reg_eq hmc 13 13 rfl]; show (BitVec.ofNat 64 0).toNat ≤ 4; decide
   · rw [Match.reg_eq hmc 2 2 rfl]; show env.base 0 + BitVec.ofInt 64 0 = _; rw [he.base0]; simp
   intro m4 hm4 hwf4 hret hinv4 hheap4 hpriv4 hsame
   have hL : (L ++ [(p', (listLen m).toNat * elemBytes)]).erase (listPtr m, (listCap m).toNat * elemBytes) =
@@ -202,7 +202,7 @@ theorem stage1 (E : Entry elemBytes A L items m) {env : Env} {m1 : Machine}
     · rw [Match.reg_eq hmc 11 11 rfl]
       show (BinOp.eval .sll ((Sym.init 2 8 8).eval env) (BitVec.ofNat 64 5)).toNat = _
       rw [he.init_eq _ _ _ (.inl rfl), E.len, sll5, ofNat_toNat_lt hb]
-    · rw [Match.reg_eq hmc 12 12 rfl]; show (BitVec.ofNat 64 0).toNat ≤ 3; decide
+    · rw [Match.reg_eq hmc 12 12 rfl]; show (BitVec.ofNat 64 0).toNat ≤ 4; decide
     · rw [Match.reg_eq hmc 2 2 rfl]; show env.base 0 + BitVec.ofInt 64 0 = _; rw [he.base0]; simp
     intro m2 hm2 hwf2 hret hinv2 hscr2 hitems2 hout
     exact stage2 E (he.setVars (by decide) _) hm2 hwf2 (by rw [hret.1, g1]; decide) hinv2 hn0
@@ -282,7 +282,7 @@ theorem stage0 (E : Entry elemBytes A L items m) (hpc : m.pc.toNat = entry) :
     · rw [Match.reg_eq hmc 12 12 rfl]
       show (BinOp.eval .sll ((Sym.init 2 16 8).eval (env0 m)) (BitVec.ofNat 64 5)).toNat = _
       rw [E.cap, sll5, ofNat_toNat_lt E.capBound]
-    · rw [Match.reg_eq hmc 13 13 rfl]; show (BitVec.ofNat 64 0).toNat ≤ 3; decide
+    · rw [Match.reg_eq hmc 13 13 rfl]; show (BitVec.ofNat 64 0).toNat ≤ 4; decide
     · rw [Match.reg_eq hmc 2 2 rfl]; show (env0 m).base 0 + BitVec.ofInt 64 0 = _
       rw [(envOk0 m).base0]; simp
     intro m1 hm1 hwf1 hret hinv1 hheap1 hpriv1 hsame

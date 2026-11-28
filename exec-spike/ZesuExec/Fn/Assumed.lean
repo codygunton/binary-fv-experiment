@@ -17,6 +17,11 @@ caller owns memory outside `Priv L`; it states that its regions avoid `Priv L`.
 (the heap is unchanged) or a new block carved from `Priv L`; `free(ctx, ptr = a1, bytes = a2,
 log2 alignment = a3, ret_addr)` takes a live block back. Both use 16 bytes of stack below `sp`
 and return like any function (`Returns`). `remap` is not assumed: it is F0 (`f0_spec`).
+
+Requests carry log2 alignment at most 4 (S7 trust-base change approved by the user: DTF's
+authorization list allocates 16-byte aligned tuples; `alt_fl_alloc` rounds the size class up to
+the alignment, `sizeClass = max(sizeClassOfBytes len, log2_align - 3)`, in `alloc` and `free`
+alike). zesislar's `altFlMaxLog2Alignment` is 3; this contract diverges (STATEMENTS.md).
 -/
 
 namespace ZesuExec.Fn
@@ -55,7 +60,7 @@ structure AllocAssumptions (img : Image) where
   /-- `alloc` returns null and keeps the heap, or a fresh block from `Priv L`. -/
   alloc_spec : ∀ L, Spec img allocEntry 53
     (fun m => Heap L m ∧ 0 < (m.reg 11).toNat ∧ (m.reg 11).toNat < 2 ^ 63 ∧
-      (m.reg 12).toNat ≤ 3 ∧ StackOk m 16 ∧ RetAligned m ∧ CalleeFrameFree (Priv L) m)
+      (m.reg 12).toNat ≤ 4 ∧ StackOk m 16 ∧ RetAligned m ∧ CalleeFrameFree (Priv L) m)
     (fun m m' => Returns m m' ∧
       SameOutside (fun a => Priv L a ∨ InRange (m.reg 2 - 16) 16 a) m m' ∧
       ((m'.reg 10 = 0 ∧ Heap L m') ∨
@@ -66,7 +71,7 @@ structure AllocAssumptions (img : Image) where
   /-- `free` takes a live block back into `Priv`. -/
   free_spec : ∀ L, Spec img freeEntry 42
     (fun m => Heap L m ∧ (m.reg 11, (m.reg 12).toNat) ∈ L ∧ 0 < (m.reg 12).toNat ∧
-      (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 3 ∧ StackOk m 16 ∧ RetAligned m ∧
+      (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 4 ∧ StackOk m 16 ∧ RetAligned m ∧
       CalleeFrameFree (Priv L) m)
     (fun m m' => Returns m m' ∧
       SameOutside (fun a => Priv L a ∨ InRange (m.reg 11) (m.reg 12).toNat a ∨

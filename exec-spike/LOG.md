@@ -1089,3 +1089,17 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - Checks: `lake build` (317 jobs) and `tools/verify.sh` pass after `make -C tools/zmap map`; no
     `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no `maxHeartbeats` change, no
     `zesu_simp`/`zesu_fact` lemma added.
+- S7 cont. (DTFAuth2, 2026-11-28, branch `dtf`): allocator alignment bound, `.beL` loop step,
+  back-half state. **Counts before → after: manual 594 → 597, auto 0, open 53 → 50** (closed 8:
+  `80002574_0`, `80002690_0`, `80002710_0`, `8000279c_0`, `80002868_0`, `cut_80002a6c`,
+  `cut_80002f14`, `80002f14_0`; reopened 5: `80001ccc_2`, `800022e4_0`, `80002c68_0`,
+  `80002f54_0`, `80002f54_1`, whose targets now carry the `toOwnedSlice` state).
+  - Trust-base change (user-approved; commit `9285684f`): `alloc_spec`/`free_spec` log2 alignment
+    `≤ 4` (was 3, as zesislar's `altFlMaxLog2Alignment`); evidence from `alt_fl_alloc.zig` and the
+    ELF in STATEMENTS.md; F1/F4/F5/TX/DTF restated, `AllocModel` unchanged.
+  - `.beL` factor 22 (chainId/r loops take 22 instructions a byte), `K` raised along paths into
+    the list loop; `AuthStep.lean` (`leaf_beL`, `curOblL`, `loopExtra_keep`); back-half state,
+    `SiteX` with the callee index, `IdxOk .free`, `ret_free`/`cut_both` (`OPEN/DTF/CUTS.md`).
+  - Checks: `lake build` (318 jobs) and `tools/verify.sh` pass after `make -C tools/zmap map`; no
+    `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no `maxHeartbeats` change, no
+    `zesu_simp`/`zesu_fact` lemma added.

@@ -187,9 +187,30 @@ only its `hX`: the target's `AuthExtra`/`AuthSite` and budget (list term kept, `
 | field ret → loop entry | `8000252c_1`, `80002654_1`, `800026d4_1`, `80002754_1`, `80002820_4` | `CurOk` from the outcome on the slice (`res_words`), `nx` clause |
 | loop exit → call | `80002574_1`, `80002690_1`, `80002710_1`, `8000279c_1` | obligations from `CurOk` (`leaf_call_xo`), cursor `+= 0x2f8` word |
 
-Back half (not stated yet): `Extra`/`SiteX` for `0x80002420`, `0x8000241c`, `0x80002434` (slot
-`= ptr + 0x90 n`, `SlotOk 0x90`; extend `HashSlot`-style), growth cuts `0x800029a8..0x80002a6c`
-(new capacity `n+1+(n+1)/2+1` words at `0x8..0x18`, allocator ctx/vtable at `0x20/0x28`), the
-`toOwnedSlice` cuts; `IdxOk .free` must state the freed block is in `X` (cut lemmas `0x80002a6c`,
-`0x80002f14`). Contract-blocked (STATEMENTS.md § DTF point 7): `800029c8_2`, `800022e4_1`
-(alloc with log2 alignment 4), `80002a38_1`, `80002ee0_1` (free with 4).
+Byte loops (S7 cont., DTFAuth2): `leaf_beL` (`AuthStep.lean`) closes the five self-loop leaves
+(`80002574_0`, `80002690_0`, `80002710_0`, `8000279c_0`, `80002868_0`). chainId and r take 22
+instructions a byte, so `innerOf (.beL …)` is `22 · (end - cursor)`; the budget table's `K` rose by
+the extra 64 per loop entry along every path into the list loop (+320 at `0x800024d0` and up to the
+entry, `34359750741`; `Entry.lean`, `Jump.lean`, `AuthFront.lean` restated). The back edge then
+needs a tuple of `≥ 18` bytes: `AuthEnd` states `22 ≤ k`. `curOblL`/`CoreChkL` give the reads of a
+`.beL` loop leaf (use them for the loop-exit leaves with `leaf_call_xo`).
+
+Back half, stated in `Cuts.lean` (no leaf proved yet): `AuthOut` carries the payload length at
+`0x30`; `AuthBuf` = `BufIs` (room for `n + r`, `cap ≤ 2(n + r) + 1`, the growth rule keeps it);
+`AuthCur`/`AuthApp` (`0x78 = n+1`, `0x40 = 16n`, `0x38 = 128n`), `AuthGrow` (`cap = n`, `newCap n`
+words at `0x08/0x10/0x18`, `0x50 = 0`), `AuthNew`/`AuthNewF`, `AuthSlot` (`0x80002434`:
+`a0 = bp + 0x90 n`), `AuthDone`/`AuthOwn` (`toOwnedSlice`); `Extra` at `0x80002420`, `0x8000241c`,
+`0x800029c4`/`0x800029c8` (also `a0 = 0`), `0x80002a1c`, `0x80002a6c`, `0x800022e4`, `0x80002ecc`;
+`AuthSite` at `0x800029a8`, `0x80002a08`, `0x80002a38`, `0x80002a6c`, `0x80002f54`, `0x80002c68`,
+`0x80002ee0`. `SiteX`/`AuthSite` now take the callee index `x`: across `alloc` the old block's
+membership is stated for `x.1` (`BufL`), across `free` the new block's (`NewL`), so the `Post`'s
+`Heap (x.1 ++ [new])` / `Heap (x.1.erase b)` gives `Live` with them. `IdxOk .free` states the freed
+block is in `X`; `ret_free`, `cut_both` (`Ret.lean`) give `cut_80002a6c`, `cut_80002f14`.
+Reopened by these `Extra`s (need hand proofs): `80001ccc_2` (empty list → `AuthDone 0`),
+`800022e4_0`, `80002c68_0` (→ `AuthOwn`), `80002f54_0/1` (→ `AuthDone`, F0 keeps the frame).
+`AuthBack.lean` (uncommitted draft, not imported, 4 errors): `leaf_vac`, `src_init`, `out_n`,
+`newCap_eval`, `mulhu0`, `LowKeep`/`*_lk`, `remap_live`, `memcpy_live`, `end_2868`, `end_2820`,
+`end_app` (the shared core of the 8 exits `80002868_1..4`, `80002820_0..3`: store → `AuthApp n ∧
+AuthBuf n 1`; cap 0 → `AuthGrow 0`; remap call → `AuthGrow n`; overflow vacuous by `mulhu0`).
+Allocator-alignment leaves `800029c8_2`, `800022e4_1`, `80002a38_1`, `80002ee0_1` are no longer
+contract-blocked (bound 4, STATEMENTS.md § DTF point 7) but need this state.
