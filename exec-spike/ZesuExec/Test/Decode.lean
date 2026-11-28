@@ -25,12 +25,15 @@ def mnemonicAgrees : Nat × Nat × String → Bool
     | some i => i.mnemonic == mn
     | none => mn == "csrrs"
 
+-- The table grew to 6934 entries (S16 functions): the elaborator's recursion limit, not the kernel,
+-- stops `decide +kernel` here; both checks evaluate to `true` (`#eval`).
+set_option maxRecDepth 100000 in
 theorem table_pairs : Expected.table.map (fun e => (e.1, e.2.1)) = pairsOf zesuImage := by
   decide +kernel
 
 theorem decode_table : Expected.table.all mnemonicAgrees = true := by decide +kernel
 
-theorem decode_table_size : Expected.table.length = 5575 := by decide +kernel
+theorem decode_table_size : Expected.table.length = 6934 := by decide +kernel
 
 /-- Words of the forms added in S12 and S12b, taken from functions outside the image (address,
 word, mnemonic as `llvm-objdump -M no-aliases` prints them). -/

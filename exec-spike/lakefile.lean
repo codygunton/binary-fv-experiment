@@ -9,7 +9,8 @@ lean_lib BinaryFv where
   srcDir := "bfv"
   moreLeanArgs := #["--tstack=4000000"]
 lean_lib Evm where srcDir := "vendor/evm-sail-lean"
-@[default_target] lean_lib ZesuExec
+@[default_target] lean_lib ZesuExec where
+  moreLeanArgs := #["--tstack=4000000"]
 lean_exe «zesu-difftest» where root := `ZesuExec.Test.Difftest
 lean_exe «zesu-status» where
   root := `ZesuExec.Vc.Status

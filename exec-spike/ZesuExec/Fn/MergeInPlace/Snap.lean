@@ -10,7 +10,7 @@ the addresses of every changed byte and, for keyed copies, the `(ptr, len, bytes
 the entry elements hold (its bytes from the entry memory).
 
 `SnapOk fs key s` is `Post` on these values for a copy with frame size `fs` whose element order
-is `lexLt` on `key s x` (`idKey`: the element itself; `sliceKey`: the bytes its leading slice
+is `lexLt` on `key s x` (`idKey`: the element itself; `snapSliceKey`: the bytes its leading slice
 points to): the return (`pc` is `ra` with bit 0 clear, callee-saved registers kept), only bytes of
 `items[A.start..B.end]` and of the frame changed, and `MergeOf`: the output elements
 `[A.start, B.end)` a permutation of the input runs `A ++ B` and sorted by their keys; plus
@@ -59,7 +59,7 @@ def leNat (bs : List Byte) : Nat := bs.foldr (fun b acc => b.toNat + 256 * acc) 
 def idKey (_ : Snap) (x : List Byte) : Option (List Byte) := some x
 
 /-- The key of an element whose first 16 bytes are a slice `{ptr, len}`: the slice's bytes. -/
-def sliceKey (s : Snap) (x : List Byte) : Option (List Byte) :=
+def snapSliceKey (s : Snap) (x : List Byte) : Option (List Byte) :=
   let q := leNat (x.take 8); let n := leNat ((x.drop 8).take 8)
   (s.keys.find? fun k => k.1 == q && k.2.1 == n).map fun k => k.2.2.map (BitVec.ofNat 8)
 

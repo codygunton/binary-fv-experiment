@@ -169,18 +169,6 @@
  },
  {
   "type": "function",
-  "fn": "f_800a8f30",
-  "name": "mem.rotate__anon_12629",
-  "n_instr": 77,
-  "order": 70,
-  "cuts_needing_assertions": 8,
-  "loops_needing_measure": 6,
-  "contract_missing": true,
-  "leaves_estimate": 20,
-  "rank": 15
- },
- {
-  "type": "function",
   "fn": "f_800aaae4",
   "name": "hash_map.getAutoEqlFn__struct_13041.eql",
   "n_instr": 86,
@@ -189,7 +177,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 22,
-  "rank": 16
+  "rank": 15
  },
  {
   "type": "function",
@@ -201,7 +189,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 18,
-  "rank": 17
+  "rank": 16
  },
  {
   "type": "function",
@@ -213,19 +201,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 3,
-  "rank": 18
- },
- {
-  "type": "function",
-  "fn": "f_80098ddc",
-  "name": "sort.block.mergeInPlace__anon_11564",
-  "n_instr": 602,
-  "order": 103,
-  "cuts_needing_assertions": 20,
-  "loops_needing_measure": 8,
-  "contract_missing": true,
-  "leaves_estimate": 57,
-  "rank": 19
+  "rank": 17
  },
  {
   "type": "function",
@@ -237,19 +213,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 20
- },
- {
-  "type": "function",
-  "fn": "f_8007cc68",
-  "name": "mem.rotate__anon_10572",
-  "n_instr": 85,
-  "order": 109,
-  "cuts_needing_assertions": 8,
-  "loops_needing_measure": 6,
-  "contract_missing": true,
-  "leaves_estimate": 20,
-  "rank": 21
+  "rank": 18
  },
  {
   "type": "function",
@@ -261,7 +225,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 86,
-  "rank": 22
+  "rank": 19
  },
  {
   "type": "function",
@@ -273,7 +237,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 45,
-  "rank": 23
+  "rank": 20
  },
  {
   "type": "function",
@@ -285,7 +249,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 24
+  "rank": 21
  },
  {
   "type": "function",
@@ -297,7 +261,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 18,
-  "rank": 25
+  "rank": 22
  },
  {
   "type": "function",
@@ -309,7 +273,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 67,
-  "rank": 26
+  "rank": 23
  },
  {
   "type": "function",
@@ -321,7 +285,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 8,
-  "rank": 27
+  "rank": 24
  },
  {
   "type": "function",
@@ -333,7 +297,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 18,
-  "rank": 28
+  "rank": 25
  },
  {
   "type": "function",
@@ -345,7 +309,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 37,
-  "rank": 29
+  "rank": 26
  },
  {
   "type": "function",
@@ -357,7 +321,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 20,
-  "rank": 30
+  "rank": 27
  },
  {
   "type": "function",
@@ -369,19 +333,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 21,
-  "rank": 31
- },
- {
-  "type": "function",
-  "fn": "f_8004f388",
-  "name": "sort.block.mergeInPlace__anon_7964",
-  "n_instr": 507,
-  "order": 154,
-  "cuts_needing_assertions": 19,
-  "loops_needing_measure": 8,
-  "contract_missing": true,
-  "leaves_estimate": 47,
-  "rank": 32
+  "rank": 28
  },
  {
   "type": "function",
@@ -393,19 +345,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 33
- },
- {
-  "type": "function",
-  "fn": "f_8006464c",
-  "name": "mem.rotate__anon_8330",
-  "n_instr": 88,
-  "order": 158,
-  "cuts_needing_assertions": 8,
-  "loops_needing_measure": 6,
-  "contract_missing": true,
-  "leaves_estimate": 20,
-  "rank": 34
+  "rank": 29
  },
  {
   "type": "function",
@@ -417,7 +357,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 25,
-  "rank": 35
+  "rank": 30
  },
  {
   "type": "function",
@@ -429,7 +369,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 26,
-  "rank": 36
+  "rank": 31
  },
  {
   "type": "function",
@@ -441,7 +381,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 86,
-  "rank": 37
+  "rank": 32
  },
  {
   "type": "function",
@@ -453,7 +393,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 38
+  "rank": 33
  },
  {
   "type": "function",
@@ -465,7 +405,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 19,
-  "rank": 39
+  "rank": 34
  },
  {
   "type": "function",
@@ -477,7 +417,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 22,
-  "rank": 40
+  "rank": 35
  },
  {
   "type": "function",
@@ -489,7 +429,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 53,
-  "rank": 41
+  "rank": 36
  },
  {
   "type": "function",
@@ -501,7 +441,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 3,
-  "rank": 42
+  "rank": 37
  },
  {
   "type": "function",
@@ -513,7 +453,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 33,
-  "rank": 43
+  "rank": 38
  },
  {
   "type": "function",
@@ -525,7 +465,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 44
+  "rank": 39
  },
  {
   "type": "function",
@@ -537,7 +477,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 45
+  "rank": 40
  },
  {
   "type": "function",
@@ -549,7 +489,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 46
+  "rank": 41
  },
  {
   "type": "function",
@@ -561,7 +501,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 5,
-  "rank": 47
+  "rank": 42
  },
  {
   "type": "function",
@@ -573,7 +513,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 7,
-  "rank": 48
+  "rank": 43
  },
  {
   "type": "blocker",
@@ -594,7 +534,7 @@
    "f_800f5ad8",
    "f_800f5b98"
   ],
-  "rank": 49
+  "rank": 44
  },
  {
   "type": "blocker",
@@ -615,7 +555,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 50
+  "rank": 45
  },
  {
   "type": "blocker",
@@ -632,7 +572,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 51
+  "rank": 46
  },
  {
   "type": "blocker",
@@ -647,7 +587,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 52
+  "rank": 47
  },
  {
   "type": "blocker",
@@ -659,7 +599,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 53
+  "rank": 48
  },
  {
   "type": "blocker",
@@ -673,7 +613,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 54
+  "rank": 49
  },
  {
   "type": "blocker",
@@ -686,7 +626,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 55
+  "rank": 50
  },
  {
   "type": "blocker",
@@ -698,7 +638,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 56
+  "rank": 51
  },
  {
   "type": "blocker",
@@ -708,7 +648,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 57
+  "rank": 52
  },
  {
   "type": "blocker",
@@ -718,7 +658,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 58
+  "rank": 53
  },
  {
   "type": "blocker",
@@ -728,7 +668,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 59
+  "rank": 54
  },
  {
   "type": "blocker",
@@ -737,7 +677,7 @@
   "functions": [
    "f_800e06f0"
   ],
-  "rank": 60
+  "rank": 55
  },
  {
   "type": "blocker",
@@ -746,7 +686,7 @@
   "functions": [
    "f_800f7824"
   ],
-  "rank": 61
+  "rank": 56
  },
  {
   "type": "blocker",
@@ -757,7 +697,7 @@
    "f_800fcda8",
    "f_8010f78c"
   ],
-  "rank": 62
+  "rank": 57
  },
  {
   "type": "blocker",
@@ -766,7 +706,7 @@
   "functions": [
    "f_800ea180"
   ],
-  "rank": 63
+  "rank": 58
  },
  {
   "type": "blocker",
@@ -776,7 +716,7 @@
    "f_800e17b8",
    "f_800f5b30"
   ],
-  "rank": 64
+  "rank": 59
  },
  {
   "type": "blocker",
@@ -786,7 +726,7 @@
    "f_800e0680",
    "f_800f5b30"
   ],
-  "rank": 65
+  "rank": 60
  },
  {
   "type": "blocker",
@@ -796,6 +736,6 @@
    "f_800e0680",
    "f_800e0692"
   ],
-  "rank": 66
+  "rank": 61
  }
 ]

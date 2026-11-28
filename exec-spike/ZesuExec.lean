@@ -43,7 +43,9 @@ import ZesuExec.Fn.F5.Runs
 import ZesuExec.Fn.F5.Sail
 import ZesuExec.Fn.F5.Spec
 import ZesuExec.Fn.MergeInPlace.C11564.Proof
+import ZesuExec.Fn.MergeInPlace.C11564.SnapCheck
 import ZesuExec.Fn.MergeInPlace.C7964.Proof
+import ZesuExec.Fn.MergeInPlace.C7964.SnapCheck
 import ZesuExec.Fn.Preserve
 import ZesuExec.Fn.Rotate.C10572.Proof
 import ZesuExec.Fn.Rotate.C12629.Proof

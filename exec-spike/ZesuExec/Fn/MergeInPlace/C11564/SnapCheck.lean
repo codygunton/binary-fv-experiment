@@ -18,6 +18,6 @@ namespace ZesuExec.Fn.MergeInPlace.C11564
 /-- Contract rule (b): `Post` (the return, the write set in the 0x110-byte frame and the range, and
 `MergeOf` by `lexLt` on the strings the elements' slices point to) holds on every Unicorn snapshot
 of the copy. -/
-theorem post_snapshot : snaps.all (SnapOk 0x110 sliceKey) = true := by decide +kernel
+theorem post_snapshot : snaps.all (SnapOk 0x110 snapSliceKey) = true := by decide +kernel
 
 end ZesuExec.Fn.MergeInPlace.C11564
