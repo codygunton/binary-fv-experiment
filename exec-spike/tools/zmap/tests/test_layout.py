@@ -38,8 +38,8 @@ def read_js(path, prefix, suffix):
     return json.loads(text[len(prefix):len(text) - len(suffix)])
 
 
-def read_fn(fid):
-    with open(os.path.join(OUT, 'data', 'fn', f'{fid}.js')) as f:
+def read_fn(fid, part=''):
+    with open(os.path.join(OUT, 'data', 'fn', f'{fid}{part}.js')) as f:
         text = f.read()
     return json.loads(text[text.index(', ') + 2:text.rindex(')')])
 
@@ -147,13 +147,19 @@ class Function(unittest.TestCase):
         self.assertEqual(n_outside, 8)
 
     def test_tx_access_list(self):
-        tx = read_fn('f_80000000')['layout']
-        self.assertEqual(len(tx['hulls']), 2)
-        self.assertEqual(len(tx['calls']), 12)
-        self.assertEqual(sum(c['return'] is not None for c in tx['calls']), 12)
+        tx = read_fn('f_80000000')
+        self.assertEqual(len(tx['hulls']['pts']), 2)
+        self.assertEqual(len(tx['calls']['n']), 12)
+        self.assertEqual(sum(r is not None for r in tx['calls']['return']), 12)
         leaves = [l for c in tx['leaf_paths'].values() for l in c['leaves']]
         self.assertEqual(len(leaves), 51)
         self.assertFalse([l for l in leaves if l['approx']])
+        n = len(tx['blocks']['start'])
+        self.assertTrue(all(len(v) == n for v in tx['blocks'].values()))
+        self.assertTrue(all(0 <= b < n for l in leaves for b in l['blocks']))
+        detail = read_fn('f_80000000', '.detail')
+        self.assertEqual(len(detail['dis']), n)
+        self.assertIn('rlp_decode.txAccessList', detail['card'])
 
 
 class Site(unittest.TestCase):
@@ -165,12 +171,20 @@ class Site(unittest.TestCase):
 
     def test_every_target_function_has_a_file(self):
         for f in target():
-            self.assertTrue(os.path.exists(os.path.join(OUT, 'data', 'fn', f'{f["id"]}.js')), f['name'])
+            for part in ('', '.detail'):
+                self.assertTrue(os.path.exists(os.path.join(OUT, 'data', 'fn', f'{f["id"]}{part}.js')), f['name'])
         self.assertEqual(len(INDEX['functions']), len(target()))
+
+    def test_main_files_under_one_megabyte(self):
+        """S9.3: the file parsed before a function's first frame stays under 1 MB."""
+        for f in target():
+            path = os.path.join(OUT, 'data', 'fn', f'{f["id"]}.js')
+            self.assertLess(os.path.getsize(path), 1 << 20, f['name'])
 
     def test_pages(self):
         self.assertTrue(os.path.exists(os.path.join(OUT, 'index.html')))
-        self.assertTrue(os.path.exists(os.path.join(OUT, 'vendor', 'd3.min.js')))
+        for v in site.VENDOR:
+            self.assertTrue(os.path.exists(os.path.join(OUT, 'vendor', v)), v)
         self.assertFalse(os.path.exists(os.path.join(OUT, 'map.html')))
 
     def test_meaning_from_reviews(self):

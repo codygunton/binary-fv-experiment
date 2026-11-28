@@ -1144,3 +1144,42 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     class with no closed sample.
   - S10.7 `zmap brief`, `zmap metrics --group`, `zmap check` (in `tools/verify.sh`);
     `map/waivers.json` waives the nine pre-revision functions.
+- S9.3 step 1 (S9Viewer, 2026-11-28, branch `viewer`): S9.1 viewer measured before any change,
+  in omp's managed headless Chromium 157 on this machine (WebGL 2 via ANGLE), 1365x768 window,
+  site served from `map/site` on a scratch port. Pan = one d3-zoom `translateBy` per animation
+  frame for 3 s; fps = frames / seconds. First frame = `openFn` (the double-click handler) until
+  the fitted function is drawn and one more frame has passed.
+  - program level: pan 33.4 fps (worst frame 43 ms); layer change proof->meaning 81 ms,
+    meaning->proof 41 ms; selecting a function 56 ms.
+  - `f_8001e8fc` (2,690 blocks, `data/fn` file 2.54 MB, Canvas path): first frame 241 ms;
+    pan 36.8 fps at zoom 0.6, 20.3 fps at zoom 0.1 (worst frame 51 ms).
+- S9.3 gate (S9Viewer, 2026-11-28, branch `viewer`): WebGL renderer in. `graph.html` draws both
+  levels into one PixiJS 8.23.0 stage (`vendor/pixi.min.js`, sha256 in `vendor/README.md`); the
+  SVG and Canvas 2D code is deleted; D3 keeps zoom, quadtrees and the HTML panels. Scenes are
+  built once per view (program once; each function once, cached); clicks, hovers, layer, badge
+  and size changes set tint, alpha, visibility (size redraws node circles); pan and zoom set the
+  stage transform. Culling via `PIXI.Culler` (labels, nodes, edges, 1200 px tiles of blocks and
+  CFG edges); bitmap-font labels, glyphs and cut labels hidden below zoom 0.35. Hit-testing
+  through d3 quadtrees over block, stub and node rectangles and edge samples; no per-object
+  listeners. `data/fn/<id>.js` now holds flat arrays (largest 463 KB, was 2.54 MB);
+  disassembly, source lines and the card are in `data/fn/<id>.detail.js` (largest 829 KB),
+  loaded when a block or the card opens. No WebGL context: one line, no second renderer.
+  Two fixes found by measuring: dashed long call/return routes made 2.5 M stroke primitives
+  (17 M indices per frame on `f_8001e8fc`, 2.1 s first frame) and are now solid; MSAA and
+  translucent program edges halved software-WebGL frame rates and are off (edge colours are
+  pre-mixed with the background).
+  Before -> after, `f_8001e8fc`, same harness as step 1, 1365x768:
+  - omp's managed headless Chromium (the step-1 browser; WebGL there is software, SwiftShader):
+    first frame 241 -> 215-231 ms; pan at zoom 0.6 36.8 -> 49.3-52.3 fps, at zoom 0.1 20.3 ->
+    59.9 fps; program layer change 81/41 -> 47/45 ms (1.2 ms of it JavaScript, the rest one
+    software-rasterised frame); program pan 33.4 -> 20 fps (not gated; software raster of 1,095
+    curved edges is the top cost, JavaScript per frame is about 3 ms).
+  - `/usr/bin/chromium` 157 with this machine's GPU (`--enable-gpu --ignore-gpu-blocklist
+    --use-angle=vulkan`, ANGLE Vulkan on the RTX 5090): first frame 226 -> 165 ms; pan at zoom
+    1.5/0.6/0.1/0.03: 54.7/50.1/25.5/4.7 -> 60/60/59.9/60 fps; program pan 11.1 -> 60 fps;
+    layer change 94 -> 16 ms (one frame); selection 95 -> 27 ms.
+  Gate: on the GPU browser every number passes; on the software-WebGL browser first frame and
+  layer change pass and pan at zoom 0.6 sits at the 50 fps line (49-52 over runs). No main
+  per-function file exceeds 1 MB (test). S9.1 screenshots retaken in `map/site/shots/` (same
+  content; `fn-decodeTxFields-webgl.png` replaces the Canvas one). `make -C tools/zmap map test`
+  passes (54 tests).
