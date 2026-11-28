@@ -1,6 +1,6 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T09:52:14Z",
+ "generated": "2026-11-28T09:59:40Z",
  "coverage": {
   "headline": {
    "cut_points_closed": 106,
@@ -328,7 +328,7 @@
      "unreviewed",
      "ZesuExec.Fn.TX.pre_nonvacuous",
      "-",
-     6
+     7
     ],
     [
      "f_8000050c",
@@ -373,7 +373,7 @@
      "unreviewed",
      "ZesuExec.Fn.F1.pre_nonvacuous",
      "-",
-     12
+     13
     ],
     [
      "f_800d5cb8",
@@ -382,7 +382,7 @@
      "unreviewed",
      "-",
      "-",
-     6
+     7
     ],
     [
      "f_800d6274",
@@ -400,7 +400,7 @@
      "unreviewed",
      "ZesuExec.Fn.F5.pre_nonvacuous",
      "-",
-     0
+     1
     ],
     [
      "f_800d677c",
@@ -409,7 +409,7 @@
      "unreviewed",
      "ZesuExec.Fn.F4.pre_nonvacuous",
      "-",
-     0
+     1
     ],
     [
      "f_800d6960",
@@ -418,15 +418,15 @@
      "unreviewed",
      "-",
      "-",
-     5
+     6
     ],
     [
      "f_800db904",
      "scratch_arena.free",
      "draft",
      "unreviewed",
-     "-",
-     "-",
+     "ZesuExec.Fn.Scratch.FS.pre_nonvacuous",
+     "ZesuExec.Fn.Scratch.FS.post_snapshot",
      0
     ],
     [
@@ -434,8 +434,8 @@
      "scratch_arena.remap",
      "draft",
      "unreviewed",
-     "-",
-     "-",
+     "ZesuExec.Fn.Scratch.RS.pre_nonvacuous",
+     "ZesuExec.Fn.Scratch.RS.post_snapshot",
      0
     ],
     [
@@ -458,8 +458,8 @@
     ]
    ]
   },
-  "missing_nonvacuity": 9,
-  "missing_snapshot": 13
+  "missing_nonvacuity": 7,
+  "missing_snapshot": 11
  },
  "meaning": {
   "functions": {
@@ -728,18 +728,18 @@
  },
  "effort": {
   "total": {
-   "usd": 711.87,
-   "totalTokens": 2137664633.15,
-   "requests": 6881.35,
-   "minutes": 2108.54,
-   "builds": 1569.84
+   "usd": 713.16,
+   "totalTokens": 2140170817.15,
+   "requests": 6912.35,
+   "minutes": 2112.76,
+   "builds": 1574.84
   },
-  "session_usd": 1074.23,
-  "unattributed_usd": 359.66,
-  "unattributed_share": 0.3348,
+  "session_usd": 1086.83,
+  "unattributed_usd": 370.97,
+  "unattributed_share": 0.3413,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
-  "infrastructure_share": 0.3055,
+  "infrastructure_share": 0.3049,
   "abandoned": {
    "usd": 0.0,
    "totalTokens": 0.0,
@@ -769,12 +769,12 @@
     ],
     [
      "compliance",
-     3,
-     17.79,
-     55678750.4,
-     231.4,
-     35.64,
-     21.6
+     4,
+     19.07,
+     58184934.4,
+     262.4,
+     39.86,
+     26.6
     ],
     [
      "contract",
@@ -953,6 +953,19 @@
      0.01
     ],
     [
+     "f_800db904",
+     "scratch_arena.free",
+     "closed+sail",
+     1,
+     1.29,
+     2506184.0,
+     31.0,
+     4.22,
+     5.0,
+     1.29,
+     0.0804
+    ],
+    [
      "f_800e06d0",
      "memmove",
      "contract-draft",
@@ -979,10 +992,10 @@
    "rows": [
     [
      "coordinator",
-     86.59,
+     87.1,
      10.79,
-     75.8,
-     0.8754,
+     76.32,
+     0.8762,
      0
     ],
     [
@@ -1162,6 +1175,14 @@
      0
     ],
     [
+     "DTFFieldsD",
+     18.82,
+     0.0,
+     18.82,
+     1.0,
+     0
+    ],
+    [
      "P1Joins",
      18.3,
      18.3,
@@ -1178,10 +1199,10 @@
      0
     ],
     [
-     "DTFFieldsD",
-     17.17,
+     "S16GenericB",
+     17.15,
      0.0,
-     17.17,
+     17.15,
      1.0,
      0
     ],
@@ -1194,11 +1215,11 @@
      0
     ],
     [
-     "S16GenericB",
-     16.52,
-     0.0,
-     16.52,
-     1.0,
+     "S13AllocC",
+     16.74,
+     15.17,
+     1.57,
+     0.094,
      0
     ],
     [
@@ -1218,11 +1239,11 @@
      0
     ],
     [
-     "S13AllocC",
-     16.15,
-     15.17,
-     0.99,
-     0.0612,
+     "S16GenericB.S16Merge",
+     15.8,
+     0.0,
+     15.8,
+     1.0,
      0
     ],
     [
@@ -1266,14 +1287,6 @@
      0
     ],
     [
-     "S16GenericB.S16Merge",
-     13.73,
-     0.0,
-     13.73,
-     1.0,
-     0
-    ],
-    [
      "SailRegen",
      13.29,
      12.18,
@@ -1294,6 +1307,14 @@
      12.53,
      0.0,
      12.53,
+     1.0,
+     0
+    ],
+    [
+     "Sha256Rec",
+     9.82,
+     0.0,
+     9.82,
      1.0,
      0
     ],
@@ -1330,10 +1351,10 @@
      0
     ],
     [
-     "Sha256Rec",
-     6.81,
+     "Sha256Rec.RecS15",
+     4.7,
      0.0,
-     6.81,
+     4.7,
      1.0,
      0
     ],
@@ -1347,25 +1368,17 @@
     ],
     [
      "S16GenericB.S16Merge2",
-     3.33,
+     3.4,
      0.0,
-     3.33,
-     1.0,
-     0
-    ],
-    [
-     "Sha256Rec.RecS15",
-     2.7,
-     0.0,
-     2.7,
+     3.4,
      1.0,
      0
     ],
     [
      "Sha256Rec.Sha256Emu",
-     2.27,
+     2.61,
      0.0,
-     2.27,
+     2.61,
      1.0,
      0
     ],
@@ -1383,6 +1396,14 @@
      0.0,
      1.83,
      1.0,
+     0
+    ],
+    [
+     "S13AllocD",
+     1.73,
+     1.29,
+     0.45,
+     0.2572,
      0
     ],
     [
@@ -2350,12 +2371,13 @@
    "f_80000000",
    "f_800cb40c",
    "f_800d6274",
-   "f_800d6960"
+   "f_800d6960",
+   "f_800db904"
   ],
   "totals_usd": {
    "p25": 3546.0,
-   "p50": 11188.0,
-   "p75": 41585.0
+   "p50": 15383.0,
+   "p75": 30798.0
   },
   "open_cut_points": 10230,
   "unsampled_share": 0.8836,
@@ -2385,31 +2407,31 @@
      "size:601-3000",
      1020,
      "pooled",
-     0.62,
+     1.0,
      1.23,
      152.0,
-     784.0,
-     3786.0
+     1254.0,
+     2465.0
     ],
     [
      "size:<=150",
      418,
      "yes",
-     0.25,
-     1.16,
+     0.62,
+     1.22,
      121.0,
-     121.0,
-     736.0
+     320.0,
+     1178.0
     ],
     [
      "size:>3000",
      7652,
      "pooled",
-     0.62,
+     1.0,
      1.23,
      1139.0,
-     5879.0,
-     28403.0
+     9406.0,
+     18495.0
     ]
    ]
   },
@@ -2423,7 +2445,7 @@
     [
      "size:<=150",
      418,
-     3
+     4
     ],
     [
      "size:151-600",
@@ -2443,7 +2465,7 @@
     [
      "loops:0",
      463,
-     1
+     2
     ],
     [
      "loops:1-3",

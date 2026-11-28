@@ -13,6 +13,7 @@ import ZesuExec.Fn.Alloc.AllocProof
 import ZesuExec.Fn.Alloc.FreeProof
 import ZesuExec.Fn.Alloc.NonVacuous
 import ZesuExec.Fn.Scratch.RemapProof
+import ZesuExec.Fn.Scratch.NonVacuous
 import ZesuExec.Fn.F0.Spec
 import ZesuExec.Fn.F0.Summary
 import ZesuExec.Fn.F1.Lemmas

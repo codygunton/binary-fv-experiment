@@ -1,0 +1,12 @@
+{
+ "schema": "oblig-exec-inputs/1",
+ "function": "scratch_arena.free",
+ "note": "scratch_arena.free paths for tools/snap.py --fn ScratchFree: no chunk; the most recent allocation (used rolls back), also the whole chunk and an empty one; an older buffer (no change).",
+ "inputs": [
+  {"id": "no_chunk", "chunk": false, "ptr": 64, "len": 32},
+  {"id": "last_alloc", "cap": 4096, "used": 256, "ptr": 192, "len": 64},
+  {"id": "last_alloc_first", "cap": 4096, "used": 88, "ptr": 24, "len": 64},
+  {"id": "last_alloc_empty", "cap": 4096, "used": 256, "ptr": 256, "len": 0},
+  {"id": "older_buffer", "cap": 4096, "used": 256, "ptr": 64, "len": 64}
+ ]
+}

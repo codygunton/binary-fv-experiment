@@ -8,6 +8,7 @@ import ZesuExec.Fn.F0.Sail
 import ZesuExec.Fn.Alloc.AllocProof
 import ZesuExec.Fn.Alloc.NonVacuous
 import ZesuExec.Fn.Scratch.RemapProof
+import ZesuExec.Fn.Scratch.NonVacuous
 import ZesuExec.Fn.F1.Proof
 import ZesuExec.Fn.F1.Sail
 import ZesuExec.Fn.F2.Proof
@@ -336,6 +337,30 @@ info: 'ZesuExec.Fn.Scratch.RS.rs_sail' depends on axioms: [propext, Classical.ch
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.Scratch.RS.rs_sail
+
+/--
+info: 'ZesuExec.Fn.Scratch.FS.pre_nonvacuous' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Scratch.FS.pre_nonvacuous
+
+/--
+info: 'ZesuExec.Fn.Scratch.RS.pre_nonvacuous' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Scratch.RS.pre_nonvacuous
+
+/--
+info: 'ZesuExec.Fn.Scratch.FS.post_snapshot' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Scratch.FS.post_snapshot
+
+/--
+info: 'ZesuExec.Fn.Scratch.RS.post_snapshot' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Scratch.RS.post_snapshot
 
 /--
 info: 'ZesuExec.Fn.Memmove.memmove_spec' depends on axioms: [propext, Quot.sound]
