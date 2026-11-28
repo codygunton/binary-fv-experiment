@@ -137,6 +137,7 @@ import ZesuExec.Fn.DTF.AuthOwn
 import ZesuExec.Fn.DTF.AuthFields
 import ZesuExec.Fn.DTF.AuthStore
 import ZesuExec.Fn.DTF.ErrWrite
+import ZesuExec.Fn.DTF.Success
 import ZesuExec.Fn.DTF.Reach
 import ZesuExec.Test.Auto
 import ZesuExec.Compliance.TXSail
