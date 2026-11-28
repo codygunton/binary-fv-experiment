@@ -191,7 +191,8 @@ class Site(unittest.TestCase):
         by_id = {f['id']: f for f in INDEX['functions']}
         self.assertEqual(by_id['f_80000000']['meaning'], 'spec-sail')
         self.assertEqual(by_id['f_8000050c']['meaning'], 'machine-only')
-        self.assertEqual(by_id['f_80042494']['meaning'], 'none')
+        # `root.guestMain`: the one function the programme leaves without a contract
+        self.assertEqual(by_id['f_8003c8d8']['meaning'], 'none')
 
 
 if __name__ == '__main__':

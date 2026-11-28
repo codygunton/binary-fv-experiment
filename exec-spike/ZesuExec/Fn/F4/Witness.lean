@@ -46,7 +46,7 @@ theorem win_add {a : Word} {k n t : Nat} (ha : a.toNat = k) (hk : 0xa0000000 ≤
     (hn : k + n ≤ 0xa0001000) (ht : t < n) : Win (a + BitVec.ofNat 64 t) := by
   unfold Win; rw [toNat_add_ofNat (by omega), ha]; omega
 
-theorem pre_satisfiable (eb : Nat) (A : AllocAssumptions zesuImage) (m0 : Machine)
+theorem pre_satisfiable (eb : Nat) (A : AllocContract zesuImage) (m0 : Machine)
     (h0 : A.Heap [] m0) (hro : RodataLoaded zesuImage m0)
     (hwin : ∀ a, Win a → ¬ A.Priv [] a) : Pre eb A [] [] (wit m0) := by
   have r2 : (wit m0).reg 2 = 0xa0000100 := rfl

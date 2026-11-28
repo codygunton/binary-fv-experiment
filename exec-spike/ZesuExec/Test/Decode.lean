@@ -30,7 +30,7 @@ theorem table_pairs : Expected.table.map (fun e => (e.1, e.2.1)) = pairsOf zesuI
 
 theorem decode_table : Expected.table.all mnemonicAgrees = true := by decide +kernel
 
-theorem decode_table_size : Expected.table.length = 5436 := by decide +kernel
+theorem decode_table_size : Expected.table.length = 5575 := by decide +kernel
 
 /-- Words of the forms added in S12 and S12b, taken from functions outside the image (address,
 word, mnemonic as `llvm-objdump -M no-aliases` prints them). -/

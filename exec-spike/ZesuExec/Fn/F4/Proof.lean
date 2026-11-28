@@ -36,7 +36,7 @@ theorem ofNat_toNat_lt {k : Nat} (h : k < 2 ^ 32) : (BitVec.ofNat 64 k).toNat = 
   simp only [BitVec.toNat_ofNat]; omega
 
 section
-variable {A : AllocAssumptions zesuImage} {L : List (Word × Nat)} {items : List Byte}
+variable {A : AllocContract zesuImage} {L : List (Word × Nat)} {items : List Byte}
   {m : Machine}
 
 /-- The end of the success path: the result holds the new block and the length, the header
@@ -98,7 +98,7 @@ theorem stage3 (E : Entry elemBytes A L items m) {env : Env} {m3 : Machine} {p' 
   · rw [Match.reg_eq hmc 12 12 rfl]
     show (BinOp.eval .sll ((Sym.init 2 16 8).eval env) (BitVec.ofNat 64 5)).toNat = _
     rw [he.init_eq _ _ _ (.inl rfl), E.cap, sll5, ofNat_toNat_lt E.capBound]
-  · rw [Match.reg_eq hmc 13 13 rfl]; show (BitVec.ofNat 64 0).toNat ≤ 4; decide
+  · rw [Match.reg_eq hmc 13 13 rfl]; show (BitVec.ofNat 64 0).toNat ≤ 3; decide
   · rw [Match.reg_eq hmc 2 2 rfl]; show env.base 0 + BitVec.ofInt 64 0 = _; rw [he.base0]; simp
   intro m4 hm4 hwf4 hret hinv4 hheap4 hpriv4 hsame
   have hL : (L ++ [(p', (listLen m).toNat * elemBytes)]).erase (listPtr m, (listCap m).toNat * elemBytes) =
@@ -282,7 +282,7 @@ theorem stage0 (E : Entry elemBytes A L items m) (hpc : m.pc.toNat = entry) :
     · rw [Match.reg_eq hmc 12 12 rfl]
       show (BinOp.eval .sll ((Sym.init 2 16 8).eval (env0 m)) (BitVec.ofNat 64 5)).toNat = _
       rw [E.cap, sll5, ofNat_toNat_lt E.capBound]
-    · rw [Match.reg_eq hmc 13 13 rfl]; show (BitVec.ofNat 64 0).toNat ≤ 4; decide
+    · rw [Match.reg_eq hmc 13 13 rfl]; show (BitVec.ofNat 64 0).toNat ≤ 3; decide
     · rw [Match.reg_eq hmc 2 2 rfl]; show (env0 m).base 0 + BitVec.ofInt 64 0 = _
       rw [(envOk0 m).base0]; simp
     intro m1 hm1 hwf1 hret hinv1 hheap1 hpriv1 hsame
@@ -309,10 +309,15 @@ theorem stage0 (E : Entry elemBytes A L items m) (hpc : m.pc.toNat = entry) :
 
 end
 
-/-- F4 meets its contract, given the allocator's assumed contracts. -/
-theorem f4_spec (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (items : List Byte) :
+/-- F4 meets its contract for any allocator meeting `AllocContract` (TX and DTF call this). -/
+theorem f4_spec_of (A : AllocContract zesuImage) (L : List (Word × Nat)) (items : List Byte) :
     Spec zesuImage entry bound (Pre A L items) (Post A L items) :=
   fun _ hpc hpre => stage0 (Entry.of_pre hpre) hpc
+
+/-- F4 meets its contract over the proved allocator. -/
+theorem f4_spec (L : List (Word × Nat)) (items : List Byte) :
+    Spec zesuImage entry bound (Pre Alloc.contract L items) (Post Alloc.contract L items) :=
+  f4_spec_of Alloc.contract L items
 
 /--
 info: 'ZesuExec.Fn.F4.f4_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
@@ -320,11 +325,12 @@ info: 'ZesuExec.Fn.F4.f4_spec' depends on axioms: [propext, Classical.choice, Qu
 #guard_msgs in
 #print axioms f4_spec
 
-/-- Non-vacuity: `Pre` holds of `m0` with a free 4 KiB RAM window overwritten
-(`ToOwned.pre_satisfiable`), for any allocator state `A.Heap [] m0` with the image's rodata. -/
-example (A : AllocAssumptions zesuImage) (m0 : Machine) (h0 : A.Heap [] m0)
-    (hro : RodataLoaded zesuImage m0) (hwin : ∀ a, Win a → ¬ A.Priv [] a) :
-    ∃ m, Pre A [] [] m :=
-  ⟨_, pre_satisfiable elemBytes A m0 h0 hro hwin⟩
+/-- Contract rule (a): `Pre` of the proved allocator holds of `Alloc.initRoM` with a free 4 KiB
+RAM window overwritten (`ToOwned.pre_satisfiable`). -/
+theorem pre_nonvacuous : ∃ m, Pre Alloc.contract [] [] m :=
+  ⟨_, pre_satisfiable elemBytes Alloc.contract Alloc.initRoM Alloc.contract_initRo
+    Alloc.initRo_rodata fun a hw hp => by
+      have := Alloc.contract_priv_nil hp
+      unfold Win at hw; unfold Alloc.Arena Alloc.flBase Alloc.posAddr Alloc.heapTop at this; omega⟩
 
 end ZesuExec.Fn.F4

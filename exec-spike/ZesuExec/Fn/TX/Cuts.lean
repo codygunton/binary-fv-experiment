@@ -37,7 +37,7 @@ open ZesuExec ZesuExec.Sym ZesuExec.Machine ZesuExec.Vc
 /-! ## Parameters and the entry's shape -/
 
 structure Sig where
-  A : AllocAssumptions zesuImage
+  A : AllocContract zesuImage
   g : Params
   m : Machine
 
@@ -621,12 +621,12 @@ def f1C : Callee Sig zesuImage :=
 def f4C : Callee Sig zesuImage :=
   famCallee (X := List (Word × Nat) × List Byte) F4.entry F4.bound
     (fun σ x => F4.Pre σ.A x.1 x.2) (fun σ x => F4.Post σ.A x.1 x.2)
-    fun σ x => F4.f4_spec σ.A x.1 x.2
+    fun σ x => F4.f4_spec_of σ.A x.1 x.2
 
 def f5C : Callee Sig zesuImage :=
   famCallee (X := List (Word × Nat) × List Byte) F5.entry F5.bound
     (fun σ x => F5.Pre σ.A x.1 x.2) (fun σ x => F5.Post σ.A x.1 x.2)
-    fun σ x => F5.f5_spec σ.A x.1 x.2
+    fun σ x => F5.f5_spec_of σ.A x.1 x.2
 
 def remapC : Callee Sig zesuImage :=
   famCallee (X := Unit) F0.entry F0.bound (fun _ _ => F0.Pre) (fun _ _ => F0.Post)
@@ -636,11 +636,11 @@ def memcpyC : Callee Sig zesuImage :=
   famCallee (X := Unit) Layout.memcpyEntry 3 (fun _ _ => MemcpyPre) (fun _ _ => MemcpyPost)
     fun _ _ => memcpy_spec zesuImage
 
-def allocPre (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m : Machine) : Prop :=
+def allocPre (A : AllocContract zesuImage) (L : List (Word × Nat)) (m : Machine) : Prop :=
   A.Heap L m ∧ 0 < (m.reg 11).toNat ∧ (m.reg 11).toNat < 2 ^ 63 ∧ (m.reg 12).toNat ≤ 4 ∧
     StackOk m 16 ∧ RetAligned m ∧ CalleeFrameFree (A.Priv L) m
 
-def allocPost (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m m' : Machine) : Prop :=
+def allocPost (A : AllocContract zesuImage) (L : List (Word × Nat)) (m m' : Machine) : Prop :=
   Returns m m' ∧ SameOutside (fun a => A.Priv L a ∨ InRange (m.reg 2 - 16) 16 a) m m' ∧
   ((m'.reg 10 = 0 ∧ A.Heap L m') ∨
    (m'.reg 10 ≠ 0 ∧ A.Heap (L ++ [(m'.reg 10, (m.reg 11).toNat)]) m' ∧
@@ -652,12 +652,14 @@ def allocC : Callee Sig zesuImage :=
   famCallee (X := List (Word × Nat)) allocEntry 53 (fun σ L => allocPre σ.A L)
     (fun σ L => allocPost σ.A L) fun σ L => σ.A.alloc_spec L
 
-def freePre (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m : Machine) : Prop :=
+def freePre (A : AllocContract zesuImage) (L : List (Word × Nat)) (m : Machine) : Prop :=
   A.Heap L m ∧ (m.reg 11, (m.reg 12).toNat) ∈ L ∧ 0 < (m.reg 12).toNat ∧
-    (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 4 ∧ StackOk m 16 ∧ RetAligned m ∧
-    CalleeFrameFree (A.Priv L) m
+    (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 4 ∧
+    ((m.reg 13).toNat ≤ 3 ∨ 8 < (m.reg 12).toNat) ∧ StackOk m 16 ∧ RetAligned m ∧
+    CalleeFrameFree (A.Priv L) m ∧
+    ∀ a, InRange (m.reg 2 - 16) 16 a → ¬ InRange (m.reg 11) (m.reg 12).toNat a
 
-def freePost (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m m' : Machine) : Prop :=
+def freePost (A : AllocContract zesuImage) (L : List (Word × Nat)) (m m' : Machine) : Prop :=
   Returns m m' ∧
   SameOutside (fun a => A.Priv L a ∨ InRange (m.reg 11) (m.reg 12).toNat a ∨
     InRange (m.reg 2 - 16) 16 a) m m' ∧
