@@ -318,7 +318,7 @@ structure Params where
   L : List (Word × Nat)
 
 section
-variable (A : AllocAssumptions zesuImage) (g : Params)
+variable (A : AllocContract zesuImage) (g : Params)
 
 /-- Entry (draft): result 0x128 bytes in RAM, the allocator object `{ctx, alt_fl_alloc.vtable}`,
 `tx_type ≤ 4` (the binary has no range check before its jump table), the payload in the input

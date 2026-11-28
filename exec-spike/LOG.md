@@ -1301,6 +1301,35 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - Three-way difftest: no function of the image uses any added form (the image tables hold none
     of their mnemonics), so none applies. Regression: `lake exe zesu-difftest` on all 80
     snapshots (F1, F2, TX, DTF) prints `agree`.
+- S16 partial (S16Generic, 2026-11-28, branch `s16` from `f80e9854`): `mem.rotate__anon_8330`
+  closed to Sail level; the other two rotate copies and both `mergeInPlace` copies not started
+  (agent step budget).
+  - Image: the five S16 functions added to `tools/gen_image.sh` and `Image/{Gen,Expected}.lean`
+    regenerated (they were not in `zesuImage`; runs hit `unreachable`). Merge rule (agreed with
+    Main): union of the `--functions` lists, rerun the script.
+  - Shared, element-size-generic (`ZesuExec/Fn/Rotate/`): `Model.lean` (byte model `rev`/`revAt`,
+    `rev_rotate`, per-byte swap lemma `slice_revAt_succ`), `Spec.lean` (`Cfg`, `Pre`, `Post`,
+    `Common`, `post_slice`, non-vacuity witness `pre_witness`), `Cuts.lean` (cut states
+    `S0/SO/SI/SE`, assertions `OuterA/InnerA/EpiA` over a copy's register-equation lists, step
+    lemmas `inner_step/outer_step/entry_step/epi_post`, cut lemmas `cut0/cutO/cutI/cutE_facts`,
+    budget readers), `Tac.lean` (leaf scripts `iprep/oprep/eprep`, `istep/ostep/estep`, `rgoal`,
+    `wgoal`, `regs_tac`, `bud`), `Snap.lean` (`SnapOk`: `Post` on snapshot data).
+  - Copy 8330 (`Fn/Rotate/C8330/`): `cfg`, 8 map cuts, register equations and budgets (`Vc.lean`),
+    28 items (8 cut lemmas, 20 leaves) in `Leaves.lean`, every one a few lines of the shared
+    tactics/lemmas; `zesu_auto` closed 0 of 28 (generic `leaf_auto` cannot see the slice
+    model); `zesu_assemble` → `R8330.reach`; `r8330_spec`, `r8330_sail`, `pre_nonvacuous`,
+    `post_snapshot` (kernel `decide` on 9 Unicorn snapshots, `tools/snap.py --fn R8330`,
+    `tools/snap_post.py`); axioms guarded.
+  - Found: `simp` with `BitVec.toNat_ofNat` on a 64-bit literal ≥ 2^63 builds a proof the kernel
+    rejects ("deep recursion"); `add_big`/`mul_big` rewrite such literals to negations first.
+  - Measures: ledger item 20 (contract, model, shared lemmas, assertions, 28 items) 45 min, item
+    22 (contract rule) 5 min. Items per cut point 28/8 = 3.5. Automatic share 0/28. Reuse ratio
+    not measured (no second copy yet). Lines: shared 1,207, copy-specific 603 (of which 73
+    generated snapshot data).
+  - Checks run: `lake build ZesuExec.Axioms zesu-difftest` passes (470 jobs, 13 min 21 s after the
+    image change); `zesu-difftest --fn R8330` prints `agree` on all 9 snapshots (21–2,455
+    transitions; sail = machine = unicorn); F2 regression snapshot `agree`. Not run: full
+    `lake build`, `tools/verify.sh`, `make -C tools/zmap map test`.
 - S11 automation (S11Auto, 2026-11-28, branch `s11`): `budget_auto` and `oblig_auto` as decision
   procedures; residual class `budget` closed on every leaf of the five plans; `oblig` partly.
   Contingency taken for the rest of `oblig` (goal shapes below). Whole-leaf auto counts unchanged.
@@ -1343,6 +1372,12 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     not measured) vs new `leaf_diag` 281 s, budget passing on all 486 leaves.
   - `lake build` 325 jobs OK; no `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no
     `maxHeartbeats` change. Ledger item 2 (S11Auto), $15.07 session.
+
+## S13 (S13Alloc, partial)
+- Free-list invariant `Fn/Alloc/Inv.lean` (`Alloc.Heap`/`Priv`/`Arena` from alt_fl_alloc.zig + FREELIST_ALLOC.md): AllocAssumptions fields `priv_not_live`, `heap_frame`, `live_ok`, `arena_split` are theorems; transitions `pop_ok`, `bump_ok`, `push_ok`, `erase_ok`; start-up `init_heap : Init m → Heap [] m`.
+- `alloc_spec`/`alloc_sail` (0x80042494, bound 53) proved: plan AllocF, 9 cuts, 43 leaves, 52 items, 0 auto. Log2 alignment ≤ 4 proved from code (`ClassOk`, leafPB_inf).
+- `free` (0x80041f38): plan FreeF (4 cuts, 32 leaves), all 4 cut theorems, entry-leaf lemma `leafFE` and J1 leaf proved; J2/push leaves drafted in `OPEN/s13/FreeLeaves.lean` (2 small errors). Not yet assembled.
+- Not done: F1/F4/F5/TX/DTF rebuild, AllocModel deletion, non-vacuity alloc,free,alloc run, scratch_arena.*.
 - S17 map precision (S17MapPrecision, 2026-11-28, branch `s17`): gate measured; `make -C
   tools/zmap test` passes (see GO.md § S17 for the tables).
   - `tools/zmap/precision.py`: one forward abstract interpretation per function (registers,
@@ -1518,3 +1553,31 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   646 → 646, open 1 → 1.** Still open in `80002dc4_0`: the tuple walk (arm 4) and the four
   buffers, which need one shared live list `L` across `Extra`/`FieldsOk`/call sites (S13AllocC:
   `Heap` does not pin `L`); CUTS.md § Stage 3 status.
+
+## S13 (S13AllocC, 2026-11-28, branch s13)
+
+- Contract rule for `alloc`/`free`: `AllocF.pre_nonvacuous`, `FreeF.pre_nonvacuous` (concrete
+  machines `initM`, `freeM`); `AllocF.post_snapshot`, `FreeF.post_snapshot` (`decide` on 10 + 6
+  Unicorn snapshots, `tools/snap.py --fn Alloc|Free`, Lean data `tools/snap_alloc.py`, checker
+  `Fn/Alloc/Snap.lean`). `zesu-difftest --fn Alloc|Free --snap …`: `agree` (sail = machine =
+  unicorn) on all 16, rerun on the merged build (exec-spike with xparams, `7107de07`) by S13AllocD.
+- End theorems moved into plan namespaces so `zesu-status` finds them: `AllocF.allocf_spec`,
+  `FreeF.freef_spec`, `FS.fs_spec`, `RS.rs_spec` (+ `_sail`); Axioms guards added (incl. scratch).
+- Re-point: `AllocAssumptions` → `AllocContract` (`Fn/Alloc/Contract.lean`), proved instance
+  `Alloc.contract`; `Fn/Assumed.lean` deleted. F1/F4/F5/TX end theorems and TX compliance drop
+  `A` (generic `f1_spec_keep`, `f4_spec_of`, `f5_spec_of`, `tx_spec_of` kept for callers); free's
+  two new preconditions proved at the F1, F4/F5 (`free_step`), TX (`Grow`) and DTF
+  (`free_pre_dtf`) sites; DTF in its own commit. `pre_nonvacuous` of F1/F4/F5/TX concrete.
+  `(-if` → `(- if` in F1 (token clash once Sail modules are imported).
+- `map/reviews.json`: allocator no longer `assumed`; draft contracts for alloc, free,
+  scratch free/remap. Tests: `test_meaning_from_reviews` on guestMain; state-rule tests use an
+  "allocator assumed" reviews copy; `test_states` expects `contract-draft`.
+- GO.md `## S13` written (with the measures).
+- S13AllocD: contract rule for `scratch_arena.free`/`remap`: `FS.pre_nonvacuous`,
+  `RS.pre_nonvacuous` (concrete machine `scrM`, an arena with one chunk, so the chunk branch of
+  `Pre` is exercised; `decide`); `FS.post_snapshot`, `RS.post_snapshot` (`decide` on 5 + 7
+  Unicorn snapshots, `tools/snap.py --fn ScratchFree|ScratchRemap`, inputs
+  `tools/snap_inputs/scratch_{free,remap}.json`, Lean data `tools/snap_alloc.py`, checker
+  `Fn/Scratch/Snap.lean`). `zmap check` passes (`d40e67b7`).
+- Open: `scratch_arena.alloc` (Pre must fix `ctx+8 = 0x801136d8`; the indirect target is then
+  read from rodata, as in F1).

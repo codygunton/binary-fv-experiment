@@ -5,10 +5,19 @@ import ZesuExec.Compliance.F3
 import ZesuExec.Compliance.F2
 import ZesuExec.Fn.F0.Proof
 import ZesuExec.Fn.F0.Sail
+import ZesuExec.Fn.Alloc.AllocProof
+import ZesuExec.Fn.Alloc.NonVacuous
+import ZesuExec.Fn.Scratch.RemapProof
+import ZesuExec.Fn.Scratch.NonVacuous
 import ZesuExec.Fn.F1.Proof
 import ZesuExec.Fn.F1.Sail
 import ZesuExec.Fn.F2.Proof
 import ZesuExec.Fn.F2.Sail
+import ZesuExec.Fn.Rotate.C8330.Proof
+import ZesuExec.Fn.Rotate.C10572.Proof
+import ZesuExec.Fn.Rotate.C12629.Proof
+import ZesuExec.Fn.MergeInPlace.C7964.Proof
+import ZesuExec.Fn.MergeInPlace.C11564.Proof
 import ZesuExec.Fn.F3.Proof
 import ZesuExec.Fn.F3.Sail
 import ZesuExec.Fn.F4.Proof
@@ -273,6 +282,150 @@ info: 'ZesuExec.Fn.DTF.DTF.reach_from' depends on axioms: [propext, Classical.ch
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.DTF.DTF.reach_from
+
+/--
+info: 'ZesuExec.Fn.Alloc.AllocF.allocf_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Alloc.AllocF.allocf_sail
+
+/--
+info: 'ZesuExec.Fn.Alloc.init_heap' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Alloc.init_heap
+
+/--
+info: 'ZesuExec.Fn.Alloc.FreeF.freef_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Alloc.FreeF.freef_sail
+
+/--
+info: 'ZesuExec.Fn.Alloc.alloc_free_alloc' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Alloc.alloc_free_alloc
+
+/--
+info: 'ZesuExec.Fn.Alloc.AllocF.pre_nonvacuous' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Alloc.AllocF.pre_nonvacuous
+
+/--
+info: 'ZesuExec.Fn.Alloc.FreeF.pre_nonvacuous' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Alloc.FreeF.pre_nonvacuous
+
+/--
+info: 'ZesuExec.Fn.Alloc.AllocF.post_snapshot' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Alloc.AllocF.post_snapshot
+
+/--
+info: 'ZesuExec.Fn.Alloc.FreeF.post_snapshot' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Alloc.FreeF.post_snapshot
+
+/--
+info: 'ZesuExec.Fn.Scratch.FS.fs_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Scratch.FS.fs_sail
+
+/--
+info: 'ZesuExec.Fn.Scratch.RS.rs_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Scratch.RS.rs_sail
+
+/--
+info: 'ZesuExec.Fn.Scratch.FS.pre_nonvacuous' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Scratch.FS.pre_nonvacuous
+
+/--
+info: 'ZesuExec.Fn.Scratch.RS.pre_nonvacuous' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Scratch.RS.pre_nonvacuous
+
+/--
+info: 'ZesuExec.Fn.Scratch.FS.post_snapshot' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Scratch.FS.post_snapshot
+
+/--
+info: 'ZesuExec.Fn.Scratch.RS.post_snapshot' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Scratch.RS.post_snapshot
+
+/--
+info: 'ZesuExec.Fn.Rotate.C8330.r8330_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C8330.r8330_spec
+
+/--
+info: 'ZesuExec.Fn.Rotate.C8330.r8330_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C8330.r8330_sail
+
+/--
+info: 'ZesuExec.Fn.Rotate.C10572.r10572_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C10572.r10572_spec
+
+/--
+info: 'ZesuExec.Fn.Rotate.C10572.r10572_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C10572.r10572_sail
+
+/--
+info: 'ZesuExec.Fn.Rotate.C12629.r12629_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C12629.r12629_spec
+
+/--
+info: 'ZesuExec.Fn.Rotate.C12629.r12629_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C12629.r12629_sail
+
+/--
+info: 'ZesuExec.Fn.MergeInPlace.C7964.m7964_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.MergeInPlace.C7964.m7964_spec
+
+/--
+info: 'ZesuExec.Fn.MergeInPlace.C7964.m7964_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.MergeInPlace.C7964.m7964_sail
+
+/--
+info: 'ZesuExec.Fn.MergeInPlace.C11564.m11564_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.MergeInPlace.C11564.m11564_spec
+
+/--
+info: 'ZesuExec.Fn.MergeInPlace.C11564.m11564_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.MergeInPlace.C11564.m11564_sail
 
 /--
 info: 'ZesuExec.Fn.Memmove.memmove_spec' depends on axioms: [propext, Quot.sound]

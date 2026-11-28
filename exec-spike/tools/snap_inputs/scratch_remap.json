@@ -1,0 +1,14 @@
+{
+ "schema": "oblig-exec-inputs/1",
+ "function": "scratch_arena.remap",
+ "note": "scratch_arena.remap paths for tools/snap.py --fn ScratchRemap: no chunk; the most recent allocation shrinking, growing within cap, growing to exactly cap and past cap (null); an older buffer shrinking (ptr, no change) and growing (null).",
+ "inputs": [
+  {"id": "no_chunk", "chunk": false, "ptr": 64, "len": 32, "new_len": 16},
+  {"id": "last_shrink", "cap": 4096, "used": 256, "ptr": 192, "len": 64, "new_len": 16},
+  {"id": "last_grow_fits", "cap": 4096, "used": 256, "ptr": 192, "len": 64, "new_len": 1000},
+  {"id": "last_grow_to_cap", "cap": 4096, "used": 256, "ptr": 192, "len": 64, "new_len": 3904},
+  {"id": "last_grow_past_cap", "cap": 4096, "used": 256, "ptr": 192, "len": 64, "new_len": 3905},
+  {"id": "older_shrink", "cap": 4096, "used": 256, "ptr": 64, "len": 64, "new_len": 8},
+  {"id": "older_grow", "cap": 4096, "used": 256, "ptr": 64, "len": 64, "new_len": 65}
+ ]
+}

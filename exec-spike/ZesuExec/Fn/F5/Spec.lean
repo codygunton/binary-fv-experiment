@@ -18,9 +18,9 @@ def bound : Nat := 204
 def elemBytes : Nat := 40
 def emptyPtr : Word := BitVec.ofNat 64 8
 
-abbrev Pre (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (items : List Byte) :=
+abbrev Pre (A : AllocContract zesuImage) (L : List (Word × Nat)) (items : List Byte) :=
   ToOwned.Pre elemBytes A L items
-abbrev Post (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (items : List Byte) :=
+abbrev Post (A : AllocContract zesuImage) (L : List (Word × Nat)) (items : List Byte) :=
   ToOwned.Post elemBytes A L items emptyPtr
 
 end ZesuExec.Fn.F5

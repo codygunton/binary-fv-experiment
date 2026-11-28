@@ -1,0 +1,60 @@
+{
+ "schema": "oblig-exec-inputs/1",
+ "function": "rotate",
+ "inputs": [
+  {
+   "id": "n5_a2",
+   "n": 5,
+   "amount": 2,
+   "seed": 1
+  },
+  {
+   "id": "n6_a1",
+   "n": 6,
+   "amount": 1,
+   "seed": 2
+  },
+  {
+   "id": "n7_a3",
+   "n": 7,
+   "amount": 3,
+   "seed": 3
+  },
+  {
+   "id": "n4_a4",
+   "n": 4,
+   "amount": 4,
+   "seed": 4
+  },
+  {
+   "id": "n3_a0",
+   "n": 3,
+   "amount": 0,
+   "seed": 5
+  },
+  {
+   "id": "n2_a1",
+   "n": 2,
+   "amount": 1,
+   "seed": 6
+  },
+  {
+   "id": "n1_a1",
+   "n": 1,
+   "amount": 1,
+   "seed": 7
+  },
+  {
+   "id": "n0_a0",
+   "n": 0,
+   "amount": 0,
+   "seed": 8
+  },
+  {
+   "id": "n8_a5",
+   "n": 8,
+   "amount": 5,
+   "seed": 9
+  }
+ ]
+}

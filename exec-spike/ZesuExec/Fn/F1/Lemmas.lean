@@ -14,7 +14,7 @@ namespace ZesuExec.Fn.F1
 open ZesuExec ZesuExec.Sym ZesuExec.Machine
 
 /-- The entry facts of `Pre`, with names. -/
-structure Entry (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (items : List Byte)
+structure Entry (A : AllocContract zesuImage) (L : List (Word × Nat)) (items : List Byte)
     (m : Machine) : Prop where
   ro : RodataLoaded zesuImage m
   stack : StackOk m 128
@@ -51,7 +51,7 @@ structure Entry (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (items
   priv : ∀ a, InRange (m.reg 10) 24 a ∨ InRange (m.reg 11) 16 a ∨ InRange (m.reg 2 - 128) 128 a ∨
     InRange (BitVec.ofNat 64 Layout.extraParams) 8 a → ¬ A.Priv L a
 
-theorem Entry.of_pre {A : AllocAssumptions zesuImage} {L : List (Word × Nat)} {items : List Byte}
+theorem Entry.of_pre {A : AllocContract zesuImage} {L : List (Word × Nat)} {items : List Byte}
     {m : Machine} (h : Pre A L items m) : Entry A L items m := by
   obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15, h16, h17, h18, h19,
     h20, h21, h22, h23, h24, h25, h26⟩ := h
@@ -65,7 +65,7 @@ theorem grown_lt (v : Word) (h : v.toNat < 2^32) : (v >>> 1 + v + 2).toNat = gro
   simp; omega
 
 theorem g_or (v : Word) (h : v.toNat < 2^32) :
-    ((-if (v >>> 1 + v + 2).ult v = true then (1 : Word) else 0) ||| (v >>> 1 + v + 2)) =
+    ((- if (v >>> 1 + v + 2).ult v = true then (1 : Word) else 0) ||| (v >>> 1 + v + 2)) =
       BitVec.ofNat 64 (grown v.toNat) := by
   have hg := grown_lt v h
   have hnot : (v >>> 1 + v + 2).ult v = false := by
@@ -77,7 +77,7 @@ theorem g_or (v : Word) (h : v.toNat < 2^32) :
   apply BitVec.eq_of_toNat_eq; rw [hg]; simp [grown]; omega
 
 section
-variable {A : AllocAssumptions zesuImage} {L : List (Word × Nat)} {items : List Byte}
+variable {A : AllocContract zesuImage} {L : List (Word × Nat)} {items : List Byte}
   {m : Machine}
 
 /-- The entry environment. -/
@@ -159,7 +159,7 @@ theorem Entry.match (E : Entry A L items m) : Match (env0 m) S0 m := by
     simp [Env.byte0, entryEnv, shape, this, Sym.eval]
 
 theorem g_or' (v : Word) (h : v.toNat < 2^32) :
-    ((-if BitVec.ult (v >>> 1 + v + BitVec.ofNat 64 2) v = true then BitVec.ofNat 64 1 else BitVec.ofNat 64 0) |||
+    ((- if BitVec.ult (v >>> 1 + v + BitVec.ofNat 64 2) v = true then BitVec.ofNat 64 1 else BitVec.ofNat 64 0) |||
       (v >>> 1 + v + BitVec.ofNat 64 2)) = BitVec.ofNat 64 (grown v.toNat) := g_or v h
 
 theorem grown_toNat (v : Word) (h : v.toNat < 2 ^ 32) :
@@ -321,7 +321,7 @@ theorem Entry.scratchNotOwn (E : Entry A L items m) {j : Nat} (hj : j < 8)
   omega
 
 /-- What F1 may change. -/
-def Allowed (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m : Machine) (a : Word) : Prop :=
+def Allowed (A : AllocContract zesuImage) (L : List (Word × Nat)) (m : Machine) (a : Word) : Prop :=
   InRange (m.reg 10) 24 a ∨ InRange (m.reg 2 - 128) 128 a ∨
     InRange (BitVec.ofNat 64 Layout.extraParams) 8 a ∨ A.Priv L a ∨
     (0 < (wordAt m (m.reg 10 + 16)).toNat ∧
@@ -331,7 +331,7 @@ theorem zesu_rodata_low {a b : Nat} (h : zesuImage.rodataByte? a = some b) : a <
   have := zesu_rodata_range h; unfold Layout.rodataHi at this; unfold Layout.ramLo; omega
 
 /-- What holds of every machine along F1's run: changes stay in `Allowed`, bytes survive. -/
-def Inv (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m mk : Machine) : Prop :=
+def Inv (A : AllocContract zesuImage) (L : List (Word × Nat)) (m mk : Machine) : Prop :=
   SameOutside (Allowed A L m) m mk ∧ Preserved m mk
 
 theorem Inv.refl : Inv A L m m := ⟨fun _ _ => rfl, Preserved.refl m⟩
@@ -491,8 +491,21 @@ theorem Entry.calleeFree (E : Entry A L items m) {mk : Machine} {L' : List (Word
     rw [hsp, BitVec.toNat_sub, h112]; have := E.sp.1; unfold Layout.ramLo at this; simp; omega
   simp only [InRange, this, h128] at ha ⊢; omega
 
+/-- The callee frame below F1's frame avoids the old buffer (`dbuf`: the buffer is apart from
+F1's stack area). -/
+theorem Entry.calleeNotOld (E : Entry A L items m) (hc0 : 0 < (wordAt m (m.reg 10 + 16)).toNat)
+    {mk : Machine} (hsp : mk.reg 2 = m.reg 2 - 112) :
+    ∀ a, InRange (mk.reg 2 - 16) 16 a →
+      ¬ InRange (wordAt m (m.reg 10)) ((wordAt m (m.reg 10 + 16)).toNat * elemBytes) a := by
+  intro a ha hb
+  obtain ⟨-, -, ds, -⟩ := E.dbuf hc0
+  have h112 := sp112 E; have h128 := sp128 E
+  have : (mk.reg 2 - 16).toNat = (m.reg 2).toNat - 128 := by
+    rw [hsp, BitVec.toNat_sub, h112]; have := E.sp.1; unfold Layout.ramLo at this; simp; omega
+  simp only [Apart, InRange, this, h128] at ds ha hb; omega
+
 /-- The allocator's answer, as `alloc_spec` states it for F1's request. -/
-def AllocOut (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (g : Nat) (m2 : Machine) : Prop :=
+def AllocOut (A : AllocContract zesuImage) (L : List (Word × Nat)) (g : Nat) (m2 : Machine) : Prop :=
   (m2.reg 10 = 0 ∧ A.Heap L m2) ∨
   (m2.reg 10 ≠ 0 ∧ A.Heap (L ++ [(m2.reg 10, g)]) m2 ∧ RamRange (m2.reg 10) g ∧ Present m2 (m2.reg 10) g ∧
     (∀ a, InRange (m2.reg 10) g a → A.Priv L a) ∧ (∀ a, A.Priv (L ++ [(m2.reg 10, g)]) a → A.Priv L a))
