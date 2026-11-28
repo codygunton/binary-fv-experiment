@@ -96,6 +96,7 @@ def exec (m : Machine) : Instr → Option Machine
   | .xor rd rs1 rs2 => m.writeReg rd (m.reg rs1 ^^^ m.reg rs2)
   | .addiw rd rs1 imm => m.writeReg rd (((m.reg rs1 + sx imm).setWidth 32).signExtend 64)
   | .bge rs1 rs2 imm => m.branch (!(m.reg rs1).slt (m.reg rs2)) imm
+  | .lwu rd rs1 imm => m.loadInto rd rs1 imm 4 id
 
 end Machine
 
