@@ -335,3 +335,33 @@ Remaining for `80002dc4_0` (hand proof, a new file importing `Hand`):
 Then `DTF.reach` (`zesu_assemble` reports open 0), `dtf_spec` (`Spec`-style, as `TX.tx_spec`),
 `dtf_sail`, the `Axioms.lean` guards, `pre_nonvacuous` and `post_snapshot`
 (`test/snapshots/DTF/`).
+
+### Stage 3 status (DTFFieldsD)
+
+`Success.lean` (the success write's lemmas; the leaf itself still open):
+- Step 2 done: `TxAt` = `TxScal` ∧ `TxBufs` (`txAt_of`). `scal_of` proves `TxScal` from the row
+  words at the result offsets: every result byte is checked against a byte of a row location on
+  the leaf's final state (`resLoc`/`resBytes`/`resZero`/`resWord`, decided; `byteAt_sound`), the
+  numbers by `byteOf_limb` (`limb` → `leBytes`, no bound needed). Per arm `scal_legacy`, `scal_t1`
+  … `scal_t4` give the row values (`row_val`: `FieldsOk` + `ChecksL` → `FieldVal.AtB` over
+  `restN k payload`; `checksL_at`, `checksL_full`, `addr_item`, `to_rows`).
+- Decode: `decode_blob`/`decode_auth` (`blobOf`/`authOf`, `hashList_run`/`authList_run`) given the
+  list walk succeeds.
+- Step 1, hashes: `HashLoop`/`HashItem` carry `HashesOk pl n` (every item so far a 32-byte string;
+  established in `hash_item` from the leaf's `len = 32` condition, `hashesOk_succ`). At the exits to
+  `toOwnedSlice` (`80002064_2` empty list, `80002138_1` payload used up) `hash_walk_ok`
+  (`walk_hash`, inner header fits by `fits_inner`) gives the walk; it is stated as the machine-free
+  row value `.hwalk 10` (`FieldVal.At`: the walk succeeds; the word is not read) at slot `0x130`
+  of the call site `0x80002180` (`leaf_call_xf`/`CallChkF`: call-site entries a `keep` predicate
+  rejects come from the hand proof; `fields_infer.lean`'s `hand`), and kept from there to
+  `0x80002dc4` by the existing kept rule.
+- Step 1, tuples: not done. `auth` needs each tuple's six inner items checked (`u256`, 20-byte
+  string, `u64`, `u64`, `u256`, `u256`): `AuthLoop` would carry the analogue of `HashesOk` built
+  from the tuple field leaves (`AuthFields.lean`), and `.awalk 9` at the call after the loop.
+- Step 3 (buffers) not started. Blocker found: separate `∃ L X, Live σ m L X` facts cannot be
+  combined (S13AllocC: `Heap` does not pin `L`; `Heap [] m` and `Heap [(p,n)] m` both hold for a
+  bumped block). A buffer's liveness must be stated against the live list the call sites use, so
+  `PlainA`/`SiteA` need one shared `∃ L X` that `Extra` (`ListHdr`, `AuthBuf`, `BufIs`, `NewL`, …),
+  `FieldsOk` (machine-dependent `buf` kinds) and `call_idx` all use, plus per-callee lemmas that
+  other live blocks keep their bytes (alloc/TX/F1/F4: outside `Priv L`; free: pairwise disjoint
+  blocks). Planned after S13AllocC's re-point to `AllocContract` lands (same files).

@@ -172,6 +172,8 @@ def FieldVal.At (σ : Sig) (m : Machine) (c h p : Nat) (x : Word) : FieldVal →
   | .lv _ => x = w (legacyV (numVal 32 p (TX.itemPayload (σ.payload.drop c) h p))).2
   | .ty => x = σ.m.reg 12
   | .cst v => x = w v
+  | .hwalk _ => ∃ hs, walkList hash (TX.itemPayload (σ.payload.drop c) h p).length
+      (TX.itemPayload (σ.payload.drop c) h p) = some hs
 
 /-- `x` is `v` of item `v.k` when that item decodes; nothing is said otherwise. -/
 def FieldVal.Holds (σ : Sig) (m : Machine) (v : FieldVal) (x : Word) : Prop :=
@@ -248,21 +250,26 @@ def ListHdr (σ : Sig) (m : Machine) (o n r : Nat) : Prop :=
 def HashList (σ : Sig) (c h p : Nat) : Prop :=
   skip 10 σ.payload = some c ∧ F2.decode (σ.payload.drop c) = .success true h p
 
+/-- The first `n` items of the list payload `pl` are strings of 32 bytes (`hash` accepts each). -/
+def HashesOk (pl : List Byte) (n : Nat) : Prop :=
+  ∀ i < n, ∀ c, skip i pl = some c → ∃ h, F2.decode (pl.drop c) = .success false h 32
+
 /-- The `txHashList` loop (open assertion item 3) after `n` versioned hashes, `j` bytes of the
 list payload: the cursor `s7 = inp + c + h + j`, the bytes left `s6 = p - j`, the count
-`s9 = n`, the list header at `S-0x118` with `n` elements. -/
+`s9 = n`, the list header at `S-0x118` with `n` elements; the `n` items were 32-byte strings. -/
 def HashLoop (σ : Sig) (m : Machine) : Prop :=
   ∃ c h p n j, HashList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧
     n ≤ j ∧ m.reg 23 = σ.inp + w (c + h + j) ∧ m.reg 22 = w (p - j) ∧ m.reg 25 = w n ∧
-    ListHdr σ m 0x258 n 0
+    ListHdr σ m 0x258 n 0 ∧ HashesOk (TX.itemPayload (σ.payload.drop c) h p) n
 
 /-- The loop after the `n + 1`-th hash's item (`k` bytes, in `s4`) decoded, the cursor still at it;
-the header has room for `r` more. -/
+the header has room for `r` more; the `n + 1` items were 32-byte strings. -/
 def HashItem (σ : Sig) (m : Machine) (r : Nat) : Prop :=
   ∃ c h p n j k, HashList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧
     skip (n + 1) (TX.itemPayload (σ.payload.drop c) h p) = some (j + k) ∧ n + 1 ≤ j + k ∧
     32 ≤ k ∧ m.reg 23 = σ.inp + w (c + h + j) ∧ m.reg 22 = w (p - j) ∧ m.reg 25 = w n ∧
-    m.reg 20 = w k ∧ ListHdr σ m 0x258 n r
+    m.reg 20 = w k ∧ ListHdr σ m 0x258 n r ∧
+    HashesOk (TX.itemPayload (σ.payload.drop c) h p) (n + 1)
 
 /-- The slot `a0` of the store cut `0x80002138`: `p + 32 n`, `p` the header's buffer, `n = s9`. -/
 def HashSlot (σ : Sig) (m : Machine) : Prop :=

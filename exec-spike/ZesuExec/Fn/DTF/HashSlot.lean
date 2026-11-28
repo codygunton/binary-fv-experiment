@@ -78,7 +78,7 @@ theorem hash_f1 {σ : Sig} {m : Machine} (hA : (mkCut (table[109]!)).A σ m) :
   have hsx := hsite.2.2.2.2.2.2.2.2
   rw [show (table[109]!).pc = 0x8000211c by decide] at hsx
   simp only [SiteX, show (0x8000211c : Nat) ≠ 0x800020c0 by decide, if_false, if_true] at hsx
-  obtain ⟨⟨c, h, p, n, j, k, hl, hsk, hsk1, hnk, hk32, r23, r22, r25, r20, hdr⟩, a12⟩ := hsx
+  obtain ⟨⟨c, h, p, n, j, k, hl, hsk, hsk1, hnk, hk32, r23, r22, r25, r20, hdr, hok⟩, a12⟩ := hsx
   have hix := hsite.2.2.2.2.2.1
   rw [hkind] at hix
   obtain ⟨-, X, hlive, hbuf⟩ := hix
@@ -109,7 +109,7 @@ theorem hash_f1 {σ : Sig} {m : Machine} (hA : (mkCut (table[109]!)).A σ m) :
     obtain ⟨-, hH, hheap, -⟩ := hbr
     exact .inr ⟨c, h, p, n, j, k, hl, hsk, hsk1, hnk, hk32, e23.trans r23, e22.trans r22,
       e25.trans r25, e20.trans r20,
-      hdr_of_is hH (by omega) hp0 ⟨hheap, hlive.2.1, hlive.2.2⟩ hbuf⟩
+      hdr_of_is hH (by omega) hp0 ⟨hheap, hlive.2.1, hlive.2.2⟩ hbuf, hok⟩
   · rcases hbr with ⟨-, p', hH, hp', hR', -, hheap', -⟩ | ⟨h2, -⟩
     · have hpos : 0 < F1.grown (n + 1) * F1.elemBytes := by unfold F1.grown F1.elemBytes; omega
       have hg : (BitVec.ofNat 64 (F1.grown (n + 1))).toNat = F1.grown (n + 1) := by
@@ -124,7 +124,8 @@ theorem hash_f1 {σ : Sig} {m : Machine} (hA : (mkCut (table[109]!)).A σ m) :
       obtain ⟨L', X', hl', hmem⟩ := hlive'
       exact .inr ⟨c, h, p, n, j, k, hl, hsk, hsk1, hnk, hk32, e23.trans r23, e22.trans r22,
         e25.trans r25, e20.trans r20,
-        hdr_of_is hH (by rw [hg]; unfold F1.grown; omega) hp' hl' (fun _ => by rw [hg]; exact hmem)⟩
+        hdr_of_is hH (by rw [hg]; unfold F1.grown; omega) hp' hl' (fun _ => by rw [hg]; exact hmem),
+        hok⟩
     · exact .inl h2
 
 /-- No error from F1 (`0x8000211c`, leaf 1): the slot `p + 32 n`, then the store cut. -/
@@ -140,7 +141,7 @@ theorem DTF.leaf_8000211c_1 :
     simp only [SBool.eval, Sym.eval, BinOp.eval, envOf, show (10 : Nat) < 32 by decide, if_true,
       show (Fin.ofNat 32 10 : Fin 32) = 10 from rfl, h2, beq_iff_eq] at hcond
     exact absurd hcond (by decide)
-  obtain ⟨c, h, p, n, j, k, hl, hsk, hsk1, hnk, hk32, r23, r22, r25, r20, hdr⟩ := hit
+  obtain ⟨c, h, p, n, j, k, hl, hsk, hsk1, hnk, hk32, r23, r22, r25, r20, hdr, hok⟩ := hit
   have hdr' := hdr_keep C (o := 0x258) (by decide) (by decide) (by decide) (by decide) hdr
   obtain ⟨p0, -, l0, l8, -⟩ := hdr
   have hpre := C.F.common.2.1
@@ -173,7 +174,7 @@ theorem DTF.leaf_8000211c_1 :
     rw [ctx_load C (by decide) (by decide), l0, Option.some.injEq] at hl0
     rw [e10, hl0]
   have hitem : HashItem σ m' 1 := ⟨c, h, p, n, j, k, hl, hsk, hsk1, hnk, hk32, e23.trans r23,
-    e22.trans r22, e25, e20.trans r20, hdr'⟩
+    e22.trans r22, e25, e20.trans r20, hdr', hok⟩
   refine ⟨?_, ?_, ?_⟩
   · rw [show (table[110]!).pc = 0x80002138 by decide]
     simp only [Extra]
