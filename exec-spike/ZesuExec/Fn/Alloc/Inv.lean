@@ -251,7 +251,7 @@ theorem cell_not_live {L : List (Word × Nat)} {st : St} (hg : Good L st) {c t :
   rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by unfold heapLo at hc; omega)] at this
   omega
 
-/-! ## The fields of the former `AllocAssumptions` -/
+/-! ## The non-spec fields of `AllocContract` (`Fn/Alloc/Contract.lean`) -/
 
 theorem priv_not_live (L : List (Word × Nat)) (a : Word) (h : Priv L a) : ¬ InLive L a := h.2
 

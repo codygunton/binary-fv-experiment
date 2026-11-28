@@ -446,11 +446,16 @@ theorem TX.leaf_80000400_1 :
       · simp only [Sym.eval] at r13; exact r13
       · exact e19⟩
   obtain ⟨hstk, hcf⟩ := callee_frame hcm' hlive'
+  have hX := hlive'.2.2 (o.ep, entrySize * o.ec.toNat) (by simp [EX, hec])
   have hpre2 : freePre σ.A L m' := ⟨hlive'.1, by
       rw [e11, hn12]; exact hlive'.2.1.symm.subset (List.mem_append_right _ (by simp [EX, hec])),
     by rw [hn12]; simp only [entrySize]; omega, by rw [hn12]; simp only [entrySize]; omega,
-    by simp only [Sym.eval] at r13; rw [r13]; decide, hstk,
-    by unfold RetAligned; simp only [Sym.eval] at r1; rw [r1]; decide, hcf⟩
+    by simp only [Sym.eval] at r13; rw [r13]; decide,
+    .inl (by simp only [Sym.eval] at r13; rw [r13]; decide), hstk,
+    by unfold RetAligned; simp only [Sym.eval] at r1; rw [r1]; decide, hcf,
+    -- the freed entries block is TX's entry `Priv`, the callee frame is TX's stack
+    fun a ha hb => stack_not_priv hcm'.2.1 (cframe_R hcm' ha).1
+      (hX.2.2 a (by rw [e11, hn12] at hb; exact hb))⟩
   refine ⟨freeC, L, rfl, hex, hpre2, fun m'' hpost => ⟨cut42c, by simp [TX.plan, vcPlan],
     rfl, ?_, .inr ⟨m', L, hsite, hpost⟩, ?_⟩⟩
   · rw [hpost.1.1.1]; simp only [Sym.eval] at r1; rw [r1]; decide

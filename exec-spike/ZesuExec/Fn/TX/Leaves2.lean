@@ -221,7 +221,7 @@ theorem envB_var (σ : Sig) (m : Machine) (i : Fin 32) :
 /-! ## `0x800001f8`: after `ensureTotalCapacity` -/
 
 /-- `ensureTotalCapacity` returned a nonzero code: OutOfMemory, the heap unchanged. -/
-theorem f1_oom {A : AllocAssumptions zesuImage} {L : List (Word × Nat)} {items : List Byte}
+theorem f1_oom {A : AllocContract zesuImage} {L : List (Word × Nat)} {items : List Byte}
     {mc m : Machine} (h : F1.Post A L items mc m) (hne : m.reg 10 ≠ 0) : A.Heap L m := by
   obtain ⟨-, -, h⟩ := h
   split at h
@@ -294,7 +294,7 @@ theorem frame_init_n {σ : Sig} {m : Machine} (hpre : Pre σ.A σ.g σ.m) {k off
     unfold Layout.ramLo frameBytes at *; omega
 
 /-- `toOwnedSlice` reported an error: OutOfMemory on a nonempty list, the heap unchanged. -/
-theorem f4_oom' {eb : Nat} {A : AllocAssumptions zesuImage} {L : List (Word × Nat)}
+theorem f4_oom' {eb : Nat} {A : AllocContract zesuImage} {L : List (Word × Nat)}
     {items : List Byte} {empty : Word} {mc m : Machine}
     (h : ToOwned.Post eb A L items empty mc m) (hne : m.load (mc.reg 10 + 16) 2 ≠ some 0) :
     A.Heap L m ∧ (ToOwned.listLen mc).toNat ≠ 0 := by
@@ -306,7 +306,7 @@ theorem f4_oom' {eb : Nat} {A : AllocAssumptions zesuImage} {L : List (Word × N
     · exact absurd hri.2.2.1 hne
     · exact ⟨h.2.2.1, hn⟩
 
-theorem f4_oom {eb : Nat} {A : AllocAssumptions zesuImage} {L : List (Word × Nat)}
+theorem f4_oom {eb : Nat} {A : AllocContract zesuImage} {L : List (Word × Nat)}
     {items : List Byte} {empty : Word} {mc m : Machine}
     (h : ToOwned.Post eb A L items empty mc m) (hne : m.load (mc.reg 10 + 16) 2 ≠ some 0) :
     A.Heap L m := (f4_oom' h hne).1

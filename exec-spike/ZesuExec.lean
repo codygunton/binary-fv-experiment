@@ -4,7 +4,7 @@ import ZesuExec.Compliance.KnownBugs
 import ZesuExec.Compliance.RlpItem
 import ZesuExec.Compliance.SailRun
 import ZesuExec.Decode
-import ZesuExec.Fn.Assumed
+import ZesuExec.Fn.Alloc.Contract
 import ZesuExec.Fn.Common
 import ZesuExec.Fn.F0.Proof
 import ZesuExec.Fn.F0.Regions

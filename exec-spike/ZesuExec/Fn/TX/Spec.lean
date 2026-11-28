@@ -1,4 +1,4 @@
-import ZesuExec.Fn.Assumed
+import ZesuExec.Fn.Alloc.Contract
 import ZesuExec.Fn.F2.Spec
 import ZesuExec.Fn.Stage
 
@@ -203,7 +203,7 @@ structure Params where
   L : List (Word × Nat)
 
 section
-variable (A : AllocAssumptions zesuImage) (g : Params)
+variable (A : AllocContract zesuImage) (g : Params)
 
 /-- Entry: `txAccessListArgsWellFormed` plus the owned resources of
 `txAccessListEntryResources`. -/
@@ -358,7 +358,7 @@ theorem domain_c0 : Domain [0xc0] := by
 /-- `Pre` is satisfiable (input `c0`) for any allocator whose heap predicate holds of some
 machine with an empty block list and whose private memory lies above `0xa0003000` and away from
 the scratch word. -/
-theorem pre_nonvacuous (A : AllocAssumptions zesuImage) (m0 : Machine) (h0 : A.Heap [] m0)
+theorem pre_of_heap (A : AllocContract zesuImage) (m0 : Machine) (h0 : A.Heap [] m0)
     (hP : ∀ a, A.Priv [] a → 0xa0003000 ≤ a.toNat ∧
       ¬ (Layout.extraParams ≤ a.toNat ∧ a.toNat < Layout.extraParams + 8)) :
     ∃ m, Pre A ⟨[0xc0], []⟩ m := by
@@ -434,5 +434,13 @@ theorem pre_nonvacuous (A : AllocAssumptions zesuImage) (m0 : Machine) (h0 : A.H
     simp only [InRange, scratch, e1, e2, e3, e4, e5, e6, e7] at h
     simp only [Layout.extraParams, stackBytes] at h h2
     omega
+
+/-- Contract rule (a): a concrete machine (the witness over `Alloc.initM`, input `c0`) satisfies
+`Pre` of the proved allocator. -/
+theorem pre_nonvacuous : ∃ m, Pre Alloc.contract ⟨[0xc0], []⟩ m :=
+  pre_of_heap Alloc.contract Alloc.initM Alloc.contract_init fun a ha => by
+    have := Alloc.contract_priv_nil ha
+    unfold Alloc.Arena Alloc.flBase Alloc.posAddr Alloc.heapTop at this
+    unfold Layout.extraParams; omega
 
 end ZesuExec.Fn.TX

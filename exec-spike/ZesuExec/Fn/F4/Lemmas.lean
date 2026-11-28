@@ -13,7 +13,7 @@ namespace ZesuExec.Fn.ToOwned
 open ZesuExec ZesuExec.Sym ZesuExec.Machine
 
 /-- The entry facts of `Pre`, with names. -/
-structure Entry (eb : Nat) (A : AllocAssumptions zesuImage) (L : List (Word × Nat))
+structure Entry (eb : Nat) (A : AllocContract zesuImage) (L : List (Word × Nat))
     (items : List Byte) (m : Machine) : Prop where
   ro : RodataLoaded zesuImage m
   stack : StackOk m 112
@@ -55,7 +55,7 @@ structure Entry (eb : Nat) (A : AllocAssumptions zesuImage) (L : List (Word × N
   priv : ∀ a, InRange (m.reg 10) 24 a ∨ InRange (m.reg 11) 24 a ∨ InRange (m.reg 12) 16 a ∨
     InRange (m.reg 2 - 112) 112 a ∨ InRange scratch 8 a → ¬ A.Priv L a
 
-theorem Entry.of_pre {eb : Nat} {A : AllocAssumptions zesuImage} {L : List (Word × Nat)}
+theorem Entry.of_pre {eb : Nat} {A : AllocContract zesuImage} {L : List (Word × Nat)}
     {items : List Byte} {m : Machine} (h : Pre eb A L items m) : Entry eb A L items m := by
   obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15, h16, h17, h18, h19,
     h20, h21, h22, h23, h24, h25, h26, h27, h28, h29, h30, h31, h32⟩ := h
@@ -90,7 +90,7 @@ theorem bytes_kept {env : Env} {S : SState} {mf : Machine} {r lo hi : Nat} (hm :
   simp [memByte, this]
 
 section
-variable {eb : Nat} {A : AllocAssumptions zesuImage} {L : List (Word × Nat)} {items : List Byte}
+variable {eb : Nat} {A : AllocContract zesuImage} {L : List (Word × Nat)} {items : List Byte}
   {m : Machine}
 
 /-- The entry environment. -/
@@ -296,14 +296,14 @@ theorem region_load {env : Env} {S : SState} {mf : Machine} {r : Nat} {R : Regio
   load_cst hwf hm hR hb
 
 /-- What the function may change (`Post`'s frame). -/
-def Allowed (eb : Nat) (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m : Machine)
+def Allowed (eb : Nat) (A : AllocContract zesuImage) (L : List (Word × Nat)) (m : Machine)
     (a : Word) : Prop :=
   InRange (m.reg 10) 24 a ∨ InRange (m.reg 11) 24 a ∨ InRange (m.reg 2 - 112) 112 a ∨
     InRange scratch 8 a ∨ A.Priv L a ∨
     (0 < (listCap m).toNat ∧ InRange (listPtr m) ((listCap m).toNat * eb) a)
 
 /-- What holds of every machine along the run: changes stay in `Allowed`, bytes survive. -/
-def Inv (eb : Nat) (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m mk : Machine) : Prop :=
+def Inv (eb : Nat) (A : AllocContract zesuImage) (L : List (Word × Nat)) (m mk : Machine) : Prop :=
   SameOutside (Allowed eb A L m) m mk ∧ Preserved m mk
 
 theorem Inv.refl : Inv eb A L m m := ⟨fun _ _ => rfl, Preserved.refl m⟩
@@ -503,7 +503,7 @@ theorem Entry.scratchSafe (E : Entry eb A L items m) {j : Nat} (hj : j < 8) :
 /-! ## Calls -/
 
 /-- The allocator's answer, as `alloc_spec` states it for a request of `g` bytes. -/
-def AllocOut (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (g : Nat) (m2 : Machine) : Prop :=
+def AllocOut (A : AllocContract zesuImage) (L : List (Word × Nat)) (g : Nat) (m2 : Machine) : Prop :=
   (m2.reg 10 = 0 ∧ A.Heap L m2) ∨
   (m2.reg 10 ≠ 0 ∧ A.Heap (L ++ [(m2.reg 10, g)]) m2 ∧ RamRange (m2.reg 10) g ∧ Present m2 (m2.reg 10) g ∧
     (∀ a, InRange (m2.reg 10) g a → A.Priv L a) ∧ (∀ a, A.Priv (L ++ [(m2.reg 10, g)]) a → A.Priv L a))
@@ -573,7 +573,7 @@ theorem free_step (E : Entry eb A L items m) {env : Env} {S Sl : SState} {mk mc 
     (hpriv : ∀ a, A.Priv L' a → A.Priv L a)
     (hmem : (listPtr m, (listCap m).toNat * eb) ∈ L') (hwfB : Sl.wfB F = true)
     (g11 : mc.reg 11 = listPtr m) (g12 : (mc.reg 12).toNat = (listCap m).toNat * eb)
-    (g13 : (mc.reg 13).toNat ≤ 4) (hra : RetAligned mc) (g2 : mc.reg 2 = m.reg 2 - 96)
+    (g13 : (mc.reg 13).toNat ≤ 3) (hra : RetAligned mc) (g2 : mc.reg 2 = m.reg 2 - 96)
     (k : ∀ m2, Match (env.setVars F fun i => m2.reg (Fin.ofNat 32 i)) (Sl.override (callOv Sl F none)) m2 →
       Env.WF (env.setVars F fun i => m2.reg (Fin.ofNat 32 i)) (Sl.override (callOv Sl F none)) →
       Returns mc m2 → Inv eb A L m m2 →
@@ -589,12 +589,22 @@ theorem free_step (E : Entry eb A L items m) {env : Env} {S Sl : SState} {mk mc 
   have hheapc : A.Heap L' mc := A.heap_frame' L' mk mc hheap (fun a ha => hfr a fun hw =>
     E.ownNotPriv (own a hw) (hpriv a ha)) hp
   have hpre : A.Heap L' mc ∧ (mc.reg 11, (mc.reg 12).toNat) ∈ L' ∧ 0 < (mc.reg 12).toNat ∧
-      (mc.reg 12).toNat < 2 ^ 63 ∧ (mc.reg 13).toNat ≤ 4 ∧ StackOk mc 16 ∧ RetAligned mc ∧
-      CalleeFrameFree (A.Priv L') mc := by
-    refine ⟨hheapc, ?_, ?_, ?_, g13, E.calleeStack (hinv.2.trans hp) g2, hra, E.calleeFree hpriv g2⟩
+      (mc.reg 12).toNat < 2 ^ 63 ∧ (mc.reg 13).toNat ≤ 4 ∧
+      ((mc.reg 13).toNat ≤ 3 ∨ 8 < (mc.reg 12).toNat) ∧ StackOk mc 16 ∧ RetAligned mc ∧
+      CalleeFrameFree (A.Priv L') mc ∧
+      ∀ a, InRange (mc.reg 2 - 16) 16 a → ¬ InRange (mc.reg 11) (mc.reg 12).toNat a := by
+    refine ⟨hheapc, ?_, ?_, ?_, by omega, .inl g13, E.calleeStack (hinv.2.trans hp) g2, hra,
+      E.calleeFree hpriv g2, fun a ha hb => ?_⟩
     · rw [g11, g12]; exact hmem
     · rw [g12]; exact Nat.mul_pos hc0 heb
     · rw [g12]; omega
+    · -- the callee frame is F4's stack area, which the old buffer avoids (`dbuf`)
+      rw [g11, g12] at hb
+      obtain ⟨-, -, -, ds, -⟩ := E.dbuf hc0
+      have h112 := sp112 E
+      have : (mc.reg 2 - 16).toNat = (m.reg 2).toNat - 112 := by
+        rw [g2, BitVec.toNat_sub, sp96 E]; have := E.sp.1; unfold Layout.ramLo at this; simp; omega
+      simp only [Apart, InRange, this, h112] at ds ha hb; omega
   have hcall := Reaches.preserve (A.free_spec L' mc (by simpa [freeEntry] using hex) hpre)
   refine Reaches.trans hcall fun m2 hpost => ?_
   obtain ⟨⟨hret, hfrF, hheap2, hpriv2⟩, hp2⟩ := hpost

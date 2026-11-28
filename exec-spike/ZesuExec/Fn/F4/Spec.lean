@@ -1,4 +1,4 @@
-import ZesuExec.Fn.Assumed
+import ZesuExec.Fn.Alloc.Contract
 
 /-!
 # `array_list.Aligned(T,null).toOwnedSlice`: the shared statement, and F4
@@ -60,7 +60,7 @@ def ErrorImage (m m' : Machine) (res code : Word) : Prop :=
   SameBytes m m' res 0 16 ∧ m'.load (res + 16) 2 = some code ∧ SameBytes m m' res 18 24
 
 section
-variable (eb : Nat) (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (items : List Byte)
+variable (eb : Nat) (A : AllocContract zesuImage) (L : List (Word × Nat)) (items : List Byte)
 
 /-- Entry: `toOwnedSliceDomain eb` plus the owned resources of `toOwnedSliceEntry`. -/
 def Pre (m : Machine) : Prop :=
@@ -126,9 +126,9 @@ def bound : Nat := 194
 def elemBytes : Nat := 32
 def emptyPtr : Word := BitVec.ofNat 64 1
 
-abbrev Pre (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (items : List Byte) :=
+abbrev Pre (A : AllocContract zesuImage) (L : List (Word × Nat)) (items : List Byte) :=
   ToOwned.Pre elemBytes A L items
-abbrev Post (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (items : List Byte) :=
+abbrev Post (A : AllocContract zesuImage) (L : List (Word × Nat)) (items : List Byte) :=
   ToOwned.Post elemBytes A L items emptyPtr
 
 end ZesuExec.Fn.F4

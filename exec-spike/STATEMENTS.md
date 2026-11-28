@@ -76,7 +76,8 @@ Deliberate differences:
   requires writable RAM for the source; the destination must be present RAM. `memcpy_spec`
   (`Logic.lean`): `Spec img 0x800e06c0 3 MemcpyPre MemcpyPost` with `MemcpyPost m m' :=
   ziskMemcpy m = some m'`.
-- `AllocAssumptions` (`Fn/Assumed.lean`) transcribes `altFlAllocCallSpec` (`AltFlAllocPremises.v:230`)
+- `AllocContract` (`Fn/Alloc/Contract.lean`; until S13 `AllocAssumptions` in `Fn/Assumed.lean`, an
+  assumed hypothesis; since S13 a proved instance, § S13) transcribes `altFlAllocCallSpec` (`AltFlAllocPremises.v:230`)
   and `altFlFreeCallSpec` (`:263`) without separation logic. `altFlHeap` (`:115`) becomes the
   abstract `Heap L m` over live blocks `L`; the memory it owns (state object, heap words, free
   lists, bump region) becomes the abstract `Priv L`, disjoint from live blocks (`priv_not_live`),
@@ -123,7 +124,7 @@ Deliberate differences:
   the call lies in `Priv g.L` or is a block of `g.L`, so `Priv` of the new list stays inside
   `Priv g.L`, the caller's ranges (outside `Priv g.L`) stay apart from new blocks, and TX's
   writes into its blocks fall inside the `Post` frame `Priv g.L`. Without it these facts are
-  not derivable. No proof constructs `AllocAssumptions`.
+  not derivable. Since S13 `Alloc.contract` constructs the structure (§ S13).
   Fixed arena (evidence): `alt_fl_alloc.zig` (zesislar `_build/p0c-zesu-source/src/zkvm/`) has
   no refill path: `sysAllocAligned` bumps `ZKVM_HEAP_POS` up to `ZKVM_HEAP_TOP` and returns null
   beyond it, `free` pushes blocks on `free_lists` (oversized blocks are leaked, not returned), and
@@ -532,7 +533,7 @@ Differences:
    word against every other range) and "avoids `Priv L`" for every owned range (as F1).
 4. The vtable cells (`altFlVtable`) are rodata (`RodataLoaded`); the allocator object holds
    `{ctx, 0x801136d8}`; `altFlHeap` is `A.Heap g.L`. Allocation alignment (`log2Align` 0 for keys,
-   3 for entries) is not stated: `AllocAssumptions` blocks carry no alignment.
+   3 for entries) is not stated: `AllocContract` blocks carry no alignment.
 5. The Sail half of `TxAccessListMeaningModuloKnownBugs` (`txAccessListSailAgrees` or a known-bug
    trigger) is not in `Post`; it is the compliance statement's (S6 step 8), as for F2. `Domain`
    (which includes the Sail source limit) stays in `Pre`, as in `txAccessListArgsWellFormed`.
@@ -623,13 +624,52 @@ Open (to settle before review):
    mirrored `altFlMaxLog2Alignment := 3` and allowed at most 3, so leaves `800029c8_2`,
    `800022e4_1` (alloc) and `80002a38_1`, `80002ee0_1` (free) were false under it; every
    nonempty authorization list reaches them. **Change:** `alloc_spec`/`free_spec` allow
-   `log2Align ≤ 4` (§ `AllocAssumptions` above: evidence from the allocator's source and
+   `log2Align ≤ 4` (§ `AllocContract` above: evidence from the allocator's source and
    disassembly that alignment 16 is handled; diverges from zesislar).
 - Non-vacuity: not yet stated; `decide` checks the decoder on four inputs.
 
 ## S13 allocator contracts (draft, unreviewed)
-- `Alloc.AllocPre/AllocPost`: as `AllocAssumptions.alloc_spec` but over the concrete `Alloc.Heap`/`Alloc.Priv` (Fn/Alloc/Spec.lean).
-- `Alloc.FreePre` strengthens the assumed `free_spec` pre by (a) `log2_align ≤ 3 ∨ 8 < len` (a ≤8-byte block allocated below 16-alignment is 8 bytes; freeing it at 16 would push it on class 1) and (b) the callee frame avoids the freed block (free writes the block's first word while its frame holds ra/s0). Callers must discharge both.
+
+- `Alloc.AllocPre/AllocPost` (`Fn/Alloc/Spec.lean`): the former `AllocAssumptions.alloc_spec`,
+  over the concrete free-list invariant `Alloc.Heap`/`Alloc.Priv` (`Fn/Alloc/Inv.lean`), proved:
+  `Alloc.AllocF.allocf_spec` (bound 53) and `allocf_sail`.
+- `Alloc.FreePre/FreePost`: the former `free_spec`, proved: `Alloc.FreeF.freef_spec` (bound 42),
+  `freef_sail`. **Strengthening of `free`'s precondition** (the contract callers rely on):
+  (a) `log2_align ≤ 3 ∨ 8 < len`: a block of at most 8 bytes allocated below alignment 16 is 8
+  bytes long, and freeing it at alignment 16 would push it on class 1 (16 bytes); (b) the
+  callee's 16-byte frame avoids the freed block (`free` writes the block's first word while the
+  frame holds the saved `ra`/`s0`). Every caller discharges both at its free site: F1 (`a3 = 0`;
+  the old buffer is apart from F1's stack, `Entry.dbuf`), F4/F5 (`a3 = 0`/`3`; `Entry.dbuf`), TX
+  (`a3 = 3`; the entries block is in the entry `Priv`, the frame is TX's stack), DTF (`a3 = 4`
+  with `0x90·n > 8` bytes; the block is one of DTF's, in the entry `Priv`).
+- **Rename and re-point:** `AllocAssumptions` → `AllocContract` (fields unchanged but
+  `free_spec`, whose `Pre` is `FreePre`'s shape). `Alloc.contract : AllocContract zesuImage` is
+  proved: every field is a theorem of `Inv.lean` or an end theorem above. The end theorems drop
+  the allocator binder `A` and use `Alloc.contract`: `F1.f1_spec`, `f1_sail`, `F4.f4_spec`,
+  `f4_sail`, `F5.f5_spec`, `f5_sail`, `TX.tx_spec`, `tx_sail`, `Compliance.TX.tx_compliance`,
+  `tx_compliance_sail` (their `Pre`/`Post` are the old ones at `A := Alloc.contract`; removing a
+  hypothesis, programme rule 7). The proofs stay generic: `F1.f1_spec_keep`, `F4.f4_spec_of`,
+  `F5.f5_spec_of`, `TX.tx_spec_of` take any `AllocContract` (TX and DTF call them with their
+  `σ.A`). `pre_nonvacuous` of F1, F4, F5 and TX is now a concrete machine over the start-up
+  state `Alloc.initM` (`initRoM` with rodata) for `Alloc.contract`; the generic forms are
+  `F1.pre_of_heap`, `TX.pre_of_heap`, `ToOwned.pre_satisfiable`.
+- Names: the end theorems of `alloc`, `free`, `scratch_arena.free`/`remap` sit in their plans'
+  namespaces, named after the plan (`AllocF.allocf_spec`, `FreeF.freef_spec`, `FS.fs_spec`,
+  `RS.rs_spec`), where `zesu-status` looks for the end theorem and its `pre_nonvacuous` /
+  `post_snapshot`. Formerly `Alloc.alloc_spec`, `Alloc.free_spec`, `Scratch.free_spec`,
+  `Scratch.remap_spec`; statements unchanged.
+- Contract rule: `AllocF.pre_nonvacuous` (`initM` meets `AllocPre []`), `FreeF.pre_nonvacuous`
+  (`freeM`: one live 24-byte block below a bumped `HEAP_POS`). `AllocF.post_snapshot`,
+  `FreeF.post_snapshot`: `allocOk`/`freeOk` (`Fn/Alloc/Snap.lean`) by `decide` on 10 and 6
+  Unicorn snapshots (`tools/snap.py --fn Alloc|Free`, inputs `tools/snap_inputs/alloc.json`,
+  `free.json`; Lean data by `tools/snap_alloc.py`). The check is `Pre` and `Post` on the
+  snapshot's values: numeric `Pre`, `Heap L` at entry (decoded from the head cells, the bump
+  words and the chains), `Returns`, every changed byte in `Priv L` (or the freed block) or the
+  frame, and `Heap` at exit with the new live list; `Present` is not tested (the snapshot lists
+  only touched pages). `zesu-difftest --fn Alloc|Free` prints `agree` on all 16.
+- `scratch_arena` (`Fn/Scratch/Spec.lean`, draft from `src/stateless/executor/scratch_arena.zig`):
+  `FreePre/FreePost`, `RemapPre/RemapPost` act on the newest chunk's header only (`used` at 16,
+  `cap` at 8 of the chunk `ctx.chunks`); proved `FS.fs_spec` (bound 16), `RS.rs_spec` (22).
 
 ## S14 (services)
 
