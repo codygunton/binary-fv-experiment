@@ -1,6 +1,6 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T07:28:32Z",
+ "generated": "2026-11-28T07:50:55Z",
  "coverage": {
   "headline": {
    "cut_points_closed": 41,
@@ -334,7 +334,7 @@
      "unreviewed",
      "ZesuExec.Fn.F1.pre_nonvacuous",
      "-",
-     3
+     4
     ],
     [
      "f_800d5cb8",
@@ -591,22 +591,22 @@
    "auto:infeasible": 2,
    "auto:cut": 3
   },
-  "hand_lines_per_manual_leaf": 10.28
+  "hand_lines_per_manual_leaf": 10.26
  },
  "effort": {
   "total": {
-   "usd": 573.08,
-   "totalTokens": 1717004142.15,
-   "requests": 5426.35,
-   "minutes": 1664.84,
-   "builds": 1303.84
+   "usd": 591.87,
+   "totalTokens": 1777969524.15,
+   "requests": 5628.35,
+   "minutes": 1729.39,
+   "builds": 1350.84
   },
-  "session_usd": 846.06,
-  "unattributed_usd": 270.28,
-  "unattributed_share": 0.3195,
+  "session_usd": 891.2,
+  "unattributed_usd": 296.63,
+  "unattributed_share": 0.3328,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
-  "infrastructure_share": 0.3201,
+  "infrastructure_share": 0.31,
   "abandoned": {
    "usd": 0.0,
    "totalTokens": 0.0,
@@ -690,12 +690,12 @@
     ],
     [
      "leaf",
-     1039,
-     233.63,
-     685232042.58,
-     2147.28,
-     605.0,
-     684.97
+     1040,
+     252.42,
+     746197424.58,
+     2349.28,
+     669.55,
+     731.97
     ],
     [
      "rule",
@@ -749,14 +749,14 @@
      "f_8000050c",
      "rlp_decode.decodeTxFields",
      "conditional",
-     1588,
-     200.55,
-     603629390.78,
-     1889.09,
-     583.22,
-     514.87,
-     1.31,
-     0.071
+     1589,
+     219.34,
+     664594772.78,
+     2091.09,
+     647.77,
+     561.87,
+     1.43,
+     0.0776
     ],
     [
      "f_800cb40c",
@@ -832,10 +832,10 @@
     ],
     [
      "coordinator",
-     72.52,
+     75.21,
      10.79,
-     61.74,
-     0.8513,
+     64.42,
+     0.8566,
      0
     ],
     [
@@ -847,19 +847,19 @@
      0
     ],
     [
+     "S9Viewer",
+     43.46,
+     28.04,
+     15.41,
+     0.3547,
+     0
+    ],
+    [
      "ProveF2",
      32.37,
      0.0,
      32.37,
      1.0,
-     0
-    ],
-    [
-     "S9Viewer",
-     30.35,
-     28.04,
-     2.3,
-     0.0758,
      0
     ],
     [
@@ -967,6 +967,14 @@
      0
     ],
     [
+     "DTFFieldsB",
+     19.78,
+     18.79,
+     1.0,
+     0.0504,
+     0
+    ],
+    [
      "TrackT2",
      19.19,
      0.0,
@@ -1031,6 +1039,14 @@
      0
     ],
     [
+     "S16Generic",
+     15.01,
+     0.0,
+     15.01,
+     1.0,
+     0
+    ],
+    [
      "TrackT",
      14.96,
      0.0,
@@ -1039,10 +1055,18 @@
      0
     ],
     [
-     "DTFFieldsB",
-     14.41,
+     "S13Alloc",
+     14.83,
      0.0,
-     14.41,
+     14.83,
+     1.0,
+     0
+    ],
+    [
+     "S14Services",
+     13.26,
+     0.0,
+     13.26,
      1.0,
      0
     ],
@@ -1079,14 +1103,6 @@
      0
     ],
     [
-     "S14Services",
-     8.26,
-     0.0,
-     8.26,
-     1.0,
-     0
-    ],
-    [
      "DTFAuth3.DTFFront",
      7.89,
      7.89,
@@ -1103,18 +1119,10 @@
      0
     ],
     [
-     "S16Generic",
-     6.72,
+     "DTFFieldsC",
+     2.08,
      0.0,
-     6.72,
-     1.0,
-     0
-    ],
-    [
-     "S13Alloc",
-     6.24,
-     0.0,
-     6.24,
+     2.08,
      1.0,
      0
     ],
@@ -2026,7 +2034,7 @@
     [
      "f_8000050c",
      "rlp_decode.decodeTxFields",
-     2602
+     2661
     ],
     [
      "f_8004218c",
