@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Entry/return snapshots of F1, F2, TX and DTF under Unicorn, for `zesu-difftest` (plan S2 step 4).
+"""Entry/return snapshots of F1, F2, TX, DTF and the allocator under Unicorn, for `zesu-difftest`.
 
-    snap.py --runner <zesislar>/tools/oblig/exec/run.py --fn F1|F2|TX|DTF [--elf ELF] [--inputs FILE ...]
-            [--input ID ...] --out DIR
+    snap.py --runner <zesislar>/tools/oblig/exec/run.py --fn F1|F2|TX|DTF|Alloc|Free [--elf ELF]
+            [--inputs FILE ...] [--input ID ...] --out DIR
 
 Imports zesislar's Unicorn runner `run.py` as a module and runs its profile (`keysEnsureCapacity`
 for F1, `decodeItem` for F2, `txAccessList` for TX; DTF uses `dtf_profile` below, the runner has
-none) on each input of the given input sets (runner schema `oblig-exec-inputs/1`; default:
-`inputs/<profile>.json` beside `run.py`, for DTF `tools/snap_inputs/decodeTxFields.json`;
-`tools/snap_inputs/` adds F1 paths the runner's set lacks). Unlike `run.py`, the allocator entries are not hooked:
+none; `alt_fl_alloc.alloc` and `free` use `alloc_profile`) on each input of the given input sets
+(runner schema `oblig-exec-inputs/1`; default: `inputs/<profile>.json` beside `run.py`, for DTF
+`tools/snap_inputs/decodeTxFields.json`, for Alloc and Free `tools/snap_inputs/alloc.json` and
+`free.json`; `tools/snap_inputs/` adds F1 paths the runner's set lacks). Unlike `run.py`, the allocator entries are not hooked:
 Unicorn executes the real `alt_fl_alloc.{alloc,remap,free}` reached through the vtable; only the
 `memcpy` stub is replaced, by the runner's ZisK service hook.
 
@@ -31,7 +32,12 @@ import json
 import sys
 from pathlib import Path
 
-FNS = {'F1': 'keysEnsureCapacity', 'F2': 'decodeItem', 'TX': 'txAccessList', 'DTF': 'decodeTxFields'}
+FNS = {'F1': 'keysEnsureCapacity', 'F2': 'decodeItem', 'TX': 'txAccessList', 'DTF': 'decodeTxFields',
+       'Alloc': 'alloc', 'Free': 'free'}
+# Own inputs (the runner has no profile for these functions).
+OWN_INPUTS = {'DTF': 'decodeTxFields.json', 'Alloc': 'alloc.json', 'Free': 'free.json'}
+# `alt_fl_alloc`'s memory (`ZesuExec/Fn/Alloc/Inv.lean`): the 22 free-list heads, HEAP_POS, HEAP_TOP.
+FL_BASE, POS_ADDR, HEAP_LO, HEAP_TOP = 0xa0534008, 0xa0d34520, 0xa0d34530, 0xbfff0000
 PAGE = 0x1000
 # Readable regions of `ZesuExec.Layout` (half-open): rodata, input, RAM.
 REGIONS = [(0x8010fd80, 0x80118678), (0x40000000, 0x80000000), (0xa0000000, 0xc0000000)]
@@ -87,8 +93,46 @@ def dtf_profile(r):
     return DecodeTxFields()
 
 
+def alloc_profile(r, fn: str):
+    """`alt_fl_alloc.alloc(ctx, len, log2_align, ret_addr)` and `free(ctx, ptr, len, log2_align,
+    ret_addr)` from the free-list state of the row: field `fl` maps a class to its free blocks
+    (head first; each block's first word is the next), `pos` is `HEAP_POS` (default the heap
+    bottom); `live` lists the live blocks (`[ptr, len]`, not written: the Lean check needs them).
+    Alloc rows give `len` and `align` (log2), free rows also `ptr`. The head cells, `HEAP_POS`,
+    `HEAP_TOP` and every free block's first word are owned, so their pages are in the snapshot."""
+    import struct
+
+    class Alloc(r.Profile):
+        name, symbol = FNS[fn], f'alt_fl_alloc.{FNS[fn]}'
+
+        def setup(self, m, row):
+            heads = [0] * 22
+            for k, blocks in row.get('fl', {}).items():
+                for p, nxt in zip(blocks, blocks[1:] + [0]):
+                    m.own(f'fl{k}', p, 8, True, struct.pack('<Q', nxt))
+                heads[int(k)] = blocks[0] if blocks else 0
+            m.own('free_lists', FL_BASE, 176, True, struct.pack('<22Q', *heads))
+            m.own('heap_pos', POS_ADDR, 16, True, struct.pack('<QQ', row.get('pos', HEAP_LO), HEAP_TOP))
+            ctx = m.elf.sym('alt_fl_alloc.state')
+            if fn == 'Alloc':
+                return [ctx, row['len'], row['align'], 0]
+            return [ctx, row['ptr'], row['len'], row['align'], 0]
+
+        def outcome(self, m, row):
+            if fn == 'Free':
+                return {'kind': 'returned'}
+            ptr = m.reg(r.A[0])
+            return {'kind': 'null' if ptr == 0 else 'block', 'ptr': ptr}
+
+    return Alloc()
+
+
 def profile_for(r, fn: str):
-    return dtf_profile(r) if fn == 'DTF' else r.PROFILES[FNS[fn]]
+    if fn == 'DTF':
+        return dtf_profile(r)
+    if fn in ('Alloc', 'Free'):
+        return alloc_profile(r, fn)
+    return r.PROFILES[FNS[fn]]
 
 
 def runs(a: int, data: bytes) -> list[dict]:
@@ -187,7 +231,7 @@ def main(argv=None) -> int:
     r = load_runner(args.runner.resolve())
     elf = r.Elf(args.elf or r.DEFAULT_ELF)
     rows = []
-    default = (Path(__file__).parent / 'snap_inputs' / 'decodeTxFields.json' if args.fn == 'DTF'
+    default = (Path(__file__).parent / 'snap_inputs' / OWN_INPUTS[args.fn] if args.fn in OWN_INPUTS
                else args.runner.parent / 'inputs' / f'{FNS[args.fn]}.json')
     for f in args.inputs or [default]:
         spec = json.loads(f.read_text())

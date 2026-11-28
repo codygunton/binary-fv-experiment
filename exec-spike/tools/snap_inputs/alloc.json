@@ -1,0 +1,17 @@
+{
+ "schema": "oblig-exec-inputs/1",
+ "function": "alloc",
+ "note": "alt_fl_alloc.alloc paths for tools/snap.py --fn Alloc: bump from the start-up state (several classes, alignment 16, oversized), pop from a free list, bump past a non-empty list of another class, and null (heap exhausted, oversized).",
+ "inputs": [
+  {"id": "fresh_24_a3", "len": 24, "align": 3},
+  {"id": "fresh_1_a0", "len": 1, "align": 0},
+  {"id": "fresh_8_a4", "len": 8, "align": 4},
+  {"id": "pop_24_a3", "len": 24, "align": 3, "pos": 2698204464, "fl": {"2": [2698200384, 2698200416]}, "live": [[2698200448, 24]]},
+  {"id": "pop_5_a2", "len": 5, "align": 2, "pos": 2698204464, "fl": {"0": [2698200368]}, "live": []},
+  {"id": "bump_40_past_list", "len": 40, "align": 3, "pos": 2698204464, "fl": {"2": [2698200384]}, "live": [[2698200416, 32]]},
+  {"id": "fresh_5000_a3", "len": 5000, "align": 3},
+  {"id": "fresh_oversized", "len": 16777217, "align": 3},
+  {"id": "null_exhausted", "len": 24, "align": 3, "pos": 3221159920},
+  {"id": "null_oversized", "len": 1099511627776, "align": 0}
+ ]
+}

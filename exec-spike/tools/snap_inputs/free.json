@@ -1,0 +1,13 @@
+{
+ "schema": "oblig-exec-inputs/1",
+ "function": "free",
+ "note": "alt_fl_alloc.free paths for tools/snap.py --fn Free: push onto an empty and a non-empty list, class 0, alignment 16, a large class, and an oversized block (no push).",
+ "inputs": [
+  {"id": "push_24_empty", "ptr": 2698200384, "len": 24, "align": 3, "pos": 2698204464, "live": [[2698200384, 24]]},
+  {"id": "push_30_onto_list", "ptr": 2698200448, "len": 30, "align": 3, "pos": 2698204464, "fl": {"2": [2698200416]}, "live": [[2698200384, 24], [2698200448, 30]]},
+  {"id": "push_8_class0", "ptr": 2698200368, "len": 8, "align": 3, "pos": 2698204464, "live": [[2698200368, 8]]},
+  {"id": "push_9_a4", "ptr": 2698200384, "len": 9, "align": 4, "pos": 2698204464, "live": [[2698200384, 9]]},
+  {"id": "push_5000", "ptr": 2698207232, "len": 5000, "align": 3, "pos": 2698265904, "live": [[2698207232, 5000]]},
+  {"id": "oversized_kept", "ptr": 2698200368, "len": 16777217, "align": 3, "pos": 2714977592, "live": [[2698200368, 16777217]]}
+ ]
+}

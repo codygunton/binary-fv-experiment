@@ -2,12 +2,12 @@ import ZesuExec.Fn.Alloc.FreeE
 import ZesuExec.Sail.Run
 
 /-!
-# `free_spec`: `alt_fl_alloc.free` meets its contract over the free-list invariant
+# `FreeF.freef_spec`: `alt_fl_alloc.free` meets its contract over the free-list invariant
 
 The second join's four leaves (oversized block: return; class in `a2` or `a3`: on to the push)
 and the push leaf; `zesu_assemble FreeF` takes the 4 cut theorems and 32 leaf theorems and gives
-`FreeF.reach` on `allocImage`; `runsIn_text` moves the run to `zesuImage`. `free_sail`: the
-same at the Sail level.
+`FreeF.reach` on `allocImage`; `runsIn_text` moves the run to `zesuImage`. `FreeF.freef_sail`:
+the same at the Sail level.
 -/
 
 namespace ZesuExec.Fn.Alloc
@@ -70,21 +70,21 @@ theorem FreeF.leaf_80042170_0 :
 
 zesu_assemble FreeF
 
-theorem free_spec (L : List (Word × Nat)) :
+theorem FreeF.freef_spec (L : List (Word × Nat)) :
     Spec zesuImage freeEntry 42 (FreePre L) (FreePost L) := fun m hpc hpre => by
   obtain ⟨k, m', hk, hr, hq⟩ :=
     FreeF.reach fE (by simp [FreeF.plan, freePlan]) ⟨L, m⟩ m ⟨rfl, hpc, hpre⟩
   exact ⟨k, m', hk, runsIn_text hr, hq⟩
 
-theorem free_sail (L : List (Word × Nat)) {m : Machine} {s : BinaryFv.RiscV.State}
+theorem FreeF.freef_sail (L : List (Word × Nat)) {m : Machine} {s : BinaryFv.RiscV.State}
     (h : Rel zesuImage m s) (hpc : m.pc.toNat = freeEntry) (hpre : FreePre L m) :
     SailReaches zesuImage 42 (fun s' => ∃ m', Rel zesuImage m' s' ∧ FreePost L m m') s :=
-  sail_reaches h (free_spec L m hpc hpre)
+  sail_reaches h (FreeF.freef_spec L m hpc hpre)
 
 /--
-info: 'ZesuExec.Fn.Alloc.free_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: 'ZesuExec.Fn.Alloc.FreeF.freef_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs in
-#print axioms free_spec
+#print axioms FreeF.freef_spec
 
 end ZesuExec.Fn.Alloc

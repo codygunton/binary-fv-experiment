@@ -5,7 +5,8 @@ import ZesuExec.Sail.Run
 # `scratch_arena.free` (`0x800db904`, 16 instructions) meets `FreePre`/`FreePost`
 
 Plan `FS`: the entry (budget 16) and `0x800db90c` after the null test (budget 14; region 0 the
-newest chunk's `used` word, region 1 the frame). Four leaves.
+newest chunk's `used` word, region 1 the frame). Four leaves. End theorems `FS.fs_spec` and
+`FS.fs_sail` (in the plan's namespace, named after it, where `zesu-status` looks).
 -/
 
 namespace ZesuExec.Fn.Scratch
@@ -214,13 +215,13 @@ theorem FS.leaf_800db90c_1 :
 
 zesu_assemble FS
 
-theorem free_spec : Spec zesuImage freeEntry 16 FreePre FreePost := fun m hpc hpre => by
+theorem FS.fs_spec : Spec zesuImage freeEntry 16 FreePre FreePost := fun m hpc hpre => by
   obtain ⟨k, m', hk, hr, hq⟩ := FS.reach fsE (by simp [FS.plan, fsPlan]) m m ⟨rfl, hpc, hpre⟩
   exact ⟨k, m', hk, runsIn_text hr, hq⟩
 
-theorem free_sail {m : Machine} {s : BinaryFv.RiscV.State} (h : SailLink.Rel zesuImage m s)
+theorem FS.fs_sail {m : Machine} {s : BinaryFv.RiscV.State} (h : SailLink.Rel zesuImage m s)
     (hpc : m.pc.toNat = freeEntry) (hpre : FreePre m) :
     SailLink.SailReaches zesuImage 16 (fun s' => ∃ m', SailLink.Rel zesuImage m' s' ∧ FreePost m m') s :=
-  SailLink.sail_reaches h (free_spec m hpc hpre)
+  SailLink.sail_reaches h (FS.fs_spec m hpc hpre)
 
 end ZesuExec.Fn.Scratch

@@ -1,5 +1,7 @@
 import ZesuExec.Fn.Alloc.AllocProof
 import ZesuExec.Fn.Alloc.FreeProof
+import ZesuExec.Fn.Alloc.SnapsAlloc
+import ZesuExec.Fn.Alloc.SnapsFree
 
 /-!
 # Non-vacuity of the allocator contracts (programme plan S13)
@@ -7,18 +9,24 @@ import ZesuExec.Fn.Alloc.FreeProof
 `initM`: a concrete machine in the allocator's start-up state (`Init`: every free-list head
 null, `HEAP_POS = __zesu_heap_bottom`, `HEAP_TOP = __zesu_heap_top`, all memory present and
 zero elsewhere), with `sp` just above the heap. `alloc_free_alloc`: from it, `alloc` of 24
-bytes at alignment 8 runs (`alloc_spec`); when it returns a block, `free` of that block runs
-(`free_spec`, its precondition proved, both strengthenings included), and then `alloc` runs
-again on the emptied heap. The contracts allow `alloc` to answer null; the theorem covers both
-answers.
+bytes at alignment 8 runs (`AllocF.allocf_spec`); when it returns a block, `free` of that block
+runs (`FreeF.freef_spec`, its precondition proved, both strengthenings included), and then
+`alloc` runs again on the emptied heap. The contracts allow `alloc` to answer null; the theorem
+covers both answers.
+
+Contract rule, registered beside the end theorems: `AllocF.pre_nonvacuous` (`initM` satisfies
+`AllocPre []`) and `FreeF.pre_nonvacuous` (`freeM`, one live block of 24 bytes below a bumped
+`HEAP_POS`, satisfies `FreePre`), their components checked by `decide`; `AllocF.post_snapshot`
+and `FreeF.post_snapshot` evaluate `allocOk` / `freeOk` (`Fn/Alloc/Snap.lean`) on the Unicorn
+snapshots `test/snapshots/Alloc` and `Free` by `decide`.
 -/
 
 namespace ZesuExec.Fn.Alloc
 open ZesuExec ZesuExec.Machine
 
-/-- Memory at start-up: the two bump words, zero elsewhere. -/
-def initByte (n : Nat) : Byte :=
-  if posAddr ≤ n ∧ n < posAddr + 8 then BitVec.ofNat 8 (heapLo >>> (8 * (n - posAddr)))
+/-- Allocator memory with `HEAP_POS = pos`: the two bump words, zero elsewhere. -/
+def heapByte (pos n : Nat) : Byte :=
+  if posAddr ≤ n ∧ n < posAddr + 8 then BitVec.ofNat 8 (pos >>> (8 * (n - posAddr)))
   else if topAddr ≤ n ∧ n < topAddr + 8 then BitVec.ofNat 8 (heapTop >>> (8 * (n - topAddr)))
   else 0
 
@@ -31,7 +39,8 @@ def callRegs (r11 r12 r13 : Word) (i : Fin 32) : Word :=
   if i.val = 1 then ra0 else if i.val = 2 then sp0 else if i.val = 11 then r11
   else if i.val = 12 then r12 else if i.val = 13 then r13 else 0
 
-def initM : Machine := ⟨callRegs 24 3 0, BitVec.ofNat 64 allocEntry, fun a => some (initByte a.toNat)⟩
+def initM : Machine :=
+  ⟨callRegs 24 3 0, BitVec.ofNat 64 allocEntry, fun a => some (heapByte heapLo a.toNat)⟩
 
 /-- `free(ptr = a0 of m, len = 24, log2 alignment = 3)` from `ra0`, memory and `sp` of `m`. -/
 def toFree (m : Machine) : Machine :=
@@ -115,17 +124,59 @@ theorem alloc_free_alloc :
          AllocPre [] (toAlloc m2) ∧ Reaches zesuImage 53 (AllocPost [] (toAlloc m2)) (toAlloc m2))
          (toFree m1)))) initM := by
   refine ⟨init_initM, pre_initM, ?_⟩
-  refine (Reaches.preserve (alloc_spec [] initM rfl pre_initM)).mono (Nat.le_refl _)
+  refine (Reaches.preserve (AllocF.allocf_spec [] initM rfl pre_initM)).mono (Nat.le_refl _)
     fun m1 h1 => ⟨h1.1, ?_⟩
   by_cases hne : m1.reg 10 = 0
   · exact .inl hne
   have hf := toFree_pre rfl pre_initM.2.2.2.2.1 h1 rfl hne
   refine .inr ⟨hf, ?_⟩
-  refine (Reaches.preserve (free_spec _ (toFree m1) rfl hf)).mono (Nat.le_refl _)
+  refine (Reaches.preserve (FreeF.freef_spec _ (toFree m1) rfl hf)).mono (Nat.le_refl _)
     fun m2 h2 => ⟨h2.1, ?_⟩
   have hf2 : (toFree m1).reg 2 = sp0 := by
     show m1.reg 2 = sp0; rw [h1.1.1.2 2 (by decide)]; rfl
   have ha := toAlloc_pre hf2 hf.2.2.2.2.2.2.1 h2 rfl rfl
-  exact ⟨ha, alloc_spec [] (toAlloc m2) rfl ha⟩
+  exact ⟨ha, AllocF.allocf_spec [] (toAlloc m2) rfl ha⟩
+
+/-! ## Contract rule: non-vacuity and snapshots -/
+
+/-- `initM` satisfies `alloc`'s precondition. -/
+theorem AllocF.pre_nonvacuous : ∃ m : Machine, m.pc.toNat = allocEntry ∧ AllocPre [] m :=
+  ⟨initM, rfl, pre_initM⟩
+
+/-- The live block of `freeM`: 24 bytes at the first 32-aligned heap address. -/
+def p0 : Word := 0xa0d34540
+
+/-- `free(ptr = p0, len = 24, log2 alignment = 3)` from `ra0` with `sp0`, `HEAP_POS` just above
+`p0`'s 32-byte block, every free list empty. -/
+def freeM : Machine :=
+  ⟨callRegs p0 24 3, BitVec.ofNat 64 freeEntry, fun a => some (heapByte (heapLo + 0x30) a.toNat)⟩
+
+theorem heap_freeM : Heap [(p0, 24)] freeM :=
+  ⟨⟨heapLo + 0x30, fun _ => []⟩,
+    ⟨fun _ _ => rfl, by decide, by decide,
+      fun k hk => (by decide : ∀ k < 22, rd freeM (flBase + 8 * k) = some 0) k hk⟩,
+    ⟨Nat.le_add_right _ _, by decide, by decide, by decide,
+      by rw [show blocks [(p0, 24)] ⟨heapLo + 0x30, fun _ => []⟩ = [(p0.toNat, cap 24)] from rfl]
+         exact List.pairwise_singleton _ _⟩⟩
+
+/-- `freeM` satisfies `free`'s precondition, both strengthenings included. -/
+theorem FreeF.pre_nonvacuous :
+    ∃ (L : List (Word × Nat)) (m : Machine), m.pc.toNat = freeEntry ∧ FreePre L m :=
+  ⟨[(p0, 24)], freeM, rfl, heap_freeM, List.mem_singleton_self _, by decide, by decide, by decide,
+    .inl (by decide), stack_ok rfl fun _ _ => rfl,
+    by unfold RetAligned; rw [show freeM.reg 1 = ra0 from rfl]; decide, frame_free rfl,
+    fun a ha hb => by
+      unfold InRange at ha hb
+      rw [show (freeM.reg 2 - 16).toNat = 0xbfff0ff0 from rfl] at ha
+      rw [show (freeM.reg 11).toNat = 0xa0d34540 from rfl, show (freeM.reg 12).toNat = 24 from rfl] at hb
+      omega⟩
+
+/-- Contract rule (b): `alloc`'s `Pre` and `Post` hold on the Unicorn snapshots
+`test/snapshots/Alloc` (`tools/snap.py --fn Alloc`), evaluated by `decide`. -/
+theorem AllocF.post_snapshot : AllocF.snaps.all allocOk = true := by decide +kernel
+
+/-- Contract rule (b): `free`'s `Pre` and `Post` hold on the Unicorn snapshots
+`test/snapshots/Free` (`tools/snap.py --fn Free`), evaluated by `decide`. -/
+theorem FreeF.post_snapshot : FreeF.snaps.all freeOk = true := by decide +kernel
 
 end ZesuExec.Fn.Alloc

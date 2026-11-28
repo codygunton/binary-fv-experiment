@@ -4,7 +4,8 @@ import ZesuExec.Fn.Scratch.FreeProof
 # `scratch_arena.remap` (`0x800db944`, 35 instructions) meets `RemapPre`/`RemapPost`
 
 Plan `RS`: the entry (budget 22) and `0x800db94c` after the null test (budget 20; region 0 the
-newest chunk's `cap` and `used` words, region 1 the frame). Seven leaves.
+newest chunk's `cap` and `used` words, region 1 the frame). Seven leaves. End theorems
+`RS.rs_spec` and `RS.rs_sail` (in the plan's namespace, named after it, where `zesu-status` looks).
 -/
 
 namespace ZesuExec.Fn.Scratch
@@ -254,13 +255,13 @@ theorem RS.leaf_800db94c_4 :
 
 zesu_assemble RS
 
-theorem remap_spec : Spec zesuImage remapEntry 22 RemapPre RemapPost := fun m hpc hpre => by
+theorem RS.rs_spec : Spec zesuImage remapEntry 22 RemapPre RemapPost := fun m hpc hpre => by
   obtain ⟨k, m', hk, hr, hq⟩ := RS.reach rsE (by simp [RS.plan, rsPlan]) m m ⟨rfl, hpc, hpre⟩
   exact ⟨k, m', hk, runsIn_text hr, hq⟩
 
-theorem remap_sail {m : Machine} {s : BinaryFv.RiscV.State} (h : SailLink.Rel zesuImage m s)
+theorem RS.rs_sail {m : Machine} {s : BinaryFv.RiscV.State} (h : SailLink.Rel zesuImage m s)
     (hpc : m.pc.toNat = remapEntry) (hpre : RemapPre m) :
     SailLink.SailReaches zesuImage 22 (fun s' => ∃ m', SailLink.Rel zesuImage m' s' ∧ RemapPost m m') s :=
-  SailLink.sail_reaches h (remap_spec m hpc hpre)
+  SailLink.sail_reaches h (RS.rs_spec m hpc hpre)
 
 end ZesuExec.Fn.Scratch
