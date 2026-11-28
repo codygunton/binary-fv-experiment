@@ -6,7 +6,7 @@
   The graph viewer of plan S9. `python3 -m zmap site` (or `make -C exec-spike/tools/zmap map`)
   copies this page to exec-spike/map/site/index.html beside vendor/ (d3.min.js, pixi.min.js),
   data/index.js (window.ZMAP_INDEX), data/fn/<id>.js (ZMAP_FN(id, {...}): what is drawn) and
-  data/fn/<id>.detail.js (ZMAP_FN_DETAIL(id, {...}): disassembly, source, card), both loaded on
+  data/fn/<id>.detail.js (ZMAP_FN_DETAIL(id, {...}): disassembly, source, card, block variables), both loaded on
   demand by a script tag. Opened as tools/binary-regions-ui/graph.html (the flamegraph's link) it
   reads that site's data. Works from file:// and from the server (port 36405, exec-spike/map/site).
   Every layout coordinate comes from tools/zmap/layout.py; this page only draws.
@@ -1739,6 +1739,14 @@ function renderBlockPanel() {
     if (src) { const rows = []; for (let ln = B.lo[i]; ln <= B.hi[i]; ln++) if (src[ln] != null) rows.push(String(ln).padStart(5) + '  ' + src[ln]); srcText = rows.join('\n') || 'source file not available'; }
   } else loadDetail(S.fn).then(() => { if (S.block === start) renderBlockPanel(); }, err => { panel.insertAdjacentHTML('beforeend', `<div class="err">${esc(err.message)}</div>`); });
   h += `<h3>disassembly · Zig source</h3><div class="dis"><div>${esc(dis)}</div><div>${esc(srcText)}</div></div>`;
+  // Variables in scope at the block's start (S23, map/varloc): debug-information proposals.
+  if (dt && dt.vars) {
+    const rows = dt.vars.blocks[i] || [];
+    h += `<h3>variables at ${hex(start)} · ${rows.filter(r => r[1] >= 0).length}/${rows.length} located (debug information, proposals)</h3>` +
+      (rows.length ? rows.map(([v, l]) => `<div><code>${esc(dt.vars.vars[v][0])}</code> ` +
+        (l < 0 ? '<span class="muted">missing</span>' : `<code>${esc(dt.vars.locs[l])}</code>`) +
+        ` <span class="muted">${esc(dt.vars.vars[v][1])}</span></div>`).join('') : '<div class="muted">none in scope</div>');
+  } else if (dt) h += '<h3>variables</h3><div class="muted">no map/varloc table (zmap varloc build)</div>';
   panel.innerHTML = h;
   document.getElementById('tocard').onclick = () => { S.block = null; render(); };
   document.getElementById('backprog').onclick = openProgram;

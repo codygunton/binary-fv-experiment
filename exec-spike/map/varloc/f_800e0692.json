@@ -1,0 +1,1 @@
+{"schema":"zmap.varloc.v1","id":"f_800e0692","name":"zisk_host.zkvm_log","entry":2148402834,"debug":false,"frame_base":null,"frames":[],"scopes":[],"vars":[],"cuts":[{"pc":2148402834,"why":"entry","vars":[]},{"pc":2148402852,"why":"loop","vars":[]}],"coverage":{"in_scope":0,"located":0,"cuts":2}}

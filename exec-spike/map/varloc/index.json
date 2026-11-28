@@ -1,0 +1,1621 @@
+{
+ "elf_sha256": "e44c18d54ae3d77832df92aceb6eb7119de8eb2e8f1f1b4e585a6e33ea04ff95",
+ "object_sha256": "dcd4b1bec1b02f94d7c4bca3d8323c386cfc7b780995235d6947790bb68d1afe",
+ "cuts_sha256": "b3900361bad1e0122a2fe26a21b892f4f396ba55a55afbece0c59aec8e2fb4e6",
+ "schema": "zmap.varloc.v1",
+ "coverage": {
+  "in_scope": 165550,
+  "located": 96598,
+  "share": 0.5835,
+  "functions": 222,
+  "no_debug": [
+   "f_800e0680",
+   "f_800e0692",
+   "f_800e06c0",
+   "f_800e06d0",
+   "f_800e06f0",
+   "f_800e1720",
+   "f_800e17b8",
+   "f_800e8300",
+   "f_800e8c44",
+   "f_800ea180",
+   "f_800ea584",
+   "f_800ea59c",
+   "f_800ea5b4",
+   "f_800ea5d4",
+   "f_800ea5d8",
+   "f_800f5ad8",
+   "f_800f5b30",
+   "f_800f5b98",
+   "f_800f7824",
+   "f_800fcc88",
+   "f_800fcda8",
+   "f_80103308",
+   "f_80103a7c",
+   "f_801075a4",
+   "f_801075c8",
+   "f_8010f4f8",
+   "f_8010f78c",
+   "f_8010f90c",
+   "f_8010fd34"
+  ],
+  "per_cut": {
+   "none in scope": 188,
+   "all located": 2356,
+   ">=75%": 1279,
+   ">=50%": 4158,
+   ">0%": 2356,
+   "none located": 152
+  }
+ },
+ "functions": {
+  "f_80000000": {
+   "in_scope": 297,
+   "located": 161,
+   "cuts": 21,
+   "vars": 56,
+   "debug": true
+  },
+  "f_8000050c": {
+   "in_scope": 1221,
+   "located": 955,
+   "cuts": 153,
+   "vars": 364,
+   "debug": true
+  },
+  "f_80003130": {
+   "in_scope": 81,
+   "located": 36,
+   "cuts": 12,
+   "vars": 69,
+   "debug": true
+  },
+  "f_8000337c": {
+   "in_scope": 71,
+   "located": 32,
+   "cuts": 12,
+   "vars": 40,
+   "debug": true
+  },
+  "f_80003584": {
+   "in_scope": 343,
+   "located": 293,
+   "cuts": 44,
+   "vars": 158,
+   "debug": true
+  },
+  "f_80003da4": {
+   "in_scope": 28,
+   "located": 13,
+   "cuts": 4,
+   "vars": 23,
+   "debug": true
+  },
+  "f_8000409c": {
+   "in_scope": 28,
+   "located": 13,
+   "cuts": 4,
+   "vars": 23,
+   "debug": true
+  },
+  "f_800045e8": {
+   "in_scope": 100,
+   "located": 89,
+   "cuts": 17,
+   "vars": 60,
+   "debug": true
+  },
+  "f_80004944": {
+   "in_scope": 183,
+   "located": 145,
+   "cuts": 29,
+   "vars": 102,
+   "debug": true
+  },
+  "f_800050a4": {
+   "in_scope": 20,
+   "located": 11,
+   "cuts": 5,
+   "vars": 9,
+   "debug": true
+  },
+  "f_800052b4": {
+   "in_scope": 114,
+   "located": 61,
+   "cuts": 18,
+   "vars": 54,
+   "debug": true
+  },
+  "f_800056d8": {
+   "in_scope": 477,
+   "located": 342,
+   "cuts": 41,
+   "vars": 110,
+   "debug": true
+  },
+  "f_8000625c": {
+   "in_scope": 290,
+   "located": 129,
+   "cuts": 35,
+   "vars": 45,
+   "debug": true
+  },
+  "f_80006854": {
+   "in_scope": 1151,
+   "located": 719,
+   "cuts": 75,
+   "vars": 331,
+   "debug": true
+  },
+  "f_80009d88": {
+   "in_scope": 441,
+   "located": 321,
+   "cuts": 29,
+   "vars": 99,
+   "debug": true
+  },
+  "f_8000a48c": {
+   "in_scope": 5076,
+   "located": 3054,
+   "cuts": 266,
+   "vars": 905,
+   "debug": true
+  },
+  "f_800109dc": {
+   "in_scope": 397,
+   "located": 273,
+   "cuts": 35,
+   "vars": 166,
+   "debug": true
+  },
+  "f_8001150c": {
+   "in_scope": 69,
+   "located": 25,
+   "cuts": 12,
+   "vars": 60,
+   "debug": true
+  },
+  "f_8001170c": {
+   "in_scope": 58,
+   "located": 17,
+   "cuts": 12,
+   "vars": 31,
+   "debug": true
+  },
+  "f_800118b8": {
+   "in_scope": 297,
+   "located": 168,
+   "cuts": 34,
+   "vars": 75,
+   "debug": true
+  },
+  "f_80011fec": {
+   "in_scope": 53,
+   "located": 38,
+   "cuts": 10,
+   "vars": 38,
+   "debug": true
+  },
+  "f_8001224c": {
+   "in_scope": 89,
+   "located": 51,
+   "cuts": 10,
+   "vars": 60,
+   "debug": true
+  },
+  "f_80012808": {
+   "in_scope": 108,
+   "located": 54,
+   "cuts": 10,
+   "vars": 60,
+   "debug": true
+  },
+  "f_80012b64": {
+   "in_scope": 27134,
+   "located": 15490,
+   "cuts": 1035,
+   "vars": 1644,
+   "debug": true
+  },
+  "f_8001e8fc": {
+   "in_scope": 26609,
+   "located": 12503,
+   "cuts": 728,
+   "vars": 2474,
+   "debug": true
+  },
+  "f_800308b0": {
+   "in_scope": 11601,
+   "located": 5888,
+   "cuts": 531,
+   "vars": 1498,
+   "debug": true
+  },
+  "f_8003c730": {
+   "in_scope": 29,
+   "located": 17,
+   "cuts": 8,
+   "vars": 23,
+   "debug": true
+  },
+  "f_8003c8d8": {
+   "in_scope": 6221,
+   "located": 3686,
+   "cuts": 252,
+   "vars": 836,
+   "debug": true
+  },
+  "f_80041ee0": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 3,
+   "vars": 0,
+   "debug": true
+  },
+  "f_80041f38": {
+   "in_scope": 22,
+   "located": 8,
+   "cuts": 5,
+   "vars": 8,
+   "debug": true
+  },
+  "f_8004218c": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": true
+  },
+  "f_800421b0": {
+   "in_scope": 26,
+   "located": 11,
+   "cuts": 6,
+   "vars": 10,
+   "debug": true
+  },
+  "f_80042494": {
+   "in_scope": 71,
+   "located": 27,
+   "cuts": 8,
+   "vars": 21,
+   "debug": true
+  },
+  "f_8004277c": {
+   "in_scope": 93,
+   "located": 51,
+   "cuts": 8,
+   "vars": 17,
+   "debug": true
+  },
+  "f_80042918": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": true
+  },
+  "f_80042944": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": true
+  },
+  "f_80042968": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": true
+  },
+  "f_8004298c": {
+   "in_scope": 17,
+   "located": 9,
+   "cuts": 7,
+   "vars": 4,
+   "debug": true
+  },
+  "f_80042b2c": {
+   "in_scope": 13,
+   "located": 5,
+   "cuts": 4,
+   "vars": 4,
+   "debug": true
+  },
+  "f_80042c0c": {
+   "in_scope": 12,
+   "located": 7,
+   "cuts": 4,
+   "vars": 5,
+   "debug": true
+  },
+  "f_80042da4": {
+   "in_scope": 48,
+   "located": 37,
+   "cuts": 10,
+   "vars": 37,
+   "debug": true
+  },
+  "f_80042f84": {
+   "in_scope": 6632,
+   "located": 4329,
+   "cuts": 563,
+   "vars": 573,
+   "debug": true
+  },
+  "f_8004f388": {
+   "in_scope": 139,
+   "located": 62,
+   "cuts": 19,
+   "vars": 22,
+   "debug": true
+  },
+  "f_8004fb74": {
+   "in_scope": 2,
+   "located": 2,
+   "cuts": 1,
+   "vars": 5,
+   "debug": true
+  },
+  "f_8004fd6c": {
+   "in_scope": 8518,
+   "located": 5513,
+   "cuts": 608,
+   "vars": 760,
+   "debug": true
+  },
+  "f_8005a564": {
+   "in_scope": 8472,
+   "located": 5609,
+   "cuts": 607,
+   "vars": 753,
+   "debug": true
+  },
+  "f_8006464c": {
+   "in_scope": 27,
+   "located": 16,
+   "cuts": 8,
+   "vars": 14,
+   "debug": true
+  },
+  "f_800647ac": {
+   "in_scope": 71,
+   "located": 33,
+   "cuts": 12,
+   "vars": 28,
+   "debug": true
+  },
+  "f_80064a44": {
+   "in_scope": 89,
+   "located": 25,
+   "cuts": 12,
+   "vars": 60,
+   "debug": true
+  },
+  "f_80064c44": {
+   "in_scope": 26,
+   "located": 20,
+   "cuts": 5,
+   "vars": 18,
+   "debug": true
+  },
+  "f_80064d68": {
+   "in_scope": 14,
+   "located": 11,
+   "cuts": 3,
+   "vars": 16,
+   "debug": true
+  },
+  "f_80064e44": {
+   "in_scope": 187,
+   "located": 57,
+   "cuts": 25,
+   "vars": 36,
+   "debug": true
+  },
+  "f_80065380": {
+   "in_scope": 759,
+   "located": 488,
+   "cuts": 90,
+   "vars": 91,
+   "debug": true
+  },
+  "f_80066a8c": {
+   "in_scope": 190,
+   "located": 95,
+   "cuts": 28,
+   "vars": 42,
+   "debug": true
+  },
+  "f_80066ea8": {
+   "in_scope": 22,
+   "located": 10,
+   "cuts": 3,
+   "vars": 18,
+   "debug": true
+  },
+  "f_80066fac": {
+   "in_scope": 129,
+   "located": 67,
+   "cuts": 19,
+   "vars": 37,
+   "debug": true
+  },
+  "f_800672dc": {
+   "in_scope": 214,
+   "located": 136,
+   "cuts": 18,
+   "vars": 57,
+   "debug": true
+  },
+  "f_80067714": {
+   "in_scope": 3,
+   "located": 0,
+   "cuts": 2,
+   "vars": 2,
+   "debug": true
+  },
+  "f_800677c4": {
+   "in_scope": 36,
+   "located": 12,
+   "cuts": 10,
+   "vars": 7,
+   "debug": true
+  },
+  "f_80067abc": {
+   "in_scope": 978,
+   "located": 415,
+   "cuts": 128,
+   "vars": 61,
+   "debug": true
+  },
+  "f_80069a50": {
+   "in_scope": 51,
+   "located": 22,
+   "cuts": 8,
+   "vars": 26,
+   "debug": true
+  },
+  "f_80069be4": {
+   "in_scope": 591,
+   "located": 280,
+   "cuts": 79,
+   "vars": 50,
+   "debug": true
+  },
+  "f_8006b494": {
+   "in_scope": 78,
+   "located": 28,
+   "cuts": 9,
+   "vars": 94,
+   "debug": true
+  },
+  "f_8006b6e0": {
+   "in_scope": 28,
+   "located": 7,
+   "cuts": 4,
+   "vars": 24,
+   "debug": true
+  },
+  "f_8006b858": {
+   "in_scope": 4859,
+   "located": 3208,
+   "cuts": 386,
+   "vars": 441,
+   "debug": true
+  },
+  "f_8007416c": {
+   "in_scope": 99,
+   "located": 46,
+   "cuts": 13,
+   "vars": 22,
+   "debug": true
+  },
+  "f_80074838": {
+   "in_scope": 2,
+   "located": 2,
+   "cuts": 1,
+   "vars": 5,
+   "debug": true
+  },
+  "f_80074980": {
+   "in_scope": 96,
+   "located": 20,
+   "cuts": 21,
+   "vars": 5,
+   "debug": true
+  },
+  "f_80074d5c": {
+   "in_scope": 112,
+   "located": 37,
+   "cuts": 10,
+   "vars": 43,
+   "debug": true
+  },
+  "f_80074f60": {
+   "in_scope": 49,
+   "located": 40,
+   "cuts": 10,
+   "vars": 37,
+   "debug": true
+  },
+  "f_80075144": {
+   "in_scope": 47,
+   "located": 17,
+   "cuts": 7,
+   "vars": 57,
+   "debug": true
+  },
+  "f_800752c4": {
+   "in_scope": 9,
+   "located": 4,
+   "cuts": 3,
+   "vars": 11,
+   "debug": true
+  },
+  "f_80075460": {
+   "in_scope": 152,
+   "located": 49,
+   "cuts": 14,
+   "vars": 69,
+   "debug": true
+  },
+  "f_80075908": {
+   "in_scope": 157,
+   "located": 49,
+   "cuts": 12,
+   "vars": 51,
+   "debug": true
+  },
+  "f_80075cf8": {
+   "in_scope": 145,
+   "located": 34,
+   "cuts": 13,
+   "vars": 49,
+   "debug": true
+  },
+  "f_800760e8": {
+   "in_scope": 368,
+   "located": 167,
+   "cuts": 37,
+   "vars": 271,
+   "debug": true
+  },
+  "f_80076d2c": {
+   "in_scope": 61,
+   "located": 25,
+   "cuts": 9,
+   "vars": 33,
+   "debug": true
+  },
+  "f_80076ed0": {
+   "in_scope": 6952,
+   "located": 4386,
+   "cuts": 465,
+   "vars": 626,
+   "debug": true
+  },
+  "f_8007cc68": {
+   "in_scope": 27,
+   "located": 16,
+   "cuts": 8,
+   "vars": 14,
+   "debug": true
+  },
+  "f_8007cdbc": {
+   "in_scope": 96,
+   "located": 20,
+   "cuts": 21,
+   "vars": 5,
+   "debug": true
+  },
+  "f_8007d198": {
+   "in_scope": 7879,
+   "located": 5655,
+   "cuts": 730,
+   "vars": 666,
+   "debug": true
+  },
+  "f_8008a26c": {
+   "in_scope": 125,
+   "located": 57,
+   "cuts": 17,
+   "vars": 28,
+   "debug": true
+  },
+  "f_8008abc4": {
+   "in_scope": 2,
+   "located": 2,
+   "cuts": 1,
+   "vars": 5,
+   "debug": true
+  },
+  "f_8008adbc": {
+   "in_scope": 170,
+   "located": 33,
+   "cuts": 13,
+   "vars": 51,
+   "debug": true
+  },
+  "f_8008b164": {
+   "in_scope": 145,
+   "located": 34,
+   "cuts": 13,
+   "vars": 49,
+   "debug": true
+  },
+  "f_8008b560": {
+   "in_scope": 322,
+   "located": 216,
+   "cuts": 17,
+   "vars": 63,
+   "debug": true
+  },
+  "f_8008baec": {
+   "in_scope": 8585,
+   "located": 5897,
+   "cuts": 776,
+   "vars": 562,
+   "debug": true
+  },
+  "f_80098ddc": {
+   "in_scope": 165,
+   "located": 85,
+   "cuts": 20,
+   "vars": 28,
+   "debug": true
+  },
+  "f_80099744": {
+   "in_scope": 2,
+   "located": 2,
+   "cuts": 1,
+   "vars": 5,
+   "debug": true
+  },
+  "f_8009993c": {
+   "in_scope": 11,
+   "located": 8,
+   "cuts": 5,
+   "vars": 16,
+   "debug": true
+  },
+  "f_80099afc": {
+   "in_scope": 29,
+   "located": 10,
+   "cuts": 5,
+   "vars": 27,
+   "debug": true
+  },
+  "f_80099c70": {
+   "in_scope": 1345,
+   "located": 628,
+   "cuts": 158,
+   "vars": 122,
+   "debug": true
+  },
+  "f_8009c338": {
+   "in_scope": 4,
+   "located": 4,
+   "cuts": 2,
+   "vars": 8,
+   "debug": true
+  },
+  "f_8009c460": {
+   "in_scope": 254,
+   "located": 145,
+   "cuts": 14,
+   "vars": 63,
+   "debug": true
+  },
+  "f_8009c86c": {
+   "in_scope": 207,
+   "located": 56,
+   "cuts": 14,
+   "vars": 89,
+   "debug": true
+  },
+  "f_8009cd34": {
+   "in_scope": 40,
+   "located": 37,
+   "cuts": 11,
+   "vars": 36,
+   "debug": true
+  },
+  "f_8009d2b4": {
+   "in_scope": 834,
+   "located": 577,
+   "cuts": 76,
+   "vars": 263,
+   "debug": true
+  },
+  "f_8009e9d4": {
+   "in_scope": 30,
+   "located": 20,
+   "cuts": 7,
+   "vars": 17,
+   "debug": true
+  },
+  "f_8009ec60": {
+   "in_scope": 156,
+   "located": 46,
+   "cuts": 12,
+   "vars": 69,
+   "debug": true
+  },
+  "f_8009f0c4": {
+   "in_scope": 58,
+   "located": 23,
+   "cuts": 7,
+   "vars": 30,
+   "debug": true
+  },
+  "f_8009f348": {
+   "in_scope": 6774,
+   "located": 4421,
+   "cuts": 456,
+   "vars": 756,
+   "debug": true
+  },
+  "f_800a8f30": {
+   "in_scope": 27,
+   "located": 16,
+   "cuts": 8,
+   "vars": 14,
+   "debug": true
+  },
+  "f_800a9064": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": true
+  },
+  "f_800a907c": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 2,
+   "vars": 0,
+   "debug": true
+  },
+  "f_800a90a8": {
+   "in_scope": 37,
+   "located": 24,
+   "cuts": 5,
+   "vars": 20,
+   "debug": true
+  },
+  "f_800a91d0": {
+   "in_scope": 50,
+   "located": 28,
+   "cuts": 6,
+   "vars": 45,
+   "debug": true
+  },
+  "f_800a9530": {
+   "in_scope": 51,
+   "located": 37,
+   "cuts": 12,
+   "vars": 27,
+   "debug": true
+  },
+  "f_800a9b18": {
+   "in_scope": 227,
+   "located": 123,
+   "cuts": 24,
+   "vars": 194,
+   "debug": true
+  },
+  "f_800aa634": {
+   "in_scope": 224,
+   "located": 168,
+   "cuts": 14,
+   "vars": 81,
+   "debug": true
+  },
+  "f_800aaae4": {
+   "in_scope": 4,
+   "located": 2,
+   "cuts": 2,
+   "vars": 8,
+   "debug": true
+  },
+  "f_800aac3c": {
+   "in_scope": 41,
+   "located": 7,
+   "cuts": 5,
+   "vars": 55,
+   "debug": true
+  },
+  "f_800aaec8": {
+   "in_scope": 37,
+   "located": 14,
+   "cuts": 6,
+   "vars": 20,
+   "debug": true
+  },
+  "f_800ab11c": {
+   "in_scope": 2353,
+   "located": 1286,
+   "cuts": 174,
+   "vars": 1724,
+   "debug": true
+  },
+  "f_800b3324": {
+   "in_scope": 61,
+   "located": 25,
+   "cuts": 11,
+   "vars": 41,
+   "debug": true
+  },
+  "f_800c8544": {
+   "in_scope": 85,
+   "located": 20,
+   "cuts": 11,
+   "vars": 39,
+   "debug": true
+  },
+  "f_800c879c": {
+   "in_scope": 21,
+   "located": 21,
+   "cuts": 6,
+   "vars": 20,
+   "debug": true
+  },
+  "f_800c8b2c": {
+   "in_scope": 9,
+   "located": 9,
+   "cuts": 4,
+   "vars": 9,
+   "debug": true
+  },
+  "f_800c8cc0": {
+   "in_scope": 63,
+   "located": 56,
+   "cuts": 7,
+   "vars": 30,
+   "debug": true
+  },
+  "f_800c8f64": {
+   "in_scope": 41,
+   "located": 7,
+   "cuts": 5,
+   "vars": 30,
+   "debug": true
+  },
+  "f_800c9100": {
+   "in_scope": 221,
+   "located": 165,
+   "cuts": 14,
+   "vars": 60,
+   "debug": true
+  },
+  "f_800c94bc": {
+   "in_scope": 82,
+   "located": 38,
+   "cuts": 9,
+   "vars": 37,
+   "debug": true
+  },
+  "f_800c9668": {
+   "in_scope": 22,
+   "located": 4,
+   "cuts": 2,
+   "vars": 17,
+   "debug": true
+  },
+  "f_800c96e8": {
+   "in_scope": 206,
+   "located": 65,
+   "cuts": 13,
+   "vars": 55,
+   "debug": true
+  },
+  "f_800c9aec": {
+   "in_scope": 177,
+   "located": 42,
+   "cuts": 14,
+   "vars": 30,
+   "debug": true
+  },
+  "f_800c9fe0": {
+   "in_scope": 321,
+   "located": 120,
+   "cuts": 31,
+   "vars": 57,
+   "debug": true
+  },
+  "f_800ca884": {
+   "in_scope": 14,
+   "located": 13,
+   "cuts": 6,
+   "vars": 11,
+   "debug": true
+  },
+  "f_800caa08": {
+   "in_scope": 25,
+   "located": 20,
+   "cuts": 8,
+   "vars": 19,
+   "debug": true
+  },
+  "f_800cacfc": {
+   "in_scope": 114,
+   "located": 63,
+   "cuts": 20,
+   "vars": 54,
+   "debug": true
+  },
+  "f_800cb1fc": {
+   "in_scope": 58,
+   "located": 18,
+   "cuts": 5,
+   "vars": 39,
+   "debug": true
+  },
+  "f_800cb40c": {
+   "in_scope": 82,
+   "located": 38,
+   "cuts": 9,
+   "vars": 37,
+   "debug": true
+  },
+  "f_800cb668": {
+   "in_scope": 99,
+   "located": 45,
+   "cuts": 12,
+   "vars": 40,
+   "debug": true
+  },
+  "f_800cbb74": {
+   "in_scope": 3058,
+   "located": 2156,
+   "cuts": 145,
+   "vars": 503,
+   "debug": true
+  },
+  "f_800ce4a8": {
+   "in_scope": 273,
+   "located": 211,
+   "cuts": 15,
+   "vars": 75,
+   "debug": true
+  },
+  "f_800cea44": {
+   "in_scope": 169,
+   "located": 36,
+   "cuts": 12,
+   "vars": 52,
+   "debug": true
+  },
+  "f_800cee20": {
+   "in_scope": 83,
+   "located": 20,
+   "cuts": 10,
+   "vars": 38,
+   "debug": true
+  },
+  "f_800cf08c": {
+   "in_scope": 203,
+   "located": 37,
+   "cuts": 13,
+   "vars": 55,
+   "debug": true
+  },
+  "f_800cf4a8": {
+   "in_scope": 215,
+   "located": 39,
+   "cuts": 12,
+   "vars": 56,
+   "debug": true
+  },
+  "f_800cf8a4": {
+   "in_scope": 82,
+   "located": 38,
+   "cuts": 9,
+   "vars": 37,
+   "debug": true
+  },
+  "f_800cfa50": {
+   "in_scope": 246,
+   "located": 199,
+   "cuts": 16,
+   "vars": 67,
+   "debug": true
+  },
+  "f_800d5898": {
+   "in_scope": 84,
+   "located": 73,
+   "cuts": 7,
+   "vars": 35,
+   "debug": true
+  },
+  "f_800d5b24": {
+   "in_scope": 77,
+   "located": 25,
+   "cuts": 7,
+   "vars": 20,
+   "debug": true
+  },
+  "f_800d5cb8": {
+   "in_scope": 258,
+   "located": 79,
+   "cuts": 32,
+   "vars": 21,
+   "debug": true
+  },
+  "f_800d6274": {
+   "in_scope": 12,
+   "located": 5,
+   "cuts": 4,
+   "vars": 3,
+   "debug": true
+  },
+  "f_800d6348": {
+   "in_scope": 22,
+   "located": 4,
+   "cuts": 2,
+   "vars": 17,
+   "debug": true
+  },
+  "f_800d63c8": {
+   "in_scope": 7,
+   "located": 1,
+   "cuts": 5,
+   "vars": 10,
+   "debug": true
+  },
+  "f_800d6554": {
+   "in_scope": 49,
+   "located": 40,
+   "cuts": 10,
+   "vars": 37,
+   "debug": true
+  },
+  "f_800d677c": {
+   "in_scope": 49,
+   "located": 40,
+   "cuts": 10,
+   "vars": 37,
+   "debug": true
+  },
+  "f_800d6960": {
+   "in_scope": 8,
+   "located": 2,
+   "cuts": 4,
+   "vars": 7,
+   "debug": true
+  },
+  "f_800d6bec": {
+   "in_scope": 22,
+   "located": 22,
+   "cuts": 4,
+   "vars": 15,
+   "debug": true
+  },
+  "f_800d6cb8": {
+   "in_scope": 249,
+   "located": 127,
+   "cuts": 16,
+   "vars": 47,
+   "debug": true
+  },
+  "f_800d70e8": {
+   "in_scope": 60,
+   "located": 39,
+   "cuts": 8,
+   "vars": 24,
+   "debug": true
+  },
+  "f_800d7358": {
+   "in_scope": 16,
+   "located": 8,
+   "cuts": 2,
+   "vars": 10,
+   "debug": true
+  },
+  "f_800d74e0": {
+   "in_scope": 379,
+   "located": 138,
+   "cuts": 21,
+   "vars": 66,
+   "debug": true
+  },
+  "f_800d7a60": {
+   "in_scope": 1072,
+   "located": 472,
+   "cuts": 54,
+   "vars": 163,
+   "debug": true
+  },
+  "f_800d89b8": {
+   "in_scope": 28,
+   "located": 11,
+   "cuts": 3,
+   "vars": 13,
+   "debug": true
+  },
+  "f_800d8aa8": {
+   "in_scope": 373,
+   "located": 138,
+   "cuts": 25,
+   "vars": 106,
+   "debug": true
+  },
+  "f_800d95b0": {
+   "in_scope": 5,
+   "located": 3,
+   "cuts": 2,
+   "vars": 3,
+   "debug": true
+  },
+  "f_800d9638": {
+   "in_scope": 360,
+   "located": 293,
+   "cuts": 22,
+   "vars": 98,
+   "debug": true
+  },
+  "f_800d9cc4": {
+   "in_scope": 2,
+   "located": 2,
+   "cuts": 1,
+   "vars": 4,
+   "debug": true
+  },
+  "f_800d9cec": {
+   "in_scope": 52,
+   "located": 47,
+   "cuts": 6,
+   "vars": 29,
+   "debug": true
+  },
+  "f_800da030": {
+   "in_scope": 14,
+   "located": 9,
+   "cuts": 2,
+   "vars": 13,
+   "debug": true
+  },
+  "f_800da0f8": {
+   "in_scope": 112,
+   "located": 75,
+   "cuts": 8,
+   "vars": 61,
+   "debug": true
+  },
+  "f_800da530": {
+   "in_scope": 619,
+   "located": 413,
+   "cuts": 35,
+   "vars": 206,
+   "debug": true
+  },
+  "f_800db1e4": {
+   "in_scope": 6,
+   "located": 2,
+   "cuts": 2,
+   "vars": 5,
+   "debug": true
+  },
+  "f_800db278": {
+   "in_scope": 15,
+   "located": 4,
+   "cuts": 2,
+   "vars": 14,
+   "debug": true
+  },
+  "f_800db2e8": {
+   "in_scope": 26,
+   "located": 11,
+   "cuts": 4,
+   "vars": 29,
+   "debug": true
+  },
+  "f_800db414": {
+   "in_scope": 9,
+   "located": 2,
+   "cuts": 2,
+   "vars": 7,
+   "debug": true
+  },
+  "f_800db460": {
+   "in_scope": 100,
+   "located": 87,
+   "cuts": 10,
+   "vars": 65,
+   "debug": true
+  },
+  "f_800db7a4": {
+   "in_scope": 35,
+   "located": 22,
+   "cuts": 5,
+   "vars": 24,
+   "debug": true
+  },
+  "f_800db904": {
+   "in_scope": 4,
+   "located": 2,
+   "cuts": 1,
+   "vars": 4,
+   "debug": true
+  },
+  "f_800db944": {
+   "in_scope": 7,
+   "located": 5,
+   "cuts": 1,
+   "vars": 7,
+   "debug": true
+  },
+  "f_800db9d0": {
+   "in_scope": 15,
+   "located": 5,
+   "cuts": 3,
+   "vars": 5,
+   "debug": true
+  },
+  "f_800dba3c": {
+   "in_scope": 77,
+   "located": 65,
+   "cuts": 10,
+   "vars": 18,
+   "debug": true
+  },
+  "f_800dbbf0": {
+   "in_scope": 72,
+   "located": 41,
+   "cuts": 7,
+   "vars": 60,
+   "debug": true
+  },
+  "f_800dbf58": {
+   "in_scope": 89,
+   "located": 52,
+   "cuts": 8,
+   "vars": 71,
+   "debug": true
+  },
+  "f_800dc338": {
+   "in_scope": 111,
+   "located": 66,
+   "cuts": 10,
+   "vars": 69,
+   "debug": true
+  },
+  "f_800dc714": {
+   "in_scope": 85,
+   "located": 49,
+   "cuts": 8,
+   "vars": 70,
+   "debug": true
+  },
+  "f_800dca88": {
+   "in_scope": 72,
+   "located": 41,
+   "cuts": 7,
+   "vars": 63,
+   "debug": true
+  },
+  "f_800dce04": {
+   "in_scope": 123,
+   "located": 79,
+   "cuts": 11,
+   "vars": 88,
+   "debug": true
+  },
+  "f_800dd2dc": {
+   "in_scope": 69,
+   "located": 46,
+   "cuts": 7,
+   "vars": 58,
+   "debug": true
+  },
+  "f_800dd5f4": {
+   "in_scope": 71,
+   "located": 43,
+   "cuts": 7,
+   "vars": 64,
+   "debug": true
+  },
+  "f_800dd98c": {
+   "in_scope": 101,
+   "located": 60,
+   "cuts": 9,
+   "vars": 115,
+   "debug": true
+  },
+  "f_800dded0": {
+   "in_scope": 98,
+   "located": 64,
+   "cuts": 9,
+   "vars": 89,
+   "debug": true
+  },
+  "f_800de310": {
+   "in_scope": 97,
+   "located": 63,
+   "cuts": 9,
+   "vars": 87,
+   "debug": true
+  },
+  "f_800de718": {
+   "in_scope": 111,
+   "located": 66,
+   "cuts": 10,
+   "vars": 69,
+   "debug": true
+  },
+  "f_800deb04": {
+   "in_scope": 90,
+   "located": 53,
+   "cuts": 8,
+   "vars": 74,
+   "debug": true
+  },
+  "f_800deeec": {
+   "in_scope": 72,
+   "located": 44,
+   "cuts": 7,
+   "vars": 68,
+   "debug": true
+  },
+  "f_800df28c": {
+   "in_scope": 89,
+   "located": 52,
+   "cuts": 8,
+   "vars": 69,
+   "debug": true
+  },
+  "f_800df640": {
+   "in_scope": 89,
+   "located": 52,
+   "cuts": 8,
+   "vars": 69,
+   "debug": true
+  },
+  "f_800dfa30": {
+   "in_scope": 89,
+   "located": 52,
+   "cuts": 8,
+   "vars": 71,
+   "debug": true
+  },
+  "f_800dfe5c": {
+   "in_scope": 68,
+   "located": 44,
+   "cuts": 7,
+   "vars": 62,
+   "debug": true
+  },
+  "f_800e0174": {
+   "in_scope": 47,
+   "located": 43,
+   "cuts": 6,
+   "vars": 15,
+   "debug": true
+  },
+  "f_800e0290": {
+   "in_scope": 91,
+   "located": 55,
+   "cuts": 9,
+   "vars": 59,
+   "debug": true
+  },
+  "f_800e0680": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800e0692": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 2,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800e06c0": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800e06d0": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800e06f0": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800e1720": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800e17b8": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 7,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800e8300": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 2,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800e8c44": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 9,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800ea180": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 5,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800ea584": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800ea59c": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800ea5b4": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800ea5d4": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800ea5d8": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800f5ad8": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 3,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800f5b30": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 3,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800f5b98": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 7,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800f7824": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 2,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800fcc88": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 4,
+   "vars": 0,
+   "debug": false
+  },
+  "f_800fcda8": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 3,
+   "vars": 0,
+   "debug": false
+  },
+  "f_80103308": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 17,
+   "vars": 0,
+   "debug": false
+  },
+  "f_80103a7c": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 69,
+   "vars": 0,
+   "debug": false
+  },
+  "f_801075a4": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_801075c8": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 1,
+   "vars": 0,
+   "debug": false
+  },
+  "f_8010f4f8": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 2,
+   "vars": 0,
+   "debug": false
+  },
+  "f_8010f78c": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 3,
+   "vars": 0,
+   "debug": false
+  },
+  "f_8010f90c": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 19,
+   "vars": 0,
+   "debug": false
+  },
+  "f_8010fd34": {
+   "in_scope": 0,
+   "located": 0,
+   "cuts": 2,
+   "vars": 0,
+   "debug": false
+  }
+ },
+ "evidence": {
+  "method": "Selected-object DWARF with checked code relocation deltas, sizes, instruction widths, opcodes, and register fields. Link relocation may change immediate fields.",
+  "code_section_deltas": {
+   "1": 2147483648,
+   "6": 2148383292
+  },
+  "anchor_count": 388,
+  "relocation_counts": {
+   "2": 62020,
+   "1": 44997,
+   "34": 17589,
+   "38": 17589
+  }
+ }
+}

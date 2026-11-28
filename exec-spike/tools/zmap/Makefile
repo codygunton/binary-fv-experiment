@@ -1,5 +1,7 @@
 # make -C tools/zmap map: static map (only when the ELF hash differs from static.json's or it was
-# built without join cuts), proof status, merge, queue, page, cost model. Outputs in P/map/.
+# built without join cuts), proof status, merge, queue, variable locations (only when the ELF,
+# object or cut points changed) and their check against hand-written assertions, page, cost
+# model. Outputs in P/map/.
 P      := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 MAP    := $(P)/map
 ELF    ?= /home/cody/zesislar/build/stock-zisk/zesu-zisk.elf
@@ -14,7 +16,9 @@ map: static status
 	$(ZMAP) merge --static $(MAP)/static.json --status $(MAP)/status.json \
 	  --reviews $(MAP)/reviews.json --ledger $(MAP)/ledger.jsonl --out $(MAP)/map.json
 	$(ZMAP) queue --map $(MAP)/map.json --out $(MAP)/QUEUE.md --json $(MAP)/queue.json
-	$(ZMAP) site --map $(MAP)/map.json --queue $(MAP)/queue.json --reviews $(MAP)/reviews.json --elf $(ELF) --debug-object $(OBJ) --out $(MAP)/site
+	$(ZMAP) varloc build --map $(MAP)/map.json --elf $(ELF) --debug-object $(OBJ) --out $(MAP)/varloc
+	$(ZMAP) varloc validate --map $(MAP)/map.json --elf $(ELF) --debug-object $(OBJ) --out $(MAP)/varloc/validation.json
+	$(ZMAP) site --map $(MAP)/map.json --queue $(MAP)/queue.json --reviews $(MAP)/reviews.json --elf $(ELF) --debug-object $(OBJ) --varloc $(MAP)/varloc --out $(MAP)/site
 	$(ZMAP) costmodel --map $(MAP)/map.json --ledger $(MAP)/ledger.jsonl --out $(MAP)/COSTMODEL.md
 
 static:

@@ -7,7 +7,8 @@ Writes, under --out (P/map/site):
                     metrics and history when present. Under 1 MB.
   data/fn/<id>.js   ZMAP_FN(<id>, {...}): what the renderer draws, numbers in flat arrays: blocks,
                     edges, cuts, loops, joins, calls, leaves, the function layout. Under 1 MB.
-  data/fn/<id>.detail.js  ZMAP_FN_DETAIL(<id>, {...}): disassembly, source lines, the card;
+  data/fn/<id>.detail.js  ZMAP_FN_DETAIL(<id>, {...}): disassembly, source lines, the card, and
+                    `vars` (S23: variables in scope at each block's start, from map/varloc);
                     loaded when a block or the card is first opened.
 Fields that S10 adds to map.json (rests_on, meaning, classes, cost, forecast, census,
 meaning_link) are copied when present. Before S10, `meaning` comes from reviews.json (`meaning`,
@@ -19,7 +20,7 @@ import os
 import shutil
 from collections import Counter, defaultdict
 
-from . import elfread, layout, source, workqueue
+from . import elfread, layout, source, varloc, workqueue
 from .analyze import CSR, FORMS, csr_number
 
 ZIG_SRC = '/home/cody/zesislar/_build/p0c-zesu-source/src/'
@@ -405,7 +406,8 @@ def write_src(data, src, m):
             'stats': src['stats']}
 
 
-def build(m, queue, reviews, out, ui, insns=None, metrics=None, history=None, src=None):
+def build(m, queue, reviews, out, ui, insns=None, metrics=None, history=None, src=None,
+          varloc_dir=None):
     """Write the site. Returns {'index_bytes', 'functions', 'src'}."""
     fns = m['functions']
     by_id = {f['id']: f for f in fns}
@@ -446,6 +448,8 @@ def build(m, queue, reviews, out, ui, insns=None, metrics=None, history=None, sr
     for r in rows:
         f = by_id[r['id']]
         main, detail = fn_data(m, f, insns, sources, names)
+        vt = varloc.load_file(varloc_dir, f['id']) if varloc_dir else None
+        detail['vars'] = varloc.block_rows(vt, [b['start'] for b in f['blocks']]) if vt else None
         write_js(os.path.join(fn_dir, f'{f["id"]}.js'), f'ZMAP_FN({json.dumps(f["id"])}, ', main, ');\n')
         write_js(os.path.join(fn_dir, f'{f["id"]}.detail.js'), f'ZMAP_FN_DETAIL({json.dumps(f["id"])}, ',
                  detail, ');\n')
@@ -478,7 +482,7 @@ def cmd(args):
     if insns is not None and args.debug_object and os.path.exists(args.debug_object):
         src = source.load(args.elf, args.debug_object, m, insns)
     r = build(m, queue, reviews, args.out, args.ui, insns=insns, metrics=metrics,
-              history=read_jsonl(args.history), src=src)
+              history=read_jsonl(args.history), src=src, varloc_dir=args.varloc)
     s = r['src']
     print(f'zmap: site -> {os.path.join(args.out, "index.html")} ({r["functions"]} functions, '
           f'index.js {r["index_bytes"]} bytes, disassembly {"yes" if insns else "no"}, source view '
@@ -497,6 +501,8 @@ def register(sub, package, ui):
     st.add_argument('--history', default=os.path.join(mp, 'history.jsonl'))
     st.add_argument('--elf', help='ELF for the block disassembly (omitted: no disassembly)')
     st.add_argument('--debug-object', help='pre-link debug object for the source view (needs --elf)')
+    st.add_argument('--varloc', default=os.path.join(mp, 'varloc'),
+                    help='directory of map/varloc/<id>.json (S23); missing tables: no variable list')
     st.add_argument('--ui', default=ui, help='directory with graph.html and vendor/d3.min.js')
     st.add_argument('--out', required=True)
     st.set_defaults(func=cmd)

@@ -1661,3 +1661,11 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   Assertions 102 of 104 fit; leaves 92 of 245 (37.6%; 95 of 258 with `scratch_arena.alloc`).
   Decision: stop S24 and S25 (leaves below 40%); S26–S28 with Prop assertions. Main swing: 52
   `sizeClassOfBytes` leaves (would fit if `leaf_check` split `if` chains).
+- S23 gate (branch s23): `zmap varloc build` writes `map/varloc/<id>.json` for all 222 target
+  functions from the relocated debug object (387 subprograms, 27,587 variable/parameter DIEs; 29
+  target functions have no debug information). Coverage at the 10,489 cut points: 96,598 of
+  165,550 in-scope variables located (58.4%). `zmap brief` prints the table per cut point
+  (`f_80076ed0`: 465 cut lines); the viewer's block panel lists the variables. Validation against
+  the hand-written assertions of `mem.rotate__anon_8330`, `mergeInPlace__anon_7964`,
+  `__anon_11564`: 155 of 520 register/slot facts supplied (29.8%; plain-variable facts 104/217),
+  3 of the 155 stale (11564 slot `0x38`). `make -C tools/zmap map test` 100 OK.
