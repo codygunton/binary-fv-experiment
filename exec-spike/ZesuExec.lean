@@ -60,6 +60,13 @@ import ZesuExec.Sail.Rel
 import ZesuExec.Sail.Run
 import ZesuExec.Sail.Step
 import ZesuExec.Service
+import ZesuExec.Fn.SvcSteps
+import ZesuExec.Fn.Memmove.Proof
+import ZesuExec.Fn.Memmove.Sail
+import ZesuExec.Fn.Memset.Spec
+import ZesuExec.Fn.Memset.Table
+import ZesuExec.Fn.Memset.Proof
+import ZesuExec.Fn.Memset.Sail
 import ZesuExec.Sym.Compose
 import ZesuExec.Sym.Join
 import ZesuExec.Sym.Env
