@@ -1703,6 +1703,8 @@
 {"schema": 2, "rec": "stop", "id": 2, "agent": "coordinator", "ts": "2026-11-28T06:09:33Z", "outcome": "closed", "note": "S9/S10 merged, S11/S12/S17 dispatched"}
 {"schema": 2, "rec": "start", "id": 3, "ts": "2026-11-28T06:13:38Z", "fn": "f_8000050c", "item": "field-value carry stage 1 (generic leaf_gen carry, empty cut field table) toward leaf_80002dc4_0", "kind": "assertion", "agent": "DTFAuth3"}
 {"schema": 2, "rec": "stop", "id": 3, "agent": "DTFAuth3", "ts": "2026-11-28T06:36:46Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 4, "ts": "2026-11-28T06:38:18Z", "fn": "f_8000050c", "item": "S7 stage 2: field rows, 80002dc4_0, DTF.reach/dtf_spec/dtf_sail", "kind": "leaf", "agent": "DTFFieldsB"}
+{"schema": 2, "rec": "stop", "id": 4, "agent": "DTFFieldsB", "ts": "2026-11-28T07:42:51Z", "outcome": "open", "note": null}
 {"schema": 2, "rec": "start", "id": 3, "ts": "2026-11-28T06:14:08Z", "fn": null, "item": "S9.3 WebGL renderer", "kind": "infra", "agent": "S9Viewer"}
 {"schema": 2, "rec": "stop", "id": 3, "agent": "S9Viewer", "ts": "2026-11-28T06:39:52Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:12:58Z", "fn": null, "item": "S12 form xor", "kind": "form", "agent": "S12Forms"}
@@ -1755,3 +1757,5 @@
 {"schema": 2, "rec": "stop", "id": 22, "agent": "S9Viewer", "ts": "2026-11-28T08:06:36Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 20, "ts": "2026-11-28T07:10:41Z", "fn": "f_800e06d0", "item": "S14 service registry + memmove", "kind": "service", "agent": "S14Services"}
 {"schema": 2, "rec": "stop", "id": 20, "agent": "S14Services", "ts": "2026-11-28T08:00:12Z", "outcome": "closed", "note": "registry, svc_test, memmove, memset closed; sha256 blocked (rev8)"}
+{"schema": 2, "rec": "start", "id": 21, "ts": "2026-11-28T07:44:33Z", "fn": "f_8000050c", "item": "S7 stage 2 cont.: arms 3-4 rows, legacy v, Extra 80002dc4, TxAt, buffers; DTF.reach/dtf_spec/dtf_sail", "kind": "leaf", "agent": "DTFFieldsC"}
+{"schema": 2, "rec": "stop", "id": 21, "agent": "DTFFieldsC", "ts": "2026-11-28T09:06:11Z", "outcome": "open", "note": "steps 1-3 + scalar rows done; 80002dc4_0 open (loop walks, TxAt stores, buffers)"}

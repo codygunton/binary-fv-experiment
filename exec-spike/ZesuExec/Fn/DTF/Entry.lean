@@ -54,6 +54,8 @@ theorem DTF.leaf_8000050c_0 :
   have hr13 : ((leavesAt 0x8000050c)[0]!).S.reg 13 = .bin .add (.ptr 3 0) (.var 45) := by decide
   have hr14 : ((leavesAt 0x8000050c)[0]!).S.reg 14 = .var 14 := by decide
   have hr21 : ((leavesAt 0x8000050c)[0]!).S.reg 21 = .var 14 := by decide
+  have hr18 : ((leavesAt 0x8000050c)[0]!).S.reg 18 = .var 12 := by decide
+  have hcf1 : cutFields (table[1]!).pc = [⟨.reg 18, [], .ty⟩] := by decide
   have hr22 : ((leavesAt 0x8000050c)[0]!).S.reg 22 = .bin .add (.ptr 3 0) (.var 45) := by decide
   have hsteps : ((leavesAt 0x8000050c)[0]!).S.steps - (table[0]!).shape.S.steps = 26 := by decide
   have hpc1 : (table[1]!).pc = 0x80000574 := by decide
@@ -121,6 +123,9 @@ theorem DTF.leaf_8000050c_0 :
   have e21 : m'.reg 21 = σ.m.reg 14 := by
     rw [hreg' 21, show (21 : Fin 32).val = 21 from rfl, hr21]
     exact entry_var 14
+  have e18 : m'.reg 18 = σ.m.reg 12 := by
+    rw [hreg' 18, show (18 : Fin 32).val = 18 from rfl, hr18]
+    exact entry_var 12
   have ht : σ.t ≤ 4 := hpre.2.2.2.2.2.2.2.2.2.1
   have e10 : m'.reg 10 = w (0x80110050 + 8 * σ.t) := by
     rw [hreg' 10, show (10 : Fin 32).val = 10 from rfl, hr10]
@@ -135,7 +140,7 @@ theorem DTF.leaf_8000050c_0 :
   · simp only [mkCut, if_neg hne1, ACut]
     refine .inl ⟨hpl1, by rw [hexok, hpc1], hcm,
       shapeOk_of_holds hwf' hm' hR0 hfine1 hsh1, .inl harms1, ?_, ?_, ?_,
-      fun i hi => by rw [hrest1] at hi; simp [chkCount] at hi, fieldsOk_nil (by decide)⟩
+      fun i hi => by rw [hrest1] at hi; simp [chkCount] at hi, fun f hf _ => ?_⟩
     · intro r hr
       rw [hrest1] at hr
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
@@ -147,6 +152,10 @@ theorem DTF.leaf_8000050c_0 :
       · show m'.reg 22 = _; rw [e22]; simp [w]
     · unfold Extra; rw [hpc1, if_pos rfl]; exact e10
     · rw [hpc1, hi1]; trivial
+    · rw [hcf1, List.mem_singleton] at hf
+      subst hf
+      intro _ _ _ _ _ _
+      exact e18
   · show budgetOf (table[1]!) σ m' ≤ budgetOf (table[0]!) σ σ.m -
       (((leavesAt 0x8000050c)[0]!).S.steps - (table[0]!).shape.S.steps)
     unfold budgetOf restLen

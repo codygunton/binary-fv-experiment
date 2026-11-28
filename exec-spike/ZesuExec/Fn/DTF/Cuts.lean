@@ -166,6 +166,12 @@ def FieldVal.At (σ : Sig) (m : Machine) (c h p : Nat) (x : Word) : FieldVal →
       m.reg (Fin.ofNat 32 cur) = σ.inp + w (c + h + j) ∧
       m.reg (Fin.ofNat 32 fin) = σ.inp + w (c + h + p) ∧
       x = limb (be ((TX.itemPayload (σ.payload.drop c) h p).take j)) i
+  | .lc _ => 35 ≤ numVal 32 p (TX.itemPayload (σ.payload.drop c) h p) →
+      x = w ((numVal 32 p (TX.itemPayload (σ.payload.drop c) h p) - 35) / 2)
+  | .lt _ => x = if 35 ≤ numVal 32 p (TX.itemPayload (σ.payload.drop c) h p) then 1 else 0
+  | .lv _ => x = w (legacyV (numVal 32 p (TX.itemPayload (σ.payload.drop c) h p))).2
+  | .ty => x = σ.m.reg 12
+  | .cst v => x = w v
 
 /-- `x` is `v` of item `v.k` when that item decodes; nothing is said otherwise. -/
 def FieldVal.Holds (σ : Sig) (m : Machine) (v : FieldVal) (x : Word) : Prop :=
@@ -459,12 +465,16 @@ theorem authSite_none {r : Nat} (h : authSitePcs.contains r = false) (σ : Sig) 
   repeat rw [if_neg (by omega)]
   trivial
 
+/-- Beyond `PlainA`, by cut: the jump-table word; the store slots and loop states of the hash and
+tuple loops; the result written (`0x800011f8`); at the success write `0x80002dc4` and the two
+cuts before it (`0x80002db8`, `0x80002dbc`, empty `rest`) every top-level item checked. -/
 def Extra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
   if pc = 0x80000574 then m.reg 10 = w (0x80110050 + 8 * σ.t)
   else if pc = 0x80002138 then SlotOk σ m 32 ∧ HashItem σ m 1 ∧ HashSlot σ m
   else if pc = 0x80002434 then SlotOk σ m 0x90 ∧ AuthSlot σ m
   else if pc = 0x800011f8 then Done σ m
   else if pc = 0x800020ac then HashLoop σ m
+  else if pc = 0x80002db8 ∨ pc = 0x80002dbc ∨ pc = 0x80002dc4 then ChecksOk σ (fieldCount σ.t)
   else AuthExtra pc σ m
 
 /-- What a call site states beyond its kind's: the hash loop's state across the item's

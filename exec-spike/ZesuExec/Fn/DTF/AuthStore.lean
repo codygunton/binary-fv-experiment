@@ -18,14 +18,15 @@ set_option maxRecDepth 20000
 /-- The source's facts at the tuple store cut `0x80002434`. -/
 theorem astore_src {σ : Sig} {m : Machine} (hA : (mkCut (table[124]!)).A σ m) :
     Common σ m ∧ ArmOk σ (table[124]!).arms ∧ RestOk σ m (table[124]!).rest ∧
-      SlotOk σ m 0x90 ∧ AuthSlot σ m ∧ ChecksOk σ (chkCount (table[124]!).rest) := by
+      SlotOk σ m 0x90 ∧ AuthSlot σ m ∧ ChecksOk σ (chkCount (table[124]!).rest) ∧
+      FieldsOk σ m (cutFields (table[124]!).pc) := by
   have hne : (table[124]!).pc ≠ entry := by decide
   simp only [mkCut, if_neg hne, ACut, show (table[124]!).site = none by decide, reduceCtorEq,
     false_and, exists_false, or_false] at hA
-  obtain ⟨-, -, hcm, -, harm, hrst, hex, -, hchk, -⟩ := hA
+  obtain ⟨-, -, hcm, -, harm, hrst, hex, -, hchk, hfs⟩ := hA
   rw [show (table[124]!).pc = 0x80002434 by decide] at hex
   simp only [Extra] at hex
-  exact ⟨hcm, harm, hrst, hex.1, hex.2, hchk⟩
+  exact ⟨hcm, harm, hrst, hex.1, hex.2, hchk, hfs⟩
 
 /-- What a store leaf leaves: the `n + 1`-th tuple stored, the list cursor past it. -/
 theorem astore_out {σ : Sig} {m m' : Machine} {l : Leaf}
@@ -161,7 +162,7 @@ theorem DTF.leaf_80002434_2 :
   simp only [ExitOk] at hexok
   obtain ⟨c, h, p, n, j, k, hl, hsk1, hnk, hk22, hjk, -, -, -, ho, l78, hb, hcm', l68, k336,
     k344⟩ := astore_out hreg (by decide) (by decide) (by decide) (by decide) hA hm' hso
-  obtain ⟨-, harm, hrst, -, -, hchk⟩ := astore_src hA
+  obtain ⟨-, harm, hrst, -, -, hchk, hfs⟩ := astore_src hA
   have hwf' := wf_of_regions hwf (hreg.trans hS.symm)
   have hR0 : ((leavesAt 0x80002434)[2]!).S.regions[0]? = some frameR := by rw [hreg]; rfl
   have hloop : AuthLoop σ m' := ⟨c, h, p, n + 1, j + k, ho, l78, hb⟩
@@ -173,7 +174,8 @@ theorem DTF.leaf_80002434_2 :
   · simp only [mkCut, if_neg hne', ACut]
     refine .inl ⟨by decide, by rw [hexok]; rfl, hcm', shapeOk_of_holds hwf' hm' hR0 (by decide)
       (by decide), by rw [show (table[125]!).arms = (table[124]!).arms by decide]; exact harm,
-      ?_, ?_, ?_, ?_, fieldsOk_nil (by decide)⟩
+      ?_, ?_, ?_, ?_, keptCarry_sound (by decide) hwf hm (by rw [hS]; rfl) hwf' hm' hR0 harm hfs
+        (by decide)⟩
     · rw [hrest, hrest0]
       rw [hrest0] at hrst
       intro r hr
@@ -233,7 +235,7 @@ theorem DTF.leaf_80002434_0 :
   simp only [ExitOk] at hexok
   obtain ⟨c, h, p, n, j, k, hl, hsk1, hnk, hk22, hjk, hsub, -, -, ho, l78, hb, hcm', -, k336,
     k344⟩ := astore_out hreg (by decide) (by decide) (by decide) (by decide) hA hm' hso
-  obtain ⟨-, harm, hrst, -, -, hchk⟩ := astore_src hA
+  obtain ⟨-, harm, hrst, -, -, hchk, hfs⟩ := astore_src hA
   have hcond := hc _ (show SBool.eq (.bin .sub (.init 0 104 8) (.init 0 72 8)) (.lit 0) ∈ _ by
     decide)
   simp only [SBool.eval, hsub, beq_iff_eq, Sym.eval_lit] at hcond
@@ -275,8 +277,9 @@ theorem DTF.leaf_80002434_0 :
     rw [show (siteAt 156).arms = (table[124]!).arms by decide]; exact harm
   have hsite : SiteA (siteAt 156) (table[156]!).pc σ ([], [], ⟨[], []⟩) m' := by
     rw [show (table[156]!).pc = 0x80002f54 by decide]
-    refine ⟨hr1, hcm', hshp, harm', hrst', hidx, fun f hf => ?_, ?_, ?_⟩
-    · rw [show siteFields 0x80002f54 = [] by decide] at hf; cases hf
+    refine ⟨hr1, hcm', hshp, harm', hrst', hidx,
+      keptCarry_sound (by decide) hwf hm (by rw [hS]; rfl) hwf' hm' hR0 harm hfs (by decide),
+      ?_, ?_⟩
     · rw [show chkCount (siteAt 156).rest = chkCount (table[124]!).rest by decide]; exact hchk
     · simp only [SiteX, AuthSite, Nat.reduceEqDiff, if_false, if_true]
       exact ⟨n + 1, hdone⟩

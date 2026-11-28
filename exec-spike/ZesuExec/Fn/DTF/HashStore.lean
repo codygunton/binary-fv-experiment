@@ -15,14 +15,14 @@ open ZesuExec ZesuExec.Sym ZesuExec.Machine ZesuExec.Vc
 theorem store_src {σ : Sig} {m : Machine} (hA : (mkCut (table[110]!)).A σ m) :
     Common σ m ∧ ArmOk σ (table[110]!).arms ∧ RestOk σ m (table[110]!).rest ∧
       SlotOk σ m 32 ∧ HashItem σ m 1 ∧ HashSlot σ m ∧
-      ChecksOk σ (chkCount (table[110]!).rest) := by
+      ChecksOk σ (chkCount (table[110]!).rest) ∧ FieldsOk σ m (cutFields (table[110]!).pc) := by
   have hne : (table[110]!).pc ≠ entry := by decide
   simp only [mkCut, if_neg hne, ACut, show (table[110]!).site = none by decide, reduceCtorEq,
     false_and, exists_false, or_false] at hA
-  obtain ⟨-, -, hcm, -, harm, hrst, hex, -, hchk, -⟩ := hA
+  obtain ⟨-, -, hcm, -, harm, hrst, hex, -, hchk, hfs⟩ := hA
   rw [show (table[110]!).pc = 0x80002138 by decide] at hex
   simp only [Extra] at hex
-  exact ⟨hcm, harm, hrst, hex.1, hex.2.1, hex.2.2, hchk⟩
+  exact ⟨hcm, harm, hrst, hex.1, hex.2.1, hex.2.2, hchk, hfs⟩
 
 /-- What a store leaf leaves: the loop after `n + 1` hashes, `Common`, the `rest` words. -/
 theorem store_out {σ : Sig} {m m' : Machine} {l : Leaf}
@@ -161,7 +161,7 @@ theorem DTF.leaf_80002138_0 :
   obtain ⟨c, h, p, n, j, k, hl, hsk1, hnk, hk32, hjk, hle, r22, hsub, e23, e22, e25, hdr, hcm',
     k336, k344⟩ := store_out hreg (by decide) (by decide) (by decide) (by decide) (by decide)
       (by decide) (by decide) (by decide) (by decide) hA hm' hso
-  obtain ⟨-, harm, hrst, -, -, -, hchk⟩ := store_src hA
+  obtain ⟨-, harm, hrst, -, -, -, hchk, hfs⟩ := store_src hA
   have hcond := hc _ (show SBool.ne (.bin .sub (.var 22) (.var 20)) (.lit 0) ∈ _ by decide)
   simp only [SBool.eval, hsub, bne_iff_ne, ne_eq] at hcond
   have hwf' := wf_of_regions hwf (hreg.trans hS.symm)
@@ -174,7 +174,8 @@ theorem DTF.leaf_80002138_0 :
   · simp only [mkCut, if_neg hne', ACut]
     refine .inl ⟨by decide, by rw [hexok]; rfl, hcm', shapeOk_of_holds hwf' hm' hR0 (by decide)
       (by decide), by rw [show (table[107]!).arms = (table[110]!).arms by decide]; exact harm,
-      ?_, ?_, ?_, ?_, fieldsOk_nil (by decide)⟩
+      ?_, ?_, ?_, ?_, keptCarry_sound (by decide) hwf hm (by rw [hS]; rfl) hwf' hm' hR0 harm hfs
+        (by decide)⟩
     · rw [hrest, hrest0]
       rw [hrest0] at hrst
       intro r hr
@@ -234,7 +235,7 @@ theorem DTF.leaf_80002138_1 :
   obtain ⟨c, h, p, n, j, k, hl, hsk1, hnk, hk32, hjk, hle, r22, hsub, e23, e22, e25, hdr, hcm',
     k336, k344⟩ := store_out hreg (by decide) (by decide) (by decide) (by decide) (by decide)
       (by decide) (by decide) (by decide) (by decide) hA hm' hso
-  obtain ⟨-, harm, hrst, -, -, -, hchk⟩ := store_src hA
+  obtain ⟨-, harm, hrst, -, -, -, hchk, hfs⟩ := store_src hA
   have hcond := hc _ (show SBool.eq (.bin .sub (.var 22) (.var 20)) (.lit 0) ∈ _ by decide)
   simp only [SBool.eval, hsub, beq_iff_eq] at hcond
   have hwf' := wf_of_regions hwf (hreg.trans hS.symm)
@@ -272,9 +273,9 @@ theorem DTF.leaf_80002138_1 :
     rw [show (siteAt 111).arms = (table[110]!).arms by decide]; exact harm
   have hsite : SiteA (siteAt 111) (table[111]!).pc σ (L, items, ⟨[], []⟩) m' := by
     rw [show (table[111]!).pc = 0x80002180 by decide]
-    refine ⟨hr1, hcm', hshp, harm', hrst', hidx, fun f hf => ?_, ?_,
+    refine ⟨hr1, hcm', hshp, harm', hrst', hidx,
+      keptCarry_sound (by decide) hwf hm (by rw [hS]; rfl) hwf' hm' hR0 harm hfs (by decide), ?_,
       siteX_of_no (by decide) σ _ m'⟩
-    · rw [show siteFields 0x80002180 = [] by decide] at hf; cases hf
     · rw [show chkCount (siteAt 111).rest = chkCount (table[110]!).rest by decide]; exact hchk
   refine ⟨calleeOf (siteAt 111).kind, (L, items, ⟨[], []⟩), ?_, ?_, hidx.1, fun m'' hpost => ?_⟩
   · show calleeAt 0x80002180 = _

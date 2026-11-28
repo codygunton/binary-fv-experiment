@@ -288,15 +288,50 @@ uses `rfl`) and the `siteFields … = []` proofs need the rows' proofs when thei
 Then `Extra 0x80002dc4` and the bridge (`ChecksOk` + `FieldsOk` → `decode t payload = some tx`,
 `TxAt` from the success write's stores), plus the buffers (data copy, access list, hashes, tuples).
 
-### Stage 2 status (DTFFieldsB)
+### Stage 2 status (DTFFieldsB, DTFFieldsC)
 
-Rows for arms 0-2 committed (`Rows.lean`, `shape.py --fields 0,1,2`); `--fields 0,1,2,3,4` infers
-rows that carry every scalar field to `0x80002dc4` (legacy `chainId`/tag/`v` excepted: derived from
-`vRaw` by `0x80001fac`/`0x80002004`'s leaves, needs a rule or hand proofs there). To land arms 3-4:
-`HashStore.lean`/`AuthStore.lean` use `keptCarry_sound` (`Slot.lean`) for their targets' rows.
-In-leaves of the success write: `0x80001fac` (3), `0x80002004` (3) arm 0; `0x80002b50`,
-`0x80002bb4` arm 1 → `0x80002dbc`; `0x80002c94`, `0x80002cfc` arm 2, `0x80002f90`, `0x80002ff0`
-arm 4 → `0x80002db8`; `0x80003064`, `0x800030d4` arm 3 → `0x80002dc4`; `0x80002db8 → 0x80002dbc →
-0x80002dc4`. Their `rest` is empty, so `Extra` must state `ChecksOk σ (fieldCount σ.t)` (from
-`chkStep_sound` with `K' = fieldCount t` at each arm's source). Bridge: `Bridge.lean`
-(`decode_legacy`, `decode_typed`; arms 3/4 need `hashList`/`authList` runs from the loops).
+Rows for all five arms (`Rows.lean`, `shape.py --fields 0,1,2,3,4`). The store cuts' leaves
+(`HashStore.lean`, `AuthStore.lean`) carry their targets' rows by `keptCarry_sound` (`store_src`,
+`astore_src` return the source's `FieldsOk`). New value kinds (`Field.lean`, `FieldVal.At` in
+`Cuts.lean`, rules in `Gen.lean`, candidates in `fields_infer.lean`):
+- `lc k`/`lt k`/`lv k`: legacy chain id, its tag and `v` from `v_raw` (item `k`), `legacyOk`: the
+  source's limbs `num k 32 0..3`, the leaf's conditions `ltSym … 35`/`ltSym … 27` (`v_raw < 35`,
+  `< 27` as the binary computes them), the target symbol `lcSym` / `(l0 - 35) & 1` / `l0 - 27` /
+  literals; arithmetic in `Fields.lean` (`lt_word`, `lv35`, `lv27`, `lc35`).
+- `ty`: `a2` (the transaction type) in `s2`. Rows at `0x80000574` (`Entry.lean`, `e18`) and the
+  five arm heads (`Jump.lean`, `ArmCheck` now checks the head row is `[⟨.reg 18, [], .ty⟩]` and
+  the jump leaf keeps `s2`); the inference seeds them (`seedCut`), kept carries them to
+  `-0x240(s0)` (slot `0x130`).
+- `cst v`: a constant word, `cstOk`: the leaf's literal or a condition `s = v`; candidates only at
+  the success write's constant locations (`cstLocs`: `a4`, `a5`, `s9`, the empty slices' and blob
+  fee's frame words).
+`Extra` at `0x80002db8`/`0x80002dbc`/`0x80002dc4` is `ChecksOk σ (fieldCount σ.t)`; `leaf_gen`
+proves it (`GenCheck`'s `succOk`, `extra_succ`): from another success cut, or from a one-arm source
+whose leaf passes `chkStep … (fieldCount t)`.
+
+What the row at `0x80002dc4` now carries, per arm: every scalar `TxAt` reads (item values, the
+legacy `chain_id`/tag/`v`, `tx_type` at slot `0x130`, the constant tags and empty slices). Not
+carried: the four buffers.
+
+Remaining for `80002dc4_0` (hand proof, a new file importing `Hand`):
+1. `decode`: `ChecksOk σ (fieldCount t)` + `Domain`'s `Fits` → `ChecksL (armChecks t) payload`
+   → `decode_legacy`/`decode_typed` (`Bridge.lean`). Arms 3/4 additionally need `hashList`/
+   `authList` to succeed: the loop invariants (`HashLoop`, `AuthLoop`) must also state that the
+   first `n` elements passed `hash`/`auth` (and their values, for `TxAt`) — reopens the loop leaves
+   in `HashStore`/`Auth*.lean`.
+2. `TxAt` scalars: the leaf's region-1 writes (`readConst l.S 1 off n` = the dc4 symbols, listed
+   by `/tmp`-style probe: `+0 s8, +8 s1, +0x10 s2, +0x18 -0x248, +0x20 a5, +0x30 s5, …,
+   +0x108 -0x240 (byte), +0x109.. the address slots, +0x11d -0x258, +0x120 0`) against the
+   row's `FieldsOk` values (`numVal`/`limb` → `leBytes`; needs a `limb`→`leBytes` lemma).
+3. Buffers (`data` at `-0x288`, the access list `-0x2d8/-0x2e0`, the hashes `-0x2b0`/`s9`, the
+   tuples `-0x2a8/-0x2f8`): design — a machine-dependent value kind (like `acc`) `buf k`: the word
+   points into one of DTF's live blocks holding item `k`'s payload (`data`), TX's entries image
+   (access list), the hashes / tuples so far. Carry: kept across leaves writing only the frame
+   (`writesLow`) or another block (store cuts), and across calls whose `Post` keeps memory outside
+   `Priv L` and their own outputs (F2, TX, alloc, free of another block — needs blocks of `X`
+   pairwise disjoint, from `Heap`); F1/F4 move the hash buffer (their `PostKeep`/`Post` give the
+   copied bytes). Origin: the `memcpy` return site after the data `alloc`, TX's return sites, the
+   store leaves (`0x80002138`, `0x80002434`).
+Then `DTF.reach` (`zesu_assemble` reports open 0), `dtf_spec` (`Spec`-style, as `TX.tx_spec`),
+`dtf_sail`, the `Axioms.lean` guards, `pre_nonvacuous` and `post_snapshot`
+(`test/snapshots/DTF/`).
