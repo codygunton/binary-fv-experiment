@@ -12,6 +12,7 @@ import ZesuExec.Fn.F2.Sail
 import ZesuExec.Fn.Rotate.C8330.Proof
 import ZesuExec.Fn.Rotate.C10572.Proof
 import ZesuExec.Fn.Rotate.C12629.Proof
+import ZesuExec.Fn.MergeInPlace.C7964.Proof
 import ZesuExec.Fn.F3.Proof
 import ZesuExec.Fn.F3.Sail
 import ZesuExec.Fn.F4.Proof
@@ -312,6 +313,18 @@ info: 'ZesuExec.Fn.Rotate.C12629.r12629_sail' depends on axioms: [propext, Class
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.Rotate.C12629.r12629_sail
+
+/--
+info: 'ZesuExec.Fn.MergeInPlace.C7964.m7964_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.MergeInPlace.C7964.m7964_spec
+
+/--
+info: 'ZesuExec.Fn.MergeInPlace.C7964.m7964_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.MergeInPlace.C7964.m7964_sail
 
 /--
 info: 'ZesuExec.Fn.Memmove.memmove_spec' depends on axioms: [propext, Quot.sound]

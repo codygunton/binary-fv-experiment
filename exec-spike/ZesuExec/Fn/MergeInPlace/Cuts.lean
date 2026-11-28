@@ -16,10 +16,10 @@ Cut states (regions in order):
   `mem.rotate`; the compiled loop addresses an element pair by these biased pointers).
 * `SE c`: the frame with the saved registers as `known` words `var (32 + r)` (the epilogue).
 
-`Common c m mh` is what every cut after the prologue keeps; `State c m mh G` adds the items.
-The step lemmas turn a leaf's `Match` into these: `step_ro` (no write outside the frame),
-`step_copy` (an element copied into the frame), `step_swap` (two elements exchanged),
-`entry_step` (the prologue), `epi_post` (the return).
+`Common c m mh` is what every cut after the prologue keeps; `Items m mh G` states the items.
+The step lemmas (`Steps.lean`) turn a leaf's `Match` into these: `step_none` (no writable
+region), `step_copy` (an element copied into the frame), `step_swap` (two elements exchanged);
+`Lemmas.lean` has `entry_step` (the prologue), `early_post` and `epi_post` (the returns).
 -/
 
 namespace ZesuExec.Fn.MergeInPlace
@@ -66,11 +66,12 @@ def envE (c : Cfg) (m mh : Machine) : Env :=
 section
 variable (c : Cfg)
 
-/-- `sp` and `s0` as the prologue sets them, `ra` and the kept registers unchanged, the saved
+/-- `sp` and `s0` as the prologue sets them, the kept registers unchanged (`ra` is not: a copy may
+use it as scratch and reload it from its slot), the saved
 registers in their slots, the frame present, memory changed only in the output range and the
 frame, rodata loaded. -/
 def Common (m mh : Machine) : Prop :=
-  RodataLoaded zesuImage mh ∧ mh.reg 2 = frame c m ∧ mh.reg 8 = m.reg 2 ∧ mh.reg 1 = m.reg 1 ∧
+  RodataLoaded zesuImage mh ∧ mh.reg 2 = frame c m ∧ mh.reg 8 = m.reg 2 ∧
   (∀ i ∈ c.kept, mh.reg (Fin.ofNat 32 i) = m.reg (Fin.ofNat 32 i)) ∧
   (∀ s ∈ c.saved, ∀ t < 8, mh.mem (frame c m + w (s.1 + t)) =
     some (byteOf (m.reg (Fin.ofNat 32 s.2)) t)) ∧
@@ -217,17 +218,16 @@ theorem common_step {c : Cfg} {m mh m' : Machine} (h : Pre c m) (hc : Common c m
       ¬ (∃ e o, aS m ≤ e ∧ e < bE m ∧ o < 32 ∧ a = ptr m + w (32 * e + o)) → m'.mem a = mh.mem a)
     (hfr : ∀ s ∈ c.saved, ∀ t < 8, m'.mem (frame c m + w (s.1 + t)) = mh.mem (frame c m + w (s.1 + t)))
     (hpres : ∀ j < c.fs, (m'.mem (frame c m + w j)).isSome)
-    (hk : ∀ i ∈ [1, 2, 8] ++ c.kept, m'.reg (Fin.ofNat 32 i) = mh.reg (Fin.ofNat 32 i)) :
+    (hk : ∀ i ∈ [2, 8] ++ c.kept, m'.reg (Fin.ofNat 32 i) = mh.reg (Fin.ofNat 32 i)) :
     Common c m m' := by
-  obtain ⟨hro, h2, h8, h1, hkept, hsv, -, hout⟩ := hc
-  refine ⟨fun a b hb => ?_, ?_, ?_, ?_, fun i hi => ?_, fun s hs t ht => ?_, hpres,
+  obtain ⟨hro, h2, h8, hkept, hsv, -, hout⟩ := hc
+  refine ⟨fun a b hb => ?_, ?_, ?_, fun i hi => ?_, fun s hs t ht => ?_, hpres,
     fun a ha => ?_⟩
   · rw [hso _ (fun j hj => rodata_ne_frame h hb hj) (fun ⟨e, o, _, he, ho, hq⟩ =>
       rodata_not_items h hb he ho hq)]
     exact hro a b hb
   · rw [← h2]; exact hk 2 (by simp)
   · rw [← h8]; exact hk 8 (by simp)
-  · rw [← h1]; exact hk 1 (by simp)
   · rw [← hkept i hi]; exact hk i (by simp [hi])
   · rw [hfr s hs t ht]; exact hsv s hs t ht
   · have hw : ∀ j < c.fs, a ≠ frame c m + w j := fun j hj he => ha (he ▸ in_frame h hj)

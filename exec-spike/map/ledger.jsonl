@@ -1774,3 +1774,6 @@
 {"schema": 2, "rec": "start", "id": 29, "ts": "2026-11-28T09:06:48Z", "fn": "f_80098ddc", "item": "M11564 snapshot test + difftest", "kind": "contract", "agent": "S16GenericB.S16MergeSnap"}
 {"schema": 2, "rec": "stop", "id": 28, "agent": "S16GenericB", "ts": "2026-11-28T09:07:40Z", "outcome": "closed", "note": "22 cuts, 50 leaves, all runs succeed; new shapes SF, SR3; design local S16Merge11564.md"}
 {"schema": 2, "rec": "stop", "id": 29, "agent": "S16GenericB.S16MergeSnap", "ts": "2026-11-28T09:09:45Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 30, "ts": "2026-11-28T09:24:25Z", "fn": "f_80098ddc", "item": "S16 11564 phase A: Slice, Spill, C11564/Cfg, Runs generic states", "kind": "leaf", "agent": "S16GenericB.S16Merge2"}
+{"schema": 2, "rec": "stop", "id": 30, "agent": "S16GenericB.S16Merge2", "ts": "2026-11-28T09:34:28Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "stop", "id": 26, "agent": "S16GenericB.S16Merge", "ts": "2026-11-28T09:58:53Z", "outcome": "closed", "note": null}

@@ -33,12 +33,12 @@ theorem step_none {c : Cfg} {m mh m' : Machine} {env : Env} {S lS : SState}
     (h : Pre c m) (hc : Common c m mh) (hnw : ∀ a, ¬ InWritable env S a)
     (hm : Match env lS m') (hv : ∀ i < 32, env.vars i = mh.reg (Fin.ofNat 32 i))
     (hso : SameOutside (InWritable env S) mh m')
-    (hkeep : keepsB lS ([1, 2, 8] ++ c.kept) = true) :
+    (hkeep : keepsB lS ([2, 8] ++ c.kept) = true) :
     Common c m m' ∧ ∀ a, m'.mem a = mh.mem a := by
   have hall : ∀ a, m'.mem a = mh.mem a := fun a => hso a (hnw a)
   refine ⟨common_step h hc (fun a _ _ => hall a) (fun s _ t _ => hall _) (fun j hj => ?_)
     (keeps_of hm hv hkeep), hall⟩
-  rw [hall]; exact hc.2.2.2.2.2.2.1 j hj
+  rw [hall]; exact hc.2.2.2.2.2.1 j hj
 
 theorem nw_N {mh : Machine} {a : Word} : ¬ InWritable (envN mh) SN a := by
   intro h; obtain ⟨k, R, j, hR, -⟩ := inW_entry h; simp at hR
@@ -78,7 +78,8 @@ theorem step_copy {c : Cfg} {m mh m' : Machine} {G : Nat → Nat → Byte} {r e 
     (hlen : lS.regions.length = 2) (hd : d + 32 ≤ c.fs)
     (hsv : ∀ s ∈ c.saved, ∀ t < 8, s.1 + t ∈ keep) (hkl : ∀ j ∈ keep, j < c.fs)
     (hcp : copyB lS.mem d keep = true)
-    (hkeep : keepsB lS ([1, 2, 8] ++ c.kept) = true) :
+    (hsp : lS.reg 2 = .ptr 0 0) (hs0 : lS.reg 8 = .ptr 0 c.fs)
+    (hkeep : keepsB lS c.kept = true) :
     Common c m m' ∧ Items m m' G ∧
       (∀ j < 32, m'.mem (frame c m + w (d + j)) = some (G e j)) ∧
       (∀ j ∈ keep, m'.mem (frame c m + w j) = mh.mem (frame c m + w j)) := by
@@ -86,7 +87,7 @@ theorem step_copy {c : Cfg} {m mh m' : Machine} {G : Nat → Nat → Byte} {r e 
   simp only [copyB, Bool.and_eq_true, List.all_eq_true, List.mem_range, beq_iff_eq] at hcp
   obtain ⟨hcopy, hkp⟩ := hcp
   have hb0 : (envP c r mh).base 0 = frame c m := by simp [envP, entryEnv, Env.base, h2]
-  have hpres := hc.2.2.2.2.2.2.1
+  have hpres := hc.2.2.2.2.2.1
   have hkeepm : ∀ j ∈ keep, m'.mem (frame c m + w j) = mh.mem (frame c m + w j) := by
     intro j hj
     have := mem_of_src hm (by omega) (by simpa [envP, entryEnv, Env.size] using hkl j hj) (hkp j hj)
@@ -97,8 +98,17 @@ theorem step_copy {c : Cfg} {m mh m' : Machine} {G : Nat → Nat → Byte} {r e 
     intro a ha; apply hso; intro hw
     obtain ⟨j, hj, rfl⟩ := inW_P hw
     exact ha j hj (by rw [h2])
+  have hk : ∀ i ∈ [2, 8] ++ c.kept, m'.reg (Fin.ofNat 32 i) = mh.reg (Fin.ofNat 32 i) := by
+    intro i hi
+    simp only [List.cons_append, List.nil_append, List.mem_cons] at hi
+    rcases hi with rfl | rfl | hi
+    · rw [reg_at hm 2, hsp]; simp [Sym.eval, envP, entryEnv, Env.base]
+    · rw [reg_at hm 8, hs0, show mh.reg (Fin.ofNat 32 8) = m.reg 2 from hc.2.2.1]
+      simp only [Sym.eval, envP, entryEnv, Env.base, List.getD_cons_zero, h2]
+      unfold frame; rw [BitVec.ofInt_natCast]; exact BitVec.sub_add_cancel _ _
+    · exact keeps_of hm (entryEnv_vars_lt _ _) hkeep i hi
   refine ⟨common_step h hc (fun a ha _ => hout a ha) (fun s hs t ht => hkeepm _ (hsv s hs t ht))
-    (fun j hj => ?_) (keeps_of hm (entryEnv_vars_lt _ _) hkeep), ?_, fun j hj => ?_, hkeepm⟩
+    (fun j hj => ?_) hk, ?_, fun j hj => ?_, hkeepm⟩
   · have := hm.mem 0 j (by omega) (by simpa [envP, entryEnv, Env.size] using hj)
     rw [hb0] at this; rw [this]; rfl
   · exact hs.keep fun e' he' o ho => hout _ fun j hj => slice_ne_frame h he' ho hj
@@ -129,7 +139,7 @@ theorem step_swap {c : Cfg} {m mh m' : Machine} {G : Nat → Nat → Byte} {lo h
     (hhi : mh.reg (Fin.ofNat 32 hi) = ptr m + w (32 * e₂ + 16))
     (hm : Match (envR lo hi mh) lS m') (hso : SameOutside (InWritable (envR lo hi mh) (SR lo hi)) mh m')
     (hlen : lS.regions.length = 2) (hsw : swapB lS.mem = true)
-    (hkeep : keepsB lS ([1, 2, 8] ++ c.kept) = true) :
+    (hkeep : keepsB lS ([2, 8] ++ c.kept) = true) :
     Common c m m' ∧ Items m m' fun e o =>
       if e = e₁ then G e₂ o else if e = e₂ then G e₁ o else G e o := by
   have hfit := pre_hfit h
@@ -179,7 +189,7 @@ theorem step_swap {c : Cfg} {m mh m' : Machine} {G : Nat → Nat → Byte} {lo h
     (fun j hj => by
       rw [hout _ (fun j' hj' hq => slice_ne_frame h h1' hj' hj hq.symm)
         (fun j' hj' hq => slice_ne_frame h h2' hj' hj hq.symm)]
-      exact hc.2.2.2.2.2.2.1 j hj)
+      exact hc.2.2.2.2.2.1 j hj)
     (keeps_of hm (entryEnv_vars_lt _ _) hkeep), ?_⟩
   intro e he o ho
   dsimp only
