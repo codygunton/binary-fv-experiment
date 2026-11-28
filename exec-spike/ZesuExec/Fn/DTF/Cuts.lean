@@ -248,19 +248,24 @@ def HashItem (σ : Sig) (m : Machine) (r : Nat) : Prop :=
     32 ≤ k ∧ m.reg 23 = σ.inp + w (c + h + j) ∧ m.reg 22 = w (p - j) ∧ m.reg 25 = w n ∧
     m.reg 20 = w k ∧ ListHdr σ m 0x258 n r
 
+/-- The slot `a0` of the store cut `0x80002138`: `p + 32 n`, `p` the header's buffer, `n = s9`. -/
+def HashSlot (σ : Sig) (m : Machine) : Prop :=
+  ∃ p, m.load (σ.fr + w 0x258) 8 = some p ∧ m.reg 10 = p + 32 * m.reg 25
+
 def Extra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
   if pc = 0x80000574 then m.reg 10 = w (0x80110050 + 8 * σ.t)
-  else if pc = 0x80002138 then SlotOk σ m 32 ∧ HashItem σ m 1
+  else if pc = 0x80002138 then SlotOk σ m 32 ∧ HashItem σ m 1 ∧ HashSlot σ m
   else if pc = 0x80002434 then SlotOk σ m 0x90
   else if pc = 0x800011f8 then Done σ m
   else if pc = 0x800020ac then HashLoop σ m
   else True
 
 /-- What a call site states beyond its kind's: the hash loop's state across the item's
-`decodeItem` (`0x800020c0`) and the list's `ensureTotalCapacity` (`0x8000211c`). -/
+`decodeItem` (`0x800020c0`, its input `a1`/`a2` the cursor `s7`/`s6`) and the list's
+`ensureTotalCapacity` (`0x8000211c`, the request `a2 = s9 + 1`). -/
 def SiteX (r : Nat) (σ : Sig) (m : Machine) : Prop :=
-  if r = 0x800020c0 then HashLoop σ m
-  else if r = 0x8000211c then HashItem σ m 0
+  if r = 0x800020c0 then HashLoop σ m ∧ m.reg 11 = m.reg 23 ∧ m.reg 12 = m.reg 22
+  else if r = 0x8000211c then HashItem σ m 0 ∧ m.reg 12 = m.reg 25 + 1
   else True
 
 /-! ## Callees -/

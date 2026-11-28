@@ -186,7 +186,9 @@ theorem DTF.leaf_800020ac_0 :
   have hf2 : F2.Pre m' := f2_pre_cur CF.common hsp hout (by decide) (by decide)
     (e11.trans r23) (e12.trans r22) (by omega) CF.aligned
   have hsx : SiteX (table[108]!).pc σ m' := by
-    rw [show (table[108]!).pc = 0x800020c0 by decide]; simpa [SiteX] using hloop
+    rw [show (table[108]!).pc = 0x800020c0 by decide]
+    simp only [SiteX, if_true]
+    exact ⟨hloop, e11.trans e23.symm, e12.trans e22.symm⟩
   have hidx : IdxOk (siteAt 108).kind σ ([], [], ⟨[], []⟩) m' := by
     rw [show (siteAt 108).kind = .f2 by decide]; exact ⟨hf2, trivial⟩
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩

@@ -13,26 +13,28 @@ shared checks (`CoreChk`, `AtChk`, `CallChk`) are decided per leaf. The list loo
 namespace ZesuExec.Fn.DTF
 open ZesuExec ZesuExec.Sym ZesuExec.Machine ZesuExec.Vc
 
-/-- The source-side checks of `leaf_gen`: no extra region at the source, base regions in the
-leaf, obligations at the source's byte-loop cursor or outcome, writes below the save area. -/
-def CoreChk (d : CutData) (l : Leaf) : Bool :=
-  d.shape.extra.isEmpty && l.S.regions == baseRegions &&
-    l.obligs.all (fun o => curObl d o || outObl d l o) && writesLow l.S
+/-- The source-side checks of `leaf_gen` but the obligations: no extra region at the source,
+base regions in the leaf, writes below the save area. -/
+def CoreChk0 (d : CutData) (l : Leaf) : Bool :=
+  d.shape.extra.isEmpty && l.S.regions == baseRegions && writesLow l.S
 
-/-- What a leaf of `d` knows before its exit: the obligations hold, and any machine matching its
-final state is a `Ctx`. -/
-theorem core_ctx {d : CutData} {l : Leaf} (hpc : d.pc ≠ entry) (hcut : CutOK vcPlan (mkCut d))
-    (hsrc : SrcOk d = true) (hck : CoreChk d l = true) {σ : Sig} {m : Machine}
+/-- `CoreChk0` and the obligations at the source's byte-loop cursor or outcome. -/
+def CoreChk (d : CutData) (l : Leaf) : Bool :=
+  CoreChk0 d l && l.obligs.all (fun o => curObl d o || outObl d l o)
+
+/-- What a leaf of `d` knows before its exit: any machine matching its final state is a `Ctx`. -/
+theorem core_ctx0 {d : CutData} {l : Leaf} (hpc : d.pc ≠ entry) (hcut : CutOK vcPlan (mkCut d))
+    (hsrc : SrcOk d = true) (hck : CoreChk0 d l = true) {σ : Sig} {m : Machine}
     (hA : (mkCut d).A σ m) (hc : ∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) :
-    (∀ o ∈ l.obligs, o.holds (envOf d.shape σ m)) ∧ Match (envOf d.shape σ m) d.shape.S m ∧
+    Match (envOf d.shape σ m) d.shape.S m ∧
       ∀ m', Match (envOf d.shape σ m) l.S m' →
         SameOutside (InWritable (envOf d.shape σ m) d.shape.S) m m' → Ctx d l σ m m' := by
   have F := facts_of_A hpc hsrc hA
   obtain ⟨hwf, hm, -, -⟩ := hcut σ m hA
   simp only [mkCut] at hwf hm
-  unfold CoreChk at hck
+  unfold CoreChk0 at hck
   simp only [Bool.and_eq_true, beq_iff_eq, List.isEmpty_iff] at hck
-  obtain ⟨⟨⟨hx, hreg⟩, hob⟩, hlow⟩ := hck
+  obtain ⟨⟨hx, hreg⟩, hlow⟩ := hck
   have hS : BaseRegs d.shape.S := baseRegs_shape hx
   have hS' : BaseRegs l.S := hreg
   have hwf' : Env.WF (envOf d.shape σ m) l.S :=
@@ -52,11 +54,41 @@ theorem core_ctx {d : CutData} {l : Leaf} (hpc : d.pc ≠ entry) (hcut : CutOK v
         simpa [SBool.eval, Sym.eval_lit] using this
       · cases h
     · cases h
-  refine ⟨fun o ho => ?_, hm, fun m' hm' hso => ⟨F, hwf, hm, hS, hwf', hm', hS', hso, hlow, hadv,
+  exact ⟨hm, fun m' hm' hso => ⟨F, hwf, hm, hS, hwf', hm', hS', hso, hlow, hadv,
     fun r hr => (List.mem_append.mp hr).elim (F.rest r) (tx_rest hpc hA hc r)⟩⟩
+
+/-- What a leaf of `d` knows before its exit: the obligations hold, and any machine matching its
+final state is a `Ctx`. -/
+theorem core_ctx {d : CutData} {l : Leaf} (hpc : d.pc ≠ entry) (hcut : CutOK vcPlan (mkCut d))
+    (hsrc : SrcOk d = true) (hck : CoreChk d l = true) {σ : Sig} {m : Machine}
+    (hA : (mkCut d).A σ m) (hc : ∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) :
+    (∀ o ∈ l.obligs, o.holds (envOf d.shape σ m)) ∧ Match (envOf d.shape σ m) d.shape.S m ∧
+      ∀ m', Match (envOf d.shape σ m) l.S m' →
+        SameOutside (InWritable (envOf d.shape σ m) d.shape.S) m m' → Ctx d l σ m m' := by
+  unfold CoreChk at hck
+  simp only [Bool.and_eq_true] at hck
+  obtain ⟨hck0, hob⟩ := hck
+  obtain ⟨hm, hctx⟩ := core_ctx0 hpc hcut hsrc hck0 hA hc
+  obtain ⟨hwf, -, -, -⟩ := hcut σ m hA
+  simp only [mkCut] at hwf
+  have hS : BaseRegs d.shape.S := baseRegs_shape (by
+    unfold CoreChk0 at hck0
+    simp only [Bool.and_eq_true, List.isEmpty_iff] at hck0
+    exact hck0.1.1)
+  refine ⟨fun o ho => ?_, hm, hctx⟩
   have h := List.all_eq_true.mp hob o ho
   simp only [Bool.or_eq_true] at h
   exact h.elim (curObl_holds hpc hA hm) (outObl_holds hpc hsrc hA hwf hm hS hc)
+
+/-- The obligations `CoreChk` decides. -/
+theorem core_obl {d : CutData} {l : Leaf} (hpc : d.pc ≠ entry) (hcut : CutOK vcPlan (mkCut d))
+    (hsrc : SrcOk d = true) (hck : CoreChk d l = true) {σ : Sig} {m : Machine}
+    (hA : (mkCut d).A σ m) (hc : ∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) :
+    ∀ o ∈ l.obligs, o.holds (envOf d.shape σ m) :=
+  (core_ctx hpc hcut hsrc hck hA hc).1
+
+theorem coreChk0 {d : CutData} {l : Leaf} (hck : CoreChk d l = true) : CoreChk0 d l = true := by
+  unfold CoreChk at hck; simp only [Bool.and_eq_true] at hck; exact hck.1
 
 /-- The target-side checks of an `.at` leaf other than `Extra`, the cursor and the budget. -/
 def AtChk (d : CutData) (l : Leaf) (d' : CutData) : Bool :=
@@ -64,8 +96,11 @@ def AtChk (d : CutData) (l : Leaf) (d' : CutData) : Bool :=
     armsKeep d.arms d'.arms && restFrom d.shape.S l.S (advUse d l) (srcRest d l) d'.rest &&
     chkStep d l (chkCount d'.rest) && decide (l.S.steps - d.shape.S.steps ≤ (budgetAt d.pc).1)
 
-theorem leaf_at_x (d d' : CutData) (l : Leaf) (hpc : d.pc ≠ entry)
-    (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true) (hck : CoreChk d l = true)
+/-- `leaf_at_x` with the leaf's obligations a hypothesis. -/
+theorem leaf_at_xo (d d' : CutData) (l : Leaf) (hpc : d.pc ≠ entry)
+    (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true) (hck : CoreChk0 d l = true)
+    (hO : ∀ σ m, (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
+      ∀ o ∈ l.obligs, o.holds (envOf d.shape σ m))
     (hex : l.exit = .at d'.pc) (ht : targetOf d'.pc = some d') (hat : AtChk d l d' = true)
     (hX : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
       Ctx d l σ m m' → Extra d'.pc σ m' ∧ CurOk σ m' (budgetAt d'.pc).2 ∧
@@ -73,7 +108,8 @@ theorem leaf_at_x (d d' : CutData) (l : Leaf) (hpc : d.pc ≠ entry)
     LeafGoal vcPlan (mkCut d) l := by
   intro σ m hA hc
   simp only [mkCut] at hc
-  obtain ⟨hob, -, hctx⟩ := core_ctx hpc hcut hsrc hck hA hc
+  obtain ⟨-, hctx⟩ := core_ctx0 hpc hcut hsrc hck hA hc
+  have hob := hO σ m hA hc
   have F := facts_of_A hpc hsrc hA
   unfold AtChk at hat
   simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, decide_eq_true_eq] at hat
@@ -99,6 +135,16 @@ theorem leaf_at_x (d d' : CutData) (l : Leaf) (hpc : d.pc ≠ entry)
       omega
   | _ => rw [hexit] at hex; cases hex
 
+theorem leaf_at_x (d d' : CutData) (l : Leaf) (hpc : d.pc ≠ entry)
+    (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true) (hck : CoreChk d l = true)
+    (hex : l.exit = .at d'.pc) (ht : targetOf d'.pc = some d') (hat : AtChk d l d' = true)
+    (hX : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
+      Ctx d l σ m m' → Extra d'.pc σ m' ∧ CurOk σ m' (budgetAt d'.pc).2 ∧
+        budgetOf d' σ m' + (l.S.steps - d.shape.S.steps) ≤ budgetOf d σ m) :
+    LeafGoal vcPlan (mkCut d) l :=
+  leaf_at_xo d d' l hpc hcut hsrc (coreChk0 hck)
+    (fun _ _ hA hc => core_obl hpc hcut hsrc hck hA hc) hex ht hat hX
+
 /-- The call-side checks of a call leaf other than the callee's index, `SiteX` and the budget. -/
 def CallChk (d : CutData) (l : Leaf) (d' : CutData) (s : Site) (t r : Nat) : Bool :=
   t == s.kind.entry && d'.pc != entry && SrcOk d' && s.shape.Fine &&
@@ -118,8 +164,11 @@ structure CallFacts (s : Site) (r : Nat) (σ : Sig) (m' : Machine) : Prop where
   ra : m'.reg 1 = w r
   aligned : RetAligned m'
 
-theorem leaf_call_x (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.pc ≠ entry)
-    (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true) (hck : CoreChk d l = true)
+/-- `leaf_call_x` with the leaf's obligations a hypothesis. -/
+theorem leaf_call_xo (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.pc ≠ entry)
+    (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true) (hck : CoreChk0 d l = true)
+    (hO : ∀ σ m, (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
+      ∀ o ∈ l.obligs, o.holds (envOf d.shape σ m))
     (hex : l.exit = .call t d'.pc) (ht : targetOf d'.pc = some d') (hs : d'.site = some s)
     (hcl : CallChk d l d' s t d'.pc = true)
     (hX : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
@@ -129,7 +178,8 @@ theorem leaf_call_x (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.pc
     LeafGoal vcPlan (mkCut d) l := by
   intro σ m hA hc
   simp only [mkCut] at hc
-  obtain ⟨hob, -, hctx⟩ := core_ctx hpc hcut hsrc hck hA hc
+  obtain ⟨-, hctx⟩ := core_ctx0 hpc hcut hsrc hck hA hc
+  have hob := hO σ m hA hc
   have F := facts_of_A hpc hsrc hA
   unfold CallChk at hcl
   simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq, decide_eq_true_eq] at hcl
@@ -170,5 +220,17 @@ theorem leaf_call_x (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.pc
       have := hbud m'' hpost
       omega
   | _ => rw [hexit] at hex; cases hex
+
+theorem leaf_call_x (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.pc ≠ entry)
+    (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true) (hck : CoreChk d l = true)
+    (hex : l.exit = .call t d'.pc) (ht : targetOf d'.pc = some d') (hs : d'.site = some s)
+    (hcl : CallChk d l d' s t d'.pc = true)
+    (hX : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
+      Ctx d l σ m m' → CallFacts s d'.pc σ m' →
+      ∃ x, IdxOk s.kind σ x m' ∧ SiteX d'.pc σ m' ∧ ∀ m'', (calleeOf s.kind).Post σ x m' m'' →
+        s.kind.bound + budgetOf d' σ m'' + (l.S.steps - d.shape.S.steps) ≤ budgetOf d σ m) :
+    LeafGoal vcPlan (mkCut d) l :=
+  leaf_call_xo d d' s l t hpc hcut hsrc (coreChk0 hck)
+    (fun _ _ hA hc => core_obl hpc hcut hsrc hck hA hc) hex ht hs hcl hX
 
 end ZesuExec.Fn.DTF
