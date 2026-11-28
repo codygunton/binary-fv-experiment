@@ -9,6 +9,7 @@ import ZesuExec.Fn.F1.Proof
 import ZesuExec.Fn.F1.Sail
 import ZesuExec.Fn.F2.Proof
 import ZesuExec.Fn.F2.Sail
+import ZesuExec.Fn.Rotate.C8330.Proof
 import ZesuExec.Fn.F3.Proof
 import ZesuExec.Fn.F3.Sail
 import ZesuExec.Fn.F4.Proof
@@ -271,3 +272,15 @@ info: 'ZesuExec.Fn.DTF.DTF.reach_from' depends on axioms: [propext, Classical.ch
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.DTF.DTF.reach_from
+
+/--
+info: 'ZesuExec.Fn.Rotate.C8330.r8330_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C8330.r8330_spec
+
+/--
+info: 'ZesuExec.Fn.Rotate.C8330.r8330_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C8330.r8330_sail

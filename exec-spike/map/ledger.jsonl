@@ -1741,3 +1741,9 @@
 {"schema": 2, "rec": "stop", "id": 18, "agent": "S12Forms", "ts": "2026-11-28T06:48:56Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 19, "ts": "2026-11-28T06:48:56Z", "fn": null, "item": "S12 measure: map rebuild, blocked counts, gate", "kind": "infra", "agent": "S12Forms"}
 {"schema": 2, "rec": "stop", "id": 19, "agent": "S12Forms", "ts": "2026-11-28T06:55:28Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 20, "ts": "2026-11-28T07:13:09Z", "fn": "f_8006464c", "item": "rotate_8330 contract + shared rotate model", "kind": "contract", "agent": "S16Generic"}
+{"schema": 2, "rec": "stop", "id": 20, "agent": "S16Generic", "ts": "2026-11-28T07:58:58Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 21, "ts": "2026-11-28T07:58:58Z", "fn": "f_8006464c", "item": "rotate_8330 cut assertions, runs, 8 cut lemmas, 20 leaves, spec+sail (shared Rotate/{Model,Spec,Cuts,Tac})", "kind": "leaf", "agent": "S16Generic"}
+{"schema": 2, "rec": "stop", "id": 21, "agent": "S16Generic", "ts": "2026-11-28T07:59:05Z", "outcome": "abandoned", "note": "opened late: the 8330 proof work (contract, assertions, 28 items) is item 20"}
+{"schema": 2, "rec": "start", "id": 22, "ts": "2026-11-28T07:59:05Z", "fn": "f_8006464c", "item": "rotate_8330 contract rule: pre_nonvacuous, post_snapshot, axioms, reviews/STATEMENTS", "kind": "contract", "agent": "S16Generic"}
+{"schema": 2, "rec": "stop", "id": 22, "agent": "S16Generic", "ts": "2026-11-28T08:04:28Z", "outcome": "closed", "note": null}

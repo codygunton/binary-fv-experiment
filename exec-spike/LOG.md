@@ -1228,3 +1228,28 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - Three-way difftest: no function of the image uses any added form (the image tables hold none
     of their mnemonics), so none applies. Regression: `lake exe zesu-difftest` on all 80
     snapshots (F1, F2, TX, DTF) prints `agree`.
+- S16 partial (S16Generic, 2026-11-28, branch `s16` from `f80e9854`): `mem.rotate__anon_8330`
+  closed to Sail level; the other two rotate copies and both `mergeInPlace` copies not started
+  (agent step budget).
+  - Image: the five S16 functions added to `tools/gen_image.sh` and `Image/{Gen,Expected}.lean`
+    regenerated (they were not in `zesuImage`; runs hit `unreachable`). Merge rule (agreed with
+    Main): union of the `--functions` lists, rerun the script.
+  - Shared, element-size-generic (`ZesuExec/Fn/Rotate/`): `Model.lean` (byte model `rev`/`revAt`,
+    `rev_rotate`, per-byte swap lemma `slice_revAt_succ`), `Spec.lean` (`Cfg`, `Pre`, `Post`,
+    `Common`, `post_slice`, non-vacuity witness `pre_witness`), `Cuts.lean` (cut states
+    `S0/SO/SI/SE`, assertions `OuterA/InnerA/EpiA` over a copy's register-equation lists, step
+    lemmas `inner_step/outer_step/entry_step/epi_post`, cut lemmas `cut0/cutO/cutI/cutE_facts`,
+    budget readers), `Tac.lean` (leaf scripts `iprep/oprep/eprep`, `istep/ostep/estep`, `rgoal`,
+    `wgoal`, `regs_tac`, `bud`), `Snap.lean` (`SnapOk`: `Post` on snapshot data).
+  - Copy 8330 (`Fn/Rotate/C8330/`): `cfg`, 8 map cuts, register equations and budgets (`Vc.lean`),
+    28 items (8 cut lemmas, 20 leaves) in `Leaves.lean`, every one a few lines of the shared
+    tactics/lemmas; `zesu_auto` closed 0 of 28 (generic `leaf_auto` cannot see the slice
+    model); `zesu_assemble` → `R8330.reach`; `r8330_spec`, `r8330_sail`, `pre_nonvacuous`,
+    `post_snapshot` (kernel `decide` on 9 Unicorn snapshots, `tools/snap.py --fn R8330`,
+    `tools/snap_post.py`); axioms guarded.
+  - Found: `simp` with `BitVec.toNat_ofNat` on a 64-bit literal ≥ 2^63 builds a proof the kernel
+    rejects ("deep recursion"); `add_big`/`mul_big` rewrite such literals to negations first.
+  - Measures: ledger item 20 (contract, model, shared lemmas, assertions, 28 items) 45 min, item
+    22 (contract rule) 5 min. Items per cut point 28/8 = 3.5. Automatic share 0/28. Reuse ratio
+    not measured (no second copy yet). Lines: shared 1,207, copy-specific 603 (of which 73
+    generated snapshot data).

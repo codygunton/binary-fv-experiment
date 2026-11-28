@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Entry/return snapshots of F1, F2, TX and DTF under Unicorn, for `zesu-difftest` (plan S2 step 4).
+"""Entry/return snapshots of F1, F2, TX, DTF and the S16 functions under Unicorn, for `zesu-difftest`.
 
-    snap.py --runner <zesislar>/tools/oblig/exec/run.py --fn F1|F2|TX|DTF [--elf ELF] [--inputs FILE ...]
-            [--input ID ...] --out DIR
+    snap.py --runner <zesislar>/tools/oblig/exec/run.py --fn F1|F2|TX|DTF|R8330|R10572|R12629
+            [--elf ELF] [--inputs FILE ...] [--input ID ...] --out DIR
 
 Imports zesislar's Unicorn runner `run.py` as a module and runs its profile (`keysEnsureCapacity`
 for F1, `decodeItem` for F2, `txAccessList` for TX; DTF uses `dtf_profile` below, the runner has
-none) on each input of the given input sets (runner schema `oblig-exec-inputs/1`; default:
-`inputs/<profile>.json` beside `run.py`, for DTF `tools/snap_inputs/decodeTxFields.json`;
+none; the `mem.rotate` copies `R<n>` use `rotate_profile`) on each input of the given input sets
+(runner schema `oblig-exec-inputs/1`; default: `inputs/<profile>.json` beside `run.py`, for DTF
+`tools/snap_inputs/decodeTxFields.json`, for the rotate copies `tools/snap_inputs/rotate.json`;
 `tools/snap_inputs/` adds F1 paths the runner's set lacks). Unlike `run.py`, the allocator entries are not hooked:
 Unicorn executes the real `alt_fl_alloc.{alloc,remap,free}` reached through the vtable; only the
 `memcpy` stub is replaced, by the runner's ZisK service hook.
@@ -31,7 +32,14 @@ import json
 import sys
 from pathlib import Path
 
-FNS = {'F1': 'keysEnsureCapacity', 'F2': 'decodeItem', 'TX': 'txAccessList', 'DTF': 'decodeTxFields'}
+FNS = {'F1': 'keysEnsureCapacity', 'F2': 'decodeItem', 'TX': 'txAccessList', 'DTF': 'decodeTxFields',
+       'R8330': 'rotate', 'R10572': 'rotate', 'R12629': 'rotate'}
+# `mem.rotate` copies: symbol and element size.
+ROTATE = {'R8330': ('mem.rotate__anon_8330', 48), 'R10572': ('mem.rotate__anon_10572', 104),
+          'R12629': ('mem.rotate__anon_12629', 64)}
+# Own inputs (the runner has no profile for these functions).
+OWN_INPUTS = {'DTF': 'decodeTxFields.json', 'R8330': 'rotate.json', 'R10572': 'rotate.json',
+              'R12629': 'rotate.json'}
 PAGE = 0x1000
 # Readable regions of `ZesuExec.Layout` (half-open): rodata, input, RAM.
 REGIONS = [(0x8010fd80, 0x80118678), (0x40000000, 0x80000000), (0xa0000000, 0xc0000000)]
@@ -87,8 +95,41 @@ def dtf_profile(r):
     return DecodeTxFields()
 
 
+def slice_bytes(row: dict, size: int) -> bytes:
+    """The input slice of a rotate row: `size` bytes from the row's seed."""
+    return bytes((row['seed'] * 131 + 7 * i + i * i) % 256 for i in range(size))
+
+
+def rotate_profile(r, fn: str):
+    """`mem.rotate(T, items, amount)`: a0 = items.ptr (RAM at `DATA_PTR`), a1 = items.len,
+    a2 = amount (row fields `n`, `amount`; the bytes come from `seed`). The outcome checks the
+    slice against the rotation `e ↦ (e + amount) % n`."""
+    symbol, elem = ROTATE[fn]
+
+    class Rotate(r.Profile):
+        name = 'rotate'
+
+        def setup(self, m, row):
+            n = row['n']
+            m.own('items', r.DATA_PTR, n * elem, True, slice_bytes(row, n * elem))
+            return [r.DATA_PTR, n, row['amount']]
+
+        def outcome(self, m, row):
+            n, a = row['n'], row['amount']
+            before, after = slice_bytes(row, n * elem), m.read(r.DATA_PTR, n * elem)
+            want = b''.join(before[elem * ((e + a) % n):elem * ((e + a) % n) + elem] for e in range(n))
+            return {'kind': 'rotated' if after == want else 'wrong'}
+
+    Rotate.symbol = symbol
+    return Rotate()
+
+
 def profile_for(r, fn: str):
-    return dtf_profile(r) if fn == 'DTF' else r.PROFILES[FNS[fn]]
+    if fn == 'DTF':
+        return dtf_profile(r)
+    if fn in ROTATE:
+        return rotate_profile(r, fn)
+    return r.PROFILES[FNS[fn]]
 
 
 def runs(a: int, data: bytes) -> list[dict]:
@@ -187,7 +228,7 @@ def main(argv=None) -> int:
     r = load_runner(args.runner.resolve())
     elf = r.Elf(args.elf or r.DEFAULT_ELF)
     rows = []
-    default = (Path(__file__).parent / 'snap_inputs' / 'decodeTxFields.json' if args.fn == 'DTF'
+    default = (Path(__file__).parent / 'snap_inputs' / OWN_INPUTS[args.fn] if args.fn in OWN_INPUTS
                else args.runner.parent / 'inputs' / f'{FNS[args.fn]}.json')
     for f in args.inputs or [default]:
         spec = json.loads(f.read_text())

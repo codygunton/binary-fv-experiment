@@ -38,6 +38,7 @@ import ZesuExec.Fn.F5.Runs
 import ZesuExec.Fn.F5.Sail
 import ZesuExec.Fn.F5.Spec
 import ZesuExec.Fn.Preserve
+import ZesuExec.Fn.Rotate.C8330.Proof
 import ZesuExec.Fn.Stage
 import ZesuExec.Image
 import ZesuExec.Image.Cfg

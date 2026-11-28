@@ -23,3 +23,16 @@ the two open items $1.01; `unimp` $3.86; stage total in items $12.87, session $1
 simulation patterns exist, so forms are a negligible share of the total. The remaining
 form blockers depend on the Sail model, not on proof effort: regenerating the model with the B/Zbkb
 extensions and a corrected arithmetic shift would unblock the last 14 form-blocked functions.
+
+## S16 (partial)
+
+- `mem.rotate__anon_8330` closed (`r8330_spec`, `r8330_sail`, non-vacuity, snapshot test); level
+  `machine-only` (rotation of the slice, no external model). Cost: ledger items 20, 22 (~50 min
+  agent time; dollars from `zmap cost`). 8 cut points, 28 items (3.5 per cut point), automatic
+  share 0%.
+- Shared by construction for the next copies: model, contract, cut states, assertions, step
+  lemmas, leaf tactics (1,207 lines, parameterised by element size `E`, frame layout and register
+  equations). Per copy: `cfg`, register equations, budgets, 28 short item proofs (~520 lines,
+  mostly the same text with different indices).
+- Open: `__anon_10572` (E=104, 16-byte frame), `__anon_12629` (E=64), both `mergeInPlace`
+  copies, the reuse ratio, the `model` meaning layer for `mergeInPlace`.
