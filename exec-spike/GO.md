@@ -78,11 +78,28 @@ plan; 126 lines), plus generated `Snaps.lean`; `Leaves.lean` (312 lines, 28 proo
 10572's 18.5 minutes are mostly waiting for a full rebuild that a parallel build killed
 (OOM); the copy work itself is the 165 new lines. Reuse gate (≤ 40%): **passes** for rotate.
 
-**Merge family.** Model `MergeOf` (sorted permutation under `lexLt` on a key), shared library
-`Fn/MergeInPlace/{Model,Spec,Win,Bytes,Cuts,Steps}.lean`, 7964 runs (18 cut points, 43 leaves)
-and 11564 runs (22 cut points, 50 leaves) all succeed; snapshot tests `post_snapshot` (10 each)
-and `zesu-difftest` `agree` on all 20. The 7964 machine proof is in progress (ledger 26).
+**Merge family.** Model `MergeOf` (sorted permutation under `lexLt` on a key; `map/reviews.json`
+`contracts[fid].model`), shared library `Fn/MergeInPlace/{Model,Spec,Win,Bytes,Cuts,Steps,
+Lemmas}.lean` (1,739 lines) plus `Slice`/`Spill` for the second copy. `__anon_7964`: proved
+(`m7964_spec` with the written-out `MergeOf` postcondition, `m7964_sail`, `pre_nonvacuous`,
+`post_snapshot` on 10 snapshots, difftest `agree` 10/10): 18 cut points, 61 items (3.4 per cut
+point), automatic share 1/61 (one infeasible leaf). `__anon_11564`: runs (22 cut points, 56
+leaves), slice-key and spill-state lemmas, `post_snapshot` on 10 snapshots and difftest `agree`
+10/10 done; its machine proof (ledger 33) was still running when this section was written.
 
+| copy | ledger items | minutes | dollars | ratio to 7964 (min / $) |
+|---|---|---:|---:|---:|
+| 7964 (first) | 25, 26, 27 | 81.3 | 23.44 | 1 |
+| 11564 (so far) | 28, 29, 30, 33 (open) | ≥ 59 | ≥ 20.7 | ≥ 0.73 / ≥ 0.88 |
+
+Reuse gate (≤ 40%): **fails** for merge, measured value already ≥ 0.73 (minutes) / 0.88
+(dollars) with the copy unfinished. What was shared: the model, contract, window/search/
+rotation lemmas, byte-provenance checker, cut shapes and step lemmas, budget lemmas. What was
+not: 11564 compares through pointers (string keys, pointer-equality shortcut, length
+comparison), spills a dozen live values to a 0x110 frame and uses `ra`/`s1–s11` as scratch, so
+its assertions, register maps and every leaf are new. The one change that would move the gate:
+per-family leaf tactics that read the register/spill maps off the leaf state, so a copy's
+leaves stop being hand-written (automatic share is 0–2% in both families).
 
 ## S11
 
