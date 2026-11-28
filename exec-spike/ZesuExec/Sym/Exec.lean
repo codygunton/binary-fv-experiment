@@ -213,6 +213,7 @@ def stepI (img : Image) (pc : Nat) (i : Instr) (S : SState) :
   | .slliw rd rs1 sh => wr rd (mkSext 32 (mkBin .sll (S.reg rs1) (.lit sh.toNat)))
   | .slti rd rs1 imm => wr rd (mkBin .slt (S.reg rs1) (wlit (sx imm)))
   | .slt rd rs1 rs2 => wr rd (mkBin .slt (S.reg rs1) (S.reg rs2))
+  | .srai rd rs1 sh => wr rd (mkBin .sra (S.reg rs1) (.lit sh.toNat))
 
 /-- Fetch and decode at `pc` (inside `.text`, 4-aligned). -/
 def fetchI (img : Image) (pc : Nat) : Option Instr :=

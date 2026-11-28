@@ -1752,3 +1752,5 @@
 {"schema": 2, "rec": "start", "id": 21, "ts": "2026-11-28T07:33:17Z", "fn": null, "item": "S9.4 source view feedback (5 fixes)", "kind": "infra", "agent": "S9Viewer"}
 {"schema": 2, "rec": "stop", "id": 21, "agent": "S9Viewer", "ts": "2026-11-28T07:52:35Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 22, "ts": "2026-11-28T08:02:38Z", "fn": null, "item": "S12b regenerate sail-riscv-lean (sra fix, B/Zbkb)", "kind": "infra", "agent": "SailRegen"}
+{"schema": 2, "rec": "stop", "id": 22, "agent": "SailRegen", "ts": "2026-11-28T08:24:50Z", "outcome": "closed", "note": "regenerated; check passes; build, verify.sh, difftest 80/80"}
+{"schema": 2, "rec": "start", "id": 23, "ts": "2026-11-28T08:24:50Z", "fn": null, "item": "S12b form srai", "kind": "form", "agent": "SailRegen"}

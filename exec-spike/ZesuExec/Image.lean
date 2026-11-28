@@ -4,7 +4,7 @@ import ZesuExec.Decode
 # Program image and the concrete step
 
 `Image` holds the `.text` words of the functions in scope and the `.rodata` byte ranges they
-read. `step` fetches from the image, decodes with `decodeNat` and executes one of the 46 forms.
+read. `step` fetches from the image, decodes with `decodeNat` and executes one of the 47 forms.
 -/
 
 namespace ZesuExec
@@ -109,6 +109,7 @@ def exec (m : Machine) : Instr → Option Machine
   | .slliw rd rs1 sh => m.writeReg rd (((m.reg rs1).setWidth 32 <<< sh.toNat).signExtend 64)
   | .slti rd rs1 imm => m.writeReg rd (if (m.reg rs1).slt (sx imm) then 1 else 0)
   | .slt rd rs1 rs2 => m.writeReg rd (if (m.reg rs1).slt (m.reg rs2) then 1 else 0)
+  | .srai rd rs1 sh => m.writeReg rd ((m.reg rs1).sshiftRight sh.toNat)
 
 end Machine
 

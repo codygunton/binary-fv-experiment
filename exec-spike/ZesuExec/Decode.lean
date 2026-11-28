@@ -1,7 +1,7 @@
 import ZesuExec.Machine
 
 /-!
-# The 46 RV64IM instruction forms of the executor (F0–F6, `alloc`, `free`, and the S12 forms)
+# The 47 RV64IM instruction forms of the executor (F0–F6, `alloc`, `free`, and the S12/S12b forms)
 
 `decodeNat` works on `Nat` with `/` and `%` so that kernel evaluation uses GMP arithmetic.
 Every other word decodes to `none`.
@@ -56,6 +56,7 @@ inductive Instr
   | slliw (rd rs1 : Fin 32) (shamt : BitVec 5)
   | slti (rd rs1 : Fin 32) (imm : BitVec 12)
   | slt (rd rs1 rs2 : Fin 32)
+  | srai (rd rs1 : Fin 32) (shamt : BitVec 6)
   deriving DecidableEq, Repr
 
 namespace Decode
@@ -77,7 +78,7 @@ def immU (w : Nat) : BitVec 20 := BitVec.ofNat 20 (field w 12 20)
 end Decode
 
 open Decode in
-/-- Decoder for the 46 forms; any other word (including words `≥ 2^32`) is `none`. -/
+/-- Decoder for the 47 forms; any other word (including words `≥ 2^32`) is `none`. -/
 def decodeNat (w : Nat) : Option Instr :=
   if w < 4294967296 then
     let opc := field w 0 7
@@ -123,7 +124,9 @@ def decodeNat (w : Nat) : Option Instr :=
       else if f3 = 1 then
         (if field w 26 6 = 0 then some (.slli rd rs1 (BitVec.ofNat 6 (field w 20 6))) else none)
       else if f3 = 5 then
-        (if field w 26 6 = 0 then some (.srli rd rs1 (BitVec.ofNat 6 (field w 20 6))) else none)
+        (if field w 26 6 = 0 then some (.srli rd rs1 (BitVec.ofNat 6 (field w 20 6)))
+         else if field w 26 6 = 0x10 then some (.srai rd rs1 (BitVec.ofNat 6 (field w 20 6)))
+         else none)
       else none
     else if opc = 0x33 then
       if f7 = 0 then
@@ -172,6 +175,6 @@ def Instr.mnemonic : Instr → String
   | .addiw .. => "addiw" | .bge .. => "bge" | .lwu .. => "lwu" | .srliw .. => "srliw"
   | .subw .. => "subw" | .lh .. => "lh" | .ori .. => "ori" | .srl .. => "srl"
   | .divu .. => "divu" | .remu .. => "remu" | .slliw .. => "slliw" | .slti .. => "slti"
-  | .slt .. => "slt"
+  | .slt .. => "slt" | .srai .. => "srai"
 
 end ZesuExec

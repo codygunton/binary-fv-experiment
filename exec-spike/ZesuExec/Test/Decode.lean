@@ -31,8 +31,8 @@ theorem decode_table : Expected.table.all mnemonicAgrees = true := by decide +ke
 
 theorem decode_table_size : Expected.table.length = 4397 := by decide +kernel
 
-/-- Words of the forms added in S12, taken from functions outside the image (address, word,
-mnemonic as `llvm-objdump -M no-aliases` prints them). -/
+/-- Words of the forms added in S12 and S12b, taken from functions outside the image (address,
+word, mnemonic as `llvm-objdump -M no-aliases` prints them). -/
 def s12Samples : List (Nat × Nat × String) :=
   [(0x800059e0, 0x00a64633, "xor"), (0x800053a0, 0xfff38e9b, "addiw"),
    (0x800053b0, 0x020f5c63, "bge"), (0x800059bc, 0x01096603, "lwu"),
@@ -40,7 +40,8 @@ def s12Samples : List (Nat × Nat × String) :=
    (0x80011bfc, 0xf7e41703, "lh"), (0x80003224, 0x080a6693, "ori"),
    (0x8000862c, 0x0186d6b3, "srl"), (0x8000fa1c, 0x02b555b3, "divu"),
    (0x80019c78, 0x0219f533, "remu"), (0x8001fb44, 0x002d149b, "slliw"),
-   (0x80024be4, 0x000da513, "slti"), (0x8000f9d8, 0x01702633, "slt")]
+   (0x80024be4, 0x000da513, "slti"), (0x8000f9d8, 0x01702633, "slt"),
+   (0x8000db90, 0x43f6d693, "srai"), (0x80031f24, 0x438a5913, "srai")]
 
 theorem decode_s12_samples : s12Samples.all mnemonicAgrees = true := by decide +kernel
 
