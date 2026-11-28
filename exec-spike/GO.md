@@ -383,3 +383,29 @@ data yet on this branch. Unattributed share 27%.
 
 **Gate S29.** `make -C tools/zmap map test`: 86 tests OK; `zmap check: pass`; the forecast shows
 tokens. Cost: ledger item S29Tracking 42.
+
+## S24
+
+**Step 1 (fit count), tier 2, S24Fit, 2026-11-28.** `OPEN/checkable/FIT.md` lists every cut
+assertion and every leaf with its class and, for a miss, the reason; `OPEN/checkable/fit.json`
+holds the counts.
+
+- assertions: 102 of 104 (98.1%). The 104 are the cut assertions of the 15 functions first
+  proved after revision 2 (alloc, free, `scratch_arena` alloc/free/remap, `memmove`, `memset`,
+  three `mem.rotate`, two `mergeInPlace`, `zkvm_sha256`, `sparseRoot`, `progressiveRootAt`).
+  The two misses are `scratch_arena.alloc` `AR`/`AN`: the callee outcome `Out` is a disjunction
+  over heap atoms of the current memory.
+- leaves: 92 of 245 (37.6%); over all 258 map leaves (with `scratch_arena.alloc`, merged in S22)
+  95 of 258 (36.8%). Per function (fit/total): rotate 8/20 each, `mergeInPlace__anon_7964`
+  27/43, `__anon_11564` 27/56, alloc 6/43, free 2/32, `scratch_arena` free 4/4, remap 2/7, alloc
+  3/13. Largest miss groups: `sizeClassOfBytes` evaluation 52 (omega does not split `if`; no
+  existing per-interval lemma), reversal boundaries 27, swap plus one `revAt` identity 15, round
+  transitions 12, search probes 11.
+- Measured for the count: with `len_round` removed from `fpprep`/`lpprep`, `C11564/Leaves.lean`
+  still checks for 6 of the 10 leaves using them (`lake env lean`, 130 s).
+
+**Step 2 decision: stop S24 and S25.** Assertions pass (≥ 60%), leaves fail (< 40%). Steps 3–5
+are not built; S26 step 4 is skipped; S26–S28 continue with Prop assertions. Sensitivity
+(245 basis): counting `len_round`/`strOk_round` applied once per compared element as one
+application gives 100/245 (40.8%; 103/258 = 39.9%); counting a piecewise model function
+(`sizeClassOfBytes`, `remapOut`) evaluated by `if` splits as linear gives 157/245 (64.1%).

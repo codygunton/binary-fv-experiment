@@ -1657,3 +1657,7 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   functions (p50 $24,562, 69.5G tokens over 10,147 open cut points; >3,000 band $17,722 p50, was
   $2,887); new metric groups tiers, replay, reuse, varloc, fit. `make -C tools/zmap map test` 86
   OK, `zmap check: pass`.
+- S24 steps 1–2 (S24Fit, tier 2, branch s24): `OPEN/checkable/FIT.md` and `fit.json`.
+  Assertions 102 of 104 fit; leaves 92 of 245 (37.6%; 95 of 258 with `scratch_arena.alloc`).
+  Decision: stop S24 and S25 (leaves below 40%); S26–S28 with Prop assertions. Main swing: 52
+  `sizeClassOfBytes` leaves (would fit if `leaf_check` split `if` chains).
