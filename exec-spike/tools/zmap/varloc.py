@@ -462,12 +462,23 @@ def render(t):
 
 
 def block_rows(t, starts):
-    """Viewer data: variable list and, per block start, [[var, loc text or null], ...]."""
+    """Viewer data: `vars` [[label, text]], `locs` (distinct location texts) and, per block
+    start, `blocks` [[var, index into locs or -1 when missing], ...]."""
     lab = labels(t)
-    rows = []
+    locs, index, rows = [], {}, []
     for pc in starts:
-        rows.append([[vi, t['vars'][vi]['locs'][li][3] if li >= 0 else None] for vi, li in at(t, pc)])
-    return {'vars': [[lab[i], var_text(t, i)] for i in range(len(t['vars']))], 'blocks': rows}
+        row = []
+        for vi, li in at(t, pc):
+            k = -1
+            if li >= 0:
+                text = t['vars'][vi]['locs'][li][3]
+                k = index.setdefault(text, len(locs))
+                if k == len(locs):
+                    locs.append(text)
+            row.append([vi, k])
+        rows.append(row)
+    return {'vars': [[lab[i], var_text(t, i)] for i in range(len(t['vars']))], 'locs': locs,
+            'blocks': rows}
 
 
 # ------------------------------------------------------------------------------ validation

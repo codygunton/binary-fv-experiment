@@ -1,0 +1,1 @@
+{"schema":"zmap.varloc.v1","id":"f_8010f4f8","name":"_RNvNtNtNtNtCs1r1jF4enR2T_6ziskos7zisklib3lib9secp256k15curve16lift_x_secp256k1","entry":2148594936,"debug":false,"frame_base":null,"frames":[],"scopes":[],"vars":[],"cuts":[{"pc":2148594936,"why":"entry","vars":[]},{"pc":2148595192,"why":"ret","vars":[]}],"coverage":{"in_scope":0,"located":0,"cuts":2}}

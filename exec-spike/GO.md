@@ -383,3 +383,66 @@ data yet on this branch. Unattributed share 27%.
 
 **Gate S29.** `make -C tools/zmap map test`: 86 tests OK; `zmap check: pass`; the forecast shows
 tokens. Cost: ledger item S29Tracking 42.
+
+## S23
+
+**Tool.** `tools/zmap/varloc.py` extends `vendor/dwarf.py`: `code_dwarf` relocates the debug
+object's DWARF, `.debug_loc` included, with the checked code deltas the source hints use
+(section 1 `0x80000000`, section 6 `0x800db93c`; 388 anchors). For every subprogram with code
+it collects the inline frames, the scopes (subprogram, inlined subroutines, lexical blocks) and
+every variable and parameter DIE: frame, name, type name, byte size, and its locations (location
+list entries, `exprloc`, `const_value`) as text and as pieces (`reg`, `mem` base+offset with
+`fbreg` resolved through the frame base `s0`, `addr`, `const`, `expr` for a computed value,
+`undef` for an optimised-out piece). 387 subprograms, 27,587 variable/parameter DIEs (plan: 27,602
+records, counted with slightly different rules), 51 with no location at all.
+
+- `zmap varloc build` writes `map/varloc/<id>.json` for every target function (frames, scopes,
+  vars, per cut point `[[var, loc index or -1]]`, `coverage {in_scope, located, cuts}`) and
+  `map/varloc/index.json` (target coverage, per-function coverage, per-cut buckets). Rebuilt only
+  when the ELF, the object or the cut points change. In `make -C tools/zmap map`.
+- `zmap brief <fn>` prints, after its 60 lines, a legend (`label = frame.name: type (size)`) and
+  one line per cut point: `label=location ...; missing ...` (`--no-vars` omits it). `python3 -m
+  zmap brief f_80076ed0` prints 465 cut lines (4,386 of 6,952 in-scope variables located).
+- Viewer: the block panel lists the variables in scope at the block's start with their location
+  or `missing` (`detail.js` field `vars`: labels, interned location texts, rows per block).
+- Variables without a location at a cut point are listed as missing; nothing is guessed.
+
+**Coverage (step 4).** Tables for all 222 target functions; 29 have no debug information (they
+come from other objects: `memcpy`, `memmove`, `memset`, `zisk_host.*`, `read_input`,
+`write_output`, `zkvm_*` accelerators, Rust `core` panics). Over the target's 10,489 cut points:
+96,598 of 165,550 variables in scope have a location (58.4%). Per cut point: all located 2,356;
+75% or more 1,279; 50% or more 4,158; above 0 2,356; none located 152; no variable in scope 188.
+
+**Validation (step 3).** `zmap varloc validate` reads each copy's hand-written cut assertions
+from the Lean sources (`RegsAre`, `SlotsAre`, `InnerA`'s byte pointers, frame-content
+quantifiers, `At`'s slots; the entry's argument registers from `Spec`) and asks the table, at
+each assertion's pc (also at the six proof cuts that are not map cuts), whether a located
+variable sits in that register or frame slot (frame = sp after the prologue, `s0` = frame + fs).
+Output `map/varloc/validation.json`; `-v` prints every fact with the table beside it.
+
+| copy | facts (args + cut) | supplied | plain variable facts | derived-value facts | `Common` facts |
+|---|---|---|---|---|---|
+| `mem.rotate__anon_8330` | 68 (3 + 65 reg) | 12 | 4 / 15 | 8 / 53 | 0 / 112 |
+| `mergeInPlace__anon_7964` | 193 (3 + 184 reg, 6 slot) | 55 | 48 / 89 | 7 / 104 | 0 / 272 |
+| `mergeInPlace__anon_11564` | 259 (3 + 133 reg, 123 slot) | 88 | 52 / 113 | 36 / 146 | 0 / 336 |
+| total | 520 | **155 (29.8%)** | 104 / 217 (47.9%) | 51 / 303 | 0 / 720 |
+
+"Plain" = the fact's value is one name (`w as`, `w i`, `ptr m`, an argument); "derived" = an
+expression (`32·as`, `ptr + 48·i + 15`, `size / 2`, constants). `Common` (sp, `s0`, `ra`, kept
+registers, saved-register slots) is never described by DWARF and is generated from `Cfg` anyway.
+
+Agreement, checked by reading the 155 pairs: 152 name the quantity the proof means (`a3 = as` ↔
+`A` piece 0, `a7 = ae` ↔ `A` piece 1, `t3 = ae` ↔ `B.start`, `curr`, `size`, `mid`, `i`,
+`end = len/2`, `amount`, the slice pieces `value`/`mid_item`, 11564's slots `0x48 mid`, `0x50 as`,
+`0x38 ae - as`). 3 are wrong: in `__anon_11564` at S1, T0 and T1 the slot `frame+0x38` holds
+`32·mid` but the location list still gives `rotate.amount` there (the slot was reused before the
+list's range ends). This is why the table is a proposal (rule 17): Lean rejects such an entry.
+
+What the table does not supply: `rotate`'s `items` parameter has no location in this object
+(only `amount`), so `ptr`/`len` (`a0`, `a1`) are never named; strength-reduced temporaries and
+byte pointers; loop counters at the outer heads where the location list starts one instruction
+later (`i` at `0x80064688` is missing); 11564's entry spills of `p` (`frame+0x8 … 0x20`).
+
+**Gate S23.** Tables exist for every target function; step 3 share 155/520 (29.8%; 47.9% of the
+plain variable facts). `make -C tools/zmap map test` passes (tests in `tests/test_varloc.py`).
+No contingency needed. Cost: ledger item S23VarLoc 42.

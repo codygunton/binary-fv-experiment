@@ -1657,3 +1657,11 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   functions (p50 $24,562, 69.5G tokens over 10,147 open cut points; >3,000 band $17,722 p50, was
   $2,887); new metric groups tiers, replay, reuse, varloc, fit. `make -C tools/zmap map test` 86
   OK, `zmap check: pass`.
+- S23 gate (branch s23): `zmap varloc build` writes `map/varloc/<id>.json` for all 222 target
+  functions from the relocated debug object (387 subprograms, 27,587 variable/parameter DIEs; 29
+  target functions have no debug information). Coverage at the 10,489 cut points: 96,598 of
+  165,550 in-scope variables located (58.4%). `zmap brief` prints the table per cut point
+  (`f_80076ed0`: 465 cut lines); the viewer's block panel lists the variables. Validation against
+  the hand-written assertions of `mem.rotate__anon_8330`, `mergeInPlace__anon_7964`,
+  `__anon_11564`: 155 of 520 register/slot facts supplied (29.8%; plain-variable facts 104/217),
+  3 of the 155 stale (11564 slot `0x38`). `make -C tools/zmap map test` 100 OK.

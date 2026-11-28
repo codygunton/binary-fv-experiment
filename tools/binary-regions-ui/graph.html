@@ -1742,9 +1742,9 @@ function renderBlockPanel() {
   // Variables in scope at the block's start (S23, map/varloc): debug-information proposals.
   if (dt && dt.vars) {
     const rows = dt.vars.blocks[i] || [];
-    h += `<h3>variables at ${hex(start)} · ${rows.filter(r => r[1] != null).length}/${rows.length} located (debug information, proposals)</h3>` +
-      (rows.length ? rows.map(([v, loc]) => `<div><code>${esc(dt.vars.vars[v][0])}</code> ` +
-        (loc == null ? '<span class="muted">missing</span>' : `<code>${esc(loc)}</code>`) +
+    h += `<h3>variables at ${hex(start)} · ${rows.filter(r => r[1] >= 0).length}/${rows.length} located (debug information, proposals)</h3>` +
+      (rows.length ? rows.map(([v, l]) => `<div><code>${esc(dt.vars.vars[v][0])}</code> ` +
+        (l < 0 ? '<span class="muted">missing</span>' : `<code>${esc(dt.vars.locs[l])}</code>`) +
         ` <span class="muted">${esc(dt.vars.vars[v][1])}</span></div>`).join('') : '<div class="muted">none in scope</div>');
   } else if (dt) h += '<h3>variables</h3><div class="muted">no map/varloc table (zmap varloc build)</div>';
   panel.innerHTML = h;

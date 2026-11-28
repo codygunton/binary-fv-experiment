@@ -155,6 +155,8 @@ class Tables(unittest.TestCase):
         rows = varloc.block_rows(t, [b['start'] for b in f['blocks']])
         self.assertEqual(len(rows['blocks']), len(f['blocks']))
         self.assertEqual(len(rows['vars']), len(t['vars']))
+        entry = {rows['vars'][v][0]: (rows['locs'][k] if k >= 0 else None) for v, k in rows['blocks'][0]}
+        self.assertEqual(entry, {'amount': 'a2'})
 
 
 if __name__ == '__main__':

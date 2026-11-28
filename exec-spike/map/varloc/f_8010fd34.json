@@ -1,0 +1,1 @@
+{"schema":"zmap.varloc.v1","id":"f_8010fd34","name":"__udivti3","entry":2148597044,"debug":false,"frame_base":null,"frames":[],"scopes":[],"vars":[],"cuts":[{"pc":2148597044,"why":"entry","vars":[]},{"pc":2148597088,"why":"ret","vars":[]}],"coverage":{"in_scope":0,"located":0,"cuts":2}}

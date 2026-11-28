@@ -1,0 +1,1 @@
+{"schema":"zmap.varloc.v1","id":"f_800e8300","name":"zkvm_keccak256","entry":2148434688,"debug":false,"frame_base":null,"frames":[],"scopes":[],"vars":[],"cuts":[{"pc":2148434688,"why":"entry","vars":[]},{"pc":2148434764,"why":"ret","vars":[]}],"coverage":{"in_scope":0,"located":0,"cuts":2}}
