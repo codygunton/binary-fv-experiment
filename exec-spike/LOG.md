@@ -1340,3 +1340,9 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `src-txAccessList`, `src-executeBlockStateless` (runtime and compiler folded),
   `src-drilldown-cfg` (`nibbles.hpEncode` inlined into `main.updMakeExtension`, 11 blocks
   highlighted), `src-meaning-layer`.
+- S7 cont. (DTFFieldsC, 2026-11-28, branch `dtf`): merged `exec-spike` (S11/S12/S17/S9.4; union of
+  LOG/ledger/history, map regenerated). Stage 2 step 1 done: arms 3-4 rows (`shape.py --fields
+  0,1,2,3,4`, 2481 entries; `gen_leaves.py` 415 instances). `store_src`/`astore_src` return the
+  source's `FieldsOk`; the four store-cut leaves (`HashStore.lean`, `AuthStore.lean`) prove their
+  targets' rows by `keptCarry_sound … (by decide)`. **Counts before → after: manual 646 → 646,
+  open 1 → 1** (`lake build ZesuExec.Fn.DTF.Reach`: 647 items).

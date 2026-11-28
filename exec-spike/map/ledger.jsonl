@@ -1749,3 +1749,4 @@
 {"schema": 2, "rec": "stop", "id": 2, "agent": "S17MapPrecision", "ts": "2026-11-28T07:19:34Z", "outcome": "closed", "note": "S17 gate measured; make map test passes"}
 {"schema": 2, "rec": "start", "id": 20, "ts": "2026-11-28T07:07:13Z", "fn": null, "item": "S9.4 source view", "kind": "infra", "agent": "S9Viewer"}
 {"schema": 2, "rec": "stop", "id": 20, "agent": "S9Viewer", "ts": "2026-11-28T07:28:04Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 21, "ts": "2026-11-28T07:44:33Z", "fn": "f_8000050c", "item": "S7 stage 2 cont.: arms 3-4 rows, legacy v, Extra 80002dc4, TxAt, buffers; DTF.reach/dtf_spec/dtf_sail", "kind": "leaf", "agent": "DTFFieldsC"}

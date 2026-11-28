@@ -290,10 +290,11 @@ Then `Extra 0x80002dc4` and the bridge (`ChecksOk` + `FieldsOk` → `decode t pa
 
 ### Stage 2 status (DTFFieldsB)
 
-Rows for arms 0-2 committed (`Rows.lean`, `shape.py --fields 0,1,2`); `--fields 0,1,2,3,4` infers
-rows that carry every scalar field to `0x80002dc4` (legacy `chainId`/tag/`v` excepted: derived from
-`vRaw` by `0x80001fac`/`0x80002004`'s leaves, needs a rule or hand proofs there). To land arms 3-4:
-`HashStore.lean`/`AuthStore.lean` use `keptCarry_sound` (`Slot.lean`) for their targets' rows.
+Rows for all five arms committed (`Rows.lean`, `shape.py --fields 0,1,2,3,4`, 2481 entries): every
+scalar field reaches `0x80002dc4` (legacy `chainId`/tag/`v` excepted: derived from `vRaw` by
+`0x80001fac`/`0x80002004`'s leaves, needs a rule or hand proofs there). The store cuts' leaves
+(`HashStore.lean`, `AuthStore.lean`) carry their targets' rows by `keptCarry_sound` (`store_src`,
+`astore_src` return the source's `FieldsOk`).
 In-leaves of the success write: `0x80001fac` (3), `0x80002004` (3) arm 0; `0x80002b50`,
 `0x80002bb4` arm 1 → `0x80002dbc`; `0x80002c94`, `0x80002cfc` arm 2, `0x80002f90`, `0x80002ff0`
 arm 4 → `0x80002db8`; `0x80003064`, `0x800030d4` arm 3 → `0x80002dc4`; `0x80002db8 → 0x80002dbc →
