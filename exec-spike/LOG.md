@@ -1346,3 +1346,14 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   source's `FieldsOk`; the four store-cut leaves (`HashStore.lean`, `AuthStore.lean`) prove their
   targets' rows by `keptCarry_sound … (by decide)`. **Counts before → after: manual 646 → 646,
   open 1 → 1** (`lake build ZesuExec.Fn.DTF.Reach`: 647 items).
+- S7 cont. (DTFFieldsC, 2026-11-28, branch `dtf`): stage 2 steps 2-3 and the scalar part of step 4.
+  New value kinds (`Field.lean`, `FieldVal.At`): `lc`/`lt`/`lv` (legacy chain id, tag, `v` from
+  `v_raw`'s limbs, rule `legacyOk`, arithmetic `lt_word`/`lv35`/`lv27`/`lc35` in `Fields.lean`),
+  `ty` (`a2` in `s2`, rows at `0x80000574` and the arm heads proved in `Entry.lean`/`Jump.lean`),
+  `cst` (constant tags and empty slices, `cstOk`). `Extra` at `0x80002db8/dbc/dc4` =
+  `ChecksOk σ (fieldCount σ.t)`, proved by `leaf_gen` (`succOk`, `extra_succ`). `Rows.lean`: 2687
+  entries; the row at `0x80002dc4` carries every scalar `TxAt` reads on every arm. `gen_leaves.py`
+  415 instances. **Counts before → after: manual 646 → 646, open 1 → 1** (`lake build
+  ZesuExec.Fn.DTF.Reach`: 647 items). `80002dc4_0` still open: needs the hash/tuple walks in the
+  loop invariants (arms 3/4 `decode`), the `TxAt` store proof, and the buffers (CUTS.md § Stage 2
+  status, items 1-3). `tools/verify.sh`, `zmap check` pass.
