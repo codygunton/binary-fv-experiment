@@ -173,7 +173,7 @@ const meaningComplete = f => MEANINGFUL.has(f.meaning) && [...needsOf(f.id)].eve
 const C = {
   'closed+compliance': '#2ea043', 'closed+sail': '#56d364', 'closed': '#a5f0b4',
   'closed-on-assumptions': '#9be9a8', 'conditional': '#e3b341', 'in-proof': '#d29922',
-  'contract-draft': '#bc8cff', 'assumed': '#a371f7', 'blocked': '#f85149', 'ready': '#58a6ff',
+  'contract-draft': '#bc8cff', 'service': '#8b949e', 'assumed': '#a371f7', 'blocked': '#f85149', 'ready': '#58a6ff',
   'waiting': '#6e7681', 'out': '#30363d',
 };
 const LEAF_C = { auto: '#56d364', manual: '#58a6ff', open: '#f85149' };
@@ -1193,7 +1193,7 @@ const SRCFILE = new Map();
 window.ZMAP_SRC_FILE = (n, data) => settle('f:', SRCFILE, n, data);
 const loadSrcFile = n => loadScript('f:', SRCFILE, n, `src/file/${n}.js`);
 const sfLocFns = f => f.loc.map(L => FN.get(L[0])).filter(Boolean);
-const PROOF_WORST = ['blocked', 'waiting', 'ready', 'contract-draft', 'in-proof', 'conditional', 'assumed',
+const PROOF_WORST = ['blocked', 'waiting', 'ready', 'contract-draft', 'in-proof', 'conditional', 'assumed', 'service',
                      'closed-on-assumptions', 'closed', 'closed+sail', 'closed+compliance', 'out'];
 const MEANING_WORST = ['none', 'machine-only', 'model', 'spec-sail'];
 function srcLayerValue(f) {

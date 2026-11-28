@@ -41,7 +41,7 @@ class Legacy(unittest.TestCase):
         # S13: the allocator has a draft contract (the legacy fixture holds no status for it)
         for fid in ('f_80042494', 'f_80041f38'):
             self.assertEqual(by[fid]['state'], 'contract-draft')
-        self.assertEqual(by['f_800e06c0']['state'], 'assumed')  # memcpy: a service
+        self.assertEqual(by['f_800e06c0']['state'], 'service')  # memcpy
         self.assertEqual(by['f_800cb40c']['status_id'], 'F1')
         kinds = {t['kind'] for t in m['trust']}
         self.assertEqual(kinds, {'service', 'contract-unreviewed'})

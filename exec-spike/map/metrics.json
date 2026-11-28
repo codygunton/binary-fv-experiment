@@ -1,6 +1,6 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T19:37:04Z",
+ "generated": "2026-11-28T19:39:45Z",
  "coverage": {
   "headline": {
    "cut_points_closed": 189,
@@ -191,7 +191,7 @@
    "blocked": 27,
    "closed+sail": 17,
    "closed": 2,
-   "assumed": 1
+   "service": 1
   }
  },
  "trust": {
@@ -999,12 +999,12 @@
    "usd": 911.47,
    "totalTokens": 2709571550.15,
    "requests": 8966.35,
-   "minutes": 3777.95,
+   "minutes": 3783.34,
    "builds": 2078.84
   },
-  "session_usd": 1240.61,
-  "unattributed_usd": 326.44,
-  "unattributed_share": 0.2631,
+  "session_usd": 1242.03,
+  "unattributed_usd": 327.86,
+  "unattributed_share": 0.264,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
   "infrastructure_share": 0.2456,
@@ -1095,7 +1095,7 @@
      341.67,
      1011099219.58,
      3299.28,
-     1535.12,
+     1537.82,
      908.97
     ],
     [
@@ -1113,7 +1113,7 @@
      8.57,
      24404606.85,
      87.98,
-     512.82,
+     515.51,
      13.11
     ],
     [
@@ -1163,7 +1163,7 @@
      276.01,
      843491491.78,
      2668.09,
-     1358.26,
+     1360.96,
      659.87,
      1.8,
      0.0977
@@ -1189,7 +1189,7 @@
      20.98,
      64602029.0,
      223.0,
-     571.99,
+     574.68,
      103.0,
      5.25,
      0.2057
@@ -1377,10 +1377,10 @@
    "rows": [
     [
      "coordinator",
-     106.59,
+     108.02,
      10.79,
-     95.81,
-     0.8988,
+     97.23,
+     0.9002,
      0
     ],
     [

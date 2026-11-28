@@ -129,8 +129,8 @@ def next_action(f, by_id):
         return 'run zesu_auto and zesu_assemble'
     if s == 'contract-draft':
         return 'review the draft contract'
-    if s == 'assumed':
-        return 'none (trusted: assumed or service)'
+    if s in ('service', 'assumed'):
+        return 'none (trusted: ' + s + ')'
     if s == 'blocked':
         return 'resolve blockers: ' + ', '.join(sorted(set(blocker_keys(f))))
     if s == 'ready':

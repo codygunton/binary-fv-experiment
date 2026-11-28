@@ -780,6 +780,27 @@ entry machine; `pre`: those strings present, readable, disjoint from the items a
 - **Emulator:** `tools/svc_test.py --check 0x813-reg fn-memmove` compares the staging word at
   `0xa0000f00` and the untouched old cell `0xa0400f00` against `ziskemu`.
 
+## Correction: regenerated Sail RISC-V model (S12b)
+
+- **Trusted model changed** (`sail-riscv-lean/`, user-approved 2026-11-28). Old pin: Sail 0.20.1
+  compiler unpatched, modules `main;I_insts;M_insts`. New pin (`sail/PROVENANCE.md`): the same
+  Sail 0.20.1 with `sail/00-sail-lean-asr.patch` (sha256 `97476ae1…2eefd`, the upstream fix
+  rems-project/sail `895028208155`, released in 0.20.2), modules `main;I_insts;M_insts;Zba;Zbb;
+  Zbs;Zbkb`; profile config and patches `01`, `02` unchanged.
+- **Changed hunks and why:** (1) arithmetic right shift. Sail 0.20.1's `lib/vector.sail` bound
+  the builtin `sail_arith_shiftright` to `BitVec.rotateRight` for Lean, so the old model's
+  `srai`/`sra`/`sraiw`/`sraw` rotated; the patch binds it to `BitVec.sshiftRight`. (2) The
+  Zba/Zbb/Zbs/Zbkb decode and execute clauses, which the old build omitted (8 forms used by the
+  binary decoded as illegal).
+- **Test showing the bug:** under the old model `decide` proved `srai 1, 1 = 2^63`
+  (`OPEN/forms/Srai.lean`, removed with the fix); the regression examples beside `shiftI_srai`
+  in `ZesuExec/Sail/RegWrite.lean` now prove `= 0`. The regeneration check
+  (`nix build .#zesuSailRiscvLeanRegenerationCheck`) reproduces the committed tree.
+- **Definition changed:** `Configured.misa` / `configuredB` also require `misa.B = 1` (the model
+  enables Zbb/Zbs only then); statement texts unchanged; the difftest's initial states all set it.
+- **Impact:** no existing statement changed; `Sail/Decode.lean` needed `maxRecDepth 8192`; every
+  `*_sail` and compliance theorem rebuilt; three-way difftest agrees on all snapshots.
+
 ## S15 (recursion)
 
 - **Rule:** `ZesuExec.Vc.vc_sound_rec` (`Vc/SoundRec.lean`, guarded in `Axioms.lean`). `PlanR`

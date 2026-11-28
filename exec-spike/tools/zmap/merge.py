@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 CLOSED = ('closed+compliance', 'closed+sail', 'closed')
 PROVED = CLOSED + ('closed-on-assumptions',)
 STATES = ('closed+compliance', 'closed+sail', 'closed', 'closed-on-assumptions', 'conditional',
-          'in-proof', 'contract-draft', 'assumed', 'blocked', 'ready', 'waiting', 'out')
+          'in-proof', 'contract-draft', 'service', 'assumed', 'blocked', 'ready', 'waiting', 'out')
 ITEM_STATES = ('auto', 'manual', 'open')
 MEANING = ('spec-sail', 'model', 'machine-only', 'none')
 SIZE_BANDS = ((150, 'size:<=150'), (600, 'size:151-600'), (3000, 'size:601-3000'),
@@ -202,7 +202,9 @@ def merge(static, status, reviews, items, status_source=''):
             return 'in-proof'
         if (f['contract'] or {}).get('contract') == 'draft':
             return 'contract-draft'
-        if f['assumed'] or f['service']:
+        if f['service']:
+            return 'service'
+        if f['assumed']:
             return 'assumed'
         if f['blockers']:
             return 'blocked'
@@ -245,7 +247,7 @@ def merge(static, status, reviews, items, status_source=''):
             f['state'] = 'out'
             continue
         pending = [c for c in f['callees'] if c != f['id']
-                   and by_id[c]['state'] not in PROVED + ('assumed',)]
+                   and by_id[c]['state'] not in PROVED + ('service', 'assumed')]
         f['state'] = 'waiting' if pending else 'ready'
         f['waiting_on'] = pending
 
