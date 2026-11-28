@@ -350,17 +350,33 @@ def write_src(data, src, m):
         shutil.rmtree(src_dir)
     os.makedirs(os.path.join(src_dir, 'file'))
     order = layout.neighbourhood(src['functions'], src['edges'])
-    names = {f['id']: f['name'] for f in m['functions']}
     fns = []
     for f, nb in zip(src['functions'], order):
         fns.append({k: f[k] for k in ('id', 'kind', 'name', 'short', 'group', 'file', 'decl_line',
                                       'lo', 'hi', 'instances', 'derived')}
                    | {'loc': [[L['fn'], L['instr'], int(L['out_of_line']), L['blocks']]
                               for L in f['locations']], 'in': nb['in'], 'out': nb['out']})
-    zesu = [f for f in src['functions'] if f['group'] == 'zesu' and f['kind'] == 'source']
-    guest = next((f for f in zesu if any(names.get(L['fn']) == 'root.guestMain' and L['out_of_line']
-                                         for L in f['locations'])), None)
-    default = guest or max(zesu, key=lambda f: sum(L['instr'] for L in f['locations']), default=None)
+    # Landing function: the Zesu program's entry, the first function reached from `_start`
+    # (breadth first over binary callees: _start -> _zisk_main -> main) whose out-of-line source
+    # function is in the Zesu tree.
+    by_id = {f['id']: f for f in m['functions']}
+    out_of_line = {L['fn']: f for f in src['functions'] for L in f['locations']
+                   if L['out_of_line'] and f['kind'] == 'source'}
+    start = next((f['id'] for f in m['functions'] if f['name'] == '_start'), None)
+    default, seen, queue = None, {start}, [start] if start else []
+    while queue and default is None:
+        fid = queue.pop(0)
+        sf = out_of_line.get(fid)
+        if sf is not None and sf['group'] == 'zesu':
+            default = sf
+            break
+        for c in by_id[fid]['callees']:
+            if c not in seen:
+                seen.add(c)
+                queue.append(c)
+    if default is None:
+        zesu = [f for f in src['functions'] if f['group'] == 'zesu' and f['kind'] == 'source']
+        default = max(zesu, key=lambda f: sum(L['instr'] for L in f['locations']), default=None)
     files = []
     missing = []
     for fl in src['files']:

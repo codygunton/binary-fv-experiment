@@ -1340,3 +1340,24 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - Not done: arms 3-4 rows committed, legacy `v` values, `Extra 0x80002dc4` (`ChecksOk σ
     (fieldCount σ.t)` plus buffers), the 16 leaves into `0x80002db8/dbc/dc4` by hand, `TxAt` from
     the stores, the buffers (data copy, access list image, hashes, tuples) — CUTS.md § Open.
+- S9.4 feedback (S9Viewer, 2026-11-28, branch `viewer`): the page lands on the Zesu entry
+  `root.main` (`zkvm/root.zig:46`, the first Zesu function reached from `_start` via
+  `_zisk_main`), pinned as "★ main" at the top of the file tree and found by searching `main`;
+  the tree opens the Zesu group and lists each file's functions. Navigation: every navigation
+  (centre a function, open a control-flow view, select a block, change the source file, switch
+  view) pushes a history entry with the whole view in the hash and `popstate` restores it;
+  in-page ◀ ▶ and the list of visited places, Alt+Left/Alt+Right. Scripted check (GPU Chromium):
+  main -> root.guestMain -> alt_fl_alloc.get -> Back -> Back -> Forward -> Alt+Right -> ◀ gave
+  root.main, guestMain, get, guestMain, main, guestMain, get, guestMain (PASS). Call lines in the
+  source are marked and clickable (enter the callee). Hand-written Zig highlighter (keywords,
+  types, literals, builtins, strings, numbers, comments, calls; nothing vendored); layer colour
+  as a gutter bar and faint background. Draggable splitters (source | stage | panel, drawer),
+  sizes in localStorage. Linked hover: a source line lights the neighbour node and edge whose
+  call site is on it, or in the control-flow view the blocks covering it; a node, label or block
+  marks its lines with a dashed outline, scrolled into view after a 0.7 s hold. Neighbours are
+  ordered by the line of their first call site (tested). Crisp drawing: renderer at the device
+  pixel ratio with autoDensity and roundPixels (re-sized on DPR change), stage translation
+  snapped to device pixels, label font rasterised at 1.5x the pixel ratio, source view at scale
+  1 when it fits; MSAA back on (GPU: `f_8001e8fc` pans at 60 fps at zoom 1.5/0.6/0.1/0.03).
+  Screenshots `map/site/shots/fb-*.png` (DPR 1 and 2, hovers, resized panes); `make -C
+  tools/zmap map test` passes (80 tests).

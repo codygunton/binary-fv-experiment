@@ -10,7 +10,7 @@ TOOLS = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 PACKAGE = os.path.dirname(TOOLS)
 sys.path.insert(0, TOOLS)
 
-from zmap import elfread, site, source  # noqa: E402
+from zmap import elfread, layout, site, source  # noqa: E402
 
 ELF = '/home/cody/zesislar/build/stock-zisk/zesu-zisk.elf'
 OBJ = ('/home/cody/zesislar-archive/stock-inputs/'
@@ -85,6 +85,36 @@ class Source(unittest.TestCase):
             states = [by_id[L['fn']]['state'] for L in f['locations']]
             if f['derived']['proof'] in closed:
                 self.assertTrue(all(s in closed for s in states), f['name'])
+
+    def test_neighbour_order_follows_call_sites(self):
+        """Callers and callees are ordered by the line of their first call site (no line last),
+        ties by name: top to bottom is the order they appear in the source."""
+        fns, edges = SRC['functions'], SRC['edges']
+        order = layout.neighbourhood(fns, edges)
+        for f, nb in zip(fns, order):
+            for side, end in (('out', 'to'), ('in', 'from')):
+                keys = [(layout.first_line(edges[i]) is None, layout.first_line(edges[i]) or 0,
+                         fns[edges[i][end]]['name']) for i in nb[side]]
+                self.assertEqual(keys, sorted(keys), (f['name'], side))
+        tx = by_name('rlp_decode.txAccessList')
+        lines = [layout.first_line(edges[i]) for i in order[tx['id']]['out']]
+        lined = [x for x in lines if x is not None]
+        self.assertEqual(lined, sorted(lined))
+        self.assertGreater(len(lined), 1)
+
+    def test_landing_is_the_zesu_entry(self):
+        """The page lands on the first Zesu function reached from _start (root.zig `main`)."""
+        out = tempfile.mkdtemp(prefix='zmap-src-')
+        try:
+            site.write_src(out, SRC, MAP)
+            with open(os.path.join(out, 'src', 'index.js')) as fh:
+                text = fh.read()
+            data = json.loads(text[text.index('=') + 1:text.rindex(';')])
+            main = data['functions'][data['default']]
+            self.assertEqual((main['name'], main['short'], main['group']), ('root.main', 'main', 'zesu'))
+            self.assertTrue(data['files'][main['file']]['short'].endswith('root.zig'))
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
 
     def test_site_writes_source_data(self):
         out = tempfile.mkdtemp(prefix='zmap-src-')
