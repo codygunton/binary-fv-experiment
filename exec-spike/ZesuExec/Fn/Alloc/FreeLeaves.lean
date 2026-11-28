@@ -154,7 +154,7 @@ theorem leafFJ2F {l : Leaf} (hex : l.exit = .at 0x80042170) (hst : l.S.steps ≤
     LeafGoal freePlan fJ2 l := by
   intro g m hA hc
   have hm : Match (fJ2.env g m) fJ2.S m := (cutFJ (pc := 0x80042134) (A := AFJ2)
-    (bud := fun _ _ => 16) fun _ _ h => h.1 g m hA).2.1
+    (bud := fun _ _ => 16) (fun _ _ h => h.1) g m hA).2.1
   obtain ⟨hkv, hk⟩ := hsem g m hA hc
   obtain ⟨⟨hpre, -, ⟨hK, h2m, h11⟩, hs⟩, -⟩ := hA
   refine ⟨by rw [hob]; simp, by show l.S.steps - 0 ≤ 16; omega, fun m' hm' he hso => ?_⟩
@@ -173,10 +173,16 @@ theorem leafFJ2F {l : Leaf} (hex : l.exit = .at 0x80042170) (hst : l.S.steps ≤
   · rw [Match.reg_of hm' 10 _ h10, Sym.eval_bin, Sym.eval_bin, hvi, Sym.eval_lit, Sym.eval_lit]
     exact shl3_add hk
 
+/-- The callee-saved registers `free` never touches (`sp`, `s0` come back from the frame). -/
+def fSavedRegs : List Nat := [9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]
+
+theorem fSaved_sub {i : Nat} (h : i ∈ fSavedRegs) : i ∈ fKeepRegs := by
+  simp only [fSavedRegs, fKeepRegs, List.mem_cons, List.mem_nil_iff, or_false] at h ⊢; omega
+
 theorem returns_free {g : Sig} {m' : Machine} {env : Env} {S : SState} {r : Nat}
-    (hm' : Match env S m') (hkeep : ∀ i ∈ fKeepRegs, S.reg i = .var i)
-    (h1 : S.reg 1 = .init r 8 8) (h2 : S.reg 2 = .ptr r 16) (h8 : S.reg 8 = .init r 0 8)
-    (hv : ∀ i : Fin 32, i.val ∈ fKeepRegs → env.vars i.val = g.m.reg i)
+    (hm' : Match env S m') (hkeep : ∀ i ∈ fSavedRegs, S.reg i = .var i)
+    (h2 : S.reg 2 = .ptr r 16) (h8 : S.reg 8 = .init r 0 8)
+    (hv : ∀ i : Fin 32, i.val ∈ fSavedRegs → env.vars i.val = g.m.reg i)
     (hra : (Sym.init r 8 8).eval env = g.m.reg 1) (hs0 : (Sym.init r 0 8).eval env = g.m.reg 8)
     (hb : env.base r = g.m.reg 2 - 16)
     (hpc : m'.pc = (Sym.bin .and (.init r 8 8) (.lit 18446744073709551614)).eval env) :
@@ -187,8 +193,8 @@ theorem returns_free {g : Sig} {m' : Machine} {env : Env} {S : SState} {r : Nat}
   · rw [Match.reg_of hm' 2 _ h2]; show env.base r + BitVec.ofInt 64 16 = _
     rw [hb]; simp [BitVec.sub_add_cancel]
   · rw [Match.reg_of hm' 8 _ h8]; exact hs0
-  · have hk : i.val ∈ fKeepRegs := by
-      simp only [fKeepRegs, List.mem_cons, List.mem_nil_iff, or_false]
+  · have hk : i.val ∈ fSavedRegs := by
+      simp only [fSavedRegs, List.mem_cons, List.mem_nil_iff, or_false]
       rcases hi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide
     exact (reg_var hm' i (hkeep i.val hk)).trans (hv i hk)
 
@@ -197,8 +203,8 @@ theorem leafFRet {l : Leaf}
     (hex : l.exit = .ret (.bin .and (.init 0 8 8) (.lit 18446744073709551614)))
     (hob : l.obligs = [.aligned (.bin .and (.init 0 8 8) (.lit 18446744073709551614)) 4])
     (hst : l.S.steps ≤ 16) (hmem : l.S.mem = []) (hreg : l.S.regions = [frameR])
-    (hkeep : ∀ i ∈ fKeepRegs, l.S.reg i = .var i)
-    (h1 : l.S.reg 1 = .init 0 8 8) (h2 : l.S.reg 2 = .ptr 0 16) (h8 : l.S.reg 8 = .init 0 0 8) :
+    (hkeep : ∀ i ∈ fSavedRegs, l.S.reg i = .var i)
+    (h2 : l.S.reg 2 = .ptr 0 16) (h8 : l.S.reg 8 = .init 0 0 8) :
     LeafGoal freePlan fJ2 l := by
   intro g m hA _
   have hcut := cutFJ (pc := 0x80042134) (A := AFJ2) (bud := fun _ _ => 16) (fun _ _ h => h.1) g m hA
@@ -215,7 +221,8 @@ theorem leafFRet {l : Leaf}
   have hmm : m'.mem = m.mem := funext fun a =>
     written_only hm rfl hm' (by rw [hreg]; rfl) hso a (by rw [hmem]; rintro ⟨w, hw, -⟩; cases hw)
   rw [hex] at he ⊢
-  have hret := returns_free hm' hkeep h1 h2 h8 (fun i hi => (hv i).trans (hK.1 i hi)) hra hs0 hb he
+  have hret := returns_free hm' hkeep h2 h8 (fun i hi => (hv i).trans (hK i (fSaved_sub hi))) hra hs0
+    hb he
   have hstk := hpre.2.2.2.2.2.2.1
   have hfr : CalleeFrameFree (Priv g.L) g.m := hpre.2.2.2.2.2.2.2.2.1
   have hfb := hpre.2.2.2.2.2.2.2.2.2
@@ -226,5 +233,105 @@ theorem leafFRet {l : Leaf}
       rw [hmm]; exact saved_pres hstk hs _ (((live_ok _ _ hpre.1).2 b hb').2 j hj))
   refine ⟨hret, fun a ha => hout a fun hf => ha (.inr (.inr hf)), erase_ok hheap hpre.2.1,
     fun a ha => priv_erase hpre.2.1 ha⟩
+
+/-! ## The push leaf -/
+
+/-- The freed block's first word: in the block or in its private tail. -/
+theorem word_split {L : List (Word × Nat)} {st : St} (hg : Good L st) {p : Word} {n : Nat}
+    (hb : (p, n) ∈ L) {a : Word} (ha : InRange p 8 a) : InRange p n a ∨ Priv L a := by
+  have hin := hg.live_in hb
+  simp only at hin
+  have := eight_le_cap n
+  have ha' : InRange (BitVec.ofNat 64 p.toNat) 8 a := by rwa [BitVec.ofNat_toNat, BitVec.setWidth_eq]
+  obtain ⟨t, ht, rfl⟩ := inRange_lit (by unfold heapTop at hin; omega) ha'
+  exact live_word hg hb ht
+
+/-- The push: the head cell gets the block, the block's first word the old head. -/
+theorem leafFPush {l : Leaf}
+    (hex : l.exit = .ret (.bin .and (.init 2 8 8) (.lit 18446744073709551614)))
+    (hob : l.obligs = [.aligned (.bin .and (.init 2 8 8) (.lit 18446744073709551614)) 4])
+    (hst : l.S.steps ≤ 7) (hreg : l.S.regions = SFF.regions)
+    (hmemw : l.S.mem = [⟨0, 0, 8, .ptr 1 0⟩, ⟨1, 0, 8, .init 0 0 8⟩])
+    (hr0 : readConst l.S 0 0 8 = .ptr 1 0) (hr1 : readConst l.S 1 0 8 = .init 0 0 8)
+    (hc0 : readConst SFF 0 0 8 = .init 0 0 8)
+    (hkeep : ∀ i ∈ fSavedRegs, l.S.reg i = .var i)
+    (h2 : l.S.reg 2 = .ptr 2 16) (h8 : l.S.reg 8 = .init 2 0 8) :
+    LeafGoal freePlan fF l := by
+  intro g m hA _
+  have hcut := FreeF.cut_80042170 g m hA
+  have hwf : Env.WF (fF.env g m) fF.S := hcut.1
+  have hm : Match (fF.env g m) fF.S m := hcut.2.1
+  obtain ⟨⟨hpre, -, ⟨hK, h2m, h11⟩, hs⟩, hk, h10⟩ := hA
+  have hstk := hpre.2.2.2.2.2.2.1
+  have hfr : CalleeFrameFree (Priv g.L) g.m := hpre.2.2.2.2.2.2.2.2.1
+  have hbL := hpre.2.1
+  obtain ⟨st, hd, hg⟩ := hpre.1
+  have hin := hg.live_in hbL
+  simp only at hin
+  have hp8 : (g.m.reg 11).toNat + 8 < 2 ^ 64 := by
+    unfold heapTop at hin; have := le_cap (flen g); omega
+  have hcellA : m.reg 10 + 8 = BitVec.ofNat 64 (flBase + 8 * fsc g) := by
+    rw [h10]; apply BitVec.eq_of_toNat_eq
+    rw [BitVec.toNat_add, toNat_ofNat_lt (by omega), toNat_ofNat_lt (by unfold flBase; omega)]
+    unfold flBase; simp; omega
+  have hcellP : ∀ t < 8, Priv g.L (BitVec.ofNat 64 (flBase + 8 * fsc g + t)) :=
+    fun t ht => priv_cell hg (by unfold flBase; omega)
+  have hcellF := frame_avoid hfr (by unfold flBase; omega) hcellP
+  have hcellPa : ∀ a, InRange (BitVec.ofNat 64 (flBase + 8 * fsc g)) 8 a → Priv g.L a := fun a ha => by
+    obtain ⟨t, ht, rfl⟩ := inRange_lit (by unfold flBase; omega) ha
+    exact hcellP t ht
+  have e0 : (fF.env g m).base 0 = BitVec.ofNat 64 (flBase + 8 * fsc g) := hcellA
+  have e1 : (fF.env g m).base 1 = g.m.reg 11 := h11
+  have hb2 : (fF.env g m).base 2 = g.m.reg 2 - 16 := h2m
+  obtain ⟨hra, hs0⟩ := saved_ra (r := 2) hwf hm rfl rfl rfl hb2 hs
+  have hv : ∀ i : Fin 32, (fF.env g m).vars i.val = m.reg i := envOf_var shapeFF g m
+  refine ⟨?_, by show l.S.steps - 0 ≤ 7; omega, fun m' hm' he hso => ?_⟩
+  · rw [hob]; simp only [List.mem_singleton, forall_eq, Oblig.holds, Sym.eval_bin, Sym.eval_lit,
+      BinOp.eval, hra, notOne]
+    exact hpre.2.2.2.2.2.2.2.1
+  have hwo := written_only hm rfl hm' hreg hso
+  have hwr : ∀ a, (∃ w ∈ l.S.mem, ∃ j, w.off ≤ j ∧ j < w.off + w.n ∧
+      a = (fF.env g m).base w.r + BitVec.ofNat 64 j) →
+      InRange (BitVec.ofNat 64 (flBase + 8 * fsc g)) 8 a ∨ InRange (g.m.reg 11) 8 a := by
+    rintro a ⟨w, hw, j, hj1, hj2, rfl⟩
+    rw [hmemw] at hw
+    simp only [List.mem_cons, List.mem_nil_iff, or_false] at hw
+    rcases hw with rfl | rfl <;> simp only at hj1 hj2
+    · left; rw [e0, ← ofNat_add_nat, inRange_ofNat (by unfold flBase; omega) (by unfold flBase; omega)]
+      omega
+    · right; rw [e1]; unfold InRange; rw [toNat_add_ofNat (by omega)]; omega
+  -- the head cell now holds the block, the block's first word the old head
+  have hcellv : rd m' (flBase + 8 * fsc g) = some (g.m.reg 11) := by
+    have h := rd_cst (wf_regions hwf hreg) hm' (r := 0) (off := 0) (R := wordR) (by rw [hreg]; rfl)
+      (by show 0 + 8 ≤ 8; decide)
+    rw [e0, toNat_ofNat_lt (by unfold flBase; omega), Nat.add_zero, hr0] at h
+    rw [h]; congr 1; show (fF.env g m).base 1 + BitVec.ofInt 64 0 = _; rw [e1]; simp
+  have hnext : rd m' (g.m.reg 11).toNat = rd g.m (flBase + 8 * fsc g) := by
+    have h := rd_cst (wf_regions hwf hreg) hm' (r := 1) (off := 0) (R := wordR) (by rw [hreg]; rfl)
+      (by show 0 + 8 ≤ 8; decide)
+    have h0 := rd_cst hwf hm (r := 0) (off := 0) (R := wordR) rfl (by show 0 + 8 ≤ 8; decide)
+    rw [e1, Nat.add_zero, hr1] at h
+    rw [e0, toNat_ofNat_lt (by unfold flBase; omega), Nat.add_zero, show fF.S = SFF from rfl, hc0] at h0
+    rw [h, ← h0]
+    refine rd_congr (a := flBase + 8 * fsc g) (by unfold flBase; omega)
+      fun t ht => hs.2.2 _ ?_
+    exact hcellF _ (by rw [inRange_ofNat (by unfold flBase; omega) (by unfold flBase; omega)]; omega)
+  have hagree : ∀ a, Priv g.L a → ¬ InRange (BitVec.ofNat 64 (flBase + 8 * fsc g)) 8 a →
+      ¬ InRange (g.m.reg 11) (cap (flen g)) a → m'.mem a = g.m.mem a := fun a hpa hnc hnb => by
+    rw [hwo a fun hw => (hwr a hw).elim hnc fun h8 => hnb (by
+      have := eight_le_cap (flen g); unfold InRange at h8 ⊢; omega)]
+    exact hs.2.2 a fun hf => hfr a hf hpa
+  have hpres : ∀ a, Arena a → (g.m.mem a).isSome → (m'.mem a).isSome := fun a _ h =>
+    pres_of hm' hreg hso a (saved_pres hstk hs a h)
+  have hcap : classBytes (fsc g) = cap (flen g) := by
+    unfold cap; unfold fsc at hk ⊢; rw [if_pos hk]
+  have hheap := push_ok hd hg hbL hk hcap hcellv hnext hagree hpres
+  rw [hex] at he ⊢
+  have hret := returns_free hm' hkeep h2 h8 (fun i hi => (hv i).trans (hK i (fSaved_sub hi))) hra
+    hs0 hb2 he
+  refine ⟨hret, fun a ha => ?_, hheap, fun a ha => priv_erase hbL ha⟩
+  rw [hwo a fun hw => (hwr a hw).elim (fun hc => ha (.inl (hcellPa a hc))) fun h8 =>
+    (word_split hg hbL h8).elim (fun hb => ha (.inr (.inl hb))) fun hp => ha (.inl hp)]
+  exact hs.2.2 a fun hf => ha (.inr (.inr hf))
 
 end ZesuExec.Fn.Alloc

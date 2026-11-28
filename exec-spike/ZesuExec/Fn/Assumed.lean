@@ -1,5 +1,4 @@
-import ZesuExec.Fn.Common
-import ZesuExec.Fn.Preserve
+import ZesuExec.Fn.Alloc.Spec
 
 /-!
 # Assumed contracts of `alt_fl_alloc.alloc` and `alt_fl_alloc.free`
@@ -26,24 +25,6 @@ alike). zesislar's `altFlMaxLog2Alignment` is 3; this contract diverges (STATEME
 
 namespace ZesuExec.Fn
 open ZesuExec
-
-def allocEntry : Nat := 0x80042494
-def freeEntry : Nat := 0x80041f38
-
-/-- An address inside one of the live blocks. -/
-def InLive (L : List (Word × Nat)) (a : Word) : Prop := ∃ b ∈ L, InRange b.1 b.2 a
-
-/-- `[lo, lo+n)` lies in RAM. -/
-def RamRange (lo : Word) (n : Nat) : Prop :=
-  Layout.ramLo ≤ lo.toNat ∧ lo.toNat + n ≤ Layout.ramHi
-
-/-- The `n` bytes at `a` are present. -/
-def Present (m : Machine) (a : Word) (n : Nat) : Prop :=
-  ∀ j < n, (m.mem (a + BitVec.ofNat 64 j)).isSome
-
-/-- The 16-byte frame an allocator callee uses avoids the allocator's memory. -/
-def CalleeFrameFree (Priv : Word → Prop) (m : Machine) : Prop :=
-  ∀ a, InRange (m.reg 2 - 16) 16 a → ¬ Priv a
 
 structure AllocAssumptions (img : Image) where
   Heap : List (Word × Nat) → Machine → Prop

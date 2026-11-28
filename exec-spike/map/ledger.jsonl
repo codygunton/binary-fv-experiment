@@ -1757,3 +1757,5 @@
 {"schema": 2, "rec": "stop", "id": 22, "agent": "S9Viewer", "ts": "2026-11-28T08:06:36Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 20, "ts": "2026-11-28T07:10:41Z", "fn": "f_800e06d0", "item": "S14 service registry + memmove", "kind": "service", "agent": "S14Services"}
 {"schema": 2, "rec": "stop", "id": 20, "agent": "S14Services", "ts": "2026-11-28T08:00:12Z", "outcome": "closed", "note": "registry, svc_test, memmove, memset closed; sha256 blocked (rev8)"}
+{"schema": 2, "rec": "start", "id": 23, "ts": "2026-11-28T08:15:18Z", "fn": "alt_fl_alloc.free", "item": "S13 free leaves, free_spec/free_sail", "kind": "leaf", "agent": "S13AllocB"}
+{"schema": 2, "rec": "stop", "id": 23, "agent": "S13AllocB", "ts": "2026-11-28T08:42:34Z", "outcome": "closed", "note": "free_spec/free_sail proved (FreeF: 4 cuts, 32 leaves, all manual); alloc_free_alloc non-vacuity; AllocModel deleted"}
