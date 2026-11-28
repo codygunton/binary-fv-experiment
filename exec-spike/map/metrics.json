@@ -1,6 +1,6 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T09:17:00Z",
+ "generated": "2026-11-28T09:31:29Z",
  "coverage": {
   "headline": {
    "cut_points_closed": 41,
@@ -186,9 +186,9 @@
   "states": {
    "closed-on-assumptions": 4,
    "conditional": 1,
-   "blocked": 139,
-   "waiting": 38,
-   "ready": 31,
+   "waiting": 131,
+   "blocked": 28,
+   "ready": 49,
    "assumed": 3,
    "closed+sail": 1,
    "closed+compliance": 3,
@@ -203,7 +203,7 @@
   ],
   "csr": {
    "defined": 4,
-   "emulator_tested": 3,
+   "emulator_tested": 4,
    "total": 14,
    "numbers": [
     "0x800",
@@ -225,8 +225,8 @@
   "trusted_lines": {
    "contracts": 1783,
    "service_definitions": 494,
-   "sail_patch_hunks": 18,
-   "configured": 25
+   "sail_patch_hunks": 19,
+   "configured": 26
   },
   "contracts_reviewed": 0,
   "contracts_unreviewed": 11,
@@ -308,7 +308,7 @@
      "unreviewed",
      "ZesuExec.Fn.TX.pre_nonvacuous",
      "-",
-     2
+     5
     ],
     [
      "f_8000050c",
@@ -335,7 +335,7 @@
      "unreviewed",
      "ZesuExec.Fn.F1.pre_nonvacuous",
      "-",
-     7
+     11
     ],
     [
      "f_800d5cb8",
@@ -344,7 +344,7 @@
      "unreviewed",
      "-",
      "-",
-     2
+     5
     ],
     [
      "f_800d6274",
@@ -380,7 +380,7 @@
      "unreviewed",
      "-",
      "-",
-     2
+     4
     ],
     [
      "f_800e06d0",
@@ -614,18 +614,18 @@
  },
  "effort": {
   "total": {
-   "usd": 652.19,
-   "totalTokens": 1964552137.15,
-   "requests": 6125.35,
-   "minutes": 1891.59,
-   "builds": 1405.84
+   "usd": 667.52,
+   "totalTokens": 2011682135.15,
+   "requests": 6393.35,
+   "minutes": 1996.62,
+   "builds": 1424.84
   },
-  "session_usd": 1024.46,
-  "unattributed_usd": 369.57,
-  "unattributed_share": 0.3607,
+  "session_usd": 1048.0,
+  "unattributed_usd": 377.77,
+  "unattributed_share": 0.3605,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
-  "infrastructure_share": 0.3262,
+  "infrastructure_share": 0.3258,
   "abandoned": {
    "usd": 0.0,
    "totalTokens": 0.0,
@@ -691,21 +691,21 @@
     ],
     [
      "form",
-     17,
-     12.09,
-     40822913.0,
-     135.0,
-     35.93,
-     22.0
+     26,
+     19.56,
+     65141258.0,
+     229.0,
+     72.76,
+     31.0
     ],
     [
      "infra",
-     39,
-     212.76,
-     638769920.83,
-     2013.11,
-     704.72,
-     322.5
+     41,
+     217.47,
+     652710595.83,
+     2100.11,
+     733.29,
+     325.5
     ],
     [
      "leaf",
@@ -736,12 +736,12 @@
     ],
     [
      "service",
-     1,
-     17.06,
-     51299330.0,
-     207.0,
-     49.52,
-     29.0
+     2,
+     20.22,
+     60170308.0,
+     294.0,
+     89.15,
+     36.0
     ]
    ]
   },
@@ -865,10 +865,10 @@
    "rows": [
     [
      "coordinator",
-     85.38,
+     86.06,
      10.79,
-     74.59,
-     0.8737,
+     75.28,
+     0.8747,
      0
     ],
     [
@@ -1096,6 +1096,14 @@
      0
     ],
     [
+     "S16GenericB",
+     15.38,
+     0.0,
+     15.38,
+     1.0,
+     0
+    ],
+    [
      "S17MapPrecision",
      15.21,
      14.5,
@@ -1128,18 +1136,18 @@
      0
     ],
     [
-     "S16GenericB",
-     14.72,
-     0.0,
-     14.72,
-     1.0,
+     "SailRegen",
+     13.29,
+     12.18,
+     1.11,
+     0.0839,
      0
     ],
     [
-     "SailRegen",
-     13.29,
+     "S13AllocC",
+     12.99,
      0.0,
-     13.29,
+     12.99,
      1.0,
      0
     ],
@@ -1156,6 +1164,22 @@
      12.53,
      0.0,
      12.53,
+     1.0,
+     0
+    ],
+    [
+     "DTFFieldsD",
+     11.72,
+     0.0,
+     11.72,
+     1.0,
+     0
+    ],
+    [
+     "S16GenericB.S16Merge",
+     10.11,
+     0.0,
+     10.11,
      1.0,
      0
     ],
@@ -1192,34 +1216,18 @@
      0
     ],
     [
-     "S16GenericB.S16Merge",
-     5.72,
-     0.0,
-     5.72,
-     1.0,
-     0
-    ],
-    [
-     "S13AllocC",
-     5.26,
-     0.0,
-     5.26,
-     1.0,
-     0
-    ],
-    [
-     "DTFFieldsD",
-     4.43,
-     0.0,
-     4.43,
-     1.0,
-     0
-    ],
-    [
      "XParamsFix",
      3.75,
+     3.16,
+     0.59,
+     0.1575,
+     0
+    ],
+    [
+     "S16GenericB.S16Merge2",
+     2.78,
      0.0,
-     3.75,
+     2.78,
      1.0,
      0
     ],
