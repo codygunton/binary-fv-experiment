@@ -1103,3 +1103,23 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - Checks: `lake build` (318 jobs) and `tools/verify.sh` pass after `make -C tools/zmap map`; no
     `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no `maxHeartbeats` change, no
     `zesu_simp`/`zesu_fact` lemma added.
+- S7 cont. (DTFAuth3, 2026-11-28, branch `dtf`): authorization-list loop closed, error write.
+  **Counts before → after: manual 597 → 646, auto 0, open 50 → 1** (closed 49 leaves: the 8 exits
+  after the last field, 13 growth/slot leaves, 3 store leaves, 8 `toOwnedSlice` leaves incl. the 5
+  reopened by DTFAuth2 and `80001ccc_2`, 16 front leaves, `80001400_0`; 5 leaves into
+  `0x80001400` reopened by its new `Extra` and re-closed by hand).
+  - Files: `AuthBack.lean` (draft fixed), `AuthExit.lean`, `AuthGrow.lean`, `AuthStore.lean`,
+    `AuthOwn.lean`, `AuthFields.lean` (subagent DTFAuth3.DTFFront), `ErrWrite.lean`
+    (`OPEN/DTF/CUTS.md` § Authorization-list loop, § Error write).
+  - Allocator-alignment leaves (`800029c8_2`, `800022e4_1`, `80002a38_1`, `80002ee0_1`) closed
+    under the bound 4.
+  - Assertion change: `AuthExtra 0x80001400` := `a0 = 3` (TX writes error code 0 or 3: `tx_err`);
+    `LeavesGen.lean` regenerated (`gen_leaves.py`, 5 instances fewer).
+  - Budgets: no change (several leaves use exactly the slack: `80002868_3` (remap), `800029c8_2`
+    (alloc), `80002a38_1` (free), four front leaves).
+  - Open (1): the success write `80002dc4_0` — field values, buffers' bytes and the bridge to
+    `decode` (CUTS.md § Open); so `DTF.reach`, `dtf_spec`, `dtf_sail` and the `Axioms.lean` guards
+    are not attempted.
+  - Checks: `lake build` (325 jobs) and `tools/verify.sh` pass after `make -C tools/zmap map`; no
+    `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no `maxHeartbeats` change, no
+    `zesu_simp`/`zesu_fact` lemma added.

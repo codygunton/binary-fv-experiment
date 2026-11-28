@@ -195,22 +195,43 @@ entry, `34359750741`; `Entry.lean`, `Jump.lean`, `AuthFront.lean` restated). The
 needs a tuple of `≥ 18` bytes: `AuthEnd` states `22 ≤ k`. `curOblL`/`CoreChkL` give the reads of a
 `.beL` loop leaf (use them for the loop-exit leaves with `leaf_call_xo`).
 
-Back half, stated in `Cuts.lean` (no leaf proved yet): `AuthOut` carries the payload length at
-`0x30`; `AuthBuf` = `BufIs` (room for `n + r`, `cap ≤ 2(n + r) + 1`, the growth rule keeps it);
-`AuthCur`/`AuthApp` (`0x78 = n+1`, `0x40 = 16n`, `0x38 = 128n`), `AuthGrow` (`cap = n`, `newCap n`
-words at `0x08/0x10/0x18`, `0x50 = 0`), `AuthNew`/`AuthNewF`, `AuthSlot` (`0x80002434`:
-`a0 = bp + 0x90 n`), `AuthDone`/`AuthOwn` (`toOwnedSlice`); `Extra` at `0x80002420`, `0x8000241c`,
-`0x800029c4`/`0x800029c8` (also `a0 = 0`), `0x80002a1c`, `0x80002a6c`, `0x800022e4`, `0x80002ecc`;
-`AuthSite` at `0x800029a8`, `0x80002a08`, `0x80002a38`, `0x80002a6c`, `0x80002f54`, `0x80002c68`,
-`0x80002ee0`. `SiteX`/`AuthSite` now take the callee index `x`: across `alloc` the old block's
-membership is stated for `x.1` (`BufL`), across `free` the new block's (`NewL`), so the `Post`'s
-`Heap (x.1 ++ [new])` / `Heap (x.1.erase b)` gives `Live` with them. `IdxOk .free` states the freed
-block is in `X`; `ret_free`, `cut_both` (`Ret.lean`) give `cut_80002a6c`, `cut_80002f14`.
-Reopened by these `Extra`s (need hand proofs): `80001ccc_2` (empty list → `AuthDone 0`),
-`800022e4_0`, `80002c68_0` (→ `AuthOwn`), `80002f54_0/1` (→ `AuthDone`, F0 keeps the frame).
-`AuthBack.lean` (uncommitted draft, not imported, 4 errors): `leaf_vac`, `src_init`, `out_n`,
-`newCap_eval`, `mulhu0`, `LowKeep`/`*_lk`, `remap_live`, `memcpy_live`, `end_2868`, `end_2820`,
-`end_app` (the shared core of the 8 exits `80002868_1..4`, `80002820_0..3`: store → `AuthApp n ∧
-AuthBuf n 1`; cap 0 → `AuthGrow 0`; remap call → `AuthGrow n`; overflow vacuous by `mulhu0`).
-Allocator-alignment leaves `800029c8_2`, `800022e4_1`, `80002a38_1`, `80002ee0_1` are no longer
-contract-blocked (bound 4, STATEMENTS.md § DTF point 7) but need this state.
+Back half, stated in `Cuts.lean`: `AuthOut` carries the payload length at `0x30`; `AuthBuf` =
+`BufIs` (room for `n + r`, `cap ≤ 2(n + r) + 1`, the growth rule keeps it); `AuthCur`/`AuthApp`
+(`0x78 = n+1`, `0x40 = 16n`, `0x38 = 128n`), `AuthGrow` (`cap = n`, `newCap n` words at
+`0x08/0x10/0x18`, `0x50 = 0`), `AuthNew`/`AuthNewF`, `AuthSlot` (`0x80002434`: `a0 = bp + 0x90 n`),
+`AuthDone`/`AuthOwn` (`toOwnedSlice`); `SiteX`/`AuthSite` take the callee index `x` (`BufL` across
+`alloc`, `NewL` across `free`); `IdxOk .free` states the freed block is in `X`.
+
+Closed (S7 cont., DTFAuth3): every leaf of the loop.
+- `AuthBack.lean` (DTFAuth2's draft, fixed): `newCap_eval`, `mulhu0`, `end_app`, `remap_live`,
+  `memcpy_live`, `LowKeep` (aligned frame words below `0x2e0`; `lowKept`/`ctx_lowKeep` for leaves).
+- `AuthExit.lean`: the 8 exits after the last field (`80002868_1..4`, `80002820_0..3`); tools
+  `addrObl`/`OblLA` (the address reads), `listOk`/`list_budget`, `call_list_budget`,
+  `capSym`/`growChk`/`grow_of`.
+- `AuthGrow.lean`: growth (remap null, `alloc(0x90 newCap, 4)`, `memcpy`, `free(bp, 0x90 n, 4)`,
+  `0x80002a6c` plain or free return) and the slot (`0x8000241c`, `0x80002420`, `buf_slot`).
+- `AuthStore.lean`: the store cut's three leaves (`astore_out`, as `HashStore.lean`).
+- `AuthOwn.lean`: `toOwnedSlice` (`0x80002f54`, `0x800022e4`, `0x80002c68`, `0x80002ecc`,
+  `0x80002ee0`) and the empty list `80001ccc_2`; `keep_budget`, `call_keep_budget`.
+- `AuthFields.lean` (DTFAuth3.DTFFront): the 16 front leaves of the table above.
+- The four allocator-alignment leaves (`800029c8_2`, `800022e4_1`, `80002a38_1`, `80002ee0_1`).
+
+## Error write (`0x80001400`)
+
+`Extra 0x80001400` = `a0 = 3` (`AuthExtra`). `ErrWrite.lean`: `0x800013fc` sets it; the four TX
+return sites (`0x80001a70`, `0x80001c98`, `0x80001d54`, `0x80001ec4`) by `tx_err` (TX's
+`OutcomeImage` writes error code 0 or 3, `load2_of_load8`); `80001400_0` writes it (`Done`'s error
+disjunct).
+
+## Open: the success write `80002dc4_0` (step 4, open assertion items 1, 2, 4)
+
+The last open item. `0x80002dc4 → 0x800011f8` must give `Done`'s success disjunct: `decode t
+payload = some tx` and `TxAt m res tx` (every scalar field's bytes, the `data` copy, the access
+list's entries, the blob hashes, the authorization tuples). `0x80002dc4` has no `Extra`; its
+in-edges are `0x80001fac`, `0x80002004`, `0x80002dbc`, `0x80003064`, `0x800030d4` (`0x80002dbc` from
+`0x80002db8`, `0x80002b50`, `0x80002bb4`, …), so an `Extra` there needs the field values carried
+along every success path (the design above, "Design for items 1, 2, 4"), plus the buffers' bytes:
+the hash list's 32-byte elements (F1/F4 get `bytesOf`) and the tuples' `0x90` bytes stored at
+`0x80002434` (`astore_out` keeps only the frame; the slot's bytes are the leaf's region-4 writes).
+Adding those conjuncts reopens every leaf whose target gains them (`leaf_gen` only proves
+`noExtra` targets).
