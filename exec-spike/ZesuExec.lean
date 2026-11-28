@@ -125,6 +125,7 @@ import ZesuExec.Fn.DTF.Slot
 import ZesuExec.Fn.DTF.HashStore
 import ZesuExec.Fn.DTF.AuthLib
 import ZesuExec.Fn.DTF.AuthFront
+import ZesuExec.Fn.DTF.AuthStep
 import ZesuExec.Fn.DTF.Reach
 import ZesuExec.Test.Auto
 import ZesuExec.Compliance.TXSail

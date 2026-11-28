@@ -594,8 +594,6 @@ theorem DTF.leaf_80001ccc_0 : LeafGoal DTF.plan DTF.plan.cuts[93]! ((DTF.plan.le
   leaf_gen (table[93]!) ((leavesAt 0x80001ccc)[0]!) (by decide) DTF.cut_80001ccc (by decide) (by decide)
 theorem DTF.leaf_80001ccc_1 : LeafGoal DTF.plan DTF.plan.cuts[93]! ((DTF.plan.leaves 0x80001ccc)[1]!) :=
   leaf_gen (table[93]!) ((leavesAt 0x80001ccc)[1]!) (by decide) DTF.cut_80001ccc (by decide) (by decide)
-theorem DTF.leaf_80001ccc_2 : LeafGoal DTF.plan DTF.plan.cuts[93]! ((DTF.plan.leaves 0x80001ccc)[2]!) :=
-  leaf_gen (table[93]!) ((leavesAt 0x80001ccc)[2]!) (by decide) DTF.cut_80001ccc (by decide) (by decide)
 theorem DTF.leaf_80001d40_0 : LeafGoal DTF.plan DTF.plan.cuts[94]! ((DTF.plan.leaves 0x80001d40)[0]!) :=
   leaf_gen (table[94]!) ((leavesAt 0x80001d40)[0]!) (by decide) DTF.cut_80001d40 (by decide) (by decide)
 theorem DTF.leaf_80001d54_0 : LeafGoal DTF.plan DTF.plan.cuts[95]! ((DTF.plan.leaves 0x80001d54)[0]!) :=
@@ -716,8 +714,6 @@ theorem DTF.leaf_80002274_0 : LeafGoal DTF.plan DTF.plan.cuts[115]! ((DTF.plan.l
   leaf_gen (table[115]!) ((leavesAt 0x80002274)[0]!) (by decide) DTF.cut_80002274 (by decide) (by decide)
 theorem DTF.leaf_80002274_1 : LeafGoal DTF.plan DTF.plan.cuts[115]! ((DTF.plan.leaves 0x80002274)[1]!) :=
   leaf_gen (table[115]!) ((leavesAt 0x80002274)[1]!) (by decide) DTF.cut_80002274 (by decide) (by decide)
-theorem DTF.leaf_800022e4_0 : LeafGoal DTF.plan DTF.plan.cuts[116]! ((DTF.plan.leaves 0x800022e4)[0]!) :=
-  leaf_gen (table[116]!) ((leavesAt 0x800022e4)[0]!) (by decide) DTF.cut_800022e4 (by decide) (by decide)
 theorem DTF.leaf_800022e4_2 : LeafGoal DTF.plan DTF.plan.cuts[116]! ((DTF.plan.leaves 0x800022e4)[2]!) :=
   leaf_gen (table[116]!) ((leavesAt 0x800022e4)[2]!) (by decide) DTF.cut_800022e4 (by decide) (by decide)
 theorem DTF.leaf_800022e4_3 : LeafGoal DTF.plan DTF.plan.cuts[116]! ((DTF.plan.leaves 0x800022e4)[3]!) :=
@@ -810,8 +806,6 @@ theorem DTF.leaf_80002bb4_0 : LeafGoal DTF.plan DTF.plan.cuts[146]! ((DTF.plan.l
   leaf_gen (table[146]!) ((leavesAt 0x80002bb4)[0]!) (by decide) DTF.cut_80002bb4 (by decide) (by decide)
 theorem DTF.leaf_80002bb4_1 : LeafGoal DTF.plan DTF.plan.cuts[146]! ((DTF.plan.leaves 0x80002bb4)[1]!) :=
   leaf_gen (table[146]!) ((leavesAt 0x80002bb4)[1]!) (by decide) DTF.cut_80002bb4 (by decide) (by decide)
-theorem DTF.leaf_80002c68_0 : LeafGoal DTF.plan DTF.plan.cuts[147]! ((DTF.plan.leaves 0x80002c68)[0]!) :=
-  leaf_gen (table[147]!) ((leavesAt 0x80002c68)[0]!) (by decide) DTF.cut_80002c68 (by decide) (by decide)
 theorem DTF.leaf_80002c68_1 : LeafGoal DTF.plan DTF.plan.cuts[147]! ((DTF.plan.leaves 0x80002c68)[1]!) :=
   leaf_gen (table[147]!) ((leavesAt 0x80002c68)[1]!) (by decide) DTF.cut_80002c68 (by decide) (by decide)
 theorem DTF.leaf_80002c94_0 : LeafGoal DTF.plan DTF.plan.cuts[148]! ((DTF.plan.leaves 0x80002c94)[0]!) :=
@@ -834,10 +828,8 @@ theorem DTF.leaf_80002dbc_0 : LeafGoal DTF.plan DTF.plan.cuts[151]! ((DTF.plan.l
   leaf_gen (table[151]!) ((leavesAt 0x80002dbc)[0]!) (by decide) DTF.cut_80002dbc (by decide) (by decide)
 theorem DTF.leaf_80002ee0_0 : LeafGoal DTF.plan DTF.plan.cuts[154]! ((DTF.plan.leaves 0x80002ee0)[0]!) :=
   leaf_gen (table[154]!) ((leavesAt 0x80002ee0)[0]!) (by decide) DTF.cut_80002ee0 (by decide) (by decide)
-theorem DTF.leaf_80002f54_0 : LeafGoal DTF.plan DTF.plan.cuts[156]! ((DTF.plan.leaves 0x80002f54)[0]!) :=
-  leaf_gen (table[156]!) ((leavesAt 0x80002f54)[0]!) (by decide) DTF.cut_80002f54 (by decide) (by decide)
-theorem DTF.leaf_80002f54_1 : LeafGoal DTF.plan DTF.plan.cuts[156]! ((DTF.plan.leaves 0x80002f54)[1]!) :=
-  leaf_gen (table[156]!) ((leavesAt 0x80002f54)[1]!) (by decide) DTF.cut_80002f54 (by decide) (by decide)
+theorem DTF.leaf_80002f14_0 : LeafGoal DTF.plan DTF.plan.cuts[155]! ((DTF.plan.leaves 0x80002f14)[0]!) :=
+  leaf_gen (table[155]!) ((leavesAt 0x80002f14)[0]!) (by decide) DTF.cut_80002f14 (by decide) (by decide)
 theorem DTF.leaf_80002f90_0 : LeafGoal DTF.plan DTF.plan.cuts[157]! ((DTF.plan.leaves 0x80002f90)[0]!) :=
   leaf_gen (table[157]!) ((leavesAt 0x80002f90)[0]!) (by decide) DTF.cut_80002f90 (by decide) (by decide)
 theorem DTF.leaf_80002f90_1 : LeafGoal DTF.plan DTF.plan.cuts[157]! ((DTF.plan.leaves 0x80002f90)[1]!) :=

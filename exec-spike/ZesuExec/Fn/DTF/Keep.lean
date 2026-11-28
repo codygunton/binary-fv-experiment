@@ -327,11 +327,12 @@ theorem extra_of_no {pc : Nat} (h : noExtra pc = true) (σ : Sig) (m : Machine) 
 def noSiteX (r : Nat) : Bool :=
   r != 0x800020c0 && r != 0x8000211c && !authSitePcs.contains r
 
-theorem siteX_of_no {r : Nat} (h : noSiteX r = true) (σ : Sig) (m : Machine) : SiteX r σ m := by
+theorem siteX_of_no {r : Nat} (h : noSiteX r = true) (σ : Sig) (x : Idx) (m : Machine) :
+    SiteX r σ x m := by
   simp only [noSiteX, Bool.and_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true'] at h
   obtain ⟨⟨h1, h2⟩, h3⟩ := h
   simp only [SiteX, if_neg h1, if_neg h2]
-  exact authSite_none h3 σ m
+  exact authSite_none h3 σ x m
 
 /-- The target has no inner budget and the constant part drops by the steps. -/
 def budgetKeep (pc pc' steps : Nat) : Bool :=

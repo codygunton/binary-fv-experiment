@@ -434,7 +434,7 @@ theorem DTF.leaf_800020c0_3 :
   have hidx : IdxOk (siteAt 109).kind σ (L, items, ⟨[], []⟩) m' := by
     rw [show (siteAt 109).kind = .f1 by decide]; exact ⟨hpre1, X, hlive, hbuf⟩
   have h25 : m'.reg 25 = w n := e25.trans r25
-  have hsx : SiteX (table[109]!).pc σ m' := by
+  have hsx : SiteX (table[109]!).pc σ (L, items, ⟨[], []⟩) m' := by
     rw [show (table[109]!).pc = 0x8000211c by decide]
     simp only [SiteX, show (0x8000211c : Nat) ≠ 0x800020c0 by decide, if_false, if_true]
     refine ⟨hitem, ?_⟩

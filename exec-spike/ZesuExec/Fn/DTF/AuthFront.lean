@@ -61,18 +61,21 @@ theorem DTF.leaf_80001ccc_3 :
   have l68 : m'.load (σ.fr + w 0x68) 8 = some (w (p - 0)) := by
     rw [ctx_word C (o := 0x68) (s := .init 0 664 8) (by decide) (by decide), Nat.sub_zero]
     exact congrArg some hpw
+  have l30 : m'.load (σ.fr + w 0x30) 8 = some (w p) := by
+    rw [ctx_word C (o := 0x30) (s := .init 0 664 8) (by decide) (by decide)]
+    exact congrArg some hpw
   have l78 : m'.load (σ.fr + w 0x78) 8 = some (w 0) :=
     ctx_word C (o := 0x78) (s := .lit 0) (by decide) (by decide)
   obtain ⟨L, X, hlive⟩ := (ctx_common C).2.2.2.2.2.2.2.2
   have hbuf : AuthBuf σ m' 0 0 :=
     ⟨16, 0, ctx_word C (o := 0x58) (s := .lit 16) (by decide) (by decide),
-      ctx_word C (o := 0x60) (s := .lit 0) (by decide) (by decide), by decide, L, X, hlive,
-      fun h0 => absurd h0 (by decide)⟩
+      ctx_word C (o := 0x60) (s := .lit 0) (by decide) (by decide), by decide, by decide, L, X,
+      hlive, fun h0 => absurd h0 (by decide)⟩
   have hloop : AuthLoop σ m' :=
-    ⟨c, h, p, 0, 0, ⟨⟨hs, hd⟩, rfl, Nat.le_refl _, l70, l68⟩, l78, hbuf⟩
+    ⟨c, h, p, 0, 0, ⟨⟨hs, hd⟩, rfl, Nat.le_refl _, l70, l68, l30⟩, l78, hbuf⟩
   refine ⟨?_, ?_, ?_⟩
   · rw [show (table[125]!).pc = 0x800024d0 by decide]; simpa [Extra, AuthExtra] using hloop
-  · rw [show budgetAt (table[125]!).pc = (6723, .list (.slot 0x68)) from rfl]; trivial
+  · rw [show budgetAt (table[125]!).pc = (7043, .list (.slot 0x68)) from rfl]; trivial
   -- the budget: `rest` moved past the list, the bytes left are the list payload
   obtain ⟨c10, hs10, hw10⟩ := restFrom_sound C (rs' := (table[125]!).rest) (by decide)
     ⟨.slot 0x158, true, 10⟩ (by decide)
@@ -83,8 +86,8 @@ theorem DTF.leaf_80001ccc_3 :
   subst hs10
   have hic : TX.itemConsumed h p = h + p := Nat.mod_eq_of_lt h64
   unfold budgetOf restLen
-  rw [show budgetAt (table[125]!).pc = (6723, .list (.slot 0x68)) from rfl,
-    show budgetAt (table[93]!).pc = (6745, .none) from rfl,
+  rw [show budgetAt (table[125]!).pc = (7043, .list (.slot 0x68)) from rfl,
+    show budgetAt (table[93]!).pc = (7065, .none) from rfl,
     show (table[125]!).rest.find? (·.len) = some ⟨.slot 0x158, true, 10⟩ by decide,
     show (table[93]!).rest.find? (·.len) = some ⟨.reg 22, true, 9⟩ by decide,
     show ((leavesAt 0x80001ccc)[3]!).S.steps - (table[93]!).shape.S.steps = 22 by decide]

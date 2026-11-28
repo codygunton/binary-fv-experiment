@@ -173,7 +173,7 @@ theorem leaf_call_xo (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.p
     (hcl : CallChk d l d' s t d'.pc = true)
     (hX : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
       Ctx d l σ m m' → CallFacts s d'.pc σ m' →
-      ∃ x, IdxOk s.kind σ x m' ∧ SiteX d'.pc σ m' ∧ ∀ m'', (calleeOf s.kind).Post σ x m' m'' →
+      ∃ x, IdxOk s.kind σ x m' ∧ SiteX d'.pc σ x m' ∧ ∀ m'', (calleeOf s.kind).Post σ x m' m'' →
         s.kind.bound + budgetOf d' σ m'' + (l.S.steps - d.shape.S.steps) ≤ budgetOf d σ m) :
     LeafGoal vcPlan (mkCut d) l := by
   intro σ m hA hc
@@ -227,7 +227,7 @@ theorem leaf_call_x (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.pc
     (hcl : CallChk d l d' s t d'.pc = true)
     (hX : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
       Ctx d l σ m m' → CallFacts s d'.pc σ m' →
-      ∃ x, IdxOk s.kind σ x m' ∧ SiteX d'.pc σ m' ∧ ∀ m'', (calleeOf s.kind).Post σ x m' m'' →
+      ∃ x, IdxOk s.kind σ x m' ∧ SiteX d'.pc σ x m' ∧ ∀ m'', (calleeOf s.kind).Post σ x m' m'' →
         s.kind.bound + budgetOf d' σ m'' + (l.S.steps - d.shape.S.steps) ≤ budgetOf d σ m) :
     LeafGoal vcPlan (mkCut d) l :=
   leaf_call_xo d d' s l t hpc hcut hsrc (coreChk0 hck)

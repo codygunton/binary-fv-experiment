@@ -560,7 +560,7 @@ theorem cut_slot (d : CutData) (n : Nat) (hpc : d.pc ≠ entry) (hs : d.site = n
   have hslot : SlotOk σ m n := by
     rcases hext with ⟨he, rfl⟩ | ⟨he, rfl⟩
     · simp only [Extra, he, if_pos, reduceCtorEq, if_false] at hex; exact hex.1
-    · simpa [Extra, he] using hex
+    · simp only [Extra, he, if_pos, reduceCtorEq, if_false] at hex; exact hex.1
   have hok : RegionOk ((m.reg 10, (some n : Option Nat).getD 0), ⟨some n, 1, true⟩) := by
     obtain ⟨hram, -⟩ := hslot
     unfold RamRange at hram
