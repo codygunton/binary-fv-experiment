@@ -1,6 +1,6 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T07:22:19Z",
+ "generated": "2026-11-28T07:22:48Z",
  "coverage": {
   "headline": {
    "cut_points_closed": 41,
@@ -334,7 +334,7 @@
      "unreviewed",
      "ZesuExec.Fn.F1.pre_nonvacuous",
      "-",
-     2
+     3
     ],
     [
      "f_800d5cb8",
@@ -601,9 +601,9 @@
    "minutes": 1643.99,
    "builds": 1303.84
   },
-  "session_usd": 829.9,
-  "unattributed_usd": 267.05,
-  "unattributed_share": 0.3218,
+  "session_usd": 831.38,
+  "unattributed_usd": 268.54,
+  "unattributed_share": 0.323,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
   "infrastructure_share": 0.3044,
@@ -832,10 +832,10 @@
     ],
     [
      "coordinator",
-     71.57,
+     71.86,
      10.79,
-     60.78,
-     0.8493,
+     61.08,
+     0.8499,
      0
     ],
     [
@@ -864,10 +864,10 @@
     ],
     [
      "S9Viewer",
-     25.82,
+     26.06,
      15.1,
-     10.72,
-     0.4151,
+     10.96,
+     0.4206,
      0
     ],
     [
@@ -1056,9 +1056,9 @@
     ],
     [
      "DTFFieldsB",
-     12.04,
+     12.41,
      0.0,
-     12.04,
+     12.41,
      1.0,
      0
     ],
@@ -1096,25 +1096,25 @@
     ],
     [
      "S14Services",
-     4.99,
+     5.22,
      0.0,
-     4.99,
+     5.22,
      1.0,
      0
     ],
     [
      "S13Alloc",
-     4.06,
+     4.24,
      0.0,
-     4.06,
+     4.24,
      1.0,
      0
     ],
     [
      "S16Generic",
-     3.86,
+     4.03,
      0.0,
-     3.86,
+     4.03,
      1.0,
      0
     ],

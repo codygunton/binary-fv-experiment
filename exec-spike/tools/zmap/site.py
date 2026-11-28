@@ -207,7 +207,7 @@ def call_edges(m):
 BLOCK_KINDS = ('plain', 'join', 'loop_head')
 EXITS = (None, 'call', 'tail', 'table', 'ret')
 EDGE_KINDS = ('fall', 'taken', 'jump', 'back', 'table')
-CUT_WHY = ('entry', 'loop', 'ret', 'join')
+CUT_WHY = ('entry', 'loop', 'ret', 'join', 'cycle')
 CALL_KINDS = ('direct', 'indirect', 'tail')
 
 
