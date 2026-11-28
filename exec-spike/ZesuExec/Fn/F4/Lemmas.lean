@@ -518,7 +518,7 @@ theorem alloc_step (E : Entry eb A L items m) {env : Env} {S Sl : SState} {mk mc
     (hex : mc.pc.toNat = allocEntry) (hfr : SameOutside (InWritable env S) mk mc) (hp : Preserved mk mc)
     (hinv : Inv eb A L m mk) (hheap : A.Heap L mk) (hscr : ScratchSame m mk)
     (hitems : BytesAt mk (listPtr m) items) (hwfB : Sl.wfB F = true)
-    (g11 : (mc.reg 11).toNat = sz) (hsz : 0 < sz ∧ sz < 2 ^ 63) (g12 : (mc.reg 12).toNat ≤ 3)
+    (g11 : (mc.reg 11).toNat = sz) (hsz : 0 < sz ∧ sz < 2 ^ 63) (g12 : (mc.reg 12).toNat ≤ 4)
     (hra : RetAligned mc) (g2 : mc.reg 2 = m.reg 2 - 96)
     (k : ∀ m2, Match (env.setVars F fun i => m2.reg (Fin.ofNat 32 i)) (Sl.override (callOv Sl F none)) m2 →
       Env.WF (env.setVars F fun i => m2.reg (Fin.ofNat 32 i)) (Sl.override (callOv Sl F none)) →
@@ -529,7 +529,7 @@ theorem alloc_step (E : Entry eb A L items m) {env : Env} {S Sl : SState} {mk mc
   have hheapc : A.Heap L mc := A.heap_frame' L mk mc hheap (fun a ha => hfr a fun hw =>
     E.ownNotPriv (own a hw) ha) hp
   have hpre : A.Heap L mc ∧ 0 < (mc.reg 11).toNat ∧ (mc.reg 11).toNat < 2 ^ 63 ∧
-      (mc.reg 12).toNat ≤ 3 ∧ StackOk mc 16 ∧ RetAligned mc ∧ CalleeFrameFree (A.Priv L) mc :=
+      (mc.reg 12).toNat ≤ 4 ∧ StackOk mc 16 ∧ RetAligned mc ∧ CalleeFrameFree (A.Priv L) mc :=
     ⟨hheapc, by omega, by omega, g12, E.calleeStack (hinv.2.trans hp) g2, hra,
       E.calleeFree (fun _ h => h) g2⟩
   have hcall := Reaches.preserve (A.alloc_spec L mc (by simpa [allocEntry] using hex) hpre)
@@ -573,7 +573,7 @@ theorem free_step (E : Entry eb A L items m) {env : Env} {S Sl : SState} {mk mc 
     (hpriv : ∀ a, A.Priv L' a → A.Priv L a)
     (hmem : (listPtr m, (listCap m).toNat * eb) ∈ L') (hwfB : Sl.wfB F = true)
     (g11 : mc.reg 11 = listPtr m) (g12 : (mc.reg 12).toNat = (listCap m).toNat * eb)
-    (g13 : (mc.reg 13).toNat ≤ 3) (hra : RetAligned mc) (g2 : mc.reg 2 = m.reg 2 - 96)
+    (g13 : (mc.reg 13).toNat ≤ 4) (hra : RetAligned mc) (g2 : mc.reg 2 = m.reg 2 - 96)
     (k : ∀ m2, Match (env.setVars F fun i => m2.reg (Fin.ofNat 32 i)) (Sl.override (callOv Sl F none)) m2 →
       Env.WF (env.setVars F fun i => m2.reg (Fin.ofNat 32 i)) (Sl.override (callOv Sl F none)) →
       Returns mc m2 → Inv eb A L m m2 →
@@ -589,7 +589,7 @@ theorem free_step (E : Entry eb A L items m) {env : Env} {S Sl : SState} {mk mc 
   have hheapc : A.Heap L' mc := A.heap_frame' L' mk mc hheap (fun a ha => hfr a fun hw =>
     E.ownNotPriv (own a hw) (hpriv a ha)) hp
   have hpre : A.Heap L' mc ∧ (mc.reg 11, (mc.reg 12).toNat) ∈ L' ∧ 0 < (mc.reg 12).toNat ∧
-      (mc.reg 12).toNat < 2 ^ 63 ∧ (mc.reg 13).toNat ≤ 3 ∧ StackOk mc 16 ∧ RetAligned mc ∧
+      (mc.reg 12).toNat < 2 ^ 63 ∧ (mc.reg 13).toNat ≤ 4 ∧ StackOk mc 16 ∧ RetAligned mc ∧
       CalleeFrameFree (A.Priv L') mc := by
     refine ⟨hheapc, ?_, ?_, ?_, g13, E.calleeStack (hinv.2.trans hp) g2, hra, E.calleeFree hpriv g2⟩
     · rw [g11, g12]; exact hmem

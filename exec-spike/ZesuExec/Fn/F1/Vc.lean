@@ -162,7 +162,7 @@ def allocC : Callee Sig zesuImage where
   entry := allocEntry
   bound := 53
   Pre := fun g _ m => g.A.Heap g.L m ∧ 0 < (m.reg 11).toNat ∧ (m.reg 11).toNat < 2 ^ 63 ∧
-    (m.reg 12).toNat ≤ 3 ∧ StackOk m 16 ∧ RetAligned m ∧ CalleeFrameFree (g.A.Priv g.L) m
+    (m.reg 12).toNat ≤ 4 ∧ StackOk m 16 ∧ RetAligned m ∧ CalleeFrameFree (g.A.Priv g.L) m
   Post := fun g _ m m' => (Returns m m' ∧
       SameOutside (fun a => g.A.Priv g.L a ∨ InRange (m.reg 2 - 16) 16 a) m m' ∧
       ((m'.reg 10 = 0 ∧ g.A.Heap g.L m') ∨
@@ -180,7 +180,7 @@ def freeC : Callee Sig zesuImage where
   entry := freeEntry
   bound := 42
   Pre := fun g L' m => g.A.Heap L' m ∧ (m.reg 11, (m.reg 12).toNat) ∈ L' ∧
-    0 < (m.reg 12).toNat ∧ (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 3 ∧ StackOk m 16 ∧
+    0 < (m.reg 12).toNat ∧ (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 4 ∧ StackOk m 16 ∧
     RetAligned m ∧ CalleeFrameFree (g.A.Priv L') m
   Post := fun g L' m m' => (Returns m m' ∧
       SameOutside (fun a => g.A.Priv L' a ∨ InRange (m.reg 11) (m.reg 12).toNat a ∨

@@ -91,8 +91,29 @@ Deliberate differences:
   `Priv` shrinks. `free`: `Heap (L.erase (p, bytes))`, `Priv` grows by at most the block.
   Differences: the block-alignment fact (`altFlBlockAlignment`) and the slack token are not
   stated (no proof needs them); `alloc` and `free` are bounded by 53 and 42 instructions (the
-  plan's figures); requests are `0 < bytes < 2^63`, `log2Align ≤ 3` as in `altFlAllocDomain`
-  (`:227`) and `altFlFreeDomain` (`:260`). `remap` is not assumed: it is F0.
+  plan's figures); requests are `0 < bytes < 2^63` as in `altFlAllocDomain` (`:227`) and
+  `altFlFreeDomain` (`:260`), and `log2Align ≤ 4` (S7 trust-base change below; zesislar has 3).
+  `remap` is not assumed: it is F0.
+  **Trust-base change (S7, approved by the user via the coordinator): `log2Align ≤ 3` → `≤ 4`**
+  in `alloc_spec` (`a2`) and `free_spec` (`a3`). It diverges from zesislar's
+  `altFlMaxLog2Alignment := 3` (`AltFlAllocPremises.v:35`), which the Rocq premises keep. Reason:
+  DTF's `txAuthList` buffer of 16-byte aligned `AuthorizationTuple`s calls `alloc`/`free` with 4
+  (§ DTF point 7). Evidence that `alt_fl_alloc` handles alignment 16: the source
+  (zesislar's `_build/p0c-zesu-source/src/zkvm/alt_fl_alloc.zig`, the linked `zesu.o`) takes the size class
+  `max(sizeClassOfBytes len, log2_align - 3)` in both `alloc` and `free` (so `free` recomputes
+  `alloc`'s class), a fresh block of class `k` is bump-allocated at alignment
+  `max(2^log2_align, 2^(k+3))`, and an oversized request is bump-allocated at `2^log2_align`; the
+  ELF agrees (`llvm-objdump -d -M no-aliases`, `build/stock-zisk/zesu-zisk.elf`):
+  `alt_fl_alloc.alloc` `0x80042494` masks `a2 & 0x3f`, computes the byte class, then
+  `a4 = a2 - 3`, `class = a4` when `a4 ≥ class` (`0x800424bc..0x8004267c`), takes the
+  alignment-free path only when `a2 ≤ 3` (`0x80042684`), and the fresh path
+  (`0x80042724..0x8004275c`) aligns the heap position to `max(8 << class, 1 << a2)`;
+  `alt_fl_alloc.free` `0x80041f38` computes the same class from `a3` (`0x80041f50..0x80042130`)
+  before pushing onto `free_lists[class]`. The path with `log2Align = 4` is no longer than with
+  `≤ 3` (two instructions instead of three after the class), so the bounds 53 and 42 stand. No
+  proof used the old bound beyond restating it: F1, F4, F5 and TX pass 0 or 3, DTF's generated
+  `allocArgs` check now admits a literal `≤ 4`; `Test/AllocModel.lean` is unchanged (its
+  `alloc_spec`/`free_spec` hold vacuously) and still builds a non-empty instance.
   Assumption-interface change (S6, TX): a fixed set `Arena` (the allocator's state object and
   heap area) with `arena_split`: under any `Heap L m`, `Arena a ↔ Priv L a ∨ InLive L a`. For
   `alt_fl_alloc` this is what `Priv` means (the allocator's memory not handed out as a live
@@ -595,12 +616,13 @@ Open (to settle before review):
    inputs (`test/snapshots/DTF/*.json`, `tx_type` = `a2`, payload = the `a4` bytes at `a3`): a
    scratch file proves `Fits t payload` for all 19 by `decide +kernel` over a `Bool` mirror
    (`itemsB`, `itemsB_iff`); not committed.
-7. (Open; found in S7 step 4 by DTFAuth, decision with the user via the coordinator.) The
+7. (Settled; found in S7 step 4 by DTFAuth, trust-base change approved by the user.) The
    `txAuthList` growth and `toOwnedSlice` paths call the allocator with log2 alignment 4
    (`AuthorizationTuple`, 16-byte aligned): `alloc` at `0x800029f8`/`0x80002c54` (`a2 = 4`),
-   `free` at `0x80002a58`/`0x80002f04` (`a3 = 4`). The trusted contract (`Fn/Assumed.lean`,
-   mirroring `altFlMaxLog2Alignment := 3` in `ZesuSsz/Contracts/AltFlAllocPremises.v`) allows at
-   most 3, so leaves `800029c8_2`, `800022e4_1` (alloc) and `80002a38_1`, `80002ee0_1` (free) are
-   false under the current premises; every nonempty authorization list reaches them. They stay
-   open as contract-blocked until the premise is raised to 4 or `Domain` excludes such inputs.
+   `free` at `0x80002a58`/`0x80002f04` (`a3 = 4`). The trusted contract (`Fn/Assumed.lean`)
+   mirrored `altFlMaxLog2Alignment := 3` and allowed at most 3, so leaves `800029c8_2`,
+   `800022e4_1` (alloc) and `80002a38_1`, `80002ee0_1` (free) were false under it; every
+   nonempty authorization list reaches them. **Change:** `alloc_spec`/`free_spec` allow
+   `log2Align ≤ 4` (§ `AllocAssumptions` above: evidence from the allocator's source and
+   disassembly that alignment 16 is handled; diverges from zesislar).
 - Non-vacuity: not yet stated; `decide` checks the decoder on four inputs.

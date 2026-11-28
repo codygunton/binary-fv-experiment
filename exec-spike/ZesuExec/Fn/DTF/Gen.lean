@@ -1722,12 +1722,12 @@ theorem chkStep_sound {d : CutData} {l : Leaf} {σ : Sig} {m : Machine} (hpc : d
     subst hs0
     exact ⟨es, n, hcand⟩
 
-/-- An `alloc` call's arguments: alignment `a2 ≤ 3`; size `a1` a literal in `(0, 2^63)`, or the
+/-- An `alloc` call's arguments: alignment `a2 ≤ 4`; size `a1` a literal in `(0, 2^63)`, or the
 payload length of the source's `decodeItem` outcome, nonzero by the leaf's condition, of an item
 whose header fits (`armsFit`: then it is at most the payload length). -/
 def allocArgs (d : CutData) (l : Leaf) : Bool :=
   (match l.S.reg 12 with
-   | .lit v => decide (v % 2 ^ 64 ≤ 3)
+   | .lit v => decide (v % 2 ^ 64 ≤ 4)
    | _ => false) &&
   match l.S.reg 11 with
   | .lit n => decide (0 < n % 2 ^ 64 ∧ n % 2 ^ 64 < 2 ^ 63)
@@ -1841,7 +1841,7 @@ theorem call_idx {d : CutData} {l : Leaf} {s : Site} {σ : Sig} {m m' : Machine}
           h0 | h0
         · exact absurd (BitVec.eq_of_toNat_eq (by simp [h0])) hq0
         · exact h0
-    have halign : (m'.reg 12).toNat ≤ 3 := by
+    have halign : (m'.reg 12).toNat ≤ 4 := by
       rw [e12]
       split at h12
       · next v hv => simp only [decide_eq_true_eq] at h12; rw [hv]; simpa [Sym.eval] using h12
