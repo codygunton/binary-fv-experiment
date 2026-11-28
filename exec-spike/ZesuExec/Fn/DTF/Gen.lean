@@ -1536,15 +1536,18 @@ def siteKeeps (s : Site) : Loc → Bool
   | .slot o => s.kind.Keeps s o
 
 /-- At a source reached only by the arms `arms`, a value stated for the arms `g0` serves one stated
-for the arms `g`: whenever `g`'s guard holds, `g0`'s does. -/
+for the arms `g`: whenever `g`'s guard holds, `g0`'s does (every arm of `g` reaching the source is
+one of `g0`). -/
 def guardOk (arms g0 g : List Nat) : Bool :=
-  g0.isEmpty || (!g.isEmpty && g.all (g0.contains ·)) || (!arms.isEmpty && arms.all (g0.contains ·))
+  g0.isEmpty || (!g.isEmpty && g.all (g0.contains ·)) ||
+    (!arms.isEmpty && arms.all (g0.contains ·)) ||
+    (!g.isEmpty && !arms.isEmpty && g.all (fun t => !arms.contains t || g0.contains t))
 
 theorem guard_ok {σ : Sig} {arms g0 g : List Nat} (h : guardOk arms g0 g = true)
     (ha : ArmOk σ arms) (hg : ArmOk σ g) : ArmOk σ g0 := by
   simp only [guardOk, Bool.or_eq_true, Bool.and_eq_true, List.isEmpty_iff, Bool.not_eq_true',
     List.isEmpty_eq_false_iff, List.all_eq_true, List.contains_iff_mem] at h
-  rcases h with (h | ⟨hne, hsub⟩) | ⟨hne, hsub⟩
+  rcases h with ((h | ⟨hne, hsub⟩) | ⟨hne, hsub⟩) | ⟨⟨hgne, hane⟩, hsub⟩
   · exact .inl h
   · rcases hg with hg | hg
     · exact absurd hg hne
@@ -1552,6 +1555,13 @@ theorem guard_ok {σ : Sig} {arms g0 g : List Nat} (h : guardOk arms g0 g = true
   · rcases ha with ha | ha
     · exact absurd ha hne
     · exact .inr (hsub _ ha)
+  · rcases hg with hg | hg
+    · exact absurd hg hgne
+    rcases ha with ha | ha
+    · exact absurd ha hane
+    have := hsub _ hg
+    rw [List.contains_iff_mem.mpr ha] at this
+    exact .inr (by simpa using this)
 
 /-- No arm reaching the source (`arms`) is one of `g`: a value stated for `g` holds vacuously. -/
 def armsOff (arms g : List Nat) : Bool :=
@@ -1670,11 +1680,57 @@ theorem nonzero_sound {conds : List SBool} {s : Sym} {env : Env} (h : nonzero co
       simpa using this
     · cases h
 
+/-- Bytes `j < n` of `s` are zero. -/
+def zeroBytes (s : Sym) (n : Nat) : Bool :=
+  decide (n ≤ 8) && (List.range n).all fun j => byteAt s j == some (.lit 0)
+
+/-- Bytes `j < n` of `s` are the input bytes at `o + j` past the offset variable `x`. -/
+def payBytes (s x : Sym) (o n : Nat) : Bool :=
+  decide (n ≤ 8) && (List.range n).all fun j => byteAt s j == some (.initx 3 (o + j) x 1 1)
+
+theorem zeroBytes_sound {s : Sym} {n : Nat} (h : zeroBytes s n = true) (env : Env) :
+    ∀ j < n, byteOf (s.eval env) j = 0 := by
+  intro j hj
+  simp only [zeroBytes, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, List.mem_range,
+    beq_iff_eq] at h
+  rw [byteAt_sound (h.2 j hj) (by omega) env]
+  simp [Sym.eval]
+
+theorem payBytes_sound {s x : Sym} {o n : Nat} (h : payBytes s x o n = true) (env : Env) :
+    ∀ j < n, byteOf (s.eval env) j = byteOf ((Sym.initx 3 (o + j) x 1 1).eval env) 0 := by
+  intro j hj
+  simp only [payBytes, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, List.mem_range,
+    beq_iff_eq] at h
+  exact byteAt_sound (h.2 j hj) (by omega) env
+
+/-- The input byte at offset `q + t`, read at offset `q` past a variable holding `t`. -/
+theorem initx_byte_at {sh : Shape} {σ : Sig} {m : Machine} (hav : Avail σ m) {x : Sym}
+    {q t : Nat} (hx : x.eval (envOf sh σ m) = w t) (ht : q + t < σ.payload.length) :
+    byteOf ((Sym.initx 3 q x 1 1).eval (envOf sh σ m)) 0 = σ.payload[q + t] := by
+  have hl := payload_len hav.pre
+  have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
+  have hb := input_bytes hav (c := 0) (Nat.zero_le _) (q + t)
+    (by simp only [List.length_drop]; omega)
+  simp only [w] at hb
+  rw [show σ.inp + BitVec.ofNat 64 0 + BitVec.ofNat 64 (q + t) =
+    σ.inp + BitVec.ofNat 64 (q + t) by simp] at hb
+  show byteOf (ofBytesLE (byteList ((envOf sh σ m).byte0 3) (q + 1 * (x.eval (envOf sh σ m)).toNat)
+    1)) 0 = _
+  rw [hx]
+  simp only [byteList, Env.byte0, envOf, entryEnv, regionsOf, List.cons_append,
+    List.getD_cons_succ, List.getD_cons_zero, w, BitVec.toNat_ofNat]
+  rw [Nat.mod_eq_of_lt (by omega), Nat.one_mul, hb]
+  simp only [List.drop_zero, Option.getD_some, ofBytesLE_one, w]
+  apply BitVec.eq_of_toNat_eq
+  simp [byteOf]
+  exact BitVec.isLt _
+
 /-- A target item value from the source's `decodeItem` outcome at `ko` (item `k`): its length or
-pointer word; a number, tag or byte word of an empty payload (zero); a number of a payload longer
-than `n` (`numVal`'s clamp); a nonempty payload's tag (one); the start of a byte loop over the
-payload (accumulator zero, cursor the pointer, end the pointer plus the length, the length
-nonzero and at most `b ≤ min n 32` by the leaf's condition). -/
+pointer word; a number, tag or bytes of an empty payload (zero); a number of a payload longer
+than `n` (`numVal`'s clamp); a nonempty payload's tag (one); bytes of a 20-byte payload read at
+its pointer (the address copy); the start of a byte loop over the payload (accumulator zero,
+cursor the pointer, end the pointer plus the length, the length nonzero and at most
+`b ≤ min n 32` by the leaf's condition). -/
 def fieldFrom (d : CutData) (l : Leaf) (f : Loc × FieldVal) : Bool :=
   match advOf d with
   | some (ko, k) => f.2.k == k && decide (ko + 8 ≤ frameBytes) &&
@@ -1682,11 +1738,14 @@ def fieldFrom (d : CutData) (l : Leaf) (f : Loc × FieldVal) : Bool :=
     | .len _ => f.1.sym l.S == .init 0 (ko + 8) 8
     | .ptr _ => f.1.sym l.S == (Loc.slot ko).sym d.shape.S
     | .num _ n i => (f.1.sym l.S == .lit 0 && l.conds.contains (.eq (.init 0 (ko + 8) 8) (.lit 0))) ||
-        (f.1.sym l.S == .lit ((2 ^ (8 * n) - 1) / 2 ^ (64 * i)) && decide (n < 2 ^ 64) &&
+        (f.1.sym l.S == .lit (((2 ^ (8 * n) - 1) / 2 ^ (64 * i)) % 2 ^ 64) && decide (n < 2 ^ 64) &&
           l.conds.contains (.ltu (.lit n) (.init 0 (ko + 8) 8)))
     | .nz _ => (f.1.sym l.S == .lit 0 && l.conds.contains (.eq (.init 0 (ko + 8) 8) (.lit 0))) ||
         (f.1.sym l.S == .lit 1 && nonzero l.conds (.init 0 (ko + 8) 8))
-    | .raw _ _ _ => f.1.sym l.S == .lit 0 && l.conds.contains (.eq (.init 0 (ko + 8) 8) (.lit 0))
+    | .raw _ o n =>
+        (zeroBytes (f.1.sym l.S) n && l.conds.contains (.eq (.init 0 (ko + 8) 8) (.lit 0))) ||
+        (decide (o + n ≤ 20 ∧ ko % 8 = 0) && l.conds.contains (.eq (.init 0 (ko + 8) 8) (.lit 20)) &&
+          payBytes (f.1.sym l.S) (.var (64 + ko / 8)) o n)
     | .acc _ n _ cur fin => f.1.sym l.S == .lit 0 && decide (cur < 32 ∧ fin < 32) &&
         l.S.reg cur == (Loc.slot ko).sym d.shape.S &&
         l.S.reg fin == .bin .add ((Loc.slot ko).sym d.shape.S) (.init 0 (ko + 8) 8) &&
@@ -1745,7 +1804,9 @@ theorem fieldFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
       simp only [SBool.eval, Sym.eval_lit, hlen, BitVec.ult, decide_eq_true_eq, w,
         BitVec.toNat_ofNat] at this
       rw [h0, numVal, if_pos (by omega)]
-      rfl
+      simp only [Sym.eval, limb, w]
+      apply BitVec.eq_of_toNat_eq
+      simp
   | nz _ =>
     show _ = _
     simp only [Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, List.contains_iff_mem] at h
@@ -1755,11 +1816,40 @@ theorem fieldFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
       rw [hlen] at hne
       rw [h0, if_neg (fun h0 => hne (by rw [h0]; rfl))]; rfl
   | raw _ o n =>
-    simp only [Bool.and_eq_true, beq_iff_eq, List.contains_iff_mem] at h
-    obtain ⟨h0, he⟩ := h
-    intro j _
-    rw [h0, hpay0 (hempty he)]
-    simp [Sym.eval, byteOf]
+    simp only [Bool.or_eq_true, Bool.and_eq_true, List.contains_iff_mem, decide_eq_true_eq] at h
+    intro j hj
+    rcases h with ⟨hz, he⟩ | ⟨⟨⟨ho, hko8⟩, h20⟩, hpb⟩
+    · rw [zeroBytes_sound hz _ j hj, hpay0 (hempty he)]
+      simp
+    · have hp20 : p = 20 := by
+        have := hc _ h20
+        simp only [SBool.eval, Sym.eval_lit, beq_iff_eq, hlen] at this
+        have := congrArg BitVec.toNat this
+        simp only [w, BitVec.toNat_ofNat] at this
+        omega
+      obtain ⟨hh9, h128⟩ := decode_hdr hd
+      have hnot : (σ.payload.drop c).head? ≠ some 128 := fun h' => by
+        have := h128 h'; omega
+      rw [if_neg hnot] at hptr
+      have hcons := decode_consumed_le hd
+      simp only [TX.itemConsumed, List.length_drop] at hcons
+      have hcl := skip_le hs
+      have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
+      have hplen := payload_len C.F.common.2.1
+      have hx : (Sym.var (64 + ko / 8)).eval (envOf d.shape σ m) = w (c + hh) := by
+        have e : (Sym.var (64 + ko / 8)).eval (envOf d.shape σ m) =
+            TX.wordAt m (σ.fr + w ko) - σ.inp := by
+          simp only [Sym.eval, envOf, show ¬ (64 + ko / 8 < 32) by omega,
+            show ¬ (64 + ko / 8 < 64) by omega, if_false, show 8 * (64 + ko / 8 - 64) = ko by omega]
+        rw [e, hptr]
+        bv_omega
+      rw [payBytes_sound hpb _ j hj, initx_byte_at C.F.common.avail hx (by omega)]
+      have hlt : o + j < (TX.itemPayload (σ.payload.drop c) hh p).length := by
+        simp only [TX.itemPayload, List.length_take, List.length_drop]; omega
+      rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hlt, Option.getD_some]
+      simp only [TX.itemPayload, List.getElem_take, List.getElem_drop]
+      congr 1
+      omega
   | acc _ n i cur fin =>
     simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at h
     obtain ⟨⟨⟨⟨⟨h0, hcf⟩, hcur⟩, hfin⟩, hnz⟩, hb⟩ := h
@@ -1983,15 +2073,45 @@ theorem loopFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C :
     omega
   | _ => cases h
 
+/-- A target address-copy value kept byte by byte (sub-word loads and stores): a source value
+`raw k o n` (guard implied) whose bytes `j < n` are the target's bytes. -/
+def rawKept (src : List (Sym × Field)) (d : CutData) (l : Leaf) (f : Field) : Bool :=
+  match f.v with
+  | .raw _ _ n => decide (n ≤ 8) && src.any fun a => a.2.v == f.v &&
+      guardOk d.arms a.2.arms f.arms && (List.range n).all fun j =>
+        (byteAt a.1 j).isSome && byteAt (f.loc.sym l.S) j == byteAt a.1 j
+  | _ => false
+
+theorem rawKept_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
+    {src : List (Sym × Field)}
+    (hsrcF : ∀ a ∈ src, ArmOk σ a.2.arms → a.2.v.Holds σ m (a.1.eval (envOf d.shape σ m)))
+    {f : Field} (hg : ArmOk σ f.arms) (hfine : f.loc.fine = true) (h : rawKept src d l f = true) :
+    f.v.Holds σ m' (f.loc.word σ m') := by
+  obtain ⟨loc, g, v⟩ := f
+  cases v with
+  | raw k o n =>
+    simp only [rawKept, Bool.and_eq_true, decide_eq_true_eq, List.any_eq_true, beq_iff_eq,
+      List.all_eq_true, List.mem_range] at h
+    obtain ⟨hn, a, ha, ⟨hav, hga⟩, hb⟩ := h
+    have hA := hsrcF a ha (guard_ok hga C.F.arms hg)
+    rw [hav] at hA
+    rw [loc_word_eval C.wf' C.hm' C.hS' hfine]
+    intro c hs l' hh p hd j hj
+    obtain ⟨hsome, heq⟩ := hb j hj
+    obtain ⟨b, hb'⟩ := Option.isSome_iff_exists.mp hsome
+    rw [byteAt_sound (heq.trans hb') (by omega), ← byteAt_sound hb' (by omega)]
+    exact hA c hs l' hh p hd j hj
+  | _ => simp [rawKept] at h
+
 /-- A target item value: vacuous (no arm reaching the source is one of its arms, `armsOff`),
 kept (a source value free of the machine with the same symbolic value, whose guard the target's
-implies), from the source's `decodeItem` outcome (`fieldFrom`), or a byte-loop step
-(`loopFrom`). -/
+implies), from the source's `decodeItem` outcome (`fieldFrom`), a byte-loop step (`loopFrom`),
+or an address copy kept byte by byte (`rawKept`). -/
 def fieldOk (src : List (Sym × Field)) (d : CutData) (l : Leaf) (f : Field) : Bool :=
   f.loc.fine && (armsOff d.arms f.arms ||
     (f.v.free && src.any fun a =>
       a.2.v == f.v && guardOk d.arms a.2.arms f.arms && a.1 == f.loc.sym l.S) ||
-    fieldFrom d l (f.loc, f.v) || loopFrom src d l f.arms (f.loc, f.v))
+    fieldFrom d l (f.loc, f.v) || loopFrom src d l f.arms (f.loc, f.v) || rawKept src d l f)
 
 /-- The carry check of a leaf for the target's item values `fs`, from the source's `src`. -/
 def fieldsCarry (src : List (Sym × Field)) (d : CutData) (l : Leaf) (fs : List Field) : Bool :=
@@ -2005,7 +2125,7 @@ theorem fieldsCarry_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
   intro f hf hg
   have h1 := List.all_eq_true.mp h f hf
   simp only [fieldOk, Bool.and_eq_true, Bool.or_eq_true, List.any_eq_true, beq_iff_eq] at h1
-  obtain ⟨hfine, ((hoff | ⟨hfree, a, ha, ⟨hav, hga⟩, hsym⟩) | h1) | h1⟩ := h1
+  obtain ⟨hfine, (((hoff | ⟨hfree, a, ha, ⟨hav, hga⟩, hsym⟩) | h1) | h1) | h1⟩ := h1
   · exact (armsOff_sound hoff C.F.arms hg).elim
   · rw [loc_word_eval C.wf' C.hm' C.hS' hfine, ← hsym]
     have := hsrcF a ha (guard_ok hga C.F.arms hg)
@@ -2013,6 +2133,7 @@ theorem fieldsCarry_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
     exact holds_free hfree this
   · exact fieldFrom_sound C hpc hsrc hA hc hfine h1
   · exact loopFrom_sound C hc hsrcF hg hfine h1
+  · exact rawKept_sound C hsrcF hg hfine h1
 
 /-! ## Checks of the current item (open assertion item 2) -/
 

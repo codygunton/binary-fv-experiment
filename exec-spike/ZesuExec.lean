@@ -108,6 +108,8 @@ import ZesuExec.Fn.F6.Vc
 import ZesuExec.Fn.DTF.Spec
 import ZesuExec.Fn.DTF.Regions
 import ZesuExec.Fn.DTF.Runs
+import ZesuExec.Fn.DTF.Field
+import ZesuExec.Fn.DTF.Rows
 import ZesuExec.Fn.DTF.Cuts
 import ZesuExec.Fn.DTF.Fields
 import ZesuExec.Fn.DTF.Vc
