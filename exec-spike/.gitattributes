@@ -1,0 +1,5 @@
+# Append-only logs: concurrent branches each append; keep both sides on merge.
+LOG.md merge=union
+GO.md merge=union
+map/ledger.jsonl merge=union
+map/history.jsonl merge=union

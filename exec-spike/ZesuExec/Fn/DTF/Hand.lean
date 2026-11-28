@@ -166,6 +166,7 @@ structure CallFacts (s : Site) (r : Nat) (σ : Sig) (m' : Machine) : Prop where
   chk : ChecksOk σ (chkCount s.rest)
   ra : m'.reg 1 = w r
   aligned : RetAligned m'
+  fields : FieldsOk σ m' (siteFields r)
 
 /-- `leaf_call_x` with the leaf's obligations a hypothesis. -/
 theorem leaf_call_xo (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.pc ≠ entry)
@@ -205,10 +206,10 @@ theorem leaf_call_xo (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.p
       rw [← C.hm'.regs 1]; show (l.S.reg 1).eval _ = _; rw [hra1]; rfl
     have hraM : RetAligned m' := by unfold RetAligned; rw [hr1, hra]; exact hr4
     have hchk' := chkStep_sound hpc hsrc hA hc F hchk
+    have hfl := fieldsCarry_sound C hpc hsrc hA hc hfld
     obtain ⟨x0, hidx, hsx, hbud⟩ :=
-      hX σ m m' hA hc C ⟨hcm, hshp, harm, hrst, hchk', hr1, hraM⟩
-    have hsite : SiteA s d'.pc σ x0 m' := ⟨hr1, hcm, hshp, harm, hrst, hidx,
-      fieldsCarry_sound C hpc hsrc hA hc hfld, hchk', hsx⟩
+      hX σ m m' hA hc C ⟨hcm, hshp, harm, hrst, hchk', hr1, hraM, hfl⟩
+    have hsite : SiteA s d'.pc σ x0 m' := ⟨hr1, hcm, hshp, harm, hrst, hidx, hfl, hchk', hsx⟩
     refine ⟨calleeOf s.kind, x0, ?_, ?_, hidx.1, fun m'' hpost => ?_⟩
     · show calleeAt d'.pc = _
       unfold calleeAt

@@ -440,8 +440,7 @@ theorem DTF.leaf_800020c0_3 :
     refine ⟨hitem, ?_⟩
     rw [e12, h25]; simp only [w]; rw [BitVec.ofNat_add]; rfl
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩
-  have hfld : FieldsOk σ m' (siteFields (table[109]!).pc) := fun f hf => by
-    rw [show siteFields (table[109]!).pc = [] by decide] at hf; cases hf
+  have hfld := CF.fields
   have hsite : SiteA (siteAt 109) (table[109]!).pc σ (L, items, ⟨[], []⟩) m' :=
     ⟨CF.ra, CF.common, CF.shape, CF.arms, CF.rest, hidx, hfld, CF.chk, hsx⟩
   have hSF : (siteAt 109).kind.SiteFine (siteAt 109) = true := by decide
