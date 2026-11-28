@@ -93,7 +93,7 @@ theorem facts_of_ret {d : CutData} {s : Site} {σ : Sig} {m : Machine} (hs : d.s
     decide_eq_true_eq] at hrf
   obtain ⟨hrr', hrs⟩ := hrf
   refine ⟨hc, ⟨fun p hp v hv => ?_, fun p hp v hv => ?_⟩, armOk_keep harms hsite.2.2.2.1,
-    fun r hr => ?_, hsite.2.2.2.2.2.2.2.mono (by simp only [srcChk, hs]; split <;> omega)⟩
+    fun r hr => ?_, hsite.2.2.2.2.2.2.2.1.mono (by simp only [srcChk, hs]; split <;> omega)⟩
   · rcases hrr' p hp with h | ⟨hmem, hcs⟩
     · rw [Val.isWord_of hv] at h; cases h
     · rw [hret.2 _ hcs]; exact hsite.2.2.1.1 p hmem v hv
@@ -313,7 +313,11 @@ def shapeHolds (S : SState) (sh : Shape) : Bool :=
 
 /-- No `Extra` conjunct at `pc`. -/
 def noExtra (pc : Nat) : Bool :=
-  pc != 0x80000574 && pc != 0x80002138 && pc != 0x80002434 && pc != 0x800011f8
+  pc != 0x80000574 && pc != 0x80002138 && pc != 0x80002434 && pc != 0x800011f8 &&
+    pc != 0x800020ac
+
+/-- No `SiteX` conjunct at the return site `r`. -/
+def noSiteX (r : Nat) : Bool := r != 0x800020c0 && r != 0x8000211c
 
 /-- The target has no inner budget and the constant part drops by the steps. -/
 def budgetKeep (pc pc' steps : Nat) : Bool :=

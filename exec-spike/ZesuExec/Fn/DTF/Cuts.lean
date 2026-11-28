@@ -221,11 +221,46 @@ def Done (σ : Sig) (m : Machine) : Prop :=
   m.load (σ.res + w errOff) 2 = some 3 ∨
   ∃ tx, decode σ.t σ.payload = some tx ∧ m.load (σ.res + w errOff) 2 = some 0 ∧ TxAt m σ.res tx
 
+/-- An array list's header `{p, n, cap}` at frame offset `o`: `n + r ≤ cap` (room for `r` more),
+`p ≠ 0`, and the buffer of `cap` 32-byte elements one of DTF's blocks (when it has one). -/
+def ListHdr (σ : Sig) (m : Machine) (o n r : Nat) : Prop :=
+  ∃ p cap : Word, m.load (σ.fr + w o) 8 = some p ∧ m.load (σ.fr + w (o + 8)) 8 = some (w n) ∧
+    m.load (σ.fr + w (o + 16)) 8 = some cap ∧ n + r ≤ cap.toNat ∧ 0 < p.toNat ∧
+    ∃ L X, Live σ m L X ∧ (0 < cap.toNat → (p, cap.toNat * 32) ∈ X)
+
+/-- Top-level item 10 (arm 3's `blobVersionedHashes`) is a list of payload length `p` at `c + h`. -/
+def HashList (σ : Sig) (c h p : Nat) : Prop :=
+  skip 10 σ.payload = some c ∧ F2.decode (σ.payload.drop c) = .success true h p
+
+/-- The `txHashList` loop (open assertion item 3) after `n` versioned hashes, `j` bytes of the
+list payload: the cursor `s7 = inp + c + h + j`, the bytes left `s6 = p - j`, the count
+`s9 = n`, the list header at `S-0x118` with `n` elements. -/
+def HashLoop (σ : Sig) (m : Machine) : Prop :=
+  ∃ c h p n j, HashList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧
+    n ≤ j ∧ m.reg 23 = σ.inp + w (c + h + j) ∧ m.reg 22 = w (p - j) ∧ m.reg 25 = w n ∧
+    ListHdr σ m 0x258 n 0
+
+/-- The loop after the `n + 1`-th hash's item (`k` bytes, in `s4`) decoded, the cursor still at it;
+the header has room for `r` more. -/
+def HashItem (σ : Sig) (m : Machine) (r : Nat) : Prop :=
+  ∃ c h p n j k, HashList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧
+    skip (n + 1) (TX.itemPayload (σ.payload.drop c) h p) = some (j + k) ∧ n + 1 ≤ j + k ∧
+    32 ≤ k ∧ m.reg 23 = σ.inp + w (c + h + j) ∧ m.reg 22 = w (p - j) ∧ m.reg 25 = w n ∧
+    m.reg 20 = w k ∧ ListHdr σ m 0x258 n r
+
 def Extra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
   if pc = 0x80000574 then m.reg 10 = w (0x80110050 + 8 * σ.t)
-  else if pc = 0x80002138 then SlotOk σ m 32
+  else if pc = 0x80002138 then SlotOk σ m 32 ∧ HashItem σ m 1
   else if pc = 0x80002434 then SlotOk σ m 0x90
   else if pc = 0x800011f8 then Done σ m
+  else if pc = 0x800020ac then HashLoop σ m
+  else True
+
+/-- What a call site states beyond its kind's: the hash loop's state across the item's
+`decodeItem` (`0x800020c0`) and the list's `ensureTotalCapacity` (`0x8000211c`). -/
+def SiteX (r : Nat) (σ : Sig) (m : Machine) : Prop :=
+  if r = 0x800020c0 then HashLoop σ m
+  else if r = 0x8000211c then HashItem σ m 0
   else True
 
 /-! ## Callees -/
@@ -531,7 +566,8 @@ def PlainA (d : CutData) (σ : Sig) (m : Machine) : Prop :=
 /-- The call-site predicate of the call returning to `r`. -/
 def SiteA (s : Site) (r : Nat) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   m.reg 1 = w r ∧ Common σ m ∧ ShapeOk σ s.shape m ∧ ArmOk σ s.arms ∧ RestOk σ m s.rest ∧
-    IdxOk s.kind σ x m ∧ FieldsOk σ m (siteFields r) ∧ ChecksOk σ (chkCount s.rest)
+    IdxOk s.kind σ x m ∧ FieldsOk σ m (siteFields r) ∧ ChecksOk σ (chkCount s.rest) ∧
+    SiteX r σ m
 
 def RetA (s : Site) (r : Nat) (σ : Sig) (m : Machine) : Prop :=
   ∃ mc x, SiteA s r σ x mc ∧ (calleeOf s.kind).Post σ x mc m

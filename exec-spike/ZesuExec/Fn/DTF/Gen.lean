@@ -2111,7 +2111,7 @@ def GenCheck (d : CutData) (l : Leaf) : Bool :=
     match targetOf r with
     | some d' =>
       match d'.site with
-      | some s => t == s.kind.entry && d'.pc != entry && SrcOk d' && argsOk d l s &&
+      | some s => t == s.kind.entry && d'.pc != entry && SrcOk d' && argsOk d l s && noSiteX r &&
           s.shape.Fine && shapeHolds l.S s.shape && armsKeep d.arms s.arms &&
           restFrom d.shape.S l.S adv (srcRest d l) s.rest &&
           retLen d l s d' &&
@@ -2189,7 +2189,8 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
       simp only [Bool.or_eq_true] at hnx
       rcases hnx with hnx | hnx
       · simp only [noExtra, Bool.and_eq_true, bne_iff_ne, ne_eq] at hnx
-        simp only [Extra, if_neg hnx.1.1.1, if_neg hnx.1.1.2, if_neg hnx.1.2, if_neg hnx.2]
+        simp only [Extra, if_neg hnx.1.1.1.1, if_neg hnx.1.1.1.2, if_neg hnx.1.1.2,
+          if_neg hnx.1.2, if_neg hnx.2]
       · exact extra_err C hnx
     · show budgetOf d' σ m' ≤ budgetOf d σ m - (l.S.steps - d.shape.S.steps)
       omega
@@ -2204,8 +2205,8 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     case h_2 => cases hex
     rename_i s hs
     simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq, decide_eq_true_eq] at hex
-    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨ht', hne⟩, hsrc'⟩, hargs⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlr⟩, hra1⟩,
-      hra⟩, hr4⟩, hbud⟩, hfld⟩, hchk⟩ := hex
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨ht', hne⟩, hsrc'⟩, hargs⟩, hnsx⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hlr⟩,
+      hra1⟩, hra⟩, hr4⟩, hbud⟩, hfld⟩, hchk⟩ := hex
     simp only [budgetCall] at hbud
     split at hbud
     case h_2 => cases hbud
@@ -2226,8 +2227,11 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     have hraM : RetAligned m' := by unfold RetAligned; rw [hr1, hra]; exact hr4
     have hchk' := chkStep_sound hpc hsrc hA hc F hchk
     obtain ⟨x0, hidx⟩ := call_idx C hpc hsrc hA hc hcm hshp harm hrst hchk' hSF hargs hraM
+    have hsx : SiteX d'.pc σ m' := by
+      simp only [noSiteX, Bool.and_eq_true, bne_iff_ne, ne_eq] at hnsx
+      rw [hpc']; simp only [SiteX, if_neg hnsx.1, if_neg hnsx.2]
     have hsite : SiteA s d'.pc σ x0 m' := ⟨by rw [hpc']; exact hr1, hcm, hshp, harm, hrst, hidx,
-      by rw [hpc']; exact fieldsFrom_sound C hpc hsrc hA hfld, hchk'⟩
+      by rw [hpc']; exact fieldsFrom_sound C hpc hsrc hA hfld, hchk', hsx⟩
     refine ⟨calleeOf s.kind, x0, ?_, ?_, hidx.1, fun m'' hpost => ?_⟩
     · show calleeAt r = _
       unfold calleeAt
