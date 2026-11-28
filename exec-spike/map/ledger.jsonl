@@ -1761,3 +1761,4 @@
 {"schema": 2, "rec": "stop", "id": 23, "agent": "S13AllocB", "ts": "2026-11-28T08:42:34Z", "outcome": "closed", "note": "free_spec/free_sail proved (FreeF: 4 cuts, 32 leaves, all manual); alloc_free_alloc non-vacuity; AllocModel deleted"}
 {"schema": 2, "rec": "start", "id": 24, "ts": "2026-11-28T09:05:06Z", "fn": "scratch_arena", "item": "S13 scratch_arena free/remap proved; alloc open", "kind": "leaf", "agent": "S13AllocB"}
 {"schema": 2, "rec": "stop", "id": 24, "agent": "S13AllocB", "ts": "2026-11-28T09:05:10Z", "outcome": "open", "note": "free_spec/remap_spec (+sail) proved; scratch_arena.alloc not started; re-point F1/F4/F5/TX/DTF waits for xparams"}
+{"schema": 2, "rec": "start", "id": 25, "ts": "2026-11-28T09:06:04Z", "fn": "alt_fl_alloc", "item": "S13 non-vacuity+snapshots, scratch alloc, re-point", "kind": "compliance", "agent": "S13AllocC"}
