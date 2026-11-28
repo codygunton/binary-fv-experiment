@@ -1,0 +1,929 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Zesu proof graph (zmap)</title>
+<link rel="icon" href="data:,">
+<!--
+  The graph viewer of plan S9. `python3 -m zmap site` (or `make -C exec-spike/tools/zmap map`)
+  copies this page to exec-spike/map/site/index.html beside vendor/d3.min.js, data/index.js
+  (window.ZMAP_INDEX) and data/fn/<id>.js (ZMAP_FN(id, {...}), loaded on demand by a script tag).
+  Opened as tools/binary-regions-ui/graph.html (the flamegraph's link) it reads that site's data.
+  Works from file:// and from the server (port 36405, directory exec-spike/map/site).
+  Every layout coordinate comes from tools/zmap/layout.py; this page only draws.
+-->
+<style>
+ :root{--bg:#0f1115;--panel:#161a21;--line:#262c36;--fg:#dfe4ec;--dim:#8a93a3;--hi:#ffd54a}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--fg);height:100vh;overflow:hidden;
+      font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+ header{height:40px;padding:6px 10px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;white-space:nowrap}
+ h1{font-size:13px;margin:0 6px 0 0;font-weight:600}
+ button,select,input{background:#1e242e;color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:3px 7px;font:inherit}
+ button{cursor:pointer} button.on{background:#33404f;border-color:#5a6b80}
+ a{color:#8ab4f8}
+ .muted{color:var(--dim)}
+ #badgebox{position:relative}
+ #badgemenu{display:none;position:absolute;top:28px;left:0;z-index:20;background:var(--panel);border:1px solid var(--line);padding:6px 10px;border-radius:5px}
+ #badgemenu label{display:block;cursor:pointer}
+ #badgebox.open #badgemenu{display:block}
+ main{position:absolute;top:40px;left:0;right:0;bottom:var(--drawer,30px);display:grid;grid-template-columns:minmax(0,1fr) 540px}
+ #stage{position:relative;overflow:hidden;min-width:0}
+ #prog, #fsvg, #fcanvas{position:absolute;inset:0;width:100%;height:100%}
+ #panel{border-left:1px solid var(--line);overflow:auto;padding:10px;background:var(--panel)}
+ #panel pre{white-space:pre-wrap;margin:6px 0;font:inherit;color:#c9d1d9}
+ #panel h2{font-size:13px;margin:0 0 4px}
+ #panel h3{font-size:12px;margin:10px 0 3px;color:#aab4c3}
+ #panel table{border-collapse:collapse;width:100%}
+ #panel td{padding:1px 6px 1px 0;vertical-align:top}
+ #panel .k{color:var(--dim);white-space:nowrap}
+ .dis{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:6px}
+ .dis div{background:#11151b;border:1px solid var(--line);padding:4px 6px;overflow:auto;max-height:420px;white-space:pre;font-size:11px}
+ .pill{display:inline-block;padding:0 5px;border-radius:8px;margin:0 3px 2px 0;font-size:11px;color:#111}
+ .rowlink{cursor:pointer;text-decoration:underline dotted}
+ #legend{position:absolute;left:8px;bottom:8px;background:rgba(22,26,33,.94);border:1px solid var(--line);border-radius:5px;padding:6px 9px;max-width:460px;z-index:5}
+ #legend .item{display:inline-flex;align-items:center;gap:4px;margin:0 9px 2px 0;cursor:pointer}
+ #legend .item.off{opacity:.35}
+ #legend i{display:inline-block;width:11px;height:11px;border-radius:50%}
+ #legend .t{color:var(--dim);margin-top:3px}
+ #mini{position:absolute;right:8px;top:8px;width:230px;height:160px;background:rgba(15,17,21,.92);border:1px solid var(--line);border-radius:5px;z-index:5;display:none;cursor:pointer}
+ #crumb{position:absolute;left:8px;top:8px;z-index:5;background:rgba(22,26,33,.94);border:1px solid var(--line);border-radius:5px;padding:3px 8px;display:none}
+ #tip{position:fixed;pointer-events:none;z-index:30;background:#1e242e;border:1px solid #3a4452;border-radius:4px;padding:4px 7px;display:none;max-width:420px;white-space:pre-wrap}
+ footer{position:absolute;left:0;right:0;bottom:0;height:var(--drawer,30px);border-top:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column}
+ #tabs{height:29px;display:flex;gap:6px;align-items:center;padding:0 8px;flex:none}
+ #drawerbody{overflow:auto;flex:1;padding:0 8px}
+ #drawerbody table{border-collapse:collapse;width:100%}
+ #drawerbody td,#drawerbody th{border-bottom:1px solid var(--line);padding:2px 6px;text-align:left;white-space:nowrap}
+ #drawerbody tr.row{cursor:pointer} #drawerbody tr.row:hover{background:#1d232d}
+ .err{padding:30px;color:#f3aaaa;white-space:pre-wrap}
+ svg text{pointer-events:none}
+ .node{cursor:pointer}
+ .lbl{fill:#c9d1d9;font-size:10px}
+ .zoomed-out .lbl.small{display:none}
+ .band rect{fill:#1a2029;stroke:#2a323e}
+ .band text{fill:#7d8796;font-size:10px}
+ .layerlbl{fill:#59626f;font-size:11px}
+ .edge{fill:none;stroke:#4c5564;stroke-opacity:.55}
+ .edge.ind{stroke-dasharray:5 3}
+ .dim{opacity:.12}
+ .arcs path{fill:none}
+</style>
+<header>
+  <h1>Zesu proof graph</h1>
+  <input id="search" list="names" placeholder="search name, address, id" size="30">
+  <datalist id="names"></datalist>
+  <label class="muted">layer <select id="layer"></select></label>
+  <select id="cls" title="class dimension"></select>
+  <label class="muted">size <select id="size"></select></label>
+  <span id="badgebox"><button id="badgebtn">badges ▾</button><div id="badgemenu"></div></span>
+  <button id="clearfilter" title="clear filter">clear filter</button>
+  <span id="counts" class="muted"></span>
+</header>
+<main>
+  <div id="stage">
+    <svg id="prog"></svg>
+    <svg id="fsvg" style="display:none"></svg>
+    <canvas id="fcanvas" style="display:none"></canvas>
+    <div id="crumb"></div>
+    <svg id="mini"></svg>
+    <div id="legend"></div>
+  </div>
+  <aside id="panel"></aside>
+</main>
+<footer>
+  <div id="tabs">
+    <button data-tab="queue">Queue</button>
+    <button data-tab="metrics" title="S9.2: after S10">Metrics</button>
+    <button data-tab="trend" title="S9.2: after S10">Trend</button>
+    <span class="muted" id="drawerhint">drawer closed; click a tab</span>
+  </div>
+  <div id="drawerbody"></div>
+</footer>
+<div id="tip"></div>
+<script src="vendor/d3.min.js"></script>
+<script>
+window.ZMAP_DATA = 'data/';
+document.write('<script src="data/index.js"><\/script>');
+</script>
+<script>
+if (!window.ZMAP_INDEX) {
+  window.ZMAP_DATA = '../../exec-spike/map/site/data/';
+  document.write('<script src="' + window.ZMAP_DATA + 'index.js"><\/script>');
+}
+</script>
+<script>
+'use strict';
+const IX = window.ZMAP_INDEX;
+if (!IX || !window.d3) {
+  document.body.innerHTML = '<div class="err">No data. Run `python3 -m zmap site --out exec-spike/map/site` ' +
+    '(or `make -C exec-spike/tools/zmap map`) and open exec-spike/map/site/index.html.</div>';
+  throw new Error('no ZMAP_INDEX');
+}
+
+// ------------------------------------------------------------------ data
+const FN = new Map(IX.functions.map(f => [f.id, f]));
+const LAY = IX.layout;
+const ITEM = new Map(LAY.items.map(it => [it.id, it]));
+const FPOS = LAY.functions;
+const CANVAS_BLOCKS = 400;
+const hex = n => '0x' + Number(n).toString(16);
+const callees = new Map(), callers = new Map();
+for (const f of IX.functions) { callees.set(f.id, new Set()); callers.set(f.id, new Set()); }
+for (const e of IX.edges) { callees.get(e.from).add(e.to); callers.get(e.to).add(e.from); }
+function closure(start, adj) {
+  const seen = new Set(), st = [start];
+  while (st.length) for (const m of adj.get(st.pop()) || []) if (!seen.has(m)) { seen.add(m); st.push(m); }
+  seen.delete(start); return seen;
+}
+const needs = new Map(), unblocks = new Map();
+const needsOf = id => { if (!needs.has(id)) needs.set(id, closure(id, callees)); return needs.get(id); };
+const unblocksOf = id => { if (!unblocks.has(id)) unblocks.set(id, closure(id, callers)); return unblocks.get(id); };
+// Meaning complete: the function and every callee below it are spec-sail or model.
+const MEANINGFUL = new Set(['spec-sail', 'model']);
+const meaningComplete = f => MEANINGFUL.has(f.meaning) && [...needsOf(f.id)].every(c => MEANINGFUL.has(FN.get(c).meaning));
+
+// ------------------------------------------------------------------ layers and badges
+const C = {
+  'closed+compliance': '#2ea043', 'closed+sail': '#56d364', 'closed': '#a5f0b4',
+  'closed-on-assumptions': '#9be9a8', 'conditional': '#e3b341', 'in-proof': '#d29922',
+  'contract-draft': '#bc8cff', 'assumed': '#a371f7', 'blocked': '#f85149', 'ready': '#58a6ff',
+  'waiting': '#6e7681', 'out': '#30363d',
+};
+const LEAF_C = { auto: '#56d364', manual: '#58a6ff', open: '#f85149' };
+const LAYERS = {
+  proof: { label: 'Proof', values: Object.keys(C).filter(k => k !== 'out'), color: v => C[v] || '#6e7681',
+           value: f => f.state },
+  meaning: { label: 'Meaning', values: ['spec-sail', 'model', 'machine-only', 'none'],
+             color: v => ({ 'spec-sail': '#2ea043', model: '#58a6ff', 'machine-only': '#e3b341', none: '#3b434e' })[v],
+             value: f => f.meaning || 'none' },
+  trust: { label: 'Trust', values: ['service', 'assumed', 'rests on trusted', 'rests on nothing trusted'],
+           color: v => ({ service: '#a371f7', assumed: '#f85149', 'rests on trusted': '#d9a0a6', 'rests on nothing trusted': '#3b434e' })[v],
+           value: f => f.service ? 'service' : f.assumed ? 'assumed' : (f.rests_on && f.rests_on.length ? 'rests on trusted' : 'rests on nothing trusted') },
+  contract: { label: 'Contract', values: ['reviewed', 'transcribed', 'draft', 'none'],
+              color: v => ({ reviewed: '#2ea043', transcribed: '#e3b341', draft: '#f0883e', none: '#3b434e' })[v],
+              value: f => !f.contract ? 'none' : (f.contract.review === 'reviewed' ? 'reviewed' : (f.contract.contract || 'draft')) },
+  class: { label: 'Class', values: null, color: null, value: null },
+};
+const CLASS_DIMS = {
+  size: { label: 'size band', values: ['size:<=150', 'size:151-600', 'size:601-3000', 'size:>3000'],
+          colors: ['#a5d6ff', '#58a6ff', '#1f6feb', '#0d419d'] },
+  loops: { label: 'loop band', values: ['loops:0', 'loops:1-3', 'loops:>3'], colors: ['#3b434e', '#e3b341', '#f0883e'] },
+};
+for (const k of ['recursive', 'irreducible', 'jump-table', 'indirect-call', 'accelerator', 'ecall', 'generic-copy'])
+  CLASS_DIMS[k] = { label: k, values: [k, 'not ' + k], colors: ['#f778ba', '#3b434e'] };
+function classValue(f, dim) {
+  const d = CLASS_DIMS[dim], cs = f.classes || [];
+  if (dim === 'size' || dim === 'loops') return cs.find(c => d.values.includes(c)) || d.values[0];
+  return cs.includes(dim) ? dim : 'not ' + dim;
+}
+const BADGES = {
+  loops: { label: 'loops', color: '#e3b341', text: f => f.n_loops ? `L${f.n_loops}·d${f.max_loop_depth}` : null },
+  joins: { label: 'joins', color: '#79c0ff', text: f => f.n_joins ? `J${f.n_joins}·${f.max_fanin}` : null },
+  tables: { label: 'jump tables', color: '#d2a8ff', text: f => f.n_tables ? `T${f.n_tables}` : null },
+  indirect: { label: 'indirect calls', color: '#f0883e', text: f => f.n_indirect ? `I${f.n_indirect}` : null },
+  recursion: { label: 'recursion', color: '#f778ba', text: f => f.recursive ? 'rec' : null },
+  irreducible: { label: 'irreducible', color: '#ff7b72', text: f => f.irreducible ? 'irr' : null },
+  accel: { label: 'accelerators', color: '#a5d6ff', text: f => { const n = Object.values(f.csr || {}).reduce((a, b) => a + b, 0); return n ? `csr${Object.keys(f.csr).length}·${n}` : null; } },
+  forms: { label: 'unsupported forms', color: '#ffa198', text: f => { const n = Object.keys(f.forms_unsupported || {}).length; return n ? `U${n}` : null; } },
+  ecall: { label: 'ecall', color: '#56d4dd', text: f => f.ecall ? `ecall${f.ecall}` : null },
+  open: { label: 'open items', color: '#f85149', text: f => f.open_items ? `open${f.open_items}` : null },
+};
+const RES_C = { exact: '#56d364', precondition: '#58a6ff', 'table-heuristic': '#f0883e', unresolved: '#f85149', direct: '#4c5564' };
+
+// ------------------------------------------------------------------ state and URL hash
+const S = { view: 'program', fn: null, sel: null, layer: 'proof', cls: 'size', size: 'cuts',
+            badges: new Set(), cut: null, block: null, unstack: new Set(), filter: null, drawer: null, hover: null };
+function writeHash() {
+  const p = new URLSearchParams();
+  if (S.view === 'fn' && S.fn) p.set('fn', S.fn);
+  if (S.sel) p.set('sel', S.sel);
+  p.set('layer', S.layer);
+  if (S.layer === 'class') p.set('cls', S.cls);
+  if (S.size !== 'cuts') p.set('size', S.size);
+  if (S.badges.size) p.set('badges', [...S.badges].join(','));
+  if (S.cut != null) p.set('cut', hex(S.cut));
+  if (S.block != null) p.set('block', hex(S.block));
+  if (S.unstack.size) p.set('unstack', [...S.unstack].join('|'));
+  if (S.filter) p.set('filter', S.filter);
+  if (S.drawer) p.set('drawer', S.drawer);
+  const h = '#' + p.toString().replace(/%2C/g, ',').replace(/%3A/g, ':').replace(/%7C/g, '|');
+  if (location.hash !== h) history.replaceState(null, '', h);
+}
+function readHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  const fn = p.get('fn');
+  S.view = fn && FN.has(fn) ? 'fn' : 'program';
+  S.fn = S.view === 'fn' ? fn : null;
+  S.sel = FN.has(p.get('sel')) ? p.get('sel') : (S.fn || null);
+  S.layer = LAYERS[p.get('layer')] ? p.get('layer') : 'proof';
+  S.cls = CLASS_DIMS[p.get('cls')] ? p.get('cls') : 'size';
+  S.size = ['cuts', 'instr', 'forecast'].includes(p.get('size')) ? p.get('size') : 'cuts';
+  S.badges = new Set((p.get('badges') || '').split(',').filter(b => BADGES[b]));
+  S.cut = p.get('cut') ? parseInt(p.get('cut'), 16) : null;
+  S.block = p.get('block') ? parseInt(p.get('block'), 16) : null;
+  S.unstack = new Set((p.get('unstack') || '').split('|').filter(s => ITEM.has(s)));
+  S.filter = p.get('filter') || null;
+  S.drawer = ['queue', 'metrics', 'trend'].includes(p.get('drawer')) ? p.get('drawer') : null;
+}
+
+// ------------------------------------------------------------------ helpers
+const tip = document.getElementById('tip');
+function showTip(ev, text) { tip.textContent = text; tip.style.display = 'block'; tip.style.left = (ev.clientX + 14) + 'px'; tip.style.top = (ev.clientY + 10) + 'px'; }
+function hideTip() { tip.style.display = 'none'; }
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+function layerValue(f) { return S.layer === 'class' ? classValue(f, S.cls) : LAYERS[S.layer].value(f); }
+function layerColor(v) {
+  if (S.layer === 'class') { const d = CLASS_DIMS[S.cls]; return d.colors[d.values.indexOf(v)] || '#3b434e'; }
+  return LAYERS[S.layer].color(v) || '#3b434e';
+}
+function layerValues() { return S.layer === 'class' ? CLASS_DIMS[S.cls].values : LAYERS[S.layer].values; }
+function passesFilter(f) {
+  if (!S.filter) return true;
+  const [kind, ...rest] = S.filter.split(':'); const v = rest.join(':');
+  if (kind === 'v') return layerValue(f) === v;
+  if (kind === 'b') return !!(BADGES[v] && BADGES[v].text(f));
+  if (kind === 'ids') return v.split(',').includes(f.id);
+  return true;
+}
+const shortName = n => n.length > 34 ? n.slice(0, 32) + '…' : n;
+function radiusOf(fid) {
+  const r = FPOS[fid].r;
+  return (S.size === 'forecast' && r.forecast == null) ? r.cuts : (r[S.size] ?? r.cuts);
+}
+function itemRadius(it) { return (S.size === 'forecast' && it.r.forecast == null) ? it.r.cuts : (it.r[S.size] ?? it.r.cuts); }
+const expanded = it => it.kind === 'fn' || S.unstack.has(it.id);
+function disp(fid) { const it = ITEM.get(FPOS[fid].item); return expanded(it) ? fid : it.id; }
+function dispPos(d) { if (FN.has(d)) { const p = FPOS[d]; return [p.x, p.y]; } const it = ITEM.get(d); return [it.x, it.y]; }
+function dispR(d) { return FN.has(d) ? radiusOf(d) : itemRadius(ITEM.get(d)); }
+function dispMembers(d) { return FN.has(d) ? [d] : ITEM.get(d).members; }
+
+// ------------------------------------------------------------------ controls
+const selLayer = document.getElementById('layer'), selCls = document.getElementById('cls'), selSize = document.getElementById('size');
+for (const [k, l] of Object.entries(LAYERS)) selLayer.add(new Option(l.label, k));
+for (const [k, d] of Object.entries(CLASS_DIMS)) selCls.add(new Option(d.label, k));
+const haveForecast = IX.functions.some(f => f.forecast != null);
+for (const [k, l] of [['cuts', 'cut points'], ['instr', 'instructions'], ['forecast', haveForecast ? 'forecast $' : 'forecast $ (no data)']]) selSize.add(new Option(l, k));
+selLayer.onchange = () => { S.layer = selLayer.value; S.filter = null; render(); };
+selCls.onchange = () => { S.cls = selCls.value; S.filter = null; render(); };
+selSize.onchange = () => { S.size = selSize.value; render(); };
+const badgeMenu = document.getElementById('badgemenu');
+for (const [k, b] of Object.entries(BADGES)) {
+  const l = document.createElement('label');
+  l.innerHTML = `<input type="checkbox" value="${k}"> <span class="pill" style="background:${b.color}">${esc(b.label)}</span>`;
+  l.querySelector('input').onchange = ev => { ev.target.checked ? S.badges.add(k) : S.badges.delete(k); render(); };
+  badgeMenu.appendChild(l);
+}
+document.getElementById('badgebtn').onclick = () => document.getElementById('badgebox').classList.toggle('open');
+document.getElementById('clearfilter').onclick = () => { S.filter = null; render(); };
+const dl = document.getElementById('names');
+for (const f of IX.functions) { const o = document.createElement('option'); o.value = f.name; o.label = `${f.id} ${hex(f.entry)}`; dl.appendChild(o); }
+function findFn(q) {
+  q = q.trim(); if (!q) return null;
+  for (const f of IX.functions) if (f.id === q || f.name === q || f.status_id === q) return f;
+  const pc = /^(0x)?[0-9a-f]+$/i.test(q) ? parseInt(q, 16) : NaN;
+  if (!isNaN(pc)) { const f = IX.functions.find(f => f.entry === pc); if (f) return f; }
+  const hits = IX.functions.filter(f => f.name.toLowerCase().includes(q.toLowerCase()));
+  return hits.length ? hits.sort((a, b) => a.name.length - b.name.length)[0] : null;
+}
+document.getElementById('search').addEventListener('change', ev => {
+  const f = findFn(ev.target.value);
+  if (!f) { document.getElementById('counts').textContent = 'no match: ' + ev.target.value; return; }
+  selectFn(f.id, true);
+});
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape') { if (S.view === 'fn') openProgram(); else { S.sel = null; S.filter = null; render(); } }
+});
+
+// ------------------------------------------------------------------ program level
+const prog = d3.select('#prog');
+const pRoot = prog.append('g');
+const pDefs = prog.append('defs');
+function marker(id, path, color, refX, orient) {
+  pDefs.append('marker').attr('id', id).attr('viewBox', '-6 -6 12 12').attr('refX', refX).attr('refY', 0)
+    .attr('markerWidth', 7).attr('markerHeight', 7).attr('orient', orient || 'auto')
+    .append('path').attr('d', path).attr('fill', color).attr('stroke', color).attr('stroke-width', 1.5);
+}
+for (const [k, c] of Object.entries({ g: '#6e7681', n: '#58a6ff', u: '#f0883e', r: '#3fb950' })) {
+  marker('ah-' + k, 'M-5,-4L3,0L-5,4Z', c, 3);
+  marker('as-' + k, 'M5,-4L-3,0L5,4Z', c, -3);
+  marker('bar-' + k, 'M-5,-4L3,0L-5,4Z M4,-5L4,5', c, 4);
+  marker('x-' + k, 'M-4,-4L4,4M-4,4L4,-4', c, 0);
+}
+const pZoom = d3.zoom().scaleExtent([0.05, 6]).on('zoom', ev => {
+  pRoot.attr('transform', ev.transform);
+  prog.classed('zoomed-out', ev.transform.k < 0.9);
+});
+prog.call(pZoom).on('dblclick.zoom', null);
+let pFitted = false;
+function fitProgram() {
+  const el = document.getElementById('stage'), w = el.clientWidth, h = el.clientHeight;
+  const xs = LAY.layers.map(l => l.x0).concat(LAY.layers.map(l => l.x1));
+  const x0 = Math.min(...xs) - 60, x1 = Math.max(...xs) + 60, y1 = LAY.height + 20;
+  const k = Math.min(w / (x1 - x0), h / (y1 + 40)) * 0.98;
+  prog.call(pZoom.transform, d3.zoomIdentity.translate((w - (x1 - x0) * k) / 2 - x0 * k, 20).scale(k));
+}
+
+function edgePath(pts) { return d3.line().curve(d3.curveBasis)(pts); }
+function renderProgram() {
+  pRoot.selectAll('*').remove();
+  const sel = S.sel, need = sel ? needsOf(sel) : null, unb = sel ? unblocksOf(sel) : null;
+  const trustSel = sel && S.layer === 'trust' && (FN.get(sel).assumed || FN.get(sel).service);
+  const resting = trustSel ? new Set(IX.functions.filter(f => (f.rests_on || []).includes(sel)).map(f => f.id)) : null;
+  const lit = fid => !sel || fid === sel || (trustSel ? resting.has(fid) : (need.has(fid) || unb.has(fid)));
+  const passes = fid => passesFilter(FN.get(fid)) && lit(fid);
+  // Bands and layer labels.
+  const gb = pRoot.append('g');
+  for (const b of LAY.bands) {
+    const g = gb.append('g').attr('class', 'band');
+    g.append('rect').attr('x', b.x0 - 4).attr('y', b.y0).attr('width', b.x1 - b.x0 + 8).attr('height', b.y1 - b.y0).attr('rx', 6);
+    const name = (b.file || '?').split('/').slice(-2).join('/');
+    g.append('text').attr('x', b.x0).attr('y', b.y0 - 3).text(name.length > Math.max(6, (b.x1 - b.x0) / 6) ? name.split('/').pop() : name);
+  }
+  const xmin = Math.min(...LAY.layers.map(l => l.x0));
+  for (const l of LAY.layers) pRoot.append('text').attr('class', 'layerlbl').attr('x', xmin - 90).attr('y', l.y + 4).text('depth ' + l.layer);
+  // Edges merged per displayed pair.
+  const agg = new Map();
+  for (const e of IX.edges) {
+    const a = disp(e.from), b = disp(e.to);
+    if (a === b && e.from !== e.to) continue;
+    const k = a + '>' + b;
+    let x = agg.get(k);
+    if (!x) agg.set(k, x = { a, b, sites: 0, direct: 0, tail: 0, indirect: 0, res: new Set(), noreturn: false, fns: [] });
+    x.sites += e.sites; x.direct += e.kinds.direct || 0; x.tail += e.kinds.tail || 0; x.indirect += e.kinds.indirect || 0;
+    if (e.kinds.indirect) x.res.add(e.resolution);
+    x.noreturn = x.noreturn || e.noreturn; x.fns.push(e);
+  }
+  const ge = pRoot.append('g');
+  for (const x of agg.values()) {
+    const [ax, ay] = dispPos(x.a), [bx, by] = dispPos(x.b);
+    const ia = FN.has(x.a) ? FPOS[x.a].item : x.a, ib = FN.has(x.b) ? FPOS[x.b].item : x.b;
+    let d;
+    if (x.a === x.b) {
+      const r = dispR(x.a);
+      d = `M${ax + r * 0.7},${ay - r * 0.7} C${ax + r + 26},${ay - r - 26} ${ax + r + 26},${ay + r + 26} ${ax + r * 0.7},${ay + r * 0.7}`;
+    } else {
+      const route = LAY.routes[ia + '>' + ib];
+      if (route) {
+        const pts = route.map(p => p.slice());
+        pts[0] = [ax, ay + dispR(x.a)]; pts[pts.length - 1] = [bx, by - dispR(x.b) - 2];
+        d = edgePath(pts);
+      } else {   // back edge (cycle broken here): a bow to the right
+        const mx = Math.max(ax, bx) + 60 + Math.abs(ay - by) * 0.15;
+        d = `M${ax},${ay} C${mx},${ay} ${mx},${by} ${bx + dispR(x.b)},${by}`;
+      }
+    }
+    const touchesSel = sel && (dispMembers(x.a).includes(sel) || dispMembers(x.b).includes(sel));
+    const onNeed = sel && (dispMembers(x.a).some(m => m === sel || need.has(m)) && dispMembers(x.b).some(m => need.has(m)));
+    const onUnb = sel && (dispMembers(x.b).some(m => m === sel || unb.has(m)) && dispMembers(x.a).some(m => unb.has(m)));
+    const key = onNeed ? 'n' : onUnb ? 'u' : 'g';
+    const indOnly = x.indirect && !x.direct && !x.tail;
+    const color = onNeed ? '#58a6ff' : onUnb ? '#f0883e' : indOnly ? RES_C[[...x.res][0]] || '#4c5564' : null;
+    const p = ge.append('path').attr('class', 'edge' + (indOnly ? ' ind' : '')).attr('d', d)
+      .attr('stroke-width', 0.8 + Math.log2(1 + x.sites) * 0.7);
+    if (color) p.style('stroke', color).style('stroke-opacity', onNeed || onUnb ? 0.9 : 0.35);
+    const end = x.noreturn ? `x-${key}` : (x.tail && !x.direct && !x.indirect) ? `bar-${key}` : `ah-${key}`;
+    p.attr('marker-end', `url(#${end})`);
+    if (!x.noreturn && x.sites > x.tail) p.attr('marker-start', `url(#as-${key})`);
+    if (sel && !onNeed && !onUnb && !touchesSel) p.classed('dim', true);
+    else if (S.filter && !(dispMembers(x.a).some(m => passesFilter(FN.get(m))) && dispMembers(x.b).some(m => passesFilter(FN.get(m))))) p.classed('dim', true);
+    p.on('mousemove', ev => showTip(ev, `${x.fns.map(e => FN.get(e.from).name + ' → ' + FN.get(e.to).name).slice(0, 4).join('\n')}${x.fns.length > 4 ? '\n…' : ''}\n${x.sites} call sites: direct ${x.direct}, tail ${x.tail}, indirect ${x.indirect}${x.res.size ? ' (' + [...x.res].join(', ') + ')' : ''}${x.noreturn ? '\ncallee never returns' : ''}`)).on('mouseleave', hideTip);
+  }
+  // Per call site arcs of the selected function: one call arc and one return arc per site, numbered.
+  if (sel) {
+    const ga = pRoot.append('g').attr('class', 'arcs');
+    let n = 0;
+    for (const e of IX.edges.filter(e => e.from === sel && e.to !== sel)) {
+      const [ax, ay] = dispPos(disp(e.from)), [bx, by] = dispPos(disp(e.to));
+      const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+      const returns = e.noreturn ? 0 : e.sites - (e.kinds.tail || 0);
+      for (let i = 0; i < e.sites; i++) {
+        n++;
+        const off = 18 + i * 9;
+        const cx = (ax + bx) / 2 + nx * off, cy = (ay + by) / 2 + ny * off;
+        ga.append('path').attr('d', `M${ax},${ay} Q${cx},${cy} ${bx},${by - dispR(disp(e.to))}`)
+          .attr('stroke', '#58a6ff').attr('stroke-width', 1.2).attr('marker-end', 'url(#ah-n)');
+        ga.append('text').attr('x', (ax + 2 * cx + bx) / 4).attr('y', (ay + 2 * cy + by) / 4).attr('fill', '#58a6ff').attr('font-size', 9).text(n);
+        if (i < returns) {
+          const rx = (ax + bx) / 2 - nx * off, ry = (ay + by) / 2 - ny * off;
+          ga.append('path').attr('d', `M${bx},${by} Q${rx},${ry} ${ax},${ay + dispR(disp(e.from))}`)
+            .attr('stroke', '#3fb950').attr('stroke-width', 1).attr('stroke-dasharray', '3 2').attr('marker-end', 'url(#ah-r)');
+          ga.append('text').attr('x', (ax + 2 * rx + bx) / 4).attr('y', (ay + 2 * ry + by) / 4).attr('fill', '#3fb950').attr('font-size', 9).text(n);
+        }
+      }
+    }
+  }
+  // Nodes.
+  const gn = pRoot.append('g');
+  for (const it of LAY.items) {
+    const ds = expanded(it) ? it.members : [it.id];
+    if (it.kind === 'stack' && expanded(it)) {
+      gn.append('rect').attr('x', it.x - it.w / 2 - 4).attr('y', it.y - it.h / 2 - 4).attr('width', it.w + 8).attr('height', it.h + 8)
+        .attr('rx', 8).attr('fill', 'none').attr('stroke', '#58a6ff').attr('stroke-dasharray', '4 3').style('cursor', 'pointer')
+        .on('click', () => { S.unstack.delete(it.id); render(); })
+        .on('mousemove', ev => showTip(ev, `stack ${it.stem}: click the frame to stack again`)).on('mouseleave', hideTip);
+    }
+    for (const d of ds) {
+      const [x, y] = dispPos(d), r = dispR(d), members = dispMembers(d), f0 = FN.get(members[0]);
+      const g = gn.append('g').attr('class', 'node').attr('transform', `translate(${x},${y})`);
+      const vals = members.map(m => layerValue(FN.get(m)));
+      const fill = layerColor(vals.sort((a, b) => layerValues().indexOf(a) - layerValues().indexOf(b))[vals.length - 1]);
+      if (!FN.has(d)) {
+        g.append('circle').attr('r', r).attr('cx', 6).attr('cy', -6).attr('fill', '#2a313c').attr('stroke', '#59626f');
+        g.append('circle').attr('r', r).attr('cx', 3).attr('cy', -3).attr('fill', '#2f3742').attr('stroke', '#59626f');
+      }
+      const isSel = members.includes(sel);
+      g.append('circle').attr('r', r).attr('fill', fill).attr('stroke', isSel ? '#ffd54a' : (S.hover && members.includes(S.hover)) ? '#fff' : '#0f1115')
+        .attr('stroke-width', isSel || (S.hover && members.includes(S.hover)) ? 3 : 1);
+      const label = FN.has(d) ? shortName(f0.name) : `${shortName(it.stem)} ×${members.length}`;
+      g.append('text').attr('class', 'lbl' + (r < 9 && !isSel ? ' small' : '')).attr('y', r + 11).attr('text-anchor', 'middle').text(label);
+      if (!FN.has(d)) g.append('text').attr('y', 4).attr('text-anchor', 'middle').attr('font-size', 10).attr('fill', '#111').text('×' + members.length);
+      // Cut count on the node.
+      const cuts = members.reduce((a, m) => a + FN.get(m).n_cuts, 0);
+      if (r >= 11 && FN.has(d)) g.append('text').attr('y', 3.5).attr('text-anchor', 'middle').attr('font-size', 9).attr('fill', '#111').text(cuts);
+      // Badges.
+      let by = -r;
+      for (const b of S.badges) {
+        const texts = members.map(m => BADGES[b].text(FN.get(m))).filter(Boolean);
+        if (!texts.length) continue;
+        const t = FN.has(d) ? texts[0] : `${b}:${texts.length}`;
+        const w = t.length * 6 + 6;
+        g.append('rect').attr('x', r + 2).attr('y', by - 6).attr('width', w).attr('height', 11).attr('rx', 5).attr('fill', BADGES[b].color);
+        g.append('text').attr('x', r + 5).attr('y', by + 3).attr('font-size', 9).attr('fill', '#111').text(t);
+        by += 12;
+      }
+      if (!members.some(passes)) g.classed('dim', true);
+      g.on('click', ev => {
+        ev.stopPropagation();
+        if (!FN.has(d)) { S.unstack.add(d); S.sel = S.sel || null; render(); return; }
+        selectFn(d, false);
+      }).on('dblclick', ev => { ev.stopPropagation(); if (FN.has(d)) openFn(d); })
+        .on('mousemove', ev => showTip(ev, FN.has(d) ? fnTip(f0) : `${it.stem} ×${members.length} (same stem)\nclick: unstack\n` + members.map(m => FN.get(m).name).join('\n')))
+        .on('mouseleave', hideTip);
+    }
+  }
+  prog.on('click', () => { if (S.sel) { S.sel = null; render(); } });
+}
+function fnTip(f) {
+  return `${f.name}  (${f.id}, ${hex(f.entry)})\nstate ${f.state}   meaning ${f.meaning}\n` +
+    `instr ${f.n_instr}  cuts ${f.n_cuts}  loops ${f.n_loops} (depth ${f.max_loop_depth})  joins ${f.n_joins} (max fan-in ${f.max_fanin})\n` +
+    `calls ${f.n_calls}  indirect ${f.n_indirect}  tables ${f.n_tables}\nleaves auto ${f.leaves.auto} manual ${f.leaves.manual} open ${f.leaves.open}` +
+    (f.minutes_typed ? `\nhand-typed minutes (ledger): ${f.minutes_typed}` : '') + '\nclick: select   double-click: open';
+}
+
+// ------------------------------------------------------------------ legend, counts
+function renderLegend() {
+  const L = document.getElementById('legend');
+  const vals = layerValues();
+  const counts = {};
+  for (const f of IX.functions) { const v = layerValue(f); counts[v] = (counts[v] || 0) + 1; }
+  let h = `<div><b>${S.layer === 'class' ? 'Class: ' + CLASS_DIMS[S.cls].label : LAYERS[S.layer].label}</b> <span class="muted">(click a value to filter)</span></div>`;
+  for (const v of vals) {
+    const on = !S.filter || S.filter === 'v:' + v;
+    h += `<span class="item${on ? '' : ' off'}" data-f="v:${esc(v)}"><i style="background:${layerColor(v)}"></i>${esc(v)} ${counts[v] || 0}</span>`;
+  }
+  if (S.layer === 'meaning') {
+    const all = IX.functions.reduce((a, f) => a + f.n_cuts, 0);
+    const done = IX.functions.filter(meaningComplete).reduce((a, f) => a + f.n_cuts, 0);
+    h += `<div class="t">meaning-complete cut points: ${done} / ${all}. Meaning edges: S9.2 (after S10).</div>`;
+  }
+  if (S.layer === 'trust') h += `<div class="t">select a service or assumed function to light what rests on it${IX.derived.includes('rests_on') ? ' (rests_on derived from callees until S10.6)' : ''}</div>`;
+  if (S.layer === 'contract') h += `<div class="t">non-vacuity theorem / snapshot test marks, rework count: no data (S10)</div>`;
+  if (S.layer === 'class' && IX.derived.includes('classes')) h += `<div class="t">classes derived by the S10.5 rule until S10 lands</div>`;
+  if (S.layer === 'meaning' && IX.derived.includes('meaning')) h += `<div class="t">meaning from reviews.json until S10.4</div>`;
+  if (S.view === 'program') {
+    h += `<div class="t">edge: solid direct, dashed indirect (orange heuristic, red unresolved), ▸| tail, × never returns, double head = returns</div>`;
+    if (S.badges.size) {
+      h += '<div class="t">badges (cost multiplier: empty until measured, S9.2):</div>';
+      for (const b of S.badges) { const on = !S.filter || S.filter === 'b:' + b; h += `<span class="item${on ? '' : ' off'}" data-f="b:${b}"><span class="pill" style="background:${BADGES[b].color}">${BADGES[b].label}</span> ×—</span>`; }
+    }
+  } else {
+    h += `<div class="t">leaf paths: <span style="color:${LEAF_C.auto}">auto</span> <span style="color:${LEAF_C.manual}">manual</span> <span style="color:${LEAF_C.open}">open</span>; dashed = path matched approximately. back edges purple on the left; calls orange, returns green; hull = loop body</div>`;
+  }
+  L.innerHTML = h;
+  for (const el of L.querySelectorAll('[data-f]')) el.onclick = () => { S.filter = S.filter === el.dataset.f ? null : el.dataset.f; render(); };
+  const sc = IX.state_counts || {};
+  document.getElementById('counts').textContent = `${IX.functions.length} target functions · ` +
+    ['closed+compliance', 'closed+sail', 'conditional', 'assumed', 'ready', 'waiting', 'blocked'].map(k => `${k} ${IX.functions.filter(f => f.state === k).length}`).join(' · ');
+}
+
+// ------------------------------------------------------------------ side panel
+const panel = document.getElementById('panel');
+function kv(rows) { return '<table>' + rows.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${v}</td></tr>`).join('') + '</table>'; }
+const fnLink = id => FN.has(id) ? `<span class="rowlink" data-fn="${id}">${esc(FN.get(id).name)}</span>` : esc(id);
+function renderCard() {
+  if (S.view === 'fn' && S.block != null && FNDATA.has(S.fn)) return renderBlockPanel();
+  const id = S.sel || S.fn;
+  if (!id) {
+    panel.innerHTML = `<h2>Zesu proof graph</h2><p class="muted">Click a node to select it, double-click to open its control-flow graph, click a block for its disassembly and source. Esc goes back.</p>` +
+      kv([['ELF', esc((IX.elf_sha256 || '').slice(0, 16) + '…')], ['functions', IX.functions.length], ['call edges', IX.edges.length],
+          ['derived fields', esc(IX.derived.join(', ') || 'none')], ['disassembly', IX.disassembly ? 'yes' : 'no'],
+          ['hand-typed minutes (ledger)', esc((IX.ledger_totals && IX.ledger_totals.all && IX.ledger_totals.all.minutes) || 0)],
+          ['cost ($, from session logs)', IX.cost_totals ? esc(JSON.stringify(IX.cost_totals.all || IX.cost_totals)) : 'no data (S10)']]);
+    wireLinks(); return;
+  }
+  const f = FN.get(id);
+  const c = f.contract;
+  let h = `<h2>${esc(f.name)}</h2><div class="muted">${f.id} · ${hex(f.entry)}${f.status_id ? ' · ' + esc(f.status_id) : ''}</div>`;
+  h += `<div style="margin:6px 0">${S.view === 'program' ? `<button id="openfn">open control-flow graph</button>` : `<button id="backprog">back to program</button>`}` +
+    (FPOS[id].item !== id ? ` <button id="restack">stack ${esc(ITEM.get(FPOS[id].item).stem)} again</button>` : '') + '</div>';
+  h += kv([
+    ['state', `<span class="pill" style="background:${C[f.state] || '#6e7681'}">${esc(f.state)}</span>`],
+    ['meaning', esc(f.meaning)],
+    ['contract', c ? esc(`${c.contract}/${c.review}`) : 'none'],
+    ['classes', (f.classes || []).map(esc).join(', ')],
+    ['rests on', (f.rests_on || []).map(fnLink).join(', ') || 'nothing trusted'],
+    ['instr / cuts', `${f.n_instr} / ${f.n_cuts}`],
+    ['loops', `${f.n_loops} (deepest ${f.max_loop_depth})`],
+    ['joins', `${f.n_joins} (largest fan-in ${f.max_fanin})`],
+    ['calls', `${f.n_calls} (indirect ${f.n_indirect}${f.n_indirect ? ': ' + esc(Object.entries(f.indirect_resolution).map(([k, v]) => k + ' ' + v).join(', ')) : ''})`],
+    ['jump tables', f.n_tables],
+    ['flags', [f.recursive && 'recursive', f.irreducible && 'irreducible', f.noreturn && 'never returns'].filter(Boolean).join(', ') || '—'],
+    ['unsupported', esc(Object.entries(f.forms_unsupported).map(([k, v]) => `${k} ${v}`).join(', ') || '—')],
+    ['CSR', esc(Object.entries(f.csr).map(([k, v]) => `${k} ${v}`).join(', ') || '—')],
+    ['ecall', f.ecall || '—'],
+    ['leaves', `auto ${f.leaves.auto}, manual ${f.leaves.manual}, open ${f.leaves.open}`],
+    ['open items', f.open_items],
+    ['automatic share', f.auto_share == null ? '—' : Math.round(f.auto_share * 100) + '%'],
+    ['hand-typed minutes', `${f.minutes_typed} (ledger, ${f.ledger_items} items, typed by hand)`],
+    ['cost (session logs)', f.cost == null ? 'no data (S10)' : esc(`$${(+f.cost.usd || 0).toFixed(2)} · ${f.cost.minutes ?? '?'} min · ${f.cost.items ?? '?'} items`)],
+    ['forecast', f.forecast == null ? 'no data (S10)' : esc(typeof f.forecast === 'object' ? `p25 ${f.forecast.p25} · p50 ${f.forecast.p50} · p75 ${f.forecast.p75}` : f.forecast)],
+    ['source', esc(f.src_file || '—')],
+    ['callers', [...callers.get(id)].map(fnLink).join(', ') || '—'],
+    ['callees', [...callees.get(id)].map(fnLink).join(', ') || '—'],
+  ]);
+  const fd = FNDATA.get(id);
+  if (fd && fd.vc_cuts.length) {
+    h += '<h3>proof cuts (click: leaf paths)</h3>' + fd.vc_cuts.map(vc => `<div class="rowlink" data-cut="${vc.pc}" style="${vc.pc === S.cut ? 'color:#ffd54a' : ''}">${hex(vc.pc)} cut lemma ${esc(vc.cut_lemma)} · ${vc.n_leaves} leaves</div>`).join('');
+  }
+  if (S.view === 'fn' && S.cut != null && fd && fd.layout.leaf_paths[S.cut]) {
+    const lp = fd.layout.leaf_paths[S.cut];
+    h += `<h3>leaves of cut ${hex(S.cut)}</h3>` + lp.leaves.map(l => `<div><span class="pill" style="background:${LEAF_C[l.state] || '#6e7681'}">${esc(l.state)}</span>#${l.i} ${esc(l.exit)} ${l.target != null ? hex(l.target) : ''} · ${l.steps} steps${l.approx ? ' · approx path' : ''}${l.state !== 'auto' && l.residual ? '<div class="muted">' + esc(l.residual) + '</div>' : ''}</div>`).join('');
+  }
+  h += '<h3>card (zmap show)</h3>' + (fd ? `<pre>${esc(fd.card)}</pre>` : '<div class="muted">loading…</div>');
+  panel.innerHTML = h;
+  const ob = document.getElementById('openfn'); if (ob) ob.onclick = () => openFn(id);
+  const bb = document.getElementById('backprog'); if (bb) bb.onclick = openProgram;
+  const rs = document.getElementById('restack'); if (rs) rs.onclick = () => { S.unstack.delete(FPOS[id].item); render(); };
+  for (const el of panel.querySelectorAll('[data-cut]')) el.onclick = () => { const pc = +el.dataset.cut; if (S.view !== 'fn') { S.cut = pc; openFn(id); } else { S.cut = S.cut === pc ? null : pc; S.block = null; render(); } };
+  wireLinks();
+  if (!fd) loadFn(id).then(() => { if ((S.sel || S.fn) === id) renderCard(); });
+}
+function wireLinks() {
+  for (const el of panel.querySelectorAll('[data-fn]')) el.onclick = () => selectFn(el.dataset.fn, true);
+}
+function renderBlockPanel() {
+  const fd = FNDATA.get(S.fn), b = fd.blocks.find(b => b.start === S.block);
+  if (!b) { S.block = null; return renderCard(); }
+  const cut = fd.cuts.find(c => c.pc === b.start), vc = fd.vc_cuts.find(c => c.pc === b.start);
+  const join = fd.joins.find(j => j.at === b.start), loop = fd.loops.find(l => l.head === b.start);
+  const f = FN.get(S.fn);
+  let h = `<h2>block ${hex(b.start)}–${hex(b.end)}</h2><div class="muted">${esc(fd.name)} · ${b.n} instructions · ${b.kind}${b.exit ? '' : ''}</div>`;
+  h += `<div style="margin:6px 0"><button id="tocard">function card</button> <button id="backprog">back to program</button></div>`;
+  h += kv([
+    ['cut', cut ? esc(cut.why) + (vc ? ` · proof cut, cut lemma ${esc(vc.cut_lemma)}, ${vc.n_leaves} leaves` + (vc.thm ? `<br>${esc(vc.thm.name)} (${esc(vc.thm.file)}:${esc((vc.thm.lines || []).join('–'))}, ${esc(vc.thm.rule)})` : '') : '') : '—'],
+    ['loop head', loop ? `${loop.body.length} blocks` : '—'],
+    ['join', join ? `${join.fanin_paths} incoming paths` : '—'],
+    ['successors', b.succ.map(hex).join(' ') || '—'],
+    ['source', b.src && b.src.file ? esc(`${b.src.file}:${b.src.lines ? b.src.lines.join('–') : '?'}`) : 'no source line'],
+    ['inline frame', b.src && b.src.inline ? esc(b.src.inline) : '—'],
+    ['glyphs', esc(Object.entries(b.glyphs).map(([k, v]) => `${k} ×${v}`).join(', ') || '—')],
+    ['theorems', (Object.entries(f.theorem_names || {}).filter(([k, v]) => v).map(([k, v]) => esc(`${k}: ${v}`)).join('<br>') || '—') + '<div class="muted">per-leaf lemma names with file and line: S9.2 (S10.2)</div>'],
+  ]);
+  const src = b.src && b.src.file && fd.source[b.src.file];
+  let srcText = 'no source line';
+  if (src && b.src.lines) {
+    const rows = []; for (let ln = b.src.lines[0]; ln <= b.src.lines[1]; ln++) if (src[ln] != null) rows.push(String(ln).padStart(5) + '  ' + src[ln]);
+    srcText = rows.join('\n') || 'source file not available';
+  }
+  h += `<h3>disassembly · Zig source</h3><div class="dis"><div>${esc(b.dis.length ? b.dis.map(([pc, t]) => hex(pc).slice(2) + '  ' + t).join('\n') : (fd.disassembly ? '' : 'no disassembly (site built without --elf)'))}</div><div>${esc(srcText)}</div></div>`;
+  panel.innerHTML = h;
+  document.getElementById('tocard').onclick = () => { S.block = null; render(); };
+  document.getElementById('backprog').onclick = openProgram;
+}
+
+// ------------------------------------------------------------------ function data
+const FNDATA = new Map(), PENDING = new Map();
+window.ZMAP_FN = (id, data) => { FNDATA.set(id, data); const p = PENDING.get(id); if (p) { p.resolve(data); PENDING.delete(id); } };
+function loadFn(id) {
+  if (FNDATA.has(id)) return Promise.resolve(FNDATA.get(id));
+  if (PENDING.has(id)) return PENDING.get(id).promise;
+  let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; });
+  PENDING.set(id, { promise, resolve });
+  const s = document.createElement('script'); s.src = `${window.ZMAP_DATA}fn/${id}.js`; s.onerror = () => reject(new Error('no data/fn/' + id + '.js'));
+  document.head.appendChild(s);
+  return promise;
+}
+
+// ------------------------------------------------------------------ function level
+const fsvg = d3.select('#fsvg'), fcanvas = document.getElementById('fcanvas');
+const fRoot = fsvg.append('g');
+let fTransform = d3.zoomIdentity, fMode = 'svg', fFittedFor = null;
+const fZoom = d3.zoom().scaleExtent([0.01, 8]).on('zoom', ev => { fTransform = ev.transform; drawFn(); });
+fsvg.call(fZoom).on('dblclick.zoom', null);
+d3.select(fcanvas).call(fZoom).on('dblclick.zoom', null);
+
+// Two back ends with one interface: the scene is drawn once per frame.
+function svgBackend() {
+  const out = [];
+  const st = s => `fill="${s.fill || 'none'}" stroke="${s.stroke || 'none'}" stroke-width="${s.lw || 1}"${s.dash ? ` stroke-dasharray="${s.dash.join(' ')}"` : ''}${s.alpha != null ? ` opacity="${s.alpha}"` : ''}`;
+  return {
+    k: () => fTransform.k,
+    rect: (x, y, w, h, s) => out.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${s.rx || 0}" ${st(s)}/>`),
+    line: (pts, s, curve) => out.push(`<path d="${d3.line().curve(curve || d3.curveLinear)(pts)}" ${st(s)}/>`),
+    poly: (pts, s) => out.push(`<polygon points="${pts.map(p => p.join(',')).join(' ')}" ${st(s)}/>`),
+    text: (x, y, t, s) => out.push(`<text x="${x}" y="${y}" font-size="${s.size || 10}" fill="${s.fill || '#c9d1d9'}" text-anchor="${s.anchor || 'start'}"${s.bold ? ' font-weight="700"' : ''}>${esc(t)}</text>`),
+    circle: (x, y, r, s) => out.push(`<circle cx="${x}" cy="${y}" r="${r}" ${st(s)}/>`),
+    flush: () => { fRoot.attr('transform', fTransform).html(out.join('')); },
+  };
+}
+function canvasBackend() {
+  const el = document.getElementById('stage'), dpr = window.devicePixelRatio || 1;
+  const W = el.clientWidth, H = el.clientHeight;
+  if (fcanvas.width !== W * dpr || fcanvas.height !== H * dpr) { fcanvas.width = W * dpr; fcanvas.height = H * dpr; }
+  const ctx = fcanvas.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, fcanvas.width, fcanvas.height);
+  ctx.setTransform(dpr * fTransform.k, 0, 0, dpr * fTransform.k, dpr * fTransform.x, dpr * fTransform.y);
+  ctx.lineJoin = 'round';
+  const [vx0, vy0] = fTransform.invert([0, 0]), [vx1, vy1] = fTransform.invert([W, H]);
+  const visible = (x0, y0, x1, y1) => x1 >= vx0 && x0 <= vx1 && y1 >= vy0 && y0 <= vy1;
+  const bbox = pts => { let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity; for (const [x, y] of pts) { if (x < a) a = x; if (y < b) b = y; if (x > c) c = x; if (y > d) d = y; } return [a, b, c, d]; };
+  const apply = s => {
+    ctx.globalAlpha = s.alpha != null ? s.alpha : 1;
+    ctx.setLineDash(s.dash || []); ctx.lineWidth = s.lw || 1;
+    if (s.fill && s.fill !== 'none') { ctx.fillStyle = s.fill; ctx.fill(); }
+    if (s.stroke && s.stroke !== 'none') { ctx.strokeStyle = s.stroke; ctx.stroke(); }
+  };
+  return {
+    k: () => fTransform.k,
+    rect: (x, y, w, h, s) => { if (!visible(x, y, x + w, y + h)) return; ctx.beginPath(); ctx.rect(x, y, w, h); apply(s); },
+    line: (pts, s, curve) => { if (!visible(...bbox(pts))) return; ctx.beginPath(); d3.line().curve(curve || d3.curveLinear).context(ctx)(pts); const f = s.fill; s.fill = null; apply(s); s.fill = f; },
+    poly: (pts, s) => { if (!visible(...bbox(pts))) return; ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); apply(s); },
+    text: (x, y, t, s) => {
+      if ((s.size || 10) * fTransform.k < 4 || !visible(x - 200, y - 20, x + 200, y + 5)) return;
+      ctx.globalAlpha = 1; ctx.fillStyle = s.fill || '#c9d1d9'; ctx.font = `${s.bold ? '700 ' : ''}${s.size || 10}px ui-monospace,monospace`;
+      ctx.textAlign = s.anchor === 'middle' ? 'center' : s.anchor === 'end' ? 'right' : 'left'; ctx.fillText(t, x, y);
+    },
+    circle: (x, y, r, s) => { if (!visible(x - r, y - r, x + r, y + r)) return; ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); apply(s); },
+    flush: () => { ctx.globalAlpha = 1; ctx.setLineDash([]); },
+  };
+}
+function arrowHead(R, a, b, color, kind) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, ux = dx / l, uy = dy / l;
+  const [x, y] = b;
+  if (kind === 'cross') { R.line([[x - 5, y - 5], [x + 5, y + 5]], { stroke: color, lw: 2 }); R.line([[x - 5, y + 5], [x + 5, y - 5]], { stroke: color, lw: 2 }); return; }
+  R.poly([[x, y], [x - ux * 8 - uy * 4, y - uy * 8 + ux * 4], [x - ux * 8 + uy * 4, y - uy * 8 - ux * 4]], { fill: color });
+  if (kind === 'bar') R.line([[x - uy * 7, y + ux * 7], [x + uy * 7, y - ux * 7]], { stroke: color, lw: 2.5 });
+}
+const CUT_LABEL = { entry: 'entry', loop: 'loop', ret: 'return site', join: 'join' };
+function drawFn() {
+  const fd = FNDATA.get(S.fn); if (!fd) return;
+  const R = fMode === 'canvas' ? canvasBackend() : svgBackend();
+  const L = fd.layout, f = FN.get(S.fn), proof = S.layer === 'proof';
+  const vcBy = new Map(fd.vc_cuts.map(c => [c.pc, c]));
+  const cutBy = new Map(fd.cuts.map(c => [c.pc, c]));
+  const joinBy = new Map(fd.joins.map(j => [j.at, j]));
+  const tableBy = new Map(); for (const t of fd.jump_tables) tableBy.set(t.site, t);
+  const lb = new Map(L.blocks.map(b => [b.start, b]));
+  // Hulls (nested hulls overlap, so deeper bodies are darker).
+  for (const h of L.hulls) if (h.pts.length > 2) R.poly(h.pts, { fill: '#e3b341', alpha: 0.13, stroke: '#e3b341', lw: 1.2 });
+  // CFG edges.
+  for (const e of L.edges) {
+    const back = e.kind === 'back';
+    const s = back ? { stroke: '#bc8cff', lw: 1.6 } : e.kind === 'table' ? { stroke: '#d2a8ff', lw: 1.2, dash: [2, 3] } : { stroke: e.kind === 'taken' ? '#7d8fa6' : '#56606e', lw: 1.1 };
+    R.line(e.pts, s, back ? d3.curveBasis : d3.curveLinear);
+    arrowHead(R, e.pts[e.pts.length - 2], e.pts[e.pts.length - 1], s.stroke);
+  }
+  // Exit bar and drains.
+  for (const d of L.drains) R.line(d.pts, { stroke: '#3fb950', lw: 1, alpha: 0.7 });
+  R.line([[L.exit_bar.x0, L.exit_bar.y], [L.exit_bar.x1, L.exit_bar.y]], { stroke: '#3fb950', lw: 4 });
+  R.text(L.exit_bar.x0, L.exit_bar.y - 6, 'exit (ret)', { fill: '#3fb950', size: 11 });
+  if (L.exit_bar.link) { R.line(L.exit_bar.link, { stroke: '#3fb950', lw: 1.5, dash: [5, 3] }); arrowHead(R, L.exit_bar.link[2], L.exit_bar.link[3], '#3fb950'); }
+  // Stubs.
+  for (const s of L.caller_stubs) {
+    R.rect(s.x, s.y, s.w, s.h, { fill: '#1e242e', stroke: '#58a6ff', rx: 4 });
+    R.text(s.x + 6, s.y + 17, shortName(s.label).slice(0, 22), { fill: '#c9d1d9', size: 10 });
+  }
+  R.text(L.caller_stubs.length ? L.caller_stubs[0].x : 0, -118, L.caller_stubs.length ? 'callers' : 'no callers in the target set', { fill: '#8a93a3', size: 11 });
+  for (const s of L.callee_stubs) {
+    const fn = FN.get(s.key);
+    R.rect(s.x, s.y, s.w, s.h, { fill: fn ? layerColor(layerValue(fn)) : '#1e242e', stroke: '#f0883e', rx: 4, alpha: 1 });
+    R.text(s.x + 6, s.y + 17, (s.key.startsWith('ind:') ? '⋔ ' : '') + shortName(s.label).slice(0, 22), { fill: fn ? '#111' : '#f0883e', size: 10 });
+  }
+  // Blocks.
+  L.blocks.forEach((b, bi) => {
+    const fb = fd.blocks[bi];
+    const sel = b.start === S.block;
+    R.rect(b.x, b.y, b.w, b.h, { fill: sel ? '#3a3320' : '#1b2129', stroke: sel ? '#ffd54a' : b.exit === 'ret' ? '#3fb950' : '#3a4452', lw: sel ? 2.5 : 1, rx: 3 });
+    R.text(b.x + 5, b.y + 12, hex(b.start).slice(2), { fill: '#c9d1d9', size: 10 });
+    if (fb) {
+      R.text(b.x + b.w - 4, b.y + 12, fb.n + 'i', { fill: '#8a93a3', size: 9, anchor: 'end' });
+      if (fb.src && fb.src.file) R.text(b.x + 5, b.y + 25, (fb.src.file.split('/').pop() + ':' + (fb.src.lines ? fb.src.lines[0] : '')).slice(0, 22), { fill: '#7d8796', size: 8.5 });
+      const gl = Object.keys(fb.glyphs);
+      if (gl.length) {
+        const t = gl.slice(0, 2).join(' ') + (gl.length > 2 ? ' …' : '');
+        R.rect(b.x + b.w - t.length * 5.4 - 8, b.y + b.h - 2, t.length * 5.4 + 6, 11, { fill: '#a5d6ff', rx: 5 });
+        R.text(b.x + b.w - 5, b.y + b.h + 6.5, t, { fill: '#111', size: 8.5, anchor: 'end' });
+      }
+    }
+    const cut = cutBy.get(b.start), vc = vcBy.get(b.start);
+    if (cut || vc) {
+      const col = proof && vc ? (LEAF_C[vc.cut_lemma] || '#f85149') : '#c9d1d9';
+      R.rect(b.x, b.y - 5, b.w, 5, { fill: col });
+      R.text(b.x + 2, b.y - 7, (cut ? CUT_LABEL[cut.why] || cut.why : 'proof cut') + (vc ? ' · ' + vc.cut_lemma : ''), { fill: col, size: 9 });
+    }
+    const j = joinBy.get(b.start);
+    if (j) {
+      const x = b.x + b.w + 1, y = b.y + 2;
+      R.poly([[x, y - 7], [x + 7, y], [x, y + 7], [x - 7, y]], { fill: '#79c0ff', stroke: '#0f1115' });
+      R.text(x, y + 3, String(j.fanin_paths), { fill: '#111', size: 8, anchor: 'middle' });
+    }
+    if (b.exit === 'table') {
+      const t = fd.jump_tables.find(t => t.site >= b.start && t.site < (fb ? fb.end : b.start + 4));
+      R.circle(b.x + b.w / 2, b.y + b.h + 9, 7, { fill: '#d2a8ff' });
+      R.text(b.x + b.w / 2, b.y + b.h + 12, String(t ? (t.entries || t.targets.length) : '?'), { fill: '#111', size: 8, anchor: 'middle' });
+    }
+  });
+  // Calls and returns, numbered.
+  for (const c of L.calls) {
+    const col = c.kind === 'indirect' ? (RES_C[c.resolution] || '#f0883e') : '#f0883e';
+    R.line(c.call, { stroke: col, lw: 1.3, dash: c.kind === 'indirect' ? [5, 3] : null });
+    arrowHead(R, c.call[c.call.length - 2], c.call[c.call.length - 1], col, c.noreturn || c.no_return_site ? 'cross' : c.kind === 'tail' ? 'bar' : null);
+    R.circle(c.call[0][0] + 7, c.call[0][1], 6.5, { fill: col });
+    R.text(c.call[0][0] + 7, c.call[0][1] + 3, String(c.n), { fill: '#111', size: 8, anchor: 'middle' });
+    if (c.return) {
+      R.line(c.return, { stroke: '#3fb950', lw: 1.1, dash: [4, 2] });
+      arrowHead(R, c.return[c.return.length - 2], c.return[c.return.length - 1], '#3fb950');
+      const p = c.return[c.return.length - 2];
+      R.text(p[0] - 3, p[1] - 2, String(c.n), { fill: '#3fb950', size: 8, anchor: 'end' });
+    }
+  }
+  // Leaf paths of the selected cut.
+  if (S.cut != null && L.leaf_paths[S.cut]) {
+    const routes = new Map(L.edges.map(e => [e.from + '>' + e.to, e.pts]));
+    L.leaf_paths[S.cut].leaves.forEach((leaf, i) => {
+      const off = (i % 9 - 4) * 2.2;
+      const col = LEAF_C[leaf.state] || '#f85149';
+      let pts = [];
+      const first = lb.get(leaf.blocks[0]);
+      if (first) pts.push([first.x + first.w / 2 + off, first.y + first.h / 2]);
+      for (let k = 0; k + 1 < leaf.blocks.length; k++) {
+        const r = routes.get(leaf.blocks[k] + '>' + leaf.blocks[k + 1]);
+        if (r) pts = pts.concat(r.map(([x, y]) => [x + off, y + off * 0.5]));
+      }
+      const last = lb.get(leaf.blocks[leaf.blocks.length - 1]);
+      if (last) pts.push([last.x + last.w / 2 + off, last.y + last.h / 2 + (leaf.exit === 'ret' ? 14 : 0)]);
+      if (pts.length >= 2) {
+        R.line(pts, { stroke: col, lw: 2.6, alpha: 0.9, dash: leaf.approx ? [6, 4] : null });
+        arrowHead(R, pts[pts.length - 2], pts[pts.length - 1], col, leaf.exit === 'call' ? 'bar' : null);
+      } else if (first) R.circle(first.x + first.w / 2, first.y + first.h / 2, 6, { stroke: col, lw: 2.5 });
+    });
+  }
+  R.flush();
+  drawMini();
+}
+function fitFn(fd) {
+  const el = document.getElementById('stage'), w = el.clientWidth, h = el.clientHeight;
+  const [x0, y0, x1, y1] = fd.layout.bounds;
+  const legendH = document.getElementById('legend').offsetHeight + 16;   // keep the stub rows clear of the legend
+  let k = Math.min(w / (x1 - x0), (h - legendH) / (y1 - y0)) * 0.96;
+  if (k < 0.2) k = Math.min(0.6, w / (x1 - x0));        // very tall graphs: fit the width, start at the top
+  const t = d3.zoomIdentity.translate((w - (x1 - x0) * k) / 2 - x0 * k, 10 - y0 * k).scale(k);
+  (fMode === 'canvas' ? d3.select(fcanvas) : fsvg).call(fZoom.transform, t);
+}
+function focusBlock(fd, pc) {
+  const b = fd.layout.blocks.find(b => b.start === pc); if (!b) return;
+  const el = document.getElementById('stage'), w = el.clientWidth, h = el.clientHeight, k = Math.max(fTransform.k, 0.8);
+  (fMode === 'canvas' ? d3.select(fcanvas) : fsvg).call(fZoom.transform, d3.zoomIdentity.translate(w / 2 - (b.x + b.w / 2) * k, h / 2 - (b.y + b.h / 2) * k).scale(k));
+}
+function fnClick(ev) {
+  const fd = FNDATA.get(S.fn); if (!fd) return;
+  const rect = ev.currentTarget.getBoundingClientRect();
+  const [x, y] = fTransform.invert([ev.clientX - rect.left, ev.clientY - rect.top]);
+  const L = fd.layout;
+  const b = L.blocks.find(b => x >= b.x && x <= b.x + b.w && y >= b.y - 6 && y <= b.y + b.h);
+  if (b) {
+    S.block = S.block === b.start ? null : b.start;
+    if (fd.layout.leaf_paths[b.start]) S.cut = b.start;
+    render(); return;
+  }
+  const s = L.callee_stubs.concat(L.caller_stubs).find(s => x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h);
+  if (s) {
+    if (FN.has(s.key)) { if (ev.detail >= 2) openFn(s.key); else { S.block = null; S.sel = s.key; render(); } }
+    else { S.block = null; panel.innerHTML = `<h2>${esc(s.label)}</h2><pre>${esc(s.targets.join('\n'))}</pre>`; }
+  }
+}
+fsvg.on('click', fnClick); d3.select(fcanvas).on('click', fnClick);
+// Minimap of the program graph.
+const mini = d3.select('#mini');
+function drawMini() {
+  const W = 230, H = 160, xs = LAY.layers.flatMap(l => [l.x0, l.x1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), k = Math.min(W / (x1 - x0), H / LAY.height) * 0.92;
+  const ox = (W - (x1 - x0) * k) / 2 - x0 * k, oy = 6;
+  let h = '';
+  for (const f of IX.functions) {
+    const p = FPOS[f.id], cur = f.id === S.fn, near = callers.get(S.fn).has(f.id) || callees.get(S.fn).has(f.id);
+    h += `<circle cx="${(ox + p.x * k).toFixed(1)}" cy="${(oy + p.y * k).toFixed(1)}" r="${cur ? 4 : near ? 2.2 : 1.4}" fill="${cur ? '#ffd54a' : near ? '#58a6ff' : layerColor(layerValue(f))}"/>`;
+  }
+  mini.html(h + `<text x="6" y="${H - 6}" font-size="9" fill="#8a93a3">program (click: back)</text>`);
+}
+mini.on('click', () => openProgram());
+
+// ------------------------------------------------------------------ navigation
+function selectFn(id, centre) {
+  S.sel = id;
+  if (S.view === 'fn' && id !== S.fn) { openFn(id); return; }
+  const it = ITEM.get(FPOS[id].item);
+  if (it.kind === 'stack' && !S.unstack.has(it.id) && centre) S.unstack.add(it.id);
+  render();
+  if (centre && S.view === 'program') {
+    const [x, y] = dispPos(disp(id)), el = document.getElementById('stage');
+    const k = Math.max(d3.zoomTransform(prog.node()).k, 1);
+    prog.transition().duration(400).call(pZoom.transform, d3.zoomIdentity.translate(el.clientWidth / 2 - x * k, el.clientHeight / 2 - y * k).scale(k));
+  }
+}
+function openFn(id) {
+  if (S.fn !== id) { if (S.view === 'fn' || S.fn) { S.cut = null; } S.block = null; }
+  S.view = 'fn'; S.fn = id; S.sel = id;
+  render();
+}
+function openProgram() { S.view = 'program'; S.fn = null; S.cut = null; S.block = null; render(); }
+
+function render() {
+  document.getElementById('badgebox').classList.remove('open');
+  selLayer.value = S.layer; selCls.value = S.cls; selCls.style.display = S.layer === 'class' ? '' : 'none'; selSize.value = S.size;
+  for (const el of badgeMenu.querySelectorAll('input')) el.checked = S.badges.has(el.value);
+  document.getElementById('clearfilter').style.display = S.filter ? '' : 'none';
+  const crumb = document.getElementById('crumb');
+  if (S.view === 'program') {
+    prog.style('display', null); fsvg.style('display', 'none'); fcanvas.style.display = 'none';
+    mini.style('display', 'none'); crumb.style.display = 'none';
+    renderProgram();
+    if (!pFitted) { fitProgram(); pFitted = true; }
+  } else {
+    prog.style('display', 'none'); mini.style('display', 'block');
+    const id = S.fn;
+    crumb.style.display = 'block';
+    crumb.innerHTML = `<span class="rowlink" id="crumbprog">program</span> › <b>${esc(FN.get(id).name)}</b> <span class="muted">loading…</span>`;
+    document.getElementById('crumbprog').onclick = openProgram;
+    loadFn(id).then(fd => {
+      if (S.fn !== id) return;
+      fMode = fd.blocks.length > CANVAS_BLOCKS ? 'canvas' : 'svg';
+      fsvg.style('display', fMode === 'svg' ? null : 'none'); fcanvas.style.display = fMode === 'canvas' ? 'block' : 'none';
+      crumb.innerHTML = `<span class="rowlink" id="crumbprog">program</span> › <b>${esc(fd.name)}</b> <span class="muted">${fd.blocks.length} blocks · ${fd.layout.calls.length} call sites · ${fd.loops.length} loops · ${fMode === 'canvas' ? 'Canvas' : 'SVG'}</span>`;
+      document.getElementById('crumbprog').onclick = openProgram;
+      if (fFittedFor !== id) { fFittedFor = id; fitFn(fd); if (S.block != null) focusBlock(fd, S.block); } else drawFn();
+      renderCard(); renderLegend(); writeHash();
+    }, err => { crumb.innerHTML += ' <span style="color:#f85149">' + esc(err.message) + '</span>'; });
+  }
+  renderLegend(); renderCard(); renderDrawer(); writeHash();
+}
+
+// ------------------------------------------------------------------ drawer
+function setDrawer(tab) {
+  S.drawer = S.drawer === tab ? null : tab;
+  render();
+}
+for (const b of document.querySelectorAll('#tabs button')) b.onclick = () => setDrawer(b.dataset.tab);
+function qDescribe(q) {
+  if (q.type === 'leaf') return `cut ${hex(q.cut)} leaf #${q.i} exit ${q.exit}${q.target != null ? ' → ' + hex(q.target) : ''} · ${q.residual || ''}`;
+  if (q.type === 'cut_lemma') return `cut lemma at ${hex(q.cut)}`;
+  if (q.type === 'function') return `${q.n_instr} instr · ${q.cuts_needing_assertions} cuts need assertions · ${q.loops_needing_measure} loops need a measure${q.contract_missing ? ' · contract missing' : ''}`;
+  if (q.type === 'blocker') return `${q.functions.length} functions · ${q.target_instr} target instructions`;
+  return '';
+}
+function renderDrawer() {
+  document.documentElement.style.setProperty('--drawer', S.drawer ? '34vh' : '30px');
+  for (const b of document.querySelectorAll('#tabs button')) b.classList.toggle('on', b.dataset.tab === S.drawer);
+  document.getElementById('drawerhint').textContent = S.drawer ? 'hover a row: highlight its node · click: select' : 'drawer closed; click a tab';
+  const body = document.getElementById('drawerbody');
+  if (!S.drawer) { body.innerHTML = ''; return; }
+  if (S.drawer === 'queue') {
+    const rows = IX.queue || [];
+    body.innerHTML = `<table><tr><th>#</th><th>type</th><th>function / blocker</th><th>item</th></tr>` +
+      rows.map((q, i) => `<tr class="row" data-i="${i}"><td>${q.rank}</td><td>${esc(q.type)}</td><td>${esc(q.type === 'blocker' ? q.key : q.name)}</td><td>${esc(qDescribe(q))}</td></tr>`).join('') + '</table>';
+    for (const tr of body.querySelectorAll('tr.row')) {
+      const q = rows[+tr.dataset.i];
+      const ids = q.type === 'blocker' ? q.functions.filter(id => FN.has(id)) : [q.fn];
+      tr.onmouseenter = () => { S.hover = ids[0]; if (S.view === 'program') { highlightIds(ids); } };
+      tr.onmouseleave = () => { S.hover = null; if (S.view === 'program') renderProgram(); };
+      tr.onclick = () => {
+        if (q.type === 'blocker') { S.filter = 'ids:' + ids.join(','); S.sel = null; if (S.view !== 'program') openProgram(); else render(); return; }
+        if (q.cut != null) { S.cut = q.cut; S.block = null; S.sel = q.fn; if (S.fn !== q.fn) { fFittedFor = null; } S.view = 'fn'; S.fn = q.fn; render(); return; }
+        selectFn(q.fn, true);
+      };
+    }
+  } else if (S.drawer === 'metrics') {
+    body.innerHTML = IX.metrics ? `<pre>${esc(JSON.stringify(IX.metrics, null, 1).slice(0, 20000))}</pre>` : '<p class="muted">Metrics: no data (S10.4 writes map/metrics.json; full drawer in S9.2).</p>';
+  } else {
+    body.innerHTML = IX.history ? `<p>${IX.history.length} history rows (time slider: S9.2)</p>` : '<p class="muted">Trend: no data (S10.4 writes map/history.jsonl; time slider in S9.2).</p>';
+  }
+}
+function highlightIds(ids) {
+  // Re-render with a temporary filter: nodes outside `ids` dim.
+  const keep = S.filter; S.filter = 'ids:' + ids.join(',');
+  renderProgram(); S.filter = keep;
+}
+
+window.addEventListener('hashchange', () => { readHash(); render(); });
+window.addEventListener('resize', () => { if (S.view === 'fn') drawFn(); });
+readHash();
+render();
+</script>

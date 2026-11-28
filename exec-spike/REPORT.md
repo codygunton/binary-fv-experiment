@@ -106,7 +106,7 @@ table in LOG.md S1: stock 474 reachable defs / 87 registers on the `addi` path; 
 
 ## Programme status (ZESU_VERIFICATION_PROGRAMME_PLAN.md, 2026-11-27)
 
-Links: map `map/map.json` (page: `make -C tools/zmap map`, then open `map/site/map.html` from the
+Links: map `map/map.json` (page: `make -C tools/zmap map`, then open `map/site/index.html` from the
 file system), queue `map/QUEUE.md` / `map/queue.json`, cost model `map/COSTMODEL.md`, ledger
 `map/ledger.jsonl`, contract notes `STATEMENTS.md`, per-stage log `LOG.md`, open goals `OPEN/`.
 

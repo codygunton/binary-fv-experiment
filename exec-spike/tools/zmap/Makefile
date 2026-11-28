@@ -13,7 +13,7 @@ map: static status
 	$(ZMAP) merge --static $(MAP)/static.json --status $(MAP)/status.json \
 	  --reviews $(MAP)/reviews.json --ledger $(MAP)/ledger.jsonl --out $(MAP)/map.json
 	$(ZMAP) queue --map $(MAP)/map.json --out $(MAP)/QUEUE.md --json $(MAP)/queue.json
-	$(ZMAP) site --map $(MAP)/map.json --queue $(MAP)/queue.json --out $(MAP)/site
+	$(ZMAP) site --map $(MAP)/map.json --queue $(MAP)/queue.json --reviews $(MAP)/reviews.json --elf $(ELF) --out $(MAP)/site
 	$(ZMAP) costmodel --map $(MAP)/map.json --ledger $(MAP)/ledger.jsonl --out $(MAP)/COSTMODEL.md
 
 static:
