@@ -273,17 +273,22 @@ turns a service site into a call-like leaf is the next step for functions with i
 
 **Proved.** `alt_fl_alloc.alloc` (`AllocF.allocf_spec`, bound 53; 9 cuts, 52 items) and `free`
 (`FreeF.freef_spec`, bound 42; 4 cuts, 36 items) to Sail level over one free-list invariant
-(`Fn/Alloc/Inv.lean`); `scratch_arena.free` (`FS.fs_spec`, 6 items) and `remap` (`RS.rs_spec`,
-9 items). Every item by hand (0 auto). `AllocContract` now has a proved instance (`Alloc.contract`);
-F1, F4, F5, TX (and TX compliance) end theorems carry no allocator hypothesis; DTF re-pointed.
+(`Fn/Alloc/Inv.lean`); `scratch_arena.free` (`FS.fs_spec`, 6 items), `remap` (`RS.rs_spec`,
+9 items) and `alloc` (`SA.sa_spec`/`SA.sa_sail` over `Alloc.contract`, `sa_spec_of` over any
+`AllocContract`; 5 cuts, 18 items). Every item by hand (0 auto). `AllocContract` now has a proved
+instance (`Alloc.contract`); F1, F4, F5, TX (and TX compliance) end theorems carry no allocator
+hypothesis; DTF re-pointed.
 
-**Contract rule.** `pre_nonvacuous` for alloc, free, F1, F4, F5, TX (concrete start-up machines);
-`post_snapshot` for alloc and free on 16 Unicorn snapshots; `zesu-difftest` agrees on all 16.
+**Contract rule.** `pre_nonvacuous` for alloc, free, F1, F4, F5, TX, scratch free/remap/alloc
+(concrete machines); `post_snapshot` for alloc and free on 16 Unicorn snapshots, scratch free,
+remap and alloc on 5, 7 and 7 (`tools/snap.py --fn ScratchAlloc`: no chunk, small and large
+request; fast fit with and without padding; full chunk with `last ≠ 0`, `2·last` and `needN`;
+child null); `zesu-difftest` agrees on all 35.
 
 **Measures.** Linked-structure code: free 36 items over 4 cut points (~9 per cut), alloc 52 over
-9 (~6 per cut); scratch free/remap 7.5 per cut. Rework on the five callers: one edit per free site
-(5 sites: F1, F4/F5 shared `free_step`, TX, DTF) plus a mechanical rename; no leaf re-proved.
-
-**Not done.** `scratch_arena.alloc` (88 instructions, one indirect call): its indirect target is to
-be fixed by `Pre` (`ctx + 8` holds `0x801136d8`, `alt_fl_alloc.vtable`; the target is then read from
-rodata, as in F1). Cost: ledger items 23–25.
+9 (~6 per cut); scratch free/remap 7.5 per cut; scratch alloc 18 over 5 (3.6 per cut, 13 leaves),
+its one indirect call fixed by `Pre` (`ctx + 8` holds `alt_fl_alloc.vtable`, target read from
+rodata as in F1) and discharged by `A.alloc_spec`, so no allocator leaf is re-proved; `Pre` bounds
+the request (`len + 2^align + 23 ≤ 2^62`) to rule out wraparound, which makes two branches
+infeasible. Rework on the five callers: one edit per free site (5 sites: F1, F4/F5 shared
+`free_step`, TX, DTF) plus a mechanical rename; no leaf re-proved. Cost: ledger items 23–25, 33, 34.

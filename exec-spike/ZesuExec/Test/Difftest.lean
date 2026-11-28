@@ -32,6 +32,9 @@ def segOf : String → Option Seg
   | "R12629" => some Gen.fn_mem_rotate__anon_12629
   | "M7964" => some Gen.fn_sort_block_mergeInPlace__anon_7964
   | "M11564" => some Gen.fn_sort_block_mergeInPlace__anon_11564
+  | "ScratchAlloc" => some Gen.fn_scratch_arena_alloc
+  | "ScratchFree" => some Gen.fn_scratch_arena_free
+  | "ScratchRemap" => some Gen.fn_scratch_arena_remap
   | _ => none
 
 def hex (n : Nat) : String := "0x" ++ String.ofList (Nat.toDigits 16 n)

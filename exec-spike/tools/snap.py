@@ -3,19 +3,20 @@
 under Unicorn, for `zesu-difftest` and the `post_snapshot` theorems.
 
     snap.py --runner <zesislar>/tools/oblig/exec/run.py
-            --fn F1|F2|TX|DTF|Alloc|Free|ScratchFree|ScratchRemap|R8330|R10572|R12629|M7964|M11564
-            [--elf ELF] [--inputs FILE ...] [--input ID ...] --out DIR
+            --fn F1|F2|TX|DTF|Alloc|Free|ScratchFree|ScratchRemap|ScratchAlloc|R8330|R10572|R12629
+                 |M7964|M11564 [--elf ELF] [--inputs FILE ...] [--input ID ...] --out DIR
 
 Imports zesislar's Unicorn runner `run.py` as a module and runs its profile (`keysEnsureCapacity`
 for F1, `decodeItem` for F2, `txAccessList` for TX; DTF uses `dtf_profile` below, the runner has
 none; `alt_fl_alloc.alloc` and `free` use `alloc_profile`, `scratch_arena.free` and `remap`
-`scratch_profile`, the `mem.rotate` copies `R<n>` `rotate_profile`, the `sort.block.mergeInPlace`
-copies `M<n>` `merge_profile`) on each input of the given input sets
+`scratch_profile`, `scratch_arena.alloc` `scratch_alloc_profile`, the `mem.rotate` copies `R<n>`
+`rotate_profile`, the `sort.block.mergeInPlace` copies `M<n>` `merge_profile`) on each input of
+the given input sets
 (runner schema `oblig-exec-inputs/1`; default: `inputs/<profile>.json` beside `run.py`, for DTF
 `tools/snap_inputs/decodeTxFields.json`, for Alloc and Free `tools/snap_inputs/alloc.json` and
-`free.json`, for ScratchFree and ScratchRemap `scratch_free.json` and `scratch_remap.json`,
-for the rotate copies `tools/snap_inputs/rotate.json`, for the merge copies
-`tools/snap_inputs/merge.json`;
+`free.json`, for ScratchFree, ScratchRemap and ScratchAlloc `scratch_free.json`,
+`scratch_remap.json` and `scratch_alloc.json`, for the rotate copies `tools/snap_inputs/rotate.json`,
+for the merge copies `tools/snap_inputs/merge.json`;
 `tools/snap_inputs/` adds F1 paths the runner's set lacks). Unlike `run.py`, the allocator entries are not hooked:
 Unicorn executes the real `alt_fl_alloc.{alloc,remap,free}` reached through the vtable; only the
 `memcpy` stub is replaced, by the runner's ZisK service hook. The hook stages the count at the
@@ -43,15 +44,17 @@ from pathlib import Path
 
 FNS = {'F1': 'keysEnsureCapacity', 'F2': 'decodeItem', 'TX': 'txAccessList', 'DTF': 'decodeTxFields',
        'Alloc': 'alloc', 'Free': 'free', 'ScratchFree': 'scratch_arena.free',
-       'ScratchRemap': 'scratch_arena.remap',
+       'ScratchRemap': 'scratch_arena.remap', 'ScratchAlloc': 'scratch_arena.alloc',
        'R8330': 'rotate', 'R10572': 'rotate', 'R12629': 'rotate', 'M7964': 'mergeInPlace',
        'M11564': 'mergeInPlace'}
 # Own inputs (the runner has no profile for these functions).
 OWN_INPUTS = {'DTF': 'decodeTxFields.json', 'Alloc': 'alloc.json', 'Free': 'free.json',
               'ScratchFree': 'scratch_free.json', 'ScratchRemap': 'scratch_remap.json',
+              'ScratchAlloc': 'scratch_alloc.json',
               'R8330': 'rotate.json', 'R10572': 'rotate.json',
               'R12629': 'rotate.json', 'M7964': 'merge.json', 'M11564': 'merge_slices.json'}
-# `ScratchArena` and its newest chunk header for `scratch_profile` (owned argument cells).
+# `ScratchArena` (also `scratch_alloc_profile`'s) and its newest chunk header for `scratch_profile`
+# (owned argument cells).
 SCRATCH_CTX, SCRATCH_CHUNK = 0xa0600000, 0xa0610000
 # `alt_fl_alloc`'s memory (`ZesuExec/Fn/Alloc/Inv.lean`): the 22 free-list heads, HEAP_POS, HEAP_TOP.
 FL_BASE, POS_ADDR, HEAP_LO, HEAP_TOP = 0xa0534008, 0xa0d34520, 0xa0d34530, 0xbfff0000
@@ -124,26 +127,32 @@ def dtf_profile(r):
     return DecodeTxFields()
 
 
+def own_heap(m, row):
+    """`alt_fl_alloc`'s free-list state from the row: field `fl` maps a class to its free blocks
+    (head first; each block's first word is the next), `pos` is `HEAP_POS` (default the heap
+    bottom). The head cells, `HEAP_POS`, `HEAP_TOP` and every free block's first word are owned,
+    so their pages are in the snapshot."""
+    import struct
+    heads = [0] * 22
+    for k, blocks in row.get('fl', {}).items():
+        for p, nxt in zip(blocks, blocks[1:] + [0]):
+            m.own(f'fl{k}', p, 8, True, struct.pack('<Q', nxt))
+        heads[int(k)] = blocks[0] if blocks else 0
+    m.own('free_lists', FL_BASE, 176, True, struct.pack('<22Q', *heads))
+    m.own('heap_pos', POS_ADDR, 16, True, struct.pack('<QQ', row.get('pos', HEAP_LO), HEAP_TOP))
+
+
 def alloc_profile(r, fn: str):
     """`alt_fl_alloc.alloc(ctx, len, log2_align, ret_addr)` and `free(ctx, ptr, len, log2_align,
-    ret_addr)` from the free-list state of the row: field `fl` maps a class to its free blocks
-    (head first; each block's first word is the next), `pos` is `HEAP_POS` (default the heap
-    bottom); `live` lists the live blocks (`[ptr, len]`, not written: the Lean check needs them).
-    Alloc rows give `len` and `align` (log2), free rows also `ptr`. The head cells, `HEAP_POS`,
-    `HEAP_TOP` and every free block's first word are owned, so their pages are in the snapshot."""
-    import struct
+    ret_addr)` from the free-list state of the row (`own_heap`); `live` lists the live blocks
+    (`[ptr, len]`, not written: the Lean check needs them). Alloc rows give `len` and `align`
+    (log2), free rows also `ptr`."""
 
     class Alloc(r.Profile):
         name, symbol = FNS[fn], f'alt_fl_alloc.{FNS[fn]}'
 
         def setup(self, m, row):
-            heads = [0] * 22
-            for k, blocks in row.get('fl', {}).items():
-                for p, nxt in zip(blocks, blocks[1:] + [0]):
-                    m.own(f'fl{k}', p, 8, True, struct.pack('<Q', nxt))
-                heads[int(k)] = blocks[0] if blocks else 0
-            m.own('free_lists', FL_BASE, 176, True, struct.pack('<22Q', *heads))
-            m.own('heap_pos', POS_ADDR, 16, True, struct.pack('<QQ', row.get('pos', HEAP_LO), HEAP_TOP))
+            own_heap(m, row)
             ctx = m.elf.sym('alt_fl_alloc.state')
             if fn == 'Alloc':
                 return [ctx, row['len'], row['align'], 0]
@@ -156,6 +165,35 @@ def alloc_profile(r, fn: str):
             return {'kind': 'null' if ptr == 0 else 'block', 'ptr': ptr}
 
     return Alloc()
+
+
+def scratch_alloc_profile(r):
+    """`scratch_arena.alloc(ctx, len, log2_align, ret_addr)` over `alt_fl_alloc` as the child. The
+    child's state is the row's (`own_heap`); the arena at `SCRATCH_CTX` holds
+    `child = {alt_fl_alloc.state, alt_fl_alloc.vtable}` (the vtable cells owned), `chunks` (row
+    field `chunk`, an address, default 0) and `last_chunk_size` (`last`, default 0). With a chunk
+    its header holds `next` 0, `cap` and `used` from the row; the chunk is a block of the child, so
+    `live` lists it (`[chunk, cap]`). Rows give `len` and `align` (log2)."""
+    import struct
+
+    class ScratchAlloc(r.Profile):
+        name = symbol = FNS['ScratchAlloc']
+
+        def setup(self, m, row):
+            own_heap(m, row)
+            vt, ch = m.elf.sym('alt_fl_alloc.vtable'), row.get('chunk', 0)
+            m.own('arena', SCRATCH_CTX, 32, True,
+                  struct.pack('<QQQQ', m.elf.sym('alt_fl_alloc.state'), vt, ch, row.get('last', 0)))
+            m.own('vtable', vt, 32, False)
+            if ch:
+                m.own('chunk', ch, 24, True, struct.pack('<QQQ', 0, row['cap'], row['used']))
+            return [SCRATCH_CTX, row['len'], row['align'], 0]
+
+        def outcome(self, m, row):
+            ptr = m.reg(r.A[0])
+            return {'kind': 'null' if ptr == 0 else 'ptr', 'ptr': ptr}
+
+    return ScratchAlloc()
 
 
 def scratch_profile(r, fn: str):
@@ -301,6 +339,8 @@ def profile_for(r, fn: str):
         return rotate_profile(r, fn)
     if fn in MERGE:
         return merge_profile(r, fn)
+    if fn == 'ScratchAlloc':
+        return scratch_alloc_profile(r)
     return r.PROFILES[FNS[fn]]
 
 

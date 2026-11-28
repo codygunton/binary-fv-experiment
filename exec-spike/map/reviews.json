@@ -121,6 +121,12 @@
       "review": "unreviewed",
       "reviewer": "",
       "source": "S13 scratch_arena.remap: Scratch.RemapPre/RemapPost (Fn/Scratch/Spec.lean) drafted from src/stateless/executor/scratch_arena.zig; STATEMENTS.md S13"
+    },
+    "f_800db7a4": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S13 scratch_arena.alloc: Scratch.AllocPreS/AllocPostS (Fn/Scratch/AllocSpec.lean) over any AllocContract child (ctx+8 = alt_fl_alloc.vtable 0x801136d8), drafted from src/stateless/executor/scratch_arena.zig and the code at 0x800db7a4"
     }
   },
   "assumed": [],

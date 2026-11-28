@@ -1,13 +1,18 @@
 import ZesuExec.Fn.Scratch.AllocProof
+import ZesuExec.Fn.Scratch.Snap
+import ZesuExec.Fn.Scratch.SnapsAlloc
 
 /-!
-# Non-vacuity of the `scratch_arena.alloc` contract (programme plan S13)
+# Non-vacuity and snapshots of the `scratch_arena.alloc` contract (programme plan S13)
 
 `saM`: `Alloc.initRoM` (the allocator's start-up state, rodata loaded, `sp = sp0`, `ra = ra0`,
 `len = 24`, `log2 alignment = 3`) with `a0 = ctxS`, an arena outside the allocator's memory whose
 `child.vtable` word holds `alt_fl_alloc`'s vtable `0x801136d8`, no chunk and
 `last_chunk_size = 0`. It satisfies `AllocPreS Alloc.contract []` (`SA.pre_nonvacuous`): the
-first call of an arena, which requests a new chunk from the child.
+first call of an arena, which requests a new chunk from the child. `SA.post_snapshot` evaluates
+`saOk` (`Fn/Scratch/Snap.lean`) on the Unicorn snapshots `test/snapshots/ScratchAlloc` by `decide`:
+no chunk (small and large request), fast fit with and without padding, a full chunk with
+`last_chunk_size ≠ 0` (new chunk of `2 · last` and of `needN`), and the child returning null.
 -/
 
 namespace ZesuExec.Fn.Scratch
@@ -61,5 +66,9 @@ theorem SA.pre_nonvacuous :
   unfold InRange at ha
   rw [r10, r2, show (0xbfff1000 - 80 : Word).toNat = 0xbfff0fb0 from rfl] at ha
   simp at ha; omega
+
+/-- Contract rule (b): `alloc`'s `Pre` and `Post` hold on the Unicorn snapshots
+`test/snapshots/ScratchAlloc` (`tools/snap.py --fn ScratchAlloc`), evaluated by `decide`. -/
+theorem SA.post_snapshot : SA.snaps.all saOk = true := by decide +kernel
 
 end ZesuExec.Fn.Scratch

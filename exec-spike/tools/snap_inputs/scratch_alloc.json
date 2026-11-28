@@ -1,0 +1,14 @@
+{
+ "schema": "oblig-exec-inputs/1",
+ "function": "scratch_arena.alloc",
+ "note": "scratch_arena.alloc paths for tools/snap.py --fn ScratchAlloc: no chunk, small request (new chunk of 4096) and large request (new chunk of len + 2^align + 23); fast fit in the newest chunk (a child block at the heap bottom), with and without alignment padding; a full chunk with last_chunk_size 4096 (new chunk of 8192) and one whose request exceeds that; the child returning null (HEAP_POS 2 KiB below HEAP_TOP).",
+ "inputs": [
+  {"id": "no_chunk_small", "len": 24, "align": 3},
+  {"id": "no_chunk_large", "len": 5000, "align": 3},
+  {"id": "fast_fit", "chunk": 2698200368, "cap": 4096, "used": 64, "len": 24, "align": 3, "pos": 2698204464, "live": [[2698200368, 4096]]},
+  {"id": "fast_fit_align", "chunk": 2698200368, "cap": 4096, "used": 60, "len": 40, "align": 4, "pos": 2698204464, "live": [[2698200368, 4096]]},
+  {"id": "full_chunk_last", "chunk": 2698200368, "cap": 4096, "used": 4096, "last": 4096, "len": 24, "align": 3, "pos": 2698204464, "live": [[2698200368, 4096]]},
+  {"id": "full_chunk_large", "chunk": 2698200368, "cap": 4096, "used": 4000, "last": 4096, "len": 10000, "align": 3, "pos": 2698204464, "live": [[2698200368, 4096]]},
+  {"id": "child_null", "len": 24, "align": 3, "pos": 3221157888}
+ ]
+}
