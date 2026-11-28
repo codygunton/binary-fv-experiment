@@ -71,14 +71,14 @@ theorem exec_preserved {m m' : Machine} {i : Instr} (h : m.exec i = some m') : P
     simp only [Machine.exec, Machine.storeFrom, Option.map_eq_some_iff] at h
     obtain ⟨m₁, hs, rfl⟩ := h
     exact (store_preserved hs).trans (Preserved.of_mem_eq rfl)
-  case lb | lbu | lhu | lw | ld =>
+  case lb | lbu | lhu | lw | ld | lwu | lh =>
     simp only [Machine.exec, Machine.loadInto, Option.map_eq_some_iff] at h
     obtain ⟨v, -, rfl⟩ := h
     exact Preserved.of_mem_eq (by simp [Machine.advance, setReg_mem'])
   case jal | jalr =>
     simp only [Machine.exec] at h
     exact Preserved.of_mem_eq ((jumpTo_mem h).trans (setReg_mem' _ _ _))
-  case beq | bne | blt | bltu | bgeu =>
+  case beq | bne | blt | bltu | bgeu | bge =>
     simp only [Machine.exec, Machine.branch] at h
     split at h
     · exact Preserved.of_mem_eq (jumpTo_mem h)

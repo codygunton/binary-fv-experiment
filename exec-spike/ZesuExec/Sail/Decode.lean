@@ -269,6 +269,78 @@ theorem dec_mulhu (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 1
     Runs (ext_decode w) s s (toSail (.mulhu (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
   have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
 
+theorem dec_xor (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0)
+    (hf3 : field w.toNat 12 3 = 4) :
+    Runs (ext_decode w) s s (toSail (.xor (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_addiw (hop : field w.toNat 0 7 = 0x1b) (hf3 : field w.toNat 12 3 = 0) :
+    Runs (ext_decode w) s s (toSail (.addiw (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_bge (hop : field w.toNat 0 7 = 0x63) (hf3 : field w.toNat 12 3 = 5) :
+    Runs (ext_decode w) s s (toSail (.bge (reg w.toNat 15) (reg w.toNat 20) (immB w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_lwu (hop : field w.toNat 0 7 = 0x03) (hf3 : field w.toNat 12 3 = 6) :
+    Runs (ext_decode w) s s (toSail (.lwu (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_srliw (hop : field w.toNat 0 7 = 0x1b) (hf7 : field w.toNat 25 7 = 0)
+    (hf3 : field w.toNat 12 3 = 5) :
+    Runs (ext_decode w) s s (toSail (.srliw (reg w.toNat 7) (reg w.toNat 15)
+      (BitVec.ofNat 5 (field w.toNat 20 5)))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_subw (hop : field w.toNat 0 7 = 0x3b) (hf7 : field w.toNat 25 7 = 0x20)
+    (hf3 : field w.toNat 12 3 = 0) :
+    Runs (ext_decode w) s s (toSail (.subw (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_lh (hop : field w.toNat 0 7 = 0x03) (hf3 : field w.toNat 12 3 = 1) :
+    Runs (ext_decode w) s s (toSail (.lh (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_ori (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 6) :
+    Runs (ext_decode w) s s (toSail (.ori (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_srl (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0)
+    (hf3 : field w.toNat 12 3 = 5) :
+    Runs (ext_decode w) s s (toSail (.srl (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_divu (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 1)
+    (hf3 : field w.toNat 12 3 = 5) :
+    Runs (ext_decode w) s s (toSail (.divu (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7
+  have := fld_of_field (show field w.toNat 12 1 = 1 by simp only [field] at hf3 ⊢; omega)
+  have : w.toNat / 8192 % 4 = 2 := by simp only [field] at hf3; omega
+  dec_tac
+
+theorem dec_remu (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 1)
+    (hf3 : field w.toNat 12 3 = 7) :
+    Runs (ext_decode w) s s (toSail (.remu (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7
+  have := fld_of_field (show field w.toNat 12 1 = 1 by simp only [field] at hf3 ⊢; omega)
+  have : w.toNat / 8192 % 4 = 3 := by simp only [field] at hf3; omega
+  dec_tac
+
+theorem dec_slliw (hop : field w.toNat 0 7 = 0x1b) (hf7 : field w.toNat 25 7 = 0)
+    (hf3 : field w.toNat 12 3 = 1) :
+    Runs (ext_decode w) s s (toSail (.slliw (reg w.toNat 7) (reg w.toNat 15)
+      (BitVec.ofNat 5 (field w.toNat 20 5)))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
+theorem dec_slti (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 2) :
+    Runs (ext_decode w) s s (toSail (.slti (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
+theorem dec_slt (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 0)
+    (hf3 : field w.toNat 12 3 = 2) :
+    Runs (ext_decode w) s s (toSail (.slt (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7; dec_tac
+
 end forms
 
 /-- Case split on an `if` in a hypothesis `ite c a b = x`. -/
@@ -278,7 +350,7 @@ theorem ite_imp {α : Type} {c : Prop} [Decidable c] {a b x : α} {P : Prop}
   · intro h; exact h1 hc (by simpa [hc] using h)
   · intro h; exact h2 hc (by simpa [hc] using h)
 
-/-- Sail's decoder agrees with `decodeWord` on every word of the 33 forms, from any configured
+/-- Sail's decoder agrees with `decodeWord` on every word of the 46 forms, from any configured
 state, without changing it. -/
 theorem decode_sound {w : BitVec 32} {i : Instr} {s : State} (h : decodeWord w = some i)
     (hc : Configured s) : Runs (ext_decode w) s s (toSail i) := by
@@ -323,6 +395,20 @@ theorem decode_sound {w : BitVec 32} {i : Instr} {s : State} (h : decodeWord w =
         | exact dec_and w hc (by assumption) (by assumption) (by assumption)
         | exact dec_sub w hc (by assumption) (by assumption) (by assumption)
         | exact dec_mul w hc (by assumption) (by assumption) (by assumption)
-        | exact dec_mulhu w hc (by assumption) (by assumption) (by assumption))
+        | exact dec_mulhu w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_xor w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_addiw w hc (by assumption) (by assumption)
+        | exact dec_bge w hc (by assumption) (by assumption)
+        | exact dec_lwu w hc (by assumption) (by assumption)
+        | exact dec_srliw w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_subw w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_lh w hc (by assumption) (by assumption)
+        | exact dec_ori w hc (by assumption) (by assumption)
+        | exact dec_srl w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_divu w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_remu w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_slliw w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_slti w hc (by assumption) (by assumption)
+        | exact dec_slt w hc (by assumption) (by assumption) (by assumption))
 
 end ZesuExec.SailLink

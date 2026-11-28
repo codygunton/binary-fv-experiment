@@ -1,7 +1,7 @@
 import ZesuExec.Machine
 
 /-!
-# The 33 RV64IM instruction forms used by F0–F6, `alloc` and `free`
+# The 46 RV64IM instruction forms of the executor (F0–F6, `alloc`, `free`, and the S12 forms)
 
 `decodeNat` works on `Nat` with `/` and `%` so that kernel evaluation uses GMP arithmetic.
 Every other word decodes to `none`.
@@ -42,6 +42,20 @@ inductive Instr
   | sltu (rd rs1 rs2 : Fin 32)
   | mul (rd rs1 rs2 : Fin 32)
   | mulhu (rd rs1 rs2 : Fin 32)
+  | xor (rd rs1 rs2 : Fin 32)
+  | addiw (rd rs1 : Fin 32) (imm : BitVec 12)
+  | bge (rs1 rs2 : Fin 32) (imm : BitVec 13)
+  | lwu (rd rs1 : Fin 32) (imm : BitVec 12)
+  | srliw (rd rs1 : Fin 32) (shamt : BitVec 5)
+  | subw (rd rs1 rs2 : Fin 32)
+  | lh (rd rs1 : Fin 32) (imm : BitVec 12)
+  | ori (rd rs1 : Fin 32) (imm : BitVec 12)
+  | srl (rd rs1 rs2 : Fin 32)
+  | divu (rd rs1 rs2 : Fin 32)
+  | remu (rd rs1 rs2 : Fin 32)
+  | slliw (rd rs1 : Fin 32) (shamt : BitVec 5)
+  | slti (rd rs1 : Fin 32) (imm : BitVec 12)
+  | slt (rd rs1 rs2 : Fin 32)
   deriving DecidableEq, Repr
 
 namespace Decode
@@ -63,7 +77,7 @@ def immU (w : Nat) : BitVec 20 := BitVec.ofNat 20 (field w 12 20)
 end Decode
 
 open Decode in
-/-- Decoder for the 33 forms; any other word (including words `≥ 2^32`) is `none`. -/
+/-- Decoder for the 46 forms; any other word (including words `≥ 2^32`) is `none`. -/
 def decodeNat (w : Nat) : Option Instr :=
   if w < 4294967296 then
     let opc := field w 0 7
@@ -80,6 +94,7 @@ def decodeNat (w : Nat) : Option Instr :=
       if f3 = 0 then some (.beq rs1 rs2 (immB w))
       else if f3 = 1 then some (.bne rs1 rs2 (immB w))
       else if f3 = 4 then some (.blt rs1 rs2 (immB w))
+      else if f3 = 5 then some (.bge rs1 rs2 (immB w))
       else if f3 = 6 then some (.bltu rs1 rs2 (immB w))
       else if f3 = 7 then some (.bgeu rs1 rs2 (immB w))
       else none
@@ -89,6 +104,8 @@ def decodeNat (w : Nat) : Option Instr :=
       else if f3 = 5 then some (.lhu rd rs1 (immI w))
       else if f3 = 2 then some (.lw rd rs1 (immI w))
       else if f3 = 3 then some (.ld rd rs1 (immI w))
+      else if f3 = 6 then some (.lwu rd rs1 (immI w))
+      else if f3 = 1 then some (.lh rd rs1 (immI w))
       else none
     else if opc = 0x23 then
       if f3 = 0 then some (.sb rs1 rs2 (immS w))
@@ -101,6 +118,8 @@ def decodeNat (w : Nat) : Option Instr :=
       else if f3 = 4 then some (.xori rd rs1 (immI w))
       else if f3 = 7 then some (.andi rd rs1 (immI w))
       else if f3 = 3 then some (.sltiu rd rs1 (immI w))
+      else if f3 = 6 then some (.ori rd rs1 (immI w))
+      else if f3 = 2 then some (.slti rd rs1 (immI w))
       else if f3 = 1 then
         (if field w 26 6 = 0 then some (.slli rd rs1 (BitVec.ofNat 6 (field w 20 6))) else none)
       else if f3 = 5 then
@@ -110,7 +129,10 @@ def decodeNat (w : Nat) : Option Instr :=
       if f7 = 0 then
         if f3 = 0 then some (.add rd rs1 rs2)
         else if f3 = 1 then some (.sll rd rs1 rs2)
+        else if f3 = 2 then some (.slt rd rs1 rs2)
         else if f3 = 3 then some (.sltu rd rs1 rs2)
+        else if f3 = 4 then some (.xor rd rs1 rs2)
+        else if f3 = 5 then some (.srl rd rs1 rs2)
         else if f3 = 6 then some (.or rd rs1 rs2)
         else if f3 = 7 then some (.and rd rs1 rs2)
         else none
@@ -118,7 +140,19 @@ def decodeNat (w : Nat) : Option Instr :=
       else if f7 = 1 then
         if f3 = 0 then some (.mul rd rs1 rs2)
         else if f3 = 3 then some (.mulhu rd rs1 rs2)
+        else if f3 = 5 then some (.divu rd rs1 rs2)
+        else if f3 = 7 then some (.remu rd rs1 rs2)
         else none
+      else none
+    else if opc = 0x1b then
+      if f3 = 0 then some (.addiw rd rs1 (immI w))
+      else if f3 = 5 then
+        (if f7 = 0 then some (.srliw rd rs1 (BitVec.ofNat 5 (field w 20 5))) else none)
+      else if f3 = 1 then
+        (if f7 = 0 then some (.slliw rd rs1 (BitVec.ofNat 5 (field w 20 5))) else none)
+      else none
+    else if opc = 0x3b then
+      if f7 = 0x20 then (if f3 = 0 then some (.subw rd rs1 rs2) else none)
       else none
     else none
   else none
@@ -134,6 +168,10 @@ def Instr.mnemonic : Instr → String
   | .sd .. => "sd" | .addi .. => "addi" | .andi .. => "andi" | .xori .. => "xori"
   | .sltiu .. => "sltiu" | .slli .. => "slli" | .srli .. => "srli" | .add .. => "add"
   | .sub .. => "sub" | .and .. => "and" | .or .. => "or" | .sll .. => "sll"
-  | .sltu .. => "sltu" | .mul .. => "mul" | .mulhu .. => "mulhu"
+  | .sltu .. => "sltu" | .mul .. => "mul" | .mulhu .. => "mulhu" | .xor .. => "xor"
+  | .addiw .. => "addiw" | .bge .. => "bge" | .lwu .. => "lwu" | .srliw .. => "srliw"
+  | .subw .. => "subw" | .lh .. => "lh" | .ori .. => "ori" | .srl .. => "srl"
+  | .divu .. => "divu" | .remu .. => "remu" | .slliw .. => "slliw" | .slti .. => "slti"
+  | .slt .. => "slt"
 
 end ZesuExec

@@ -4,7 +4,7 @@ import ZesuExec.Decode
 # Program image and the concrete step
 
 `Image` holds the `.text` words of the functions in scope and the `.rodata` byte ranges they
-read. `step` fetches from the image, decodes with `decodeNat` and executes one of the 33 forms.
+read. `step` fetches from the image, decodes with `decodeNat` and executes one of the 46 forms.
 -/
 
 namespace ZesuExec
@@ -93,6 +93,22 @@ def exec (m : Machine) : Instr → Option Machine
   | .mul rd rs1 rs2 => m.writeReg rd (m.reg rs1 * m.reg rs2)
   | .mulhu rd rs1 rs2 =>
     m.writeReg rd (BitVec.ofNat 64 ((m.reg rs1).toNat * (m.reg rs2).toNat / 2 ^ 64))
+  | .xor rd rs1 rs2 => m.writeReg rd (m.reg rs1 ^^^ m.reg rs2)
+  | .addiw rd rs1 imm => m.writeReg rd (((m.reg rs1 + sx imm).setWidth 32).signExtend 64)
+  | .bge rs1 rs2 imm => m.branch (!(m.reg rs1).slt (m.reg rs2)) imm
+  | .lwu rd rs1 imm => m.loadInto rd rs1 imm 4 id
+  | .srliw rd rs1 sh => m.writeReg rd (((m.reg rs1).setWidth 32 >>> sh.toNat).signExtend 64)
+  | .subw rd rs1 rs2 =>
+    m.writeReg rd (((m.reg rs1).setWidth 32 - (m.reg rs2).setWidth 32).signExtend 64)
+  | .lh rd rs1 imm => m.loadInto rd rs1 imm 2 fun v => (v.truncate 16).signExtend 64
+  | .ori rd rs1 imm => m.writeReg rd (m.reg rs1 ||| sx imm)
+  | .srl rd rs1 rs2 => m.writeReg rd (m.reg rs1 >>> ((m.reg rs2).toNat % 64))
+  | .divu rd rs1 rs2 =>
+    m.writeReg rd (if m.reg rs2 = 0 then -1 else m.reg rs1 / m.reg rs2)
+  | .remu rd rs1 rs2 => m.writeReg rd (m.reg rs1 % m.reg rs2)
+  | .slliw rd rs1 sh => m.writeReg rd (((m.reg rs1).setWidth 32 <<< sh.toNat).signExtend 64)
+  | .slti rd rs1 imm => m.writeReg rd (if (m.reg rs1).slt (sx imm) then 1 else 0)
+  | .slt rd rs1 rs2 => m.writeReg rd (if (m.reg rs1).slt (m.reg rs2) then 1 else 0)
 
 end Machine
 
