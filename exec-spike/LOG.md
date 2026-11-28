@@ -1144,3 +1144,33 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     class with no closed sample.
   - S10.7 `zmap brief`, `zmap metrics --group`, `zmap check` (in `tools/verify.sh`);
     `map/waivers.json` waives the nine pre-revision functions.
+- S12 instruction forms (S12Forms, 2026-11-28, branch `s12` from `adcabc3e`): 14 of the 23
+  non-CSR forms added; 9 left unsupported under the contingency; `unimp` handled.
+  - Added, each with decoder case, `Machine.exec` case, `stepI` case, `stepI_sound` case, Sail
+    decode lemma `dec_<form>`, Sail simulation `sim_<form>` (in `sail_step_sim`), an executor
+    test (`Test/Sym.lean`, two operand shapes for most) and an ELF sample word
+    (`Test/Decode.lean` `decode_s12_samples`): `xor addiw bge lwu srliw subw lh ori srl divu
+    remu slliw slti slt`. New `BinOp`s `divu remu slt`; word forms use `mkSext 32`. `divu`/`remu`
+    needed the `funct3` bit facts in `dec_<form>` (the generated decoder splits bit 12).
+  - Unsupported (`OPEN/forms/`): `srai` — the generated `shift_bits_right_arith` is
+    `BitVec.rotateRight` (`sail-riscv-lean/.../Prelude.lean:381`), so the model's `srai`/`sra`/
+    `sraiw`/`sraw` rotate (`srai 1, 1` = `2^63`, checked by `decide`); `sim_srai` is false for the
+    RISC-V shift. `maxu packh pack rev8 bext bset bclri clz`: the compiled model has no Zbb/Zbkb/
+    Zbs instructions (`inductive instruction` lacks them; `currentlyEnabled` has no clause), so the
+    model decodes them as `ILLEGAL`.
+  - `unimp`: before, `Sym.go` returned `none` for the whole run at an undecodable word (no plan
+    at all, not an assumption). Now it ends the path with a leaf whose obligations include the new
+    `Oblig.unreachable pc` (`holds = False`): `LeafGoal` then asks for the path to be infeasible.
+    Same in `Summary.goW`; `go_sound`, `goW_follow/calls/sound` re-proved. `analyze.py` `TRAPS`
+    stops `unimp` blocking a function. `Fn/Preserve.lean` (exhaustive on `Instr`) gained the new
+    load and branch names (mechanical; no other `Fn/` or `Vc/` file changed).
+  - Measures (`zmap build` forced, then `make -C tools/zmap map`): target functions in state
+    `blocked` 132 → 33 (`ready` 18 → 32, `waiting` 44 → 129); with any blocker 133 → 34; blocked
+    only by non-CSR forms 103 → 4. Cost per form (ledger ids 2–16): closed forms $0.30–$1.31,
+    mean $0.52, 1–3 min each ($7.23 for 14); `srai` $0.62 (open); the 8 bit-manipulation forms
+    share one item, $0.39 (open); `unimp` $3.86 (includes the 13 min full build). Core chain
+    build per form ~25 s; full `lake build` (491
+    jobs) 12 min 47 s, passes; `tools/verify.sh` passes.
+  - Three-way difftest: no function of the image uses any added form (the image tables hold none
+    of their mnemonics), so none applies. Regression: `lake exe zesu-difftest` on all 80
+    snapshots (F1, F2, TX, DTF) prints `agree`.

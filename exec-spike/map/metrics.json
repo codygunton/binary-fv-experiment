@@ -1,6 +1,6 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T06:08:32Z",
+ "generated": "2026-11-28T06:55:30Z",
  "coverage": {
   "headline": {
    "cut_points_closed": 41,
@@ -186,9 +186,9 @@
   "states": {
    "closed-on-assumptions": 4,
    "conditional": 1,
-   "blocked": 132,
-   "waiting": 44,
-   "ready": 18,
+   "waiting": 129,
+   "blocked": 33,
+   "ready": 32,
    "assumed": 3,
    "closed+sail": 1,
    "closed+compliance": 3
@@ -334,7 +334,7 @@
      "unreviewed",
      "ZesuExec.Fn.F1.pre_nonvacuous",
      "-",
-     0
+     1
     ],
     [
      "f_800d5cb8",
@@ -595,18 +595,18 @@
  },
  "effort": {
   "total": {
-   "usd": 508.6,
-   "totalTokens": 1505138587.15,
-   "requests": 4736.35,
-   "minutes": 1421.47,
-   "builds": 1257.84
+   "usd": 522.48,
+   "totalTokens": 1553622851.15,
+   "requests": 4889.35,
+   "minutes": 1463.93,
+   "builds": 1279.84
   },
-  "session_usd": 719.92,
-  "unattributed_usd": 211.28,
-  "unattributed_share": 0.2935,
+  "session_usd": 790.78,
+  "unattributed_usd": 265.6,
+  "unattributed_share": 0.3359,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
-  "infrastructure_share": 0.2849,
+  "infrastructure_share": 0.2808,
   "abandoned": {
    "usd": 0.0,
    "totalTokens": 0.0,
@@ -671,12 +671,21 @@
      110.0
     ],
     [
+     "form",
+     17,
+     12.09,
+     40822913.0,
+     135.0,
+     35.93,
+     22.0
+    ],
+    [
      "infra",
-     32,
-     144.92,
-     414147732.83,
-     1494.11,
-     550.73,
+     33,
+     146.71,
+     421809083.83,
+     1512.11,
+     557.26,
      320.5
     ],
     [
@@ -831,10 +840,10 @@
     ],
     [
      "coordinator",
-     65.69,
+     67.98,
      10.51,
-     55.18,
-     0.84,
+     57.47,
+     0.8454,
      0
     ],
     [
@@ -867,6 +876,14 @@
      0.0,
      25.01,
      1.0,
+     0
+    ],
+    [
+     "DTFAuth3",
+     24.83,
+     24.83,
+     0.0,
+     0.0,
      0
     ],
     [
@@ -918,14 +935,6 @@
      0
     ],
     [
-     "DTFAuth3",
-     22.17,
-     22.17,
-     0.0,
-     0.0,
-     0
-    ],
-    [
      "DTFAuth2",
      21.45,
      20.24,
@@ -974,6 +983,22 @@
      0
     ],
     [
+     "S9Viewer",
+     16.97,
+     6.08,
+     10.9,
+     0.642,
+     0
+    ],
+    [
+     "S12Forms",
+     16.56,
+     13.88,
+     2.68,
+     0.1617,
+     0
+    ],
+    [
      "DTFLeaves",
      16.44,
      15.08,
@@ -998,11 +1023,35 @@
      0
     ],
     [
+     "S11Auto",
+     13.41,
+     0.0,
+     13.41,
+     1.0,
+     0
+    ],
+    [
      "TXFinish",
      12.72,
      12.08,
      0.63,
      0.0498,
+     0
+    ],
+    [
+     "DTFAuth3.DTFFields1",
+     12.53,
+     0.0,
+     12.53,
+     1.0,
+     0
+    ],
+    [
+     "S17MapPrecision",
+     9.38,
+     0.0,
+     9.38,
+     1.0,
      0
     ],
     [
@@ -1030,14 +1079,6 @@
      0
     ],
     [
-     "S9Viewer",
-     7.49,
-     6.08,
-     1.41,
-     0.1883,
-     0
-    ],
-    [
      "TrackT.BfvRepair",
      6.92,
      0.0,
@@ -1046,10 +1087,10 @@
      0
     ],
     [
-     "DTFAuth3.DTFFields1",
-     2.22,
+     "DTFFieldsB",
+     6.77,
      0.0,
-     2.22,
+     6.77,
      1.0,
      0
     ],
