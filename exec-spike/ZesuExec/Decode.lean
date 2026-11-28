@@ -55,6 +55,7 @@ inductive Instr
   | remu (rd rs1 rs2 : Fin 32)
   | slliw (rd rs1 : Fin 32) (shamt : BitVec 5)
   | slti (rd rs1 : Fin 32) (imm : BitVec 12)
+  | slt (rd rs1 rs2 : Fin 32)
   deriving DecidableEq, Repr
 
 namespace Decode
@@ -128,6 +129,7 @@ def decodeNat (w : Nat) : Option Instr :=
       if f7 = 0 then
         if f3 = 0 then some (.add rd rs1 rs2)
         else if f3 = 1 then some (.sll rd rs1 rs2)
+        else if f3 = 2 then some (.slt rd rs1 rs2)
         else if f3 = 3 then some (.sltu rd rs1 rs2)
         else if f3 = 4 then some (.xor rd rs1 rs2)
         else if f3 = 5 then some (.srl rd rs1 rs2)
@@ -170,5 +172,6 @@ def Instr.mnemonic : Instr → String
   | .addiw .. => "addiw" | .bge .. => "bge" | .lwu .. => "lwu" | .srliw .. => "srliw"
   | .subw .. => "subw" | .lh .. => "lh" | .ori .. => "ori" | .srl .. => "srl"
   | .divu .. => "divu" | .remu .. => "remu" | .slliw .. => "slliw" | .slti .. => "slti"
+  | .slt .. => "slt"
 
 end ZesuExec

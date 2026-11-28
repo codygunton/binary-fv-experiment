@@ -162,6 +162,9 @@ theorem iType_slti (imm : BitVec 12) (v : Word) :
     iTypeResult .SLTI imm v = if v.slt (Machine.sx imm) then 1 else 0 := by
   simp only [iTypeResult]; rw [slt_bit, sign_extend_eq]
 
+theorem rType_slt (a b : Word) : rTypeResult .SLT a b = if a.slt b then 1 else 0 := by
+  simp only [rTypeResult]; rw [slt_bit]
+
 /-! ## The simulation theorems -/
 
 theorem sim_andi {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
@@ -498,6 +501,21 @@ theorem sim_slti {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   refine execute_ITYPE_run _ _ imm _ _ .SLTI (m.reg rs1)
     (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
   rw [iType_slti]; exact wX_rg_run _ rd _
+
+theorem sim_slt {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.slt rd rs1 rs2))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  have hag := RegsAgree.T (m := m) hR.regs m.pc
+  change Runs (execute_RTYPE (rg rs2) (rg rs1) (rg rd) .SLT) _ _ _
+  refine execute_RTYPE_run _ _ _ _ _ .SLT (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
+    (rX_rg_run hag rs2) ?_
+  rw [rType_slt]; exact wX_rg_run _ rd _
 
 theorem sim_lui {rd : Fin 32} {imm : BitVec 20} (hR : Rel img m s)
     (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.lui rd imm))
