@@ -2,14 +2,14 @@
 metrics.
 
 Run from `P/tools`: `python3 -m zmap <command> ...` (build, merge, queue, show, next, site,
-ledger start/stop, cost backfill/agents, metrics, brief, check, costmodel).
+ledger start/stop, cost backfill/agents, metrics, brief, check, costmodel, varloc build/validate).
 """
 import argparse
 import json
 import os
 import sys
 
-from . import analyze, cost, costmodel, elfread, ledger, merge, metrics, site, workqueue
+from . import analyze, cost, costmodel, elfread, ledger, merge, metrics, site, varloc, workqueue
 
 PACKAGE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_LEDGER = os.path.join(PACKAGE, 'map', 'ledger.jsonl')
@@ -122,6 +122,7 @@ def main(argv=None):
     cost.register(sub, PACKAGE)
     metrics.register(sub, PACKAGE, load)
     costmodel.register(sub, PACKAGE, load)
+    varloc.register(sub, PACKAGE, load)
 
     args = p.parse_args(argv)
     args.func(args)

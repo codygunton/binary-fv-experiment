@@ -670,12 +670,15 @@ def register(sub, package, load):
         print(f'zmap: metrics -> {a.out}')
     me.set_defaults(func=go_metrics)
 
-    br = sub.add_parser('brief', help='at most 60 lines about one function, for a subagent')
+    br = sub.add_parser('brief', help='at most 60 lines about one function, for a subagent, then '
+                                      'the variable table of each cut point (S23)')
     br.add_argument('fn')
     br.add_argument('--map', default=os.path.join(mp, 'map.json'))
+    br.add_argument('--no-vars', dest='vars', action='store_false',
+                    help='omit the variable table (map/varloc/<id>.json)')
 
     def go_brief(a):
-        from . import cost, ledger
+        from . import cost, ledger, varloc, workqueue
         m = load(a.map)
         agents = cost.Agents(cost.read_rows(cost.load_sessions(os.path.join(mp, 'sessions.json'))))
         items, _ = cost.attribute(ledger.read(os.path.join(mp, 'ledger.jsonl')),
@@ -684,6 +687,10 @@ def register(sub, package, load):
             print(brief(m, a.fn, items))
         except KeyError as e:
             sys.exit(f'zmap: no function {e}')
+        if a.vars:
+            t = varloc.load(package, workqueue.find(m, a.fn)['id'])
+            print(varloc.render(t) if t else 'variables at cut points: no map/varloc table '
+                                                  '(zmap varloc build)')
     br.set_defaults(func=go_brief)
 
     ck = sub.add_parser('check', help='tracking check (plan S10.7); exit 1 on a failure')
