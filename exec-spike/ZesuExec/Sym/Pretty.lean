@@ -29,7 +29,8 @@ def ppInt (i : Int) : String := if i < 0 then "-" ++ ppHex i.natAbs else "+" ++ 
 def BinOp.sym : BinOp → String
   | .add => "+" | .sub => "-" | .and => "&" | .or => "|" | .xor => "^" | .sll => "<<"
   | .srl => ">>" | .sltu => "<u" | .mul => "*" | .mulhu => "*hu" | .divu => "/u" | .remu => "%u"
-  | .slt => "<s" | .sra => ">>s"
+  | .slt => "<s" | .sra => ">>s" | .rev8 => "rev8" | .maxu => "maxu" | .pack => "pack"
+  | .packh => "packh" | .bext => "bext" | .bset => "bset" | .bclr => "bclr" | .clz => "clz"
 
 def maxDepth : Nat := 6
 

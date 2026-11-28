@@ -3,12 +3,13 @@ import ZesuExec.Sail.Forms.Load
 import ZesuExec.Sail.Forms.Store
 import ZesuExec.Sail.Forms.Branch
 import ZesuExec.Sail.Forms.Jump
+import ZesuExec.Sail.Forms.Bitmanip
 
 /-!
 # `sail_step_sim`: every concrete step is a retiring Sail `try_step`
 
 By cases on the decoded form; each case is the form's `sim_<form>` theorem in
-`ZesuExec/Sail/Forms/`. All 47 constructors of `Instr` are covered (no `Proved` restriction).
+`ZesuExec/Sail/Forms/`. All 55 constructors of `Instr` are covered (no `Proved` restriction).
 -/
 
 namespace ZesuExec.SailLink
@@ -74,6 +75,14 @@ theorem sail_step_sim {img : Image} {m m' : Machine} {s : State} (h : Rel img m 
         | slti rd rs1 imm => exact sim_slti h hw hd hs n
         | slt rd rs1 rs2 => exact sim_slt h hw hd hs n
         | srai rd rs1 sh => exact sim_srai h hw hd hs n
+        | rev8 rd rs1 => exact sim_rev8 h hw hd hs n
+        | maxu rd rs1 rs2 => exact sim_maxu h hw hd hs n
+        | pack rd rs1 rs2 => exact sim_pack h hw hd hs n
+        | packh rd rs1 rs2 => exact sim_packh h hw hd hs n
+        | bext rd rs1 rs2 => exact sim_bext h hw hd hs n
+        | bset rd rs1 rs2 => exact sim_bset h hw hd hs n
+        | bclri rd rs1 sh => exact sim_bclri h hw hd hs n
+        | clz rd rs1 => exact sim_clz h hw hd hs n
       · cases hs'
     · cases hs'
   · cases hs'

@@ -13,7 +13,7 @@ M64 = (1 << 64) - 1
 # The instruction forms of the executor (`ZesuExec/Decode.lean`, `inductive Instr`).
 FORMS = frozenset('''lui auipc jal jalr beq bne blt bltu bgeu lb lbu lhu lw ld sb sh sw sd
 addi andi xori sltiu slli srli add sub and or sll sltu mul mulhu xor addiw bge lwu srliw
-subw lh ori srl divu remu slliw slti slt srai'''.split())
+subw lh ori srl divu remu slliw slti slt srai rev8 maxu pack packh bext bset bclri clz'''.split())
 # Words that always trap. The executor ends a path at any word it cannot decode with a leaf whose
 # obligation `Oblig.unreachable` never holds (a goal that the path is infeasible), so a trap word
 # does not block a function; any other undecodable word does, because its path can be feasible.

@@ -172,6 +172,12 @@ theorem shiftI_srai (sh : BitVec 6) (a : Word) :
   simp only [shiftIopResult, shift_bits_right_arith]
   rw [extractLsb_field]; simp [LeanRV64DExecutable.Functions.log2_xlen, Sail.BitVec.toNatInt]
 
+/-- The S12 counterexample (`OPEN/forms/Srai.lean` until S12b): the model's `srai 1, 1` was
+`2^63` (a rotation); it is now `0`, and a negative value keeps its sign. -/
+example : shiftIopResult .SRAI 1#6 1#64 = 0#64 := by decide
+example : shiftIopResult .SRAI 1#6 0x8000000000000000#64 = 0xc000000000000000#64 := by decide
+example : rTypeResult .SRA 1#64 1#64 = 0#64 := by decide
+
 /-! ## The simulation theorems -/
 
 theorem sim_andi {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)

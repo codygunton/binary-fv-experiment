@@ -4,7 +4,7 @@ import ZesuExec.Decode
 # Program image and the concrete step
 
 `Image` holds the `.text` words of the functions in scope and the `.rodata` byte ranges they
-read. `step` fetches from the image, decodes with `decodeNat` and executes one of the 47 forms.
+read. `step` fetches from the image, decodes with `decodeNat` and executes one of the 55 forms.
 -/
 
 namespace ZesuExec
@@ -56,6 +56,12 @@ def storeFrom (m : Machine) (rs1 rs2 : Fin 32) (imm : BitVec 12) (n : Nat) : Opt
   (m.store (m.reg rs1 + sx imm) n (m.reg rs2)).map Machine.advance
 
 def writeReg (m : Machine) (rd : Fin 32) (v : Word) : Option Machine := some (m.setReg rd v).advance
+
+/-- `rev8`: byte `j` of the result is byte `7 - j` of `x`. -/
+def rev8 (x : Word) : Word :=
+  (x >>> 56) ||| ((x >>> 40) &&& 0xff00) ||| ((x >>> 24) &&& 0xff0000) |||
+  ((x >>> 8) &&& 0xff000000) ||| ((x <<< 8) &&& 0xff00000000) |||
+  ((x <<< 24) &&& 0xff0000000000) ||| ((x <<< 40) &&& 0xff000000000000) ||| (x <<< 56)
 
 /-- Effect of one decoded instruction. -/
 def exec (m : Machine) : Instr → Option Machine
@@ -110,6 +116,17 @@ def exec (m : Machine) : Instr → Option Machine
   | .slti rd rs1 imm => m.writeReg rd (if (m.reg rs1).slt (sx imm) then 1 else 0)
   | .slt rd rs1 rs2 => m.writeReg rd (if (m.reg rs1).slt (m.reg rs2) then 1 else 0)
   | .srai rd rs1 sh => m.writeReg rd ((m.reg rs1).sshiftRight sh.toNat)
+  | .rev8 rd rs1 => m.writeReg rd (rev8 (m.reg rs1))
+  | .maxu rd rs1 rs2 =>
+    m.writeReg rd (if (m.reg rs2).ult (m.reg rs1) then m.reg rs1 else m.reg rs2)
+  | .pack rd rs1 rs2 => m.writeReg rd ((m.reg rs1 &&& 0xffffffff) ||| (m.reg rs2 <<< 32))
+  | .packh rd rs1 rs2 =>
+    m.writeReg rd ((m.reg rs1 &&& 0xff) ||| ((m.reg rs2 &&& 0xff) <<< 8))
+  | .bext rd rs1 rs2 =>
+    m.writeReg rd (if m.reg rs1 &&& ((1 : Word) <<< ((m.reg rs2).toNat % 64)) = 0 then 0 else 1)
+  | .bset rd rs1 rs2 => m.writeReg rd (m.reg rs1 ||| ((1 : Word) <<< ((m.reg rs2).toNat % 64)))
+  | .bclri rd rs1 sh => m.writeReg rd (m.reg rs1 &&& ~~~((1 : Word) <<< sh.toNat))
+  | .clz rd rs1 => m.writeReg rd (m.reg rs1).clz
 
 end Machine
 

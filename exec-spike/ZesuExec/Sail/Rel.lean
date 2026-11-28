@@ -5,7 +5,7 @@ import ZesuExec.Image
 # Relating the concrete machine to the specialised Sail model
 
 `Configured` fixes the registers that the specialised `try_step` reads on the retiring path of the
-47 forms, other than `x1 … x31`, `PC` and `nextPC` (`tools/reach.py` lists the candidates; the
+55 forms, other than `x1 … x31`, `PC` and `nextPC` (`tools/reach.py` lists the candidates; the
 retiring path reads `cur_privilege`, `hart_state`, `misa`, `mstatus`, `mseccfg`, `pma_regions`,
 `mcountinhibit`, `minstretcfg`, `minstret`). Each field fixes presence and, where the path
 branches on the value, the value. Three further fields state the profile invariants that the
@@ -74,8 +74,9 @@ structure Configured (s : State) : Prop where
   elp : s.regs.get? Register.elp = some 0#1
   /-- I6; `mstatus` is read by every memory access. -/
   mstatus : ∃ v, s.regs.get? Register.mstatus = some v ∧ _get_Mstatus_MPRV v = 0#1
-  /-- Read by the `Zca` alignment gates; the `M` bit gates the decoding of `mul`, `mulhu`. -/
-  misa : ∃ v, s.regs.get? Register.misa = some v ∧ _get_Misa_M v = 1#1
+  /-- Read by the `Zca` alignment gates; the `M` bit gates the decoding of `mul`, `mulhu`, the
+  `B` bit that of the Zbb and Zbs forms (`currentlyEnabled Ext_B`, S12b). -/
+  misa : ∃ v, s.regs.get? Register.misa = some v ∧ _get_Misa_M v = 1#1 ∧ _get_Misa_B v = 1#1
   /-- Read by the decoder (`get_xLPE`) and by pointer masking of data addresses. -/
   mseccfg : ∃ v, s.regs.get? Register.mseccfg = some v ∧
     pmm_mode_backwards (_get_Seccfg_PMM v) = .PMM_Disabled
@@ -106,7 +107,8 @@ def configuredB (s : State) : Bool :=
   (match s.regs.get? htif_tohost_base with | some none => true | _ => false) &&
   (match s.regs.get? Register.elp with | some v => v == 0#1 | none => false) &&
   (match s.regs.get? Register.mstatus with | some v => _get_Mstatus_MPRV v == 0#1 | none => false) &&
-  (match s.regs.get? Register.misa with | some v => _get_Misa_M v == 1#1 | none => false) &&
+  (match s.regs.get? Register.misa with
+    | some v => _get_Misa_M v == 1#1 && _get_Misa_B v == 1#1 | none => false) &&
   (match s.regs.get? Register.mseccfg with
     | some v => decide (pmm_mode_backwards (_get_Seccfg_PMM v) = .PMM_Disabled) | none => false) &&
   (match s.regs.get? pma_regions with | some r => decide (r = zesuPmaRegions) | none => false) &&
@@ -234,5 +236,13 @@ def toSail : Instr → instruction
   | .slti rd rs1 imm => .ITYPE (imm, rg rs1, rg rd, .SLTI)
   | .slt rd rs1 rs2 => .RTYPE (rg rs2, rg rs1, rg rd, .SLT)
   | .srai rd rs1 sh => .SHIFTIOP (sh, rg rs1, rg rd, .SRAI)
+  | .rev8 rd rs1 => .REV8 (rg rs1, rg rd)
+  | .maxu rd rs1 rs2 => .ZBB_RTYPE (rg rs2, rg rs1, rg rd, .MAXU)
+  | .pack rd rs1 rs2 => .ZBKB_RTYPE (rg rs2, rg rs1, rg rd, .PACK)
+  | .packh rd rs1 rs2 => .ZBKB_RTYPE (rg rs2, rg rs1, rg rd, .PACKH)
+  | .bext rd rs1 rs2 => .ZBS_RTYPE (rg rs2, rg rs1, rg rd, .BEXT)
+  | .bset rd rs1 rs2 => .ZBS_RTYPE (rg rs2, rg rs1, rg rd, .BSET)
+  | .bclri rd rs1 sh => .ZBS_IOP (sh, rg rs1, rg rd, .BCLRI)
+  | .clz rd rs1 => .CLZ (rg rs1, rg rd)
 
 end ZesuExec.SailLink
