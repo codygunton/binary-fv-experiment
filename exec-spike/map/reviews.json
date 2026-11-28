@@ -54,6 +54,38 @@
       "reviewer": "",
       "source": "DTF: no zesislar contract; drafted from zesu b5483dda src/stateless/rlp_decode.zig:308-588 (decodeTxFields and field helpers), the binary (OPEN/DTF/BLOCKERS.md) and the input.Transaction layout of the debug object; STATEMENTS.md DTF"
     },
+    "f_8006464c": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S16 mem.rotate__anon_8330: no zesislar contract; drafted from std/mem.zig rotate/reverse (Zig 0.16) and the binary; generic over element size (ZesuExec/Fn/Rotate/Spec.lean, Cfg E=48); STATEMENTS.md S16 rotate"
+    },
+    "f_8007cc68": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S16 mem.rotate__anon_10572: the shared rotate contract (ZesuExec/Fn/Rotate/Spec.lean) at Cfg E=104; STATEMENTS.md S16 rotate"
+    },
+    "f_800a8f30": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S16 mem.rotate__anon_12629: the shared rotate contract (ZesuExec/Fn/Rotate/Spec.lean) at Cfg E=64; STATEMENTS.md S16 rotate"
+    },
+    "f_8004f388": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "model": "ZesuExec.Fn.MergeInPlace.MergeOf",
+      "source": "S16 sort.block.mergeInPlace__anon_7964: no zesislar contract; drafted from std/sort/block.zig mergeInPlace (Zig 0.16) and the binary; shared contract ZesuExec/Fn/MergeInPlace/Spec.lean, key = the element ([32]u8); STATEMENTS.md S16 merge"
+    },
+    "f_80098ddc": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "model": "ZesuExec.Fn.MergeInPlace.MergeOf",
+      "source": "S16 sort.block.mergeInPlace__anon_11564: the shared merge contract (ZesuExec/Fn/MergeInPlace/Spec.lean), key = the byte slice an element points to; STATEMENTS.md S16 merge"
+    },
     "f_800e06d0": {
       "contract": "draft",
       "review": "unreviewed",
@@ -112,6 +144,12 @@
       "review": "unreviewed",
       "reviewer": "",
       "source": "S13 scratch_arena.remap: Scratch.RemapPre/RemapPost (Fn/Scratch/Spec.lean) drafted from src/stateless/executor/scratch_arena.zig; STATEMENTS.md S13"
+    },
+    "f_800db7a4": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S13 scratch_arena.alloc: Scratch.AllocPreS/AllocPostS (Fn/Scratch/AllocSpec.lean) over any AllocContract child (ctx+8 = alt_fl_alloc.vtable 0x801136d8), drafted from src/stateless/executor/scratch_arena.zig and the code at 0x800db7a4"
     }
   },
   "assumed": [],
@@ -128,7 +166,10 @@
     "f_800cb40c": "machine-only",
     "f_800d6554": "machine-only",
     "f_800d677c": "machine-only",
-    "f_8000050c": "machine-only"
+    "f_8000050c": "machine-only",
+    "f_8006464c": "machine-only",
+    "f_8007cc68": "machine-only",
+    "f_800a8f30": "machine-only"
   },
   "csr": {
     "0x813": {

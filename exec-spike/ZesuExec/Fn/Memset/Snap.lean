@@ -17,8 +17,7 @@ def memsetOk (s : ESnap) : Bool :=
   (s.r0 1 - s.r0 1 % 2) % 4 == 0 && s.pc1 == s.r0 1 - s.r0 1 % 2 &&
   (List.range 31).all (fun i => i + 1 == 5 || i + 1 == 11 || s.r1 (i + 1) == s.r0 (i + 1)) &&
   s.wins.all fun (b, bs0, bs1) =>
-    bs0.length == bs1.length && (List.range bs0.length).all fun i =>
-      bs1.getD i 0 == if inR d n (b + i) then c else bs0.getD i 0
+    allIdx (fun i x y => y == if inR d n i then c else x) b bs0 bs1
 
 /-- Contract rule (b): `Pre` and `Post` hold on the emulator snapshots
 `test/snapshots/emu/fn-memset` (`tools/svc_test.py --snap-out`), evaluated by `decide`. -/

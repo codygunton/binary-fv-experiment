@@ -169,12 +169,18 @@ def merge(static, status, reviews, items, status_source=''):
         f['open_items'] = counts['open'] + cut_counts['open']
         f['open_cuts'] = sum(1 for c in vc_cuts if c.get('cut_lemma') == 'open'
                              or any(lf.get('state') == 'open' for lf in c['leaves']))
-        # plans: the callees their leaves call; spike proofs without a plan: the direct callees
-        # (a proof states no heuristic indirect-call edge); both: the functions whose `Spec` a
-        # hypothesis of the end theorem assumes
+        # plans: the callees their leaves call; spike proofs without a plan: the functions whose
+        # end theorems the proof uses (`spec_callees`, measured by `zesu-status`), else (a status
+        # without them, such as the legacy fixture) the direct callees (a proof states no
+        # heuristic indirect-call edge); both: the functions whose `Spec` a hypothesis of the end
+        # theorem assumes
         if not vc_cuts:
-            proof_callees = {t for c in f['calls'] if c['resolution'] == 'direct'
-                             for t in c['targets']}
+            sc = (st or {}).get('spec_callees')
+            if sc is not None:
+                proof_callees = {by_entry[e]['id'] for e in sc if e in by_entry}
+            else:
+                proof_callees = {t for c in f['calls'] if c['resolution'] == 'direct'
+                                 for t in c['targets']}
         for h in f['hyps'] or ():
             proof_callees |= {by_entry[e]['id'] for e in h.get('spec_entries', ()) if e in by_entry}
         f['proof_callees'] = sorted(proof_callees - {f['id']})

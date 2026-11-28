@@ -89,6 +89,54 @@ simulation patterns exist, so forms are a negligible share of the total. The rem
 form blockers depend on the Sail model, not on proof effort: regenerating the model with the B/Zbkb
 extensions and a corrected arithmetic shift would unblock the last 14 form-blocked functions.
 
+## S16
+
+**Rotate family: proved.** `mem.rotate__anon_8330` (E=48), `__anon_10572` (E=104),
+`__anon_12629` (E=64): `rN_spec`, `rN_sail`, `pre_nonvacuous`, `post_snapshot` (9 Unicorn
+snapshots each, `zesu-difftest` `agree` on all 27), level `machine-only` (the rotation of the
+slice). Each copy: 8 cut points, 28 items (3.5 items per cut point), automatic share 0/28
+(`zesu_auto` closes nothing: the generic leaf tactic has no access to the byte-level slice
+model; every item is a three-line script over the shared tactics).
+
+| copy | ledger items | minutes | dollars | ratio to 8330 (min / $) |
+|---|---|---:|---:|---:|
+| 8330 (first) | 20, 22 | 51.2 | 22.63 | 1 |
+| 10572 | 23 | 18.5 | 2.14 | 0.36 / 0.09 |
+| 12629 | 24 | 1.9 | 0.58 | 0.04 / 0.03 |
+
+Shared (`Fn/Rotate/{Model,Spec,Cuts,Tac,Snap,Attr}.lean`, 1,207 lines): model, contract,
+cut states, assertions, step lemmas, leaf tactics, snapshot check, all over `Cfg` (element
+size, frame layout) and the copy's register equations. New per copy: `Runs.lean` (cfg, cut
+addresses, inner-loop byte registers; 39 lines) and `Vc.lean` (register equations, budgets,
+plan; 126 lines), plus generated `Snaps.lean`; `Leaves.lean` (312 lines, 28 proofs) and
+`Proof.lean` are 8330's text with names and addresses renamed — not one proof line changed.
+10572's 18.5 minutes are mostly waiting for a full rebuild that a parallel build killed
+(OOM); the copy work itself is the 165 new lines. Reuse gate (≤ 40%): **passes** for rotate.
+
+**Merge family.** Model `MergeOf` (sorted permutation under `lexLt` on a key; `map/reviews.json`
+`contracts[fid].model`), shared library `Fn/MergeInPlace/{Model,Spec,Win,Bytes,Cuts,Steps,
+Lemmas}.lean` (1,739 lines) plus `Slice`/`Spill` for the second copy. `__anon_7964`: proved
+(`m7964_spec` with the written-out `MergeOf` postcondition, `m7964_sail`, `pre_nonvacuous`,
+`post_snapshot` on 10 snapshots, difftest `agree` 10/10): 18 cut points, 61 items (3.4 per cut
+point), automatic share 1/61 (one infeasible leaf). `__anon_11564`: proved the same way
+(`m11564_spec`, `m11564_sail`, `pre_nonvacuous`, `post_snapshot` on 10 snapshots, difftest
+`agree` 10/10): 22 cut points, 78 items (3.5 per cut point), automatic share 1/78; bound `2^100`
+(a probe costs up to 11 steps per string byte, strings up to ~2^32).
+
+| copy | ledger items | minutes | dollars | ratio to 7964 (min / $) |
+|---|---|---:|---:|---:|
+| 7964 (first) | 25, 26, 27 | 81.3 | 23.44 | 1 |
+| 11564 | 28, 29, 30, 33 | 68.0 | 21.98 | 0.84 / 0.94 |
+
+Reuse gate (≤ 40%): **fails** for merge (0.84 minutes / 0.94 dollars). Shared and reused
+unchanged: the model, contract, window/search/
+rotation lemmas, byte-provenance checker, cut shapes and step lemmas, budget lemmas. What was
+not: 11564 compares through pointers (string keys, pointer-equality shortcut, length
+comparison), spills a dozen live values to a 0x110 frame and uses `ra`/`s1–s11` as scratch, so
+its assertions, register maps and every leaf are new. The one change that would move the gate:
+per-family leaf tactics that read the register/spill maps off the leaf state, so a copy's
+leaves stop being hand-written (automatic share is 0–2% in both families).
+
 ## S11
 
 **Measured.** `budget_auto` evaluates a cut's budget at its literal address (`measure_norm`) and
@@ -270,17 +318,22 @@ turns a service site into a call-like leaf is the next step for functions with i
 
 **Proved.** `alt_fl_alloc.alloc` (`AllocF.allocf_spec`, bound 53; 9 cuts, 52 items) and `free`
 (`FreeF.freef_spec`, bound 42; 4 cuts, 36 items) to Sail level over one free-list invariant
-(`Fn/Alloc/Inv.lean`); `scratch_arena.free` (`FS.fs_spec`, 6 items) and `remap` (`RS.rs_spec`,
-9 items). Every item by hand (0 auto). `AllocContract` now has a proved instance (`Alloc.contract`);
-F1, F4, F5, TX (and TX compliance) end theorems carry no allocator hypothesis; DTF re-pointed.
+(`Fn/Alloc/Inv.lean`); `scratch_arena.free` (`FS.fs_spec`, 6 items), `remap` (`RS.rs_spec`,
+9 items) and `alloc` (`SA.sa_spec`/`SA.sa_sail` over `Alloc.contract`, `sa_spec_of` over any
+`AllocContract`; 5 cuts, 18 items). Every item by hand (0 auto). `AllocContract` now has a proved
+instance (`Alloc.contract`); F1, F4, F5, TX (and TX compliance) end theorems carry no allocator
+hypothesis; DTF re-pointed.
 
-**Contract rule.** `pre_nonvacuous` for alloc, free, F1, F4, F5, TX (concrete start-up machines);
-`post_snapshot` for alloc and free on 16 Unicorn snapshots; `zesu-difftest` agrees on all 16.
+**Contract rule.** `pre_nonvacuous` for alloc, free, F1, F4, F5, TX, scratch free/remap/alloc
+(concrete machines); `post_snapshot` for alloc and free on 16 Unicorn snapshots, scratch free,
+remap and alloc on 5, 7 and 7 (`tools/snap.py --fn ScratchAlloc`: no chunk, small and large
+request; fast fit with and without padding; full chunk with `last ≠ 0`, `2·last` and `needN`;
+child null); `zesu-difftest` agrees on all 35.
 
 **Measures.** Linked-structure code: free 36 items over 4 cut points (~9 per cut), alloc 52 over
-9 (~6 per cut); scratch free/remap 7.5 per cut. Rework on the five callers: one edit per free site
-(5 sites: F1, F4/F5 shared `free_step`, TX, DTF) plus a mechanical rename; no leaf re-proved.
-
-**Not done.** `scratch_arena.alloc` (88 instructions, one indirect call): its indirect target is to
-be fixed by `Pre` (`ctx + 8` holds `0x801136d8`, `alt_fl_alloc.vtable`; the target is then read from
-rodata, as in F1). Cost: ledger items 23–25.
+9 (~6 per cut); scratch free/remap 7.5 per cut; scratch alloc 18 over 5 (3.6 per cut, 13 leaves),
+its one indirect call fixed by `Pre` (`ctx + 8` holds `alt_fl_alloc.vtable`, target read from
+rodata as in F1) and discharged by `A.alloc_spec`, so no allocator leaf is re-proved; `Pre` bounds
+the request (`len + 2^align + 23 ≤ 2^62`) to rule out wraparound, which makes two branches
+infeasible. Rework on the five callers: one edit per free site (5 sites: F1, F4/F5 shared
+`free_step`, TX, DTF) plus a mechanical rename; no leaf re-proved. Cost: ledger items 23–25, 33, 34.

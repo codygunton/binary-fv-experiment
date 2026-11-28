@@ -40,6 +40,10 @@ Facts measured for the tracking (plan S10.2), per function:
 * `post_consts`: the constants of this package outside the function's own namespace that its
   `Post` mentions, unfolding the function's own definitions. `zmap merge` joins them with the
   model constants in `map/reviews.json` (`meaning_link`).
+* `spec_callees` (functions of `legacyFns` without a plan): the entries of the other functions
+  whose end theorems (a plan's `reach`, `reach_from` or end theorem; a legacy end theorem) the
+  end theorem's proof uses, through this package's constants; another function's end theorem is
+  not entered. `zmap merge` takes them as the proof callees (a plan's come from its leaves).
 -/
 
 namespace ZesuExec.Vc
@@ -262,6 +266,13 @@ def complianceName (env : Environment) (fn : Name) (s : String) : Name :=
   if env.contains n then n
   else `ZesuExec.Compliance ++ Name.mkSimple fn.getPrefix.getString! ++ Name.mkSimple s
 
+/-- The end theorem of plan `fn` with entry `entry`: the legacy table's name for a converted spike
+function, else `<fn lowercase>_spec` (`nearName`). -/
+def planSpec (env : Environment) (fn : Name) (entry : Nat) : Name :=
+  match legacyFns.find? (·.entry == entry) with
+  | some l => l.spec
+  | none => nearName env fn s!"{fn.getString!.toLower}_spec"
+
 def planJson (entries : Array Entry) (env : Environment) (fn : Name) (cuts : Array CutInfo) :
     MetaM Json := do
   let entry := (cuts[0]?.map (·.pc)).getD 0
@@ -281,24 +292,46 @@ def planJson (entries : Array Entry) (env : Environment) (fn : Name) (cuts : Arr
     return Json.mkObj [("pc", toJson c.pc), ("cut_lemma", toJson st), ("residual", toJson res),
       ("thm", ← thmJson env true st cn), ("leaves", Json.arr leaves.toArray)]
   -- a spike function converted to a plan keeps the legacy table's theorem names
-  let (spec, th, names) := match legacyFns.find? (·.entry == entry) with
-    | some l => (l.spec, theoremsJson env (some (fn ++ `reach)) l.spec l.sail l.compliance)
+  let spec := planSpec env fn entry
+  let (th, names) := match legacyFns.find? (·.entry == entry) with
+    | some l => theoremsJson env (some (fn ++ `reach)) l.spec l.sail l.compliance
     | none =>
       let f := fn.getString!.toLower
-      let spec := nearName env fn s!"{f}_spec"
-      (spec, theoremsJson env (some (fn ++ `reach)) spec (nearName env fn s!"{f}_sail")
-        (some (complianceName env fn s!"{f}_compliance")))
+      theoremsJson env (some (fn ++ `reach)) spec (nearName env fn s!"{f}_sail")
+        (some (complianceName env fn s!"{f}_compliance"))
   return Json.mkObj ([("id", toJson s!"f_{hexNat entry}"), ("fn", toJson fn.toString),
     ("entry", toJson entry), ("legacy", toJson false),
     ("assembled", toJson (env.contains (fn ++ `reach_from))), ("cuts", Json.arr cutsJ.toArray),
     ("open", toJson (opens.map (·.toString))), ("theorems", th), ("names", names)] ++
     (← factsJson env spec (some fn)))
 
-def legacyJson (env : Environment) (l : LegacyFn) : MetaM Json := do
+/-- The entries of the functions other than `own` whose end theorems (`ends`) the proof of
+`spec` uses, through this package's constants; another function's end theorem is not entered. -/
+def specCallees (env : Environment) (ends : Std.HashMap Name Nat) (spec : Name) (own : Nat) :
+    Array Nat := Id.run do
+  let mut stack : Array Name := #[spec]
+  let mut seen : Std.HashSet Name := {}
+  let mut out : Std.HashSet Nat := {}
+  while !stack.isEmpty do
+    let c := stack.back!
+    stack := stack.pop
+    if seen.contains c || !userConst env c then continue
+    seen := seen.insert c
+    if c != spec then
+      if let some e := ends[c]? then
+        if e != own then out := out.insert e
+        continue
+    let some ci := env.find? c | continue
+    for d in ci.type.getUsedConstants ++ ((ci.value?.map (·.getUsedConstants)).getD #[]) do
+      unless seen.contains d do stack := stack.push d
+  return out.toArray.qsort (· < ·)
+
+def legacyJson (env : Environment) (ends : Std.HashMap Name Nat) (l : LegacyFn) : MetaM Json := do
   let (th, names) := theoremsJson env none l.spec l.sail l.compliance
   return Json.mkObj ([("id", toJson s!"f_{hexNat l.entry}"), ("fn", toJson l.fn),
     ("entry", toJson l.entry), ("legacy", toJson true), ("assembled", toJson false),
-    ("cuts", Json.arr #[]), ("open", Json.arr #[]), ("theorems", th), ("names", names)] ++
+    ("cuts", Json.arr #[]), ("open", Json.arr #[]), ("theorems", th), ("names", names),
+    ("spec_callees", toJson (specCallees env ends l.spec l.entry))] ++
     (← factsJson env l.spec none))
 
 /-- Plan functions, then the legacy functions that have no plan. -/
@@ -310,8 +343,12 @@ def statusJson : MetaM Json := do
     | _ => none
   let planEntries := plans.map fun (_, cs) => (cs[0]?.map (·.pc)).getD 0
   let legacy := legacyFns.filter (!planEntries.contains ·.entry)
+  -- every function's end theorems
+  let ends : Std.HashMap Name Nat := legacyFns.foldl (fun m l => m.insert l.spec l.entry) <|
+    (plans.zip planEntries).foldl (fun m ((fn, _), e) =>
+      [fn ++ `reach, fn ++ `reach_from, planSpec env fn e].foldl (·.insert · e) m) {}
   let ps ← plans.mapM fun (fn, cs) => planJson entries env fn cs
-  let ls ← legacy.mapM (legacyJson env)
+  let ls ← legacy.mapM (legacyJson env ends)
   return Json.mkObj [("schema", toJson "zmap.status.v1"), ("functions", Json.arr (ps ++ ls.toArray))]
 
 end ZesuExec.Vc

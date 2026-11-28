@@ -6,11 +6,18 @@ functions Unicorn cannot run.
     snap_emu.py --snaps test/snapshots/emu/fn-sha256 --ns ZesuExec.Fn.Sha256 \
         --out ZesuExec/Fn/Sha256/SnapData.lean
 
-Every `mem0` window must have the `mem1` window of the same base and length.
+Every `mem0` window must have the `mem1` window of the same base and length. Windows are written as
+`(base, length, bytes at entry, bytes after the return)`, the bytes as little-endian numbers
+(`ESnap.ofLE`).
 """
 import argparse
 import json
 from pathlib import Path
+
+
+def le_num(b: bytes) -> str:
+    """`b` as a little-endian number, written in hex (big-endian digits)."""
+    return '0x' + (b[::-1].hex() or '0')
 
 
 def render(path: Path) -> str:
@@ -22,9 +29,9 @@ def render(path: Path) -> str:
         b0 = bytes.fromhex(w['hex'])
         b1 = after[w['base']]
         assert len(b0) == len(b1), (path, w['base'])
-        wins.append(f"({w['base']:#x}, \"{b0.hex()}\", \"{b1.hex()}\")")
+        wins.append(f"({w['base']:#x}, {len(b0)}, {le_num(b0)}, {le_num(b1)})")
     return (f"  -- {s['check']} case {s['case']}\n"
-            f"  .ofHex {s['regs0']} {s['regs1']} {s['pc1']:#x}\n"
+            f"  .ofLE {s['regs0']} {s['regs1']} {s['pc1']:#x}\n"
             f"    [{', '.join(wins)}]")
 
 

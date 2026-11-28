@@ -259,6 +259,26 @@ class StateRule(unittest.TestCase):
         self.assertEqual(tx['meaning'], 'spec-sail')
         self.assertEqual(tx['auto_share'], 0.5)
 
+    def test_legacy_spec_callees_replace_direct_calls(self):
+        # zkvm_sha256 calls two panic functions its proof shows unreachable; its end theorem uses
+        # no other function's end theorem
+        def with_sha(**extra):
+            s = copy.deepcopy(STATUS)
+            s['functions'].append(dict({
+                'id': 'f_800ea180', 'fn': 'zkvm_sha256', 'entry': 0x800ea180, 'legacy': True,
+                'assembled': False, 'open': [], 'cuts': [],
+                'theorems': {'reach': False, 'spec': True, 'sail': True, 'compliance': False}},
+                **extra))
+            return next(f for f in merged(s)['functions'] if f['id'] == 'f_800ea180')
+        sha = with_sha()
+        self.assertEqual(sha['state'], 'closed-on-assumptions')
+        self.assertEqual(sha['rests_on'], ['f_800ea584', 'f_800ea5d8'])
+        sha = with_sha(spec_callees=[])
+        self.assertEqual(sha['proof_callees'], [])
+        self.assertEqual(sha['state'], 'closed+sail')
+        sha = with_sha(spec_callees=[0x800ea584])
+        self.assertEqual(sha['rests_on'], ['f_800ea584'])
+
     def test_classes_meaning_links(self):
         rv = copy.deepcopy(REVIEWS)
         rv['contracts']['f_800d6960']['model'] = 'ZesuExec.Model.decodeItem'

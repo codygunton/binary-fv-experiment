@@ -1301,6 +1301,35 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - Three-way difftest: no function of the image uses any added form (the image tables hold none
     of their mnemonics), so none applies. Regression: `lake exe zesu-difftest` on all 80
     snapshots (F1, F2, TX, DTF) prints `agree`.
+- S16 partial (S16Generic, 2026-11-28, branch `s16` from `f80e9854`): `mem.rotate__anon_8330`
+  closed to Sail level; the other two rotate copies and both `mergeInPlace` copies not started
+  (agent step budget).
+  - Image: the five S16 functions added to `tools/gen_image.sh` and `Image/{Gen,Expected}.lean`
+    regenerated (they were not in `zesuImage`; runs hit `unreachable`). Merge rule (agreed with
+    Main): union of the `--functions` lists, rerun the script.
+  - Shared, element-size-generic (`ZesuExec/Fn/Rotate/`): `Model.lean` (byte model `rev`/`revAt`,
+    `rev_rotate`, per-byte swap lemma `slice_revAt_succ`), `Spec.lean` (`Cfg`, `Pre`, `Post`,
+    `Common`, `post_slice`, non-vacuity witness `pre_witness`), `Cuts.lean` (cut states
+    `S0/SO/SI/SE`, assertions `OuterA/InnerA/EpiA` over a copy's register-equation lists, step
+    lemmas `inner_step/outer_step/entry_step/epi_post`, cut lemmas `cut0/cutO/cutI/cutE_facts`,
+    budget readers), `Tac.lean` (leaf scripts `iprep/oprep/eprep`, `istep/ostep/estep`, `rgoal`,
+    `wgoal`, `regs_tac`, `bud`), `Snap.lean` (`SnapOk`: `Post` on snapshot data).
+  - Copy 8330 (`Fn/Rotate/C8330/`): `cfg`, 8 map cuts, register equations and budgets (`Vc.lean`),
+    28 items (8 cut lemmas, 20 leaves) in `Leaves.lean`, every one a few lines of the shared
+    tactics/lemmas; `zesu_auto` closed 0 of 28 (generic `leaf_auto` cannot see the slice
+    model); `zesu_assemble` → `R8330.reach`; `r8330_spec`, `r8330_sail`, `pre_nonvacuous`,
+    `post_snapshot` (kernel `decide` on 9 Unicorn snapshots, `tools/snap.py --fn R8330`,
+    `tools/snap_post.py`); axioms guarded.
+  - Found: `simp` with `BitVec.toNat_ofNat` on a 64-bit literal ≥ 2^63 builds a proof the kernel
+    rejects ("deep recursion"); `add_big`/`mul_big` rewrite such literals to negations first.
+  - Measures: ledger item 20 (contract, model, shared lemmas, assertions, 28 items) 45 min, item
+    22 (contract rule) 5 min. Items per cut point 28/8 = 3.5. Automatic share 0/28. Reuse ratio
+    not measured (no second copy yet). Lines: shared 1,207, copy-specific 603 (of which 73
+    generated snapshot data).
+  - Checks run: `lake build ZesuExec.Axioms zesu-difftest` passes (470 jobs, 13 min 21 s after the
+    image change); `zesu-difftest --fn R8330` prints `agree` on all 9 snapshots (21–2,455
+    transitions; sail = machine = unicorn); F2 regression snapshot `agree`. Not run: full
+    `lake build`, `tools/verify.sh`, `make -C tools/zmap map test`.
 - S11 automation (S11Auto, 2026-11-28, branch `s11`): `budget_auto` and `oblig_auto` as decision
   procedures; residual class `budget` closed on every leaf of the five plans; `oblig` partly.
   Contingency taken for the rest of `oblig` (goal shapes below). Whole-leaf auto counts unchanged.
@@ -1574,3 +1603,51 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   mutant rejected 100/100.
 - GO.md `## S15` written; GO.md S14 `zkvm_sha256` paragraph replaced; STATEMENTS.md S14/S15
   updated.
+- S13AllocD/S13ScratchAlloc: `scratch_arena.alloc` proved (`SA.sa_spec`, `SA.sa_sail`,
+  `sa_spec_of`; 5 cuts, 18 items; `Pre` fixes `ctx+8 = 0x801136d8`, the indirect target read from
+  rodata as in F1, and bounds the request against wraparound). Contract rule: `SA.pre_nonvacuous`
+  (`saM`, first call of an empty arena); `SA.post_snapshot` (`decide` on 7 Unicorn snapshots,
+  `tools/snap.py --fn ScratchAlloc` over the real child `alt_fl_alloc`, inputs
+  `tools/snap_inputs/scratch_alloc.json`, checker `saOk` in `Fn/Scratch/Snap.lean`). Now in the
+  root import with Axioms guards. `zesu-difftest` takes `--fn ScratchAlloc|ScratchFree|ScratchRemap`:
+  `agree` on all 7 + 5 + 7.
+
+## S22 steps 3-4 on branch `sha256` (Sha256Land, 2026-11-28)
+
+- Committed Sha256RecB's uncommitted work (`994ae7dd`). The five functions `memmove`, `memset`,
+  `zkvm_sha256`, `sparseRoot`, `progressiveRootAt` are in `legacyFns` (`Vc/Legacy.lean`; the
+  `Test/Vc.lean` name check covers them) with `pre_nonvacuous` and `post_snapshot` in the end
+  theorem's namespace; the `Snap` modules are in the root import, guards in `Axioms.lean`.
+- Contract rule (b) for these five is emulator-based: `tools/svc_test.py --snap-out
+  test/snapshots/emu --ziskemu /home/cody/.cache/zesu-tmp/ziskemu-relaxed12` (ZisK `eed62f4d9`
+  with the `inst_size == 12` assertion relaxed; `zkvm_sha256`'s 10 `rev8` sites through harness
+  stubs), 6 snapshots each, every run reaching `ret_ok`; rerunning reproduces the committed JSON
+  byte for byte. `tools/snap_emu.py` renders them as Lean data; the checks evaluate by
+  `decide +kernel`.
+- Kernel cost fixes, found when `Sha256.Snap` failed after the merge: the window bytes were
+  string literals, and the kernel exhausted memory decoding strings of a few hundred bytes
+  (12 GiB at 768 bytes); they are now little-endian numerals (`ESnap.ofLE`, `natBytes`). The window
+  comparisons walk both lists once (`allIdx`) instead of indexing with `getD` (quadratic). The
+  kernel cannot evaluate the well-founded `progressiveRootAt`, `progFits`, `progStack` (24 GiB
+  and still running); `Prog.post_snapshot` rewrites them to fuel copies (`progRootF_eq`,
+  `progFitsF_eq`, `progStackF_eq`) and then decides. Each `Snap` module now builds in under 35 s.
+- Merged `exec-spike` (`d2c35f78`: S16 rotate/mergeInPlace, s13 `scratch_arena.alloc`): Lean
+  files merged automatically; image from the union of both `--functions` lists, regenerated by
+  `tools/gen_image.sh`; `check_image`: 25 text segments, 7334 words, 33 rodata segments, 0
+  mismatches; `decode_table_size` 7334; `map/*` taken from `sha256` and regenerated.
+- Full `lake build` runs out of the 48 GiB scope when lake schedules the whole merged tree at
+  once (OOM kill twice); built instead layer by layer and module by module under the same limit.
+- `zkvm_sha256` (and through it `sparseRoot`, `progressiveRootAt`) showed `closed-on-assumptions`
+  resting on `core.slice.index.slice_index_fail` and `core.panicking.panic_bounds_check`: for a
+  legacy function `zmap merge` took the static direct calls as proof callees, and the proof shows
+  those panic calls unreachable. `zesu-status` now measures `spec_callees` for legacy functions:
+  the other functions whose end theorems the proof uses (constants walked from the end theorem,
+  not entering another function's end theorem); `zmap merge` uses them in place of the direct
+  calls (test `test_legacy_spec_callees_replace_direct_calls`). Measured: `memmove`, `memset`,
+  `zkvm_sha256`, F0 none; `sparseRoot` `zkvm_sha256`; `progressiveRootAt` `sparseRoot`,
+  `zkvm_sha256`; F3 `rlp.decodeItem`; F4, F5 the allocator's `alloc`, `free`, `remap`.
+- Checks on the merged branch: `lake build` (463 jobs) passes; `make -C tools/zmap map test`: 81
+  tests OK, map `closed+compliance 4, closed+sail 17, closed 2, conditional 1, assumed 1`; the
+  five functions `closed+sail` with their theorem names, `pre_nonvacuous` and `post_snapshot`;
+  `tools/verify.sh` all PASS, `zmap check: pass`. `memcpy` still shows `assumed` although
+  `reviews.json` lists it as a service (S22 step 4, not changed here).

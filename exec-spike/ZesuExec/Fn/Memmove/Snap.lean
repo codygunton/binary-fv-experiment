@@ -21,10 +21,8 @@ def memmoveOk (s : ESnap) : Bool :=
   (s.r0 1 - s.r0 1 % 2) % 4 == 0 && s.pc1 == s.r0 1 - s.r0 1 % 2 &&
   (List.range 31).all (fun i => s.r1 (i + 1) == s.r0 (i + 1)) &&
   s.wins.all fun (b, bs0, bs1) =>
-    bs0.length == bs1.length && (List.range bs0.length).all fun i =>
-      some (bs1.getD i 0) ==
-        if n != 0 && d != src && inR d n (b + i) then staged (src + (b + i) - d)
-        else staged (b + i)
+    allIdx (fun i _ y => some y ==
+      if n != 0 && d != src && inR d n i then staged (src + i - d) else staged i) b bs0 bs1
 
 /-- Contract rule (b): `MemcpyPre` and `MemcpyPost` hold on the emulator snapshots
 `test/snapshots/emu/fn-memmove` (`tools/svc_test.py --snap-out`), evaluated by `decide`. -/
