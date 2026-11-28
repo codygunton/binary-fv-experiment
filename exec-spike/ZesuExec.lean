@@ -122,6 +122,7 @@ import ZesuExec.Fn.DTF.Hash
 import ZesuExec.Fn.DTF.HashF1
 import ZesuExec.Fn.DTF.HashSlot
 import ZesuExec.Fn.DTF.Slot
+import ZesuExec.Fn.DTF.HashStore
 import ZesuExec.Fn.DTF.Reach
 import ZesuExec.Test.Auto
 import ZesuExec.Compliance.TXSail

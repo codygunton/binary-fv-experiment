@@ -2,7 +2,7 @@ import ZesuExec.Fn.DTF.LeavesGen
 import ZesuExec.Fn.DTF.Exit
 import ZesuExec.Fn.DTF.Entry
 import ZesuExec.Fn.DTF.Jump
-import ZesuExec.Fn.DTF.Slot
+import ZesuExec.Fn.DTF.HashStore
 
 /-!
 # DTF assembly (programme plan S7 step 3)
