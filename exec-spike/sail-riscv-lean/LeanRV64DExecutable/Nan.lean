@@ -126,6 +126,7 @@ open f_bin_op_x_S
 open f_bin_op_f_S
 open f_bin_f_op_H
 open f_bin_f_op_D
+open extop_zbb
 open extension
 open exception
 open cregidx
@@ -133,8 +134,13 @@ open cfregidx
 open cbop_zicbop
 open cbop_zicbom
 open cacheop
+open bropw_zbb
+open brop_zbs
+open brop_zbkb
+open brop_zbb
 open breakpoint_cause
 open bop
+open biop_zbs
 open barrier_kind
 open amoop
 open agtype
@@ -182,18 +188,18 @@ open AtomicSupport
 open Architecture
 open AmocasOddRegisterReservedBehavior
 
-/-- Type quantifiers: k_ex246400_ : Nat, k_ex246400_ ∈ {16, 32, 64, 128} -/
-def float_is_nan (op : (BitVec k_ex246400_)) : Bool :=
+/-- Type quantifiers: k_ex267960_ : Nat, k_ex267960_ ∈ {16, 32, 64, 128} -/
+def float_is_nan (op : (BitVec k_ex267960_)) : Bool :=
   let { exp := exp, mantissa := mantissa, sign := _ } := (float_decompose op)
   ((is_all_ones exp) && (! (is_all_zeros mantissa)))
 
-/-- Type quantifiers: k_ex246417_ : Nat, k_ex246417_ ∈ {16, 32, 64, 128} -/
-def float_is_snan (op : (BitVec k_ex246417_)) : Bool :=
+/-- Type quantifiers: k_ex267977_ : Nat, k_ex267977_ ∈ {16, 32, 64, 128} -/
+def float_is_snan (op : (BitVec k_ex267977_)) : Bool :=
   let { mantissa := mantissa, sign := _, exp := _ } := (float_decompose op)
   ((float_is_nan op) && (is_highest_zero mantissa))
 
-/-- Type quantifiers: k_ex246424_ : Nat, k_ex246424_ ∈ {16, 32, 64, 128} -/
-def float_is_qnan (op : (BitVec k_ex246424_)) : Bool :=
+/-- Type quantifiers: k_ex267984_ : Nat, k_ex267984_ ∈ {16, 32, 64, 128} -/
+def float_is_qnan (op : (BitVec k_ex267984_)) : Bool :=
   let { mantissa := mantissa, sign := _, exp := _ } := (float_decompose op)
   ((float_is_nan op) && (is_highest_one mantissa))
 

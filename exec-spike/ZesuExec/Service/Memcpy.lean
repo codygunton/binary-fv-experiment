@@ -14,8 +14,8 @@ Two transpiler patterns (`core/src/riscv2zisk_context.rs:1994-2035`,
   from a snapshot of the source). The result `c = dst` goes to `rd = x0`.
 * `addi x0, rdst, count`: one `dma_xmemcpy` with the immediate count (`:2010-2026`), no staging.
 
-Both continue 8 bytes later. The definition here stages at `Layout.extraParams`; ZisK stages at
-`EXTRA_PARAMS_ADDR = 0xa0000f00` (`core/src/mem.rs:147`), see `OPEN/services/extra_params.md`.
+Both continue 8 bytes later. The definition here stages at `Layout.extraParams`, which is ZisK's
+`EXTRA_PARAMS_ADDR = 0xa0000f00` (`core/src/mem.rs:147`); see `OPEN/services/extra_params.md`.
 
 `ziskMemcpy` is the function-level form at `memcpy`'s entry (`Layout.memcpyEntry`) that every
 existing proof uses; it transcribes `ziskMemcpyMemory` (`ZesuSsz/Contracts/ZiskRuntime.v`) and

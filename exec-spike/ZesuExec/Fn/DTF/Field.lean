@@ -14,7 +14,9 @@ pointer as `decodeItem` reports it, its payload length, limb `i` of its number o
 (`numVal`: `u64`/`nonce` `n = 8`, `u128` `n = 16`, `u256` `n = 32`), whether it is nonempty
 (`txAddr`'s tag), bytes `o .. o+n-1` of its payload (the address copy), or a byte loop's
 accumulator over it (`acc`: limb `i` of the payload bytes before the cursor register `cur`, the end
-register `fin` at the payload's end, at most `n` bytes). -/
+register `fin` at the payload's end, at most `n` bytes); the legacy chain id (`lc`), its tag (`lt`)
+and `v` (`lv`) the `u256` item `k` (`v_raw`) gives (`legacyV`); the transaction type `a2` (`ty`),
+a constant word (`cst`: an arm's tags and empty slices), both stated with item 0. -/
 inductive FieldVal
   | ptr (k : Nat)
   | len (k : Nat)
@@ -22,10 +24,16 @@ inductive FieldVal
   | nz (k : Nat)
   | raw (k o n : Nat)
   | acc (k n i cur fin : Nat)
+  | lc (k : Nat)
+  | lt (k : Nat)
+  | lv (k : Nat)
+  | ty
+  | cst (v : Nat)
   deriving DecidableEq, Repr
 
 def FieldVal.k : FieldVal → Nat
-  | .ptr k | .len k | .num k _ _ | .nz k | .raw k _ _ | .acc k _ _ _ _ => k
+  | .ptr k | .len k | .num k _ _ | .nz k | .raw k _ _ | .acc k _ _ _ _ | .lc k | .lt k | .lv k => k
+  | .ty | .cst _ => 0
 
 /-- The value does not mention the machine (all but a byte loop's accumulator, whose cursor and
 end registers it states). -/

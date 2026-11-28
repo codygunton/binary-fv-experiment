@@ -127,10 +127,10 @@
   "csr": {
     "0x813": {
       "defined": true,
-      "emulator_tested": false,
+      "emulator_tested": true,
       "file": "ZesuExec/Service/Memcpy.lean",
       "lines": 109,
-      "test": "svc_test 0x813-reg: copy and registers 100/100, staging word 0/100 (Layout.extraParams 0xa0400f00 vs ZisK 0xa0000f00, OPEN/services/extra_params.md); 0x813-imm 100/100"
+      "test": "svc_test 0x813-reg 100/100 (window, staging@0xa0000f00, old@0xa0400f00 untouched, regs) after Layout.extraParams := 0xa0000f00 (STATEMENTS.md 'Correction: memcpy staging address'); fn-memmove 100/100; 0x813-imm 100/100"
     },
     "0x816": {
       "defined": true,

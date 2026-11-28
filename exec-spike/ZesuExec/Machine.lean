@@ -22,7 +22,7 @@ def inputHi : Nat := 0x80000000
 def ramLo : Nat := 0xa0000000
 def ramHi : Nat := 0xc0000000
 def memcpyEntry : Nat := 0x800e06c0
-def extraParams : Nat := 0xa0400f00
+def extraParams : Nat := 0xa0000f00
 end Layout
 
 structure Machine where

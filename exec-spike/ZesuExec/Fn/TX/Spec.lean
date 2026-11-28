@@ -292,11 +292,11 @@ example : candidate ([0xd5, 0xd4, 0x93] ++ List.replicate 19 1 ++ [0xc0]) =
 
 open ZesuExec.Fn
 
-/-- The witness's own bytes: 704 stack bytes below `sp = 0xa0001000`, the result at
+/-- The witness's own bytes: 704 stack bytes below `sp = 0xa0001800`, the result at
 `0xa0002000`, the allocator object `{0, vtable}` at `0xa0002020`, `rest` = `{0xa0002060, 1}` at
 `0xa0002040`, the input `c0` (an empty access list) at `0xa0002060`, the scratch word. -/
 def nvByte (a : Nat) : Option Nat :=
-  if 0xa0000d40 ≤ a ∧ a < 0xa0001000 then some 0
+  if 0xa0001540 ≤ a ∧ a < 0xa0001800 then some 0
   else if 0xa0002000 ≤ a ∧ a < 0xa0002028 then some 0
   else if 0xa0002028 ≤ a ∧ a < 0xa0002030 then some ((vtable / 256 ^ (a - 0xa0002028)) % 256)
   else if 0xa0002040 ≤ a ∧ a < 0xa0002048 then some ((0xa0002060 / 256 ^ (a - 0xa0002040)) % 256)
@@ -307,7 +307,7 @@ def nvByte (a : Nat) : Option Nat :=
   else none
 
 def nvMachine (m0 : Machine) : Machine where
-  regs := fun i => if i.val = 2 then 0xa0001000 else if i.val = 1 then 0x80000000
+  regs := fun i => if i.val = 2 then 0xa0001800 else if i.val = 1 then 0x80000000
     else if i.val = 10 then 0xa0002000 else if i.val = 11 then 0xa0002020
     else if i.val = 12 then 0xa0002040 else 0
   pc := BitVec.ofNat 64 entry
@@ -363,7 +363,7 @@ theorem pre_nonvacuous (A : AllocAssumptions zesuImage) (m0 : Machine) (h0 : A.H
       ¬ (Layout.extraParams ≤ a.toNat ∧ a.toNat < Layout.extraParams + 8)) :
     ∃ m, Pre A ⟨[0xc0], []⟩ m := by
   have r1 : (nvMachine m0).reg 1 = 0x80000000 := rfl
-  have r2 : (nvMachine m0).reg 2 = 0xa0001000 := rfl
+  have r2 : (nvMachine m0).reg 2 = 0xa0001800 := rfl
   have r10 : (nvMachine m0).reg 10 = 0xa0002000 := rfl
   have r11 : (nvMachine m0).reg 11 = 0xa0002020 := rfl
   have r12 : (nvMachine m0).reg 12 = 0xa0002040 := rfl
@@ -399,9 +399,9 @@ theorem pre_nonvacuous (A : AllocAssumptions zesuImage) (m0 : Machine) (h0 : A.H
     simp [nvMachine, Nat.mod_eq_of_lt ha, h]
   · rw [r2]
     refine nv_present m0 _ stackBytes fun t ht => ?_
-    have e : ((0xa0001000 : Word) - BitVec.ofNat 64 stackBytes + BitVec.ofNat 64 t).toNat =
-        0xa0000d40 + t := by
-      have hs : (0xa0001000 : Word).toNat = 0xa0001000 := by decide
+    have e : ((0xa0001800 : Word) - BitVec.ofNat 64 stackBytes + BitVec.ofNat 64 t).toNat =
+        0xa0001540 + t := by
+      have hs : (0xa0001800 : Word).toNat = 0xa0001800 := by decide
       simp only [stackBytes] at ht ⊢
       simp only [BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, hs]
       omega
@@ -424,7 +424,7 @@ theorem pre_nonvacuous (A : AllocAssumptions zesuImage) (m0 : Machine) (h0 : A.H
     simp [nvMachine, hro, hnv]
   · intro a h ha
     obtain ⟨h1, h2⟩ := hP a ha
-    have e1 : ((0xa0001000 : Word) - BitVec.ofNat 64 stackBytes).toNat = 0xa0000d40 := by decide
+    have e1 : ((0xa0001800 : Word) - BitVec.ofNat 64 stackBytes).toNat = 0xa0001540 := by decide
     have e2 : (BitVec.ofNat 64 Layout.extraParams).toNat = Layout.extraParams := by decide
     have e3 : (0xa0002000 : Word).toNat = 0xa0002000 := by decide
     have e4 : (0xa0002020 : Word).toNat = 0xa0002020 := by decide

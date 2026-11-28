@@ -13,7 +13,9 @@ none; the `mem.rotate` copies `R<n>` use `rotate_profile`, the `sort.block.merge
 for the merge copies `tools/snap_inputs/merge.json`;
 `tools/snap_inputs/` adds F1 paths the runner's set lacks). Unlike `run.py`, the allocator entries are not hooked:
 Unicorn executes the real `alt_fl_alloc.{alloc,remap,free}` reached through the vtable; only the
-`memcpy` stub is replaced, by the runner's ZisK service hook.
+`memcpy` stub is replaced, by the runner's ZisK service hook. The hook stages the count at the
+runner's `ZISK_SCRATCH`; `load_runner` repoints it to `EXTRA_PARAMS` (ZisK's address, see
+`OPEN/services/extra_params.md`) before any machine is built.
 
 Writes `DIR/<Fn>/<input id>.json`, schema `zesu-snap/1`:
 
@@ -52,6 +54,9 @@ OWN_INPUTS = {'DTF': 'decodeTxFields.json', 'R8330': 'rotate.json', 'R10572': 'r
 PAGE = 0x1000
 # Readable regions of `ZesuExec.Layout` (half-open): rodata, input, RAM.
 REGIONS = [(0x8010fd80, 0x80118678), (0x40000000, 0x80000000), (0xa0000000, 0xc0000000)]
+# `ZesuExec.Layout.extraParams`: ZisK's EXTRA_PARAMS_ADDR (`zisk/core/src/mem.rs:147`), where the
+# `memcpy` service (CSR 0x813) stages the count. The runner's own constant (0xa0400f00) is wrong.
+EXTRA_PARAMS = 0xa0000f00
 
 
 def load_runner(path: Path):
@@ -59,6 +64,8 @@ def load_runner(path: Path):
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
+    # Read as a global by `Machine.__init__` (pre-fill), `_inside` and `_memcpy`.
+    mod.ZISK_SCRATCH = EXTRA_PARAMS
     return mod
 
 

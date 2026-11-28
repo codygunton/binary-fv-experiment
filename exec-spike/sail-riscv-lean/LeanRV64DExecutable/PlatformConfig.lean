@@ -135,6 +135,7 @@ open f_bin_op_x_S
 open f_bin_op_f_S
 open f_bin_f_op_H
 open f_bin_f_op_D
+open extop_zbb
 open extension
 open exception
 open cregidx
@@ -142,8 +143,13 @@ open cfregidx
 open cbop_zicbop
 open cbop_zicbom
 open cacheop
+open bropw_zbb
+open brop_zbs
+open brop_zbkb
+open brop_zbb
 open breakpoint_cause
 open bop
+open biop_zbs
 open barrier_kind
 open amoop
 open agtype
@@ -541,7 +547,7 @@ def itype_mnemonic_forwards (arg_ : iop) : String :=
   | ORI => "ori"
   | ANDI => "andi"
 
-/-- Type quantifiers: k_ex247893_ : Bool -/
+/-- Type quantifiers: k_ex269453_ : Bool -/
 def maybe_u_forwards (arg_ : Bool) : String :=
   match arg_ with
   | true => "u"
@@ -709,6 +715,65 @@ def width_mnemonic_forwards (arg_ : Nat) : String :=
   | 2 => "h"
   | 4 => "w"
   | _ => "d"
+
+def zba_rtype_mnemonic_forwards (arg_ : (BitVec 2)) : SailM String := do
+  match arg_ with
+  | 0b01 => (pure "sh1add")
+  | 0b10 => (pure "sh2add")
+  | 0b11 => (pure "sh3add")
+  | _ =>
+    (do
+      assert false "Pattern match failure at unknown location"
+      throw Error.Exit)
+
+def zba_rtypeuw_mnemonic_forwards (arg_ : (BitVec 2)) : String :=
+  match arg_ with
+  | 0b00 => "add.uw"
+  | 0b01 => "sh1add.uw"
+  | 0b10 => "sh2add.uw"
+  | _ => "sh3add.uw"
+
+def zbb_extop_mnemonic_forwards (arg_ : extop_zbb) : String :=
+  match arg_ with
+  | SEXTB => "sext.b"
+  | SEXTH => "sext.h"
+  | ZEXTH => "zext.h"
+
+def zbb_rtype_mnemonic_forwards (arg_ : brop_zbb) : String :=
+  match arg_ with
+  | ANDN => "andn"
+  | ORN => "orn"
+  | XNOR => "xnor"
+  | MAX => "max"
+  | MAXU => "maxu"
+  | MIN => "min"
+  | MINU => "minu"
+  | ROL => "rol"
+  | ROR => "ror"
+
+def zbb_rtypew_mnemonic_forwards (arg_ : bropw_zbb) : String :=
+  match arg_ with
+  | ROLW => "rolw"
+  | RORW => "rorw"
+
+def zbkb_rtype_mnemonic_forwards (arg_ : brop_zbkb) : String :=
+  match arg_ with
+  | PACK => "pack"
+  | PACKH => "packh"
+
+def zbs_iop_mnemonic_forwards (arg_ : biop_zbs) : String :=
+  match arg_ with
+  | BCLRI => "bclri"
+  | BEXTI => "bexti"
+  | BINVI => "binvi"
+  | BSETI => "bseti"
+
+def zbs_rtype_mnemonic_forwards (arg_ : brop_zbs) : String :=
+  match arg_ with
+  | BCLR => "bclr"
+  | BEXT => "bext"
+  | BINV => "binv"
+  | BSET => "bset"
 
 def zreg : regidx := (Regidx (zero_extend (m := 5) 0b00#2))
 
@@ -886,6 +951,147 @@ def assembly_forwards (arg_ : instruction) : SailM String := do
                   (String.append (← (reg_name_forwards rs1))
                     (String.append (sep_forwards ())
                       (String.append (← (reg_name_forwards rs2)) ""))))))))))
+  | .SLLIUW (shamt, rs1, rd) =>
+    (pure (String.append "slli.uw"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ())
+              (String.append (← (reg_name_forwards rs1))
+                (String.append (sep_forwards ())
+                  (String.append (← (hex_bits_6_forwards shamt)) ""))))))))
+  | .ZBA_RTYPEUW (rs2, rs1, rd, shamt) =>
+    (pure (String.append (zba_rtypeuw_mnemonic_forwards shamt)
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ())
+              (String.append (← (reg_name_forwards rs1))
+                (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs2)) ""))))))))
+  | .ZBA_RTYPE (rs2, rs1, rd, shamt) =>
+    (pure (String.append (← (zba_rtype_mnemonic_forwards shamt))
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ())
+              (String.append (← (reg_name_forwards rs1))
+                (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs2)) ""))))))))
+  | .RORIW (shamt, rs1, rd) =>
+    (pure (String.append "roriw"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ())
+              (String.append (← (reg_name_forwards rs1))
+                (String.append (sep_forwards ())
+                  (String.append (← (hex_bits_5_forwards shamt)) ""))))))))
+  | .RORI (shamt, rs1, rd) =>
+    (pure (String.append "rori"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ())
+              (String.append (← (reg_name_forwards rs1))
+                (String.append (sep_forwards ())
+                  (String.append (← (hex_bits_6_forwards shamt)) ""))))))))
+  | .ZBB_RTYPEW (rs2, rs1, rd, op) =>
+    (pure (String.append (zbb_rtypew_mnemonic_forwards op)
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ())
+              (String.append (← (reg_name_forwards rs1))
+                (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs2)) ""))))))))
+  | .ZBB_RTYPE (rs2, rs1, rd, op) =>
+    (pure (String.append (zbb_rtype_mnemonic_forwards op)
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ())
+              (String.append (← (reg_name_forwards rs1))
+                (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs2)) ""))))))))
+  | .ZBB_EXTOP (rs1, rd, op) =>
+    (pure (String.append (zbb_extop_mnemonic_forwards op)
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
+  | .REV8 (rs1, rd) =>
+    (pure (String.append "rev8"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
+  | .ORCB (rs1, rd) =>
+    (pure (String.append "orc.b"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
+  | .CPOP (rs1, rd) =>
+    (pure (String.append "cpop"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
+  | .CPOPW (rs1, rd) =>
+    (pure (String.append "cpopw"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
+  | .CLZ (rs1, rd) =>
+    (pure (String.append "clz"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
+  | .CLZW (rs1, rd) =>
+    (pure (String.append "clzw"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
+  | .CTZ (rs1, rd) =>
+    (pure (String.append "ctz"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
+  | .CTZW (rs1, rd) =>
+    (pure (String.append "ctzw"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
+  | .ZBS_IOP (shamt, rs1, rd, op) =>
+    (pure (String.append (zbs_iop_mnemonic_forwards op)
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ())
+              (String.append (← (reg_name_forwards rs1))
+                (String.append (sep_forwards ())
+                  (String.append (← (hex_bits_6_forwards shamt)) ""))))))))
+  | .ZBS_RTYPE (rs2, rs1, rd, op) =>
+    (pure (String.append (zbs_rtype_mnemonic_forwards op)
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ())
+              (String.append (← (reg_name_forwards rs1))
+                (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs2)) ""))))))))
+  | .ZBKB_RTYPE (rs2, rs1, rd, op) =>
+    (pure (String.append (zbkb_rtype_mnemonic_forwards op)
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ())
+              (String.append (← (reg_name_forwards rs1))
+                (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs2)) ""))))))))
+  | .ZBKB_PACKW (rs2, rs1, rd) =>
+    (pure (String.append "packw"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ())
+              (String.append (← (reg_name_forwards rs1))
+                (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs2)) ""))))))))
+  | .ZIP (rs1, rd) =>
+    (pure (String.append "zip"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
+  | .UNZIP (rs1, rd) =>
+    (pure (String.append "unzip"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
+  | .BREV8 (rs1, rd) =>
+    (pure (String.append "brev8"
+        (String.append (spc_forwards ())
+          (String.append (← (reg_name_forwards rd))
+            (String.append (sep_forwards ()) (String.append (← (reg_name_forwards rs1)) ""))))))
   | .ILLEGAL s =>
     (pure (String.append "illegal"
         (String.append (spc_forwards ()) (String.append (← (hex_bits_32_forwards s)) ""))))
@@ -929,6 +1135,29 @@ def assembly_forwards_matches (arg_ : instruction) : Bool :=
   | .MULW (rs2, rs1, rd) => true
   | .DIVW (rs2, rs1, rd, is_unsigned) => true
   | .REMW (rs2, rs1, rd, is_unsigned) => true
+  | .SLLIUW (shamt, rs1, rd) => true
+  | .ZBA_RTYPEUW (rs2, rs1, rd, shamt) => true
+  | .ZBA_RTYPE (rs2, rs1, rd, shamt) => true
+  | .RORIW (shamt, rs1, rd) => true
+  | .RORI (shamt, rs1, rd) => true
+  | .ZBB_RTYPEW (rs2, rs1, rd, op) => true
+  | .ZBB_RTYPE (rs2, rs1, rd, op) => true
+  | .ZBB_EXTOP (rs1, rd, op) => true
+  | .REV8 (rs1, rd) => true
+  | .ORCB (rs1, rd) => true
+  | .CPOP (rs1, rd) => true
+  | .CPOPW (rs1, rd) => true
+  | .CLZ (rs1, rd) => true
+  | .CLZW (rs1, rd) => true
+  | .CTZ (rs1, rd) => true
+  | .CTZW (rs1, rd) => true
+  | .ZBS_IOP (shamt, rs1, rd, op) => true
+  | .ZBS_RTYPE (rs2, rs1, rd, op) => true
+  | .ZBKB_RTYPE (rs2, rs1, rd, op) => true
+  | .ZBKB_PACKW (rs2, rs1, rd) => true
+  | .ZIP (rs1, rd) => true
+  | .UNZIP (rs1, rd) => true
+  | .BREV8 (rs1, rd) => true
   | .ILLEGAL s => true
   | .C_ILLEGAL s => true
   | _ => false
@@ -1110,6 +1339,9 @@ def hartSupports (merge_var : extension) : Bool :=
       then (hartSupports Ext_Ssnpm)
       else (hartSupports Ext_Smnpm)))
 termination_by let ext := merge_var; ((hartSupports_measure ext)).toNat
+
+def _get_Misa_B (v : (BitVec 64)) : (BitVec 1) :=
+  (Sail.BitVec.extractLsb v 1 1)
 
 def _get_Misa_C (v : (BitVec 64)) : (BitVec 1) :=
   (Sail.BitVec.extractLsb v 2 2)
@@ -1515,6 +1747,11 @@ def currentlyEnabled (merge_var : extension) : SailM Bool := do
     (pure ((hartSupports Ext_Zca) && ((← (currentlyEnabled Ext_C)) || (not (hartSupports Ext_C)))))
   | Ext_M => (pure ((hartSupports Ext_M) && ((_get_Misa_M (← readReg misa)) == 1#1)))
   | Ext_Zmmul => (pure ((hartSupports Ext_Zmmul) || (← (currentlyEnabled Ext_M))))
+  | Ext_B => (pure ((hartSupports Ext_B) && ((_get_Misa_B (← readReg misa)) == 1#1)))
+  | Ext_Zba => (pure ((hartSupports Ext_Zba) || (← (currentlyEnabled Ext_B))))
+  | Ext_Zbb => (pure ((hartSupports Ext_Zbb) || (← (currentlyEnabled Ext_B))))
+  | Ext_Zbkb => (pure (hartSupports Ext_Zbkb))
+  | Ext_Zbs => (pure ((hartSupports Ext_Zbs) || (← (currentlyEnabled Ext_B))))
   | _ => (pure false)
 termination_by let ext := merge_var; ((currentlyEnabled_measure ext)).toNat
 /-- Type quantifiers: idx : Nat, 0 ≤ idx ∧ idx ≤ 3 -/
@@ -1717,7 +1954,7 @@ def encdec_uop_forwards (arg_ : uop) : (BitVec 7) :=
   | LUI => 0b0110111#7
   | AUIPC => 0b0010111#7
 
-/-- Type quantifiers: k_ex248879_ : Bool, width : Nat, width ∈ {1, 2, 4, 8} -/
+/-- Type quantifiers: k_ex270483_ : Bool, width : Nat, width ∈ {1, 2, 4, 8} -/
 def valid_load_encdec (width : Nat) (is_unsigned : Bool) : Bool :=
   ((width <b xlen_bytes) || ((not is_unsigned) && (width ≤b xlen_bytes)))
 
@@ -1932,6 +2169,452 @@ def encdec_forwards (arg_ : instruction) : SailM (BitVec 32) := do
       then
         (pure (0b0000001#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b11#2 ++ ((bool_bit_forwards
                       is_unsigned) ++ ((encdec_reg_forwards rd) ++ 0b0111011#7)))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .SLLIUW (shamt, rs1, rd) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zba)) && (xlen == 64)) : Bool)
+      then
+        (pure (0b000010#6 ++ ((shamt : (BitVec 6)) ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0011011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBA_RTYPEUW (rs2, rs1, rd, 0b00) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zba)) && (xlen == 64)) : Bool)
+      then
+        (pure (0b0000100#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b00#2 ++ (0#1 ++ ((encdec_reg_forwards
+                        rd) ++ 0b0111011#7)))))))
+      else
+        (do
+          match (ZBA_RTYPEUW (rs2, rs1, rd, 0b00#2)) with
+          | .ZBA_RTYPEUW (rs2, rs1, rd, shamt) =>
+            (do
+              if (((← (currentlyEnabled Ext_Zba)) && ((xlen == 64) && (shamt != 0b00#2))) : Bool)
+              then
+                (pure (0b0010000#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ ((shamt : (BitVec 2)) ++ (0#1 ++ ((encdec_reg_forwards
+                                rd) ++ 0b0111011#7)))))))
+              else
+                (do
+                  assert false "Pattern match failure at unknown location"
+                  throw Error.Exit))
+          | _ =>
+            (do
+              assert false "Pattern match failure at unknown location"
+              throw Error.Exit)))
+  | .ZBA_RTYPEUW (rs2, rs1, rd, shamt) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zba)) && ((xlen == 64) && (shamt != 0b00#2))) : Bool)
+      then
+        (pure (0b0010000#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ ((shamt : (BitVec 2)) ++ (0#1 ++ ((encdec_reg_forwards
+                        rd) ++ 0b0111011#7)))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBA_RTYPE (rs2, rs1, rd, shamt) =>
+    (do
+      if (((shamt != 0b00#2) && (← (currentlyEnabled Ext_Zba))) : Bool)
+      then
+        (pure (0b0010000#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ ((shamt : (BitVec 2)) ++ (0#1 ++ ((encdec_reg_forwards
+                        rd) ++ 0b0110011#7)))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .RORIW (shamt, rs1, rd) =>
+    (do
+      if ((((← (currentlyEnabled Ext_Zbb)) || (← (currentlyEnabled Ext_Zbkb))) && (xlen == 64)) : Bool)
+      then
+        (pure (0b0110000#7 ++ ((shamt : (BitVec 5)) ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0011011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .RORI (shamt, rs1, rd) =>
+    (do
+      if ((((← (currentlyEnabled Ext_Zbb)) || (← (currentlyEnabled Ext_Zbkb))) && ((xlen == 64) || ((BitVec.access
+                 shamt 5) == 0#1))) : Bool)
+      then
+        (pure (0b011000#6 ++ ((shamt : (BitVec 6)) ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0010011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_RTYPEW (rs2, rs1, rd, ROLW) =>
+    (do
+      if ((((← (currentlyEnabled Ext_Zbb)) || (← (currentlyEnabled Ext_Zbkb))) && (xlen == 64)) : Bool)
+      then
+        (pure (0b0110000#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0111011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_RTYPEW (rs2, rs1, rd, RORW) =>
+    (do
+      if ((((← (currentlyEnabled Ext_Zbb)) || (← (currentlyEnabled Ext_Zbkb))) && (xlen == 64)) : Bool)
+      then
+        (pure (0b0110000#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0111011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_RTYPE (rs2, rs1, rd, ANDN) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbb)) || (← (currentlyEnabled Ext_Zbkb))) : Bool)
+      then
+        (pure (0b0100000#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b111#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_RTYPE (rs2, rs1, rd, ORN) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbb)) || (← (currentlyEnabled Ext_Zbkb))) : Bool)
+      then
+        (pure (0b0100000#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b110#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_RTYPE (rs2, rs1, rd, XNOR) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbb)) || (← (currentlyEnabled Ext_Zbkb))) : Bool)
+      then
+        (pure (0b0100000#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b100#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_RTYPE (rs2, rs1, rd, MAX) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbb)) : Bool)
+      then
+        (pure (0b0000101#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b110#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_RTYPE (rs2, rs1, rd, MAXU) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbb)) : Bool)
+      then
+        (pure (0b0000101#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b111#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_RTYPE (rs2, rs1, rd, MIN) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbb)) : Bool)
+      then
+        (pure (0b0000101#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b100#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_RTYPE (rs2, rs1, rd, MINU) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbb)) : Bool)
+      then
+        (pure (0b0000101#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_RTYPE (rs2, rs1, rd, ROL) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbb)) || (← (currentlyEnabled Ext_Zbkb))) : Bool)
+      then
+        (pure (0b0110000#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_RTYPE (rs2, rs1, rd, ROR) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbb)) || (← (currentlyEnabled Ext_Zbkb))) : Bool)
+      then
+        (pure (0b0110000#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_EXTOP (rs1, rd, SEXTB) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbb)) : Bool)
+      then
+        (pure (0b0110000#7 ++ (0b00100#5 ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0010011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_EXTOP (rs1, rd, SEXTH) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbb)) : Bool)
+      then
+        (pure (0b0110000#7 ++ (0b00101#5 ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0010011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBB_EXTOP (rs1, rd, ZEXTH) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbb)) && (xlen == 32)) : Bool)
+      then
+        (pure (0b0000100#7 ++ (0b00000#5 ++ ((encdec_reg_forwards rs1) ++ (0b100#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          if (((← (currentlyEnabled Ext_Zbb)) && (xlen == 64)) : Bool)
+          then
+            (pure (0b0000100#7 ++ (0b00000#5 ++ ((encdec_reg_forwards rs1) ++ (0b100#3 ++ ((encdec_reg_forwards
+                          rd) ++ 0b0111011#7))))))
+          else
+            (do
+              assert false "Pattern match failure at unknown location"
+              throw Error.Exit)))
+  | .REV8 (rs1, rd) =>
+    (do
+      if ((((← (currentlyEnabled Ext_Zbb)) || (← (currentlyEnabled Ext_Zbkb))) && (xlen == 32)) : Bool)
+      then
+        (pure (0b011010011000#12 ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                    rd) ++ 0b0010011#7)))))
+      else
+        (do
+          if ((((← (currentlyEnabled Ext_Zbb)) || (← (currentlyEnabled Ext_Zbkb))) && (xlen == 64)) : Bool)
+          then
+            (pure (0b011010111000#12 ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                        rd) ++ 0b0010011#7)))))
+          else
+            (do
+              assert false "Pattern match failure at unknown location"
+              throw Error.Exit)))
+  | .ORCB (rs1, rd) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbb)) : Bool)
+      then
+        (pure (0b001010000111#12 ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                    rd) ++ 0b0010011#7)))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .CPOP (rs1, rd) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbb)) : Bool)
+      then
+        (pure (0b0110000#7 ++ (0b00010#5 ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0010011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .CPOPW (rs1, rd) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbb)) && (xlen == 64)) : Bool)
+      then
+        (pure (0b0110000#7 ++ (0b00010#5 ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0011011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .CLZ (rs1, rd) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbb)) : Bool)
+      then
+        (pure (0b0110000#7 ++ (0b00000#5 ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0010011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .CLZW (rs1, rd) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbb)) && (xlen == 64)) : Bool)
+      then
+        (pure (0b0110000#7 ++ (0b00000#5 ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0011011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .CTZ (rs1, rd) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbb)) : Bool)
+      then
+        (pure (0b0110000#7 ++ (0b00001#5 ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0010011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .CTZW (rs1, rd) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbb)) && (xlen == 64)) : Bool)
+      then
+        (pure (0b0110000#7 ++ (0b00001#5 ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0011011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBS_IOP (shamt, rs1, rd, BCLRI) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbs)) && ((xlen == 64) || ((BitVec.access shamt 5) == 0#1))) : Bool)
+      then
+        (pure (0b010010#6 ++ ((shamt : (BitVec 6)) ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0010011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBS_IOP (shamt, rs1, rd, BEXTI) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbs)) && ((xlen == 64) || ((BitVec.access shamt 5) == 0#1))) : Bool)
+      then
+        (pure (0b010010#6 ++ ((shamt : (BitVec 6)) ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0010011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBS_IOP (shamt, rs1, rd, BINVI) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbs)) && ((xlen == 64) || ((BitVec.access shamt 5) == 0#1))) : Bool)
+      then
+        (pure (0b011010#6 ++ ((shamt : (BitVec 6)) ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0010011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBS_IOP (shamt, rs1, rd, BSETI) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbs)) && ((xlen == 64) || ((BitVec.access shamt 5) == 0#1))) : Bool)
+      then
+        (pure (0b001010#6 ++ ((shamt : (BitVec 6)) ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0010011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBS_RTYPE (rs2, rs1, rd, BCLR) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbs)) : Bool)
+      then
+        (pure (0b0100100#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBS_RTYPE (rs2, rs1, rd, BEXT) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbs)) : Bool)
+      then
+        (pure (0b0100100#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBS_RTYPE (rs2, rs1, rd, BINV) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbs)) : Bool)
+      then
+        (pure (0b0110100#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBS_RTYPE (rs2, rs1, rd, BSET) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbs)) : Bool)
+      then
+        (pure (0b0010100#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBKB_RTYPE (rs2, rs1, rd, PACK) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbkb)) : Bool)
+      then
+        (pure (0b0000100#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b100#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBKB_RTYPE (rs2, rs1, rd, PACKH) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbkb)) : Bool)
+      then
+        (pure (0b0000100#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b111#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0110011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZBKB_PACKW (rs2, rs1, rd) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbkb)) && (xlen == 64)) : Bool)
+      then
+        (pure (0b0000100#7 ++ ((encdec_reg_forwards rs2) ++ ((encdec_reg_forwards rs1) ++ (0b100#3 ++ ((encdec_reg_forwards
+                      rd) ++ 0b0111011#7))))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .ZIP (rs1, rd) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbkb)) && (xlen == 32)) : Bool)
+      then
+        (pure (0b000010001111#12 ++ ((encdec_reg_forwards rs1) ++ (0b001#3 ++ ((encdec_reg_forwards
+                    rd) ++ 0b0010011#7)))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .UNZIP (rs1, rd) =>
+    (do
+      if (((← (currentlyEnabled Ext_Zbkb)) && (xlen == 32)) : Bool)
+      then
+        (pure (0b000010001111#12 ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                    rd) ++ 0b0010011#7)))))
+      else
+        (do
+          assert false "Pattern match failure at unknown location"
+          throw Error.Exit))
+  | .BREV8 (rs1, rd) =>
+    (do
+      if ((← (currentlyEnabled Ext_Zbkb)) : Bool)
+      then
+        (pure (0b011010000111#12 ++ ((encdec_reg_forwards rs1) ++ (0b101#3 ++ ((encdec_reg_forwards
+                    rd) ++ 0b0010011#7)))))
       else
         (do
           assert false "Pattern match failure at unknown location"

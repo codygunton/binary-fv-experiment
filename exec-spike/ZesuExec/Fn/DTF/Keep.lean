@@ -320,14 +320,16 @@ def shapeHolds (S : SState) (sh : Shape) : Bool :=
 /-- No `Extra` conjunct at `pc`. -/
 def noExtra (pc : Nat) : Bool :=
   pc != 0x80000574 && pc != 0x80002138 && pc != 0x80002434 && pc != 0x800011f8 &&
-    pc != 0x800020ac && !authExtraPcs.contains pc
+    pc != 0x800020ac && pc != 0x80002db8 && pc != 0x80002dbc && pc != 0x80002dc4 &&
+    !authExtraPcs.contains pc
 
 theorem extra_of_no {pc : Nat} (h : noExtra pc = true) (σ : Sig) (m : Machine) :
     Extra pc σ m := by
   simp only [noExtra, Bool.and_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true'] at h
-  obtain ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩ := h
-  simp only [Extra, if_neg h1, if_neg h2, if_neg h3, if_neg h4, if_neg h5]
-  exact authExtra_none h6 σ m
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩ := h
+  simp only [Extra, if_neg h1, if_neg h2, if_neg h3, if_neg h4, if_neg h5,
+    if_neg (show ¬ (pc = 0x80002db8 ∨ pc = 0x80002dbc ∨ pc = 0x80002dc4) by omega)]
+  exact authExtra_none h9 σ m
 
 /-- No `SiteX` conjunct at the return site `r`. -/
 def noSiteX (r : Nat) : Bool :=

@@ -934,7 +934,7 @@ theorem memcpy_exit {m mh mf : Machine} (n : Nums m) (e : Entry m) (hc : Fr m mh
   have hscr : ∀ t < 8, ¬ (InRange (m.reg 10) 80 (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 t) ∨
       InRange (m.reg 2 - 512) 512 (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 t)) := by
     intro t ht
-    have : (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 t).toNat = 0xa0400f00 + t := by
+    have : (BitVec.ofNat 64 Layout.extraParams + BitVec.ofNat 64 t).toNat = 0xa0000f00 + t := by
       simp [BitVec.toNat_add, Layout.extraParams]; omega
     simp only [InRange, this, h512]; omega
   have hdom : MemcpyPre mf := by

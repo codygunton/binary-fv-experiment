@@ -220,4 +220,106 @@ theorem byteAt_sound : ∀ {s b : Sym} {j : Nat}, byteAt s j = some b → j < 8 
       rw [byteOf_cat_hi _ _ (by omega) hj]
       exact byteAt_sound h (by omega) env
 
+/-! ## Legacy `v` from the limbs of `v_raw` (`0x80002a88..0x80002b28`) -/
+
+theorem limb_toNat (V i : Nat) : (limb V i).toNat = V / 2 ^ (64 * i) % 2 ^ 64 := by
+  simp [limb, w]
+
+theorem ult_one_iff (x : Word) : x.ult 1 = decide (x = 0) := by
+  rcases Nat.eq_zero_or_pos x.toNat with h | h
+  · have : x = 0 := BitVec.eq_of_toNat_eq (by simp [h])
+    subst this; rfl
+  · have : x ≠ 0 := fun e => by subst e; simp at h
+    rw [decide_eq_false this]
+    simp only [BitVec.ult, show (1 : Word).toNat = 1 from rfl, decide_eq_false_iff_not]
+    omega
+
+/-- Limbs 1-3 of a 256-bit number are zero exactly when it is below `2^64`. -/
+theorem limbs_hi_zero {V : Nat} (hV : V < 2 ^ 256) :
+    (limb V 1 ||| (limb V 2 ||| limb V 3) = 0) ↔ V < 2 ^ 64 := by
+  have hz : ∀ i, limb V i = 0 ↔ V / 2 ^ (64 * i) % 2 ^ 64 = 0 := fun i => by
+    rw [← limb_toNat]
+    exact ⟨fun h => by rw [h]; rfl, fun h => BitVec.eq_of_toNat_eq (by rw [h]; rfl)⟩
+  constructor
+  · intro h
+    obtain ⟨h1, h23⟩ := BitVec.or_eq_zero_iff.mp h
+    obtain ⟨h2, h3⟩ := BitVec.or_eq_zero_iff.mp h23
+    have := (hz 1).mp h1; have := (hz 2).mp h2; have := (hz 3).mp h3
+    omega
+  · intro h
+    exact BitVec.or_eq_zero_iff.mpr ⟨(hz 1).mpr (by omega),
+      BitVec.or_eq_zero_iff.mpr ⟨(hz 2).mpr (by omega), (hz 3).mpr (by omega)⟩⟩
+
+/-- `v_raw < q` as the binary computes it from the limbs: `(l1 | l2 | l3) <u 1` and `l0 <u q`. -/
+theorem lt_word {V : Nat} (hV : V < 2 ^ 256) {q : Nat} (hq : q < 2 ^ 64) :
+    ((if (limb V 1 ||| (limb V 2 ||| limb V 3)).ult (BitVec.ofNat 64 1) then (1 : Word) else 0) &&&
+      (if (limb V 0).ult (BitVec.ofNat 64 q) then 1 else 0)) = if V < q then 1 else 0 := by
+  rw [show (BitVec.ofNat 64 1 : Word) = 1 from rfl, ult_one_iff]
+  have h0 : (limb V 0).ult (BitVec.ofNat 64 q) = decide (V % 2 ^ 64 < q) := by
+    simp only [BitVec.ult, limb_toNat, BitVec.toNat_ofNat]
+    apply decide_eq_decide.mpr
+    rw [Nat.mod_eq_of_lt hq]; simp
+  rw [h0]
+  by_cases hz : limb V 1 ||| (limb V 2 ||| limb V 3) = 0
+  · have := (limbs_hi_zero hV).mp hz
+    rw [Nat.mod_eq_of_lt this, decide_eq_true hz]
+    by_cases hlt : V < q <;> simp [hlt]
+  · have := mt (limbs_hi_zero hV).mpr hz
+    have : ¬ V < q := by omega
+    rw [decide_eq_false hz]
+    simp [this]
+
+/-- `v = (v_raw - 35) mod 2` from limb 0. -/
+theorem lv35 {V : Nat} (h35 : 35 ≤ V) :
+    (limb V 0 + BitVec.ofNat 64 (2 ^ 64 - 35)) &&& BitVec.ofNat 64 1 = w ((V - 35) % 2) := by
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_and, BitVec.toNat_add, limb_toNat]
+  simp only [w, BitVec.toNat_ofNat]
+  rw [Nat.and_one_is_mod]
+  omega
+
+/-- `v = v_raw - 27` from limb 0 when `27 ≤ v_raw < 35`. -/
+theorem lv27 {V : Nat} (h27 : 27 ≤ V) (h35 : V < 35) :
+    limb V 0 + BitVec.ofNat 64 (2 ^ 64 - 27) = w ((V - 27) % 2 ^ 64) := by
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_add, limb_toNat]
+  simp only [w, BitVec.toNat_ofNat]
+  omega
+
+/-- The chain id `(v_raw - 35) / 2 mod 2^64` from limbs 0 and 1 (borrow into limb 1). -/
+theorem lc35 {V : Nat} (h35 : 35 ≤ V) :
+    (limb V 0 + BitVec.ofNat 64 (2 ^ 64 - 35)) >>> ((BitVec.ofNat 64 1 : Word).toNat % 64) |||
+      (limb V 1 + (if (limb V 0 + BitVec.ofNat 64 (2 ^ 64 - 35)).ult (limb V 0) then 1 else 0) +
+        BitVec.ofNat 64 (2 ^ 64 - 1)) <<< ((BitVec.ofNat 64 63 : Word).toNat % 64) =
+      w ((V - 35) / 2) := by
+  generalize hx : limb V 0 + BitVec.ofNat 64 (2 ^ 64 - 35) = x
+  have hxn : x.toNat = (V % 2 ^ 64 + (2 ^ 64 - 35)) % 2 ^ 64 := by
+    rw [← hx, BitVec.toNat_add, limb_toNat]; simp
+  have hb : (if x.ult (limb V 0) then (1 : Word) else 0).toNat =
+      if 35 ≤ V % 2 ^ 64 then 1 else 0 := by
+    by_cases h : 35 ≤ V % 2 ^ 64
+    · rw [if_pos (by simp only [BitVec.ult, hxn, limb_toNat]; simp; omega), if_pos h]; rfl
+    · rw [if_neg (by simp only [BitVec.ult, hxn, limb_toNat]; simp; omega), if_neg h]; rfl
+  generalize hy : limb V 1 + (if x.ult (limb V 0) then 1 else 0) +
+    BitVec.ofNat 64 (2 ^ 64 - 1) = y
+  have hyn : y.toNat = (V / 2 ^ 64 % 2 ^ 64 + (if 35 ≤ V % 2 ^ 64 then 1 else 0) +
+      (2 ^ 64 - 1)) % 2 ^ 64 := by
+    rw [← hy, BitVec.toNat_add, BitVec.toNat_add, hb, limb_toNat]
+    simp only [BitVec.toNat_ofNat]
+    split <;> omega
+  have hdis : x >>> 1 &&& y <<< 63 = 0 := by
+    apply BitVec.eq_of_getLsbD_eq; intro i hi
+    simp only [BitVec.getLsbD_and, BitVec.getLsbD_ushiftRight, BitVec.getLsbD_shiftLeft]
+    by_cases h63 : i < 63
+    · simp [h63]
+    · rw [BitVec.getLsbD_of_ge x _ (by omega)]
+      simp
+  show x >>> 1 ||| y <<< 63 = _
+  rw [← BitVec.add_eq_or_of_and_eq_zero _ _ hdis]
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_add, BitVec.toNat_ushiftRight, BitVec.toNat_shiftLeft, hxn, hyn,
+    Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq]
+  show _ = ((V - 35) / 2) % 2 ^ 64
+  split <;> omega
+
 end ZesuExec.Fn.DTF

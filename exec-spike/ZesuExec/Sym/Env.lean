@@ -33,6 +33,15 @@ def BinOp.eval : BinOp → Word → Word → Word
   | .divu, a, b => if b = 0 then -1 else a / b
   | .remu, a, b => a % b
   | .slt, a, b => if a.slt b then 1 else 0
+  | .sra, a, b => a.sshiftRight (b.toNat % 64)
+  | .rev8, a, _ => Machine.rev8 a
+  | .maxu, a, b => if b.ult a then a else b
+  | .pack, a, b => (a &&& 0xffffffff) ||| (b <<< 32)
+  | .packh, a, b => (a &&& 0xff) ||| ((b &&& 0xff) <<< 8)
+  | .bext, a, b => if a &&& ((1 : Word) <<< (b.toNat % 64)) = 0 then 0 else 1
+  | .bset, a, b => a ||| ((1 : Word) <<< (b.toNat % 64))
+  | .bclr, a, b => a &&& ~~~((1 : Word) <<< (b.toNat % 64))
+  | .clz, a, _ => a.clz
 
 structure Env where
   vars : Nat → Word
