@@ -650,6 +650,33 @@ registers); copy 8330 is `C8330.cfg` (`E = 48`, 32-byte frame saving `s1`, `s0`,
   `tools/snap.py --fn Rn` from `tools/snap_inputs/rotate.json` and rendered by
   `tools/snap_post.py`.
 
+## S16 merge: `sort.block.mergeInPlace__anon_7964` (`0x8004f388`), `__anon_11564` (`0x80098ddc`) — draft, unreviewed
+
+New contract, no zesislar counterpart, level `model`. Drafted from `std/sort/block.zig`
+(`mergeInPlace`: `binaryFirst` into B, `mem.rotate`, `binaryLast` into the new A, repeat; Zig
+0.16) and the binary. Stated once (`ZesuExec/Fn/MergeInPlace/Spec.lean`, `MergeInPlace.Cfg`:
+entry, frame, saved slots, kept registers, the element order as a key `key m x`, an extra
+precondition `pre`). Elements are 32 bytes; copy 7964 orders them by `std.mem.lessThan(u8)` on
+the element itself (`key = id`, `[32]u8`), copy 11564 by `std.mem.lessThan(u8)` on the byte
+slice `(ptr, len)` in the element's first 16 bytes (`key m x` = the bytes it points to in the
+entry machine; `pre`: those strings present, readable, disjoint from the items and the frame).
+
+- **The model** (`Fn/MergeInPlace/Model.lean`): `lexLt` (Zig's byte-lexicographic order, a
+  proper prefix is less), `Sorted key` (pairwise not-above), `MergeOf key xs ys zs` := `zs` is a
+  permutation of `xs ++ ys` and `Sorted key zs`. `map/reviews.json` names
+  `ZesuExec.Fn.MergeInPlace.MergeOf` as the model of both functions.
+- `Pre cfg m`: rodata loaded; `StackOk`; `RetAligned`; the two `Range`s (`a1`, `a2`; `start`,
+  `end` as little-endian `u64`) readable and present; `A.start ≤ A.end = B.start ≤ B.end`;
+  `items[0..B.end]` (32-byte elements at `a0`) present writable RAM, disjoint from the frame; the
+  ranges disjoint from each other and the frame; both runs `Sorted`; `cfg.pre m`.
+- `Post cfg m m'`: `Returns`; memory changed only in `items[A.start..B.end]` and the frame;
+  `MergeOf (cfg.key m) items[A] items[B] items'[A.start..B.end]`.
+- Snapshot: `Cn.post_snapshot` (`C7964/SnapCheck.lean`, `C11564/SnapCheck.lean`) checks `Post`
+  (`MergeInPlace.SnapOk`: return registers, changed bytes in range or frame, `isPerm` of the
+  32-byte elements and `lexLt`-sortedness of the keys) by kernel `decide` on ten Unicorn
+  snapshots each (`test/snapshots/M7964`, `M11564`; inputs `tools/snap_inputs/merge.json`,
+  `merge_slices.json`).
+
 ## S14 (services)
 
 - **`next` gains service steps** (`ZesuExec/Service.lean`): when `step` is `none` (a word the

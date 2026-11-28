@@ -72,6 +72,20 @@
       "reviewer": "",
       "source": "S16 mem.rotate__anon_12629: the shared rotate contract (ZesuExec/Fn/Rotate/Spec.lean) at Cfg E=64; STATEMENTS.md S16 rotate"
     },
+    "f_8004f388": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "model": "ZesuExec.Fn.MergeInPlace.MergeOf",
+      "source": "S16 sort.block.mergeInPlace__anon_7964: no zesislar contract; drafted from std/sort/block.zig mergeInPlace (Zig 0.16) and the binary; shared contract ZesuExec/Fn/MergeInPlace/Spec.lean, key = the element ([32]u8); STATEMENTS.md S16 merge"
+    },
+    "f_80098ddc": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "model": "ZesuExec.Fn.MergeInPlace.MergeOf",
+      "source": "S16 sort.block.mergeInPlace__anon_11564: the shared merge contract (ZesuExec/Fn/MergeInPlace/Spec.lean), key = the byte slice an element points to; STATEMENTS.md S16 merge"
+    },
     "f_800e06d0": {
       "contract": "draft",
       "review": "unreviewed",

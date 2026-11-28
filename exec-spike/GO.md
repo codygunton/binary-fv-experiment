@@ -24,18 +24,35 @@ simulation patterns exist, so forms are a negligible share of the total. The rem
 form blockers depend on the Sail model, not on proof effort: regenerating the model with the B/Zbkb
 extensions and a corrected arithmetic shift would unblock the last 14 form-blocked functions.
 
-## S16 (partial)
+## S16
 
-- `mem.rotate__anon_8330` closed (`r8330_spec`, `r8330_sail`, non-vacuity, snapshot test); level
-  `machine-only` (rotation of the slice, no external model). Cost: ledger items 20, 22 (~50 min
-  agent time; dollars from `zmap cost`). 8 cut points, 28 items (3.5 per cut point), automatic
-  share 0%.
-- Shared by construction for the next copies: model, contract, cut states, assertions, step
-  lemmas, leaf tactics (1,207 lines, parameterised by element size `E`, frame layout and register
-  equations). Per copy: `cfg`, register equations, budgets, 28 short item proofs (~520 lines,
-  mostly the same text with different indices).
-- Open: `__anon_10572` (E=104, 16-byte frame), `__anon_12629` (E=64), both `mergeInPlace`
-  copies, the reuse ratio, the `model` meaning layer for `mergeInPlace`.
+**Rotate family: proved.** `mem.rotate__anon_8330` (E=48), `__anon_10572` (E=104),
+`__anon_12629` (E=64): `rN_spec`, `rN_sail`, `pre_nonvacuous`, `post_snapshot` (9 Unicorn
+snapshots each, `zesu-difftest` `agree` on all 27), level `machine-only` (the rotation of the
+slice). Each copy: 8 cut points, 28 items (3.5 items per cut point), automatic share 0/28
+(`zesu_auto` closes nothing: the generic leaf tactic has no access to the byte-level slice
+model; every item is a three-line script over the shared tactics).
+
+| copy | ledger items | minutes | dollars | ratio to 8330 (min / $) |
+|---|---|---:|---:|---:|
+| 8330 (first) | 20, 22 | 51.2 | 22.63 | 1 |
+| 10572 | 23 | 18.5 | 2.14 | 0.36 / 0.09 |
+| 12629 | 24 | 1.9 | 0.58 | 0.04 / 0.03 |
+
+Shared (`Fn/Rotate/{Model,Spec,Cuts,Tac,Snap,Attr}.lean`, 1,207 lines): model, contract,
+cut states, assertions, step lemmas, leaf tactics, snapshot check, all over `Cfg` (element
+size, frame layout) and the copy's register equations. New per copy: `Runs.lean` (cfg, cut
+addresses, inner-loop byte registers; 39 lines) and `Vc.lean` (register equations, budgets,
+plan; 126 lines), plus generated `Snaps.lean`; `Leaves.lean` (312 lines, 28 proofs) and
+`Proof.lean` are 8330's text with names and addresses renamed — not one proof line changed.
+10572's 18.5 minutes are mostly waiting for a full rebuild that a parallel build killed
+(OOM); the copy work itself is the 165 new lines. Reuse gate (≤ 40%): **passes** for rotate.
+
+**Merge family.** Model `MergeOf` (sorted permutation under `lexLt` on a key), shared library
+`Fn/MergeInPlace/{Model,Spec,Win,Bytes,Cuts,Steps}.lean`, 7964 runs (18 cut points, 43 leaves)
+and 11564 runs (22 cut points, 50 leaves) all succeed; snapshot tests `post_snapshot` (10 each)
+and `zesu-difftest` `agree` on all 20. The 7964 machine proof is in progress (ledger 26).
+
 
 ## S11
 
