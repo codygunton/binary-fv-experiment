@@ -627,25 +627,27 @@ Open (to settle before review):
    disassembly that alignment 16 is handled; diverges from zesislar).
 - Non-vacuity: not yet stated; `decide` checks the decoder on four inputs.
 
-## S16 rotate: `mem.rotate__anon_8330` (`0x8006464c`) — draft, unreviewed
+## S16 rotate: `mem.rotate__anon_8330` (`0x8006464c`), `__anon_10572` (`0x8007cc68`), `__anon_12629` (`0x800a8f30`) — draft, unreviewed
 
 New contract, no zesislar counterpart. Drafted from `std/mem.zig` (`rotate` = three `reverse`s;
 `reverse` swaps `i` and `L-1-i` for `i < L/2`) and the binary. Stated once over the element size
 (`ZesuExec/Fn/Rotate/Spec.lean`, `Rotate.Cfg`: entry, `E`, frame size, saved slots, kept
-registers); copy 8330 is `C8330.cfg` (`E = 48`, 32-byte frame saving `s1`, `s0`, `ra`).
+registers); copy 8330 is `C8330.cfg` (`E = 48`, 32-byte frame saving `s1`, `s0`, `ra`), copies
+10572 and 12629 are `C10572.cfg` and `C12629.cfg` (`E = 104` and `E = 64`, 16-byte frame saving
+`s0`, `ra`). Per copy `Cn`:
 
 - `Pre cfg m`: rodata loaded; `StackOk` for the frame; `RetAligned`; `amount ≤ len` (Zig's slice
   bound `items[0..amount]`, a safety check the release build omits); the `E·len` slice bytes are
   writable RAM and present; slice and frame disjoint.
 - `Post cfg m m'`: `Returns`; memory changed only in the slice and the frame; for `e < len`,
   `o < E`, byte `o` of element `e` at the return is byte `o` of entry element `(e + amount) % len`.
-- End theorems `C8330.r8330_spec : Spec zesuImage entry (2^32 + 40) (Pre cfg) (Post cfg)` and
-  `r8330_sail`. The bound is a constant over-approximation valid for `48·len ≤ 2^30` (RAM); the
+- End theorems `Cn.rn_spec : Spec zesuImage entry (2^32 + 40) (Pre cfg) (Post cfg)` and
+  `rn_sail`. The bound is a constant over-approximation valid for `E·len ≤ 2^29` (RAM); the
   per-cut budgets are exact functions of `len` and `amount`.
-- Non-vacuity: `C8330.pre_nonvacuous` (the machine `Rotate.witness cfg 2 1`).
-- Snapshot: `C8330.post_snapshot` checks `Post` (`Rotate.SnapOk`) by kernel `decide` on the nine
-  Unicorn snapshots `test/snapshots/R8330` (lengths 0–8, amounts 0..len), made by
-  `tools/snap.py --fn R8330` from `tools/snap_inputs/rotate.json` and rendered by
+- Non-vacuity: `Cn.pre_nonvacuous` (the machine `Rotate.witness cfg 2 1`).
+- Snapshot: `Cn.post_snapshot` checks `Post` (`Rotate.SnapOk`) by kernel `decide` on the nine
+  Unicorn snapshots `test/snapshots/Rn` (lengths 0–8, amounts 0..len), made by
+  `tools/snap.py --fn Rn` from `tools/snap_inputs/rotate.json` and rendered by
   `tools/snap_post.py`.
 
 ## S14 (services)
