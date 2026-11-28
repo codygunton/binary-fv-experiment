@@ -8,7 +8,7 @@
   "i": 0,
   "exit": "at",
   "target": 2147488248,
-  "residual": "1 goal; head @LeafGoal; class budget LE.le",
+  "residual": "1 goal; head @LeafGoal; class cut ite",
   "rank": 1
  },
  {
