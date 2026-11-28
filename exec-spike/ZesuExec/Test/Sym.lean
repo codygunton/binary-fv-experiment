@@ -60,9 +60,10 @@ def forms : List Instr :=
    .blt 6 7 (-16), .bltu 6 7 16, .bgeu 6 7 16, .lb 7 5 3, .lbu 7 5 3, .lhu 7 5 2, .lw 7 5 4,
    .ld 7 5 8, .sb 5 9 1, .sh 5 9 2, .sw 5 9 4, .sd 5 9 (-8), .addi 7 6 (-1), .andi 7 6 0x0f0,
    .xori 7 6 (-1), .sltiu 7 6 5, .slli 7 6 13, .srli 7 6 61, .add 7 6 8, .sub 7 6 8, .and 7 6 8,
-   .or 7 6 8, .sll 7 6 8, .sltu 7 6 8, .mul 7 6 8, .mulhu 7 6 8, .xor 7 6 8, .addiw 7 6 (-1)]
+   .or 7 6 8, .sll 7 6 8, .sltu 7 6 8, .mul 7 6 8, .mulhu 7 6 8, .xor 7 6 8, .addiw 7 6 (-1),
+   .bge 6 7 16, .bge 7 6 (-16)]
 
-theorem forms_count : forms.length = 34 := by decide
+theorem forms_count : forms.length = 36 := by decide
 
 /-- `jalr` to a literal target (`x5` replaced by a literal) exercises the literal branch. -/
 theorem jalr_literal_agrees :

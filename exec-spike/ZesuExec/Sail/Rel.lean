@@ -221,5 +221,6 @@ def toSail : Instr → instruction
       { result_part := .High, signed_rs1 := .Unsigned, signed_rs2 := .Unsigned })
   | .xor rd rs1 rs2 => .RTYPE (rg rs2, rg rs1, rg rd, .XOR)
   | .addiw rd rs1 imm => .ADDIW (imm, rg rs1, rg rd)
+  | .bge rs1 rs2 imm => .BTYPE (imm, rg rs2, rg rs1, .BGE)
 
 end ZesuExec.SailLink

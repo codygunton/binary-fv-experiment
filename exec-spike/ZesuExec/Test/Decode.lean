@@ -34,7 +34,8 @@ theorem decode_table_size : Expected.table.length = 4397 := by decide +kernel
 /-- Words of the forms added in S12, taken from functions outside the image (address, word,
 mnemonic as `llvm-objdump -M no-aliases` prints them). -/
 def s12Samples : List (Nat × Nat × String) :=
-  [(0x800059e0, 0x00a64633, "xor"), (0x800053a0, 0xfff38e9b, "addiw")]
+  [(0x800059e0, 0x00a64633, "xor"), (0x800053a0, 0xfff38e9b, "addiw"),
+   (0x800053b0, 0x020f5c63, "bge")]
 
 theorem decode_s12_samples : s12Samples.all mnemonicAgrees = true := by decide +kernel
 
