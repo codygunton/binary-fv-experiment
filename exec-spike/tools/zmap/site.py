@@ -2,11 +2,13 @@
 
 Writes, under --out (P/map/site):
   index.html        the viewer (W/tools/binary-regions-ui/graph.html)
-  vendor/d3.min.js
+  vendor/           d3.min.js, pixi.min.js (WebGL renderer, S9.3), README.md
   data/index.js     window.ZMAP_INDEX: function summaries, call graph, program layout, queue,
                     metrics and history when present. Under 1 MB.
-  data/fn/<id>.js   ZMAP_FN(<id>, {...}): blocks with disassembly and source lines, edges, cuts,
-                    loops, joins, calls, leaves, the function layout and the function card.
+  data/fn/<id>.js   ZMAP_FN(<id>, {...}): what the renderer draws, numbers in flat arrays: blocks,
+                    edges, cuts, loops, joins, calls, leaves, the function layout. Under 1 MB.
+  data/fn/<id>.detail.js  ZMAP_FN_DETAIL(<id>, {...}): disassembly, source lines, the card;
+                    loaded when a block or the card is first opened.
 Fields that S10 adds to map.json (rests_on, meaning, classes, cost, forecast, census,
 meaning_link) are copied when present. Before S10, `meaning` comes from reviews.json (`meaning`,
 else 'none'), and `rests_on` and `classes` are derived here by the S10.5/S10.6 rules; the index
@@ -24,7 +26,7 @@ ZIG_SRC = '/home/cody/zesislar/_build/p0c-zesu-source/src/'
 SRC_MARK = '/p0c-zesu-source/src/'
 STD_MARK = '/lib/zig/std/'
 SRC_LINES_CAP = 40
-CLOSED = ('closed+compliance', 'closed+sail', 'closed')
+VENDOR = ('d3.min.js', 'pixi.min.js', 'README.md')
 
 
 def short_file(path):
@@ -202,57 +204,121 @@ def call_edges(m):
     return out
 
 
-def fn_data(m, f, by_id, insns, sources):
-    names = {g['id']: g['name'] for g in m['functions']}
+BLOCK_KINDS = ('plain', 'join', 'loop_head')
+EXITS = (None, 'call', 'tail', 'table', 'ret')
+EDGE_KINDS = ('fall', 'taken', 'jump', 'back', 'table')
+CUT_WHY = ('entry', 'loop', 'ret', 'join')
+CALL_KINDS = ('direct', 'indirect', 'tail')
+
+
+def flat(pts):
+    """[[x, y], ...] -> [x, y, ...] in whole pixels."""
+    return [round(v) for p in pts for v in p]
+
+
+def fn_data(m, f, insns, sources, names):
+    """(main, detail) of one function: data/fn/<id>.js and data/fn/<id>.detail.js.
+
+    main holds what the renderer draws, with numbers in flat arrays (blocks and cuts as columns,
+    routes as [x, y, x, y, ...]); detail holds disassembly, source lines and the card.
+    """
     lay = layout.function(f, names)
-    blocks = []
+    index = {b['start']: i for i, b in enumerate(f['blocks'])}
+    files, inlines = [], []
+
+    def intern(table, s):
+        if s is None:
+            return -1
+        if s not in table:
+            table.append(s)
+        return table.index(s)
+
+    cols = {k: [] for k in ('start', 'end', 'n', 'kind', 'x', 'y', 'exit', 'file', 'lo', 'hi', 'inl')}
+    glyph_rows, dis_rows = {}, []
     src_out = defaultdict(dict)
-    for b in f['blocks']:
+    for i, (b, lb) in enumerate(zip(f['blocks'], lay['blocks'])):
         dis, glyphs = [], []
         if insns is not None:
             pc = b['start']
             while pc < b['end']:
-                i = insns.get(pc)
-                if i is None:
+                ins = insns.get(pc)
+                if ins is None:
                     dis.append([pc, '?'])
                     pc += 2
                     continue
-                dis.append([pc, f'{i.mn} {", ".join(i.ops)}'.strip()])
-                if i.mn == 'ecall':
+                dis.append([pc, f'{ins.mn} {", ".join(ins.ops)}'.strip()])
+                if ins.mn == 'ecall':
                     glyphs.append('ecall')
-                elif i.mn in CSR:
-                    glyphs.append('csr ' + csr_number(i))
-                elif i.size == 4 and i.mn not in FORMS:
-                    glyphs.append(i.mn)
-                pc = i.next
+                elif ins.mn in CSR:
+                    glyphs.append('csr ' + csr_number(ins))
+                elif ins.size == 4 and ins.mn not in FORMS:
+                    glyphs.append(ins.mn)
+                pc = ins.next
+        dis_rows.append(dis)
+        if glyphs:
+            glyph_rows[i] = dict(Counter(glyphs))
         src = b.get('src') or {}
+        lines = src.get('lines') or [0, 0]
         if src.get('file') and src.get('lines'):
             text = sources.lines(src['file'])
-            lo, hi = src['lines']
             if text is not None:
                 key = short_file(src['file'])
-                for ln in range(lo, min(hi, lo + SRC_LINES_CAP - 1) + 1):
+                for ln in range(lines[0], min(lines[1], lines[0] + SRC_LINES_CAP - 1) + 1):
                     if 1 <= ln <= len(text):
                         src_out[key][ln] = text[ln - 1]
-        blocks.append({'start': b['start'], 'end': b['end'], 'n': b['n'], 'kind': b['kind'],
-                       'succ': b['succ'], 'gx': b['x'], 'gy': b['y'],
-                       'src': {'file': short_file(src.get('file')), 'lines': src.get('lines'),
-                               'inline': src.get('inline')} if src else None,
-                       'dis': dis, 'glyphs': dict(Counter(glyphs))})
-    return {
+        for k, v in (('start', b['start']), ('end', b['end']), ('n', b['n']),
+                     ('kind', BLOCK_KINDS.index(b['kind'])), ('x', round(lb['x'])),
+                     ('y', round(lb['y'])), ('exit', EXITS.index(lb['exit'])),
+                     ('file', intern(files, short_file(src.get('file')))), ('lo', lines[0]),
+                     ('hi', lines[1]), ('inl', intern(inlines, src.get('inline')))):
+            cols[k].append(v)
+    stubs = {s['key']: i for i, s in enumerate(lay['callee_stubs'])}
+    main = {
         'id': f['id'], 'name': f['name'], 'entry': f['entry'], 'n_instr': f['n_instr'],
-        'blocks': blocks, 'edges': f['edges'], 'cuts': f['cuts'], 'loops': f['loops'],
-        'joins': f['joins'], 'calls': f['calls'], 'jump_tables': f['jump_tables'],
-        'callers': f['callers'], 'callees': f['callees'],
+        'disassembly': insns is not None, 'files': files, 'inlines': inlines,
+        'block_w': lay['blocks'][0]['w'] if lay['blocks'] else 0,
+        'block_h': lay['blocks'][0]['h'] if lay['blocks'] else 0,
+        'blocks': cols, 'glyphs': glyph_rows,
+        'edges': {'from': [index[e['from']] for e in lay['edges']],
+                  'to': [index[e['to']] for e in lay['edges']],
+                  'kind': [EDGE_KINDS.index(e['kind']) for e in lay['edges']],
+                  'pts': [flat(e['pts']) for e in lay['edges']]},
+        'cuts': {'pc': [c['pc'] for c in f['cuts']], 'why': [CUT_WHY.index(c['why']) for c in f['cuts']]},
+        'loops': {'head': [l['head'] for l in f['loops']], 'n': [len(l['body']) for l in f['loops']]},
+        'joins': {'at': [j['at'] for j in f['joins']], 'fanin': [j['fanin_paths'] for j in f['joins']]},
+        'tables': {'site': [t['site'] for t in f['jump_tables']],
+                   'entries': [t.get('entries') or len(t['targets']) for t in f['jump_tables']]},
+        'calls': {'n': [c['n'] for c in lay['calls']], 'site': [c['site'] for c in lay['calls']],
+                  'ret': [c['ret'] for c in lay['calls']],
+                  'block': [index[c['block']] for c in lay['calls']],
+                  'kind': [CALL_KINDS.index(c['kind']) for c in lay['calls']],
+                  'resolution': [c['resolution'] for c in lay['calls']],
+                  'stub': [stubs[c['stub']] for c in lay['calls']],
+                  'noreturn': [int(c['noreturn']) for c in lay['calls']],
+                  'no_return_site': [int(c['no_return_site']) for c in lay['calls']],
+                  'call': [flat(c['call']) for c in lay['calls']],
+                  'return': [flat(c['return']) if c['return'] else None for c in lay['calls']]},
+        'callee_stubs': [{'key': s['key'], 'label': s['label'], 'targets': s['targets'],
+                          'x': round(s['x']), 'y': round(s['y'])} for s in lay['callee_stubs']],
+        'caller_stubs': [{'key': s['key'], 'label': s['label'], 'x': round(s['x']), 'y': round(s['y'])}
+                         for s in lay['caller_stubs']],
+        'stub_w': layout.STUB_W, 'stub_h': layout.STUB_H,
+        'hulls': {'depth': [h['depth'] for h in lay['hulls']], 'pts': [flat(h['pts']) for h in lay['hulls']]},
+        'drains': [flat(d['pts']) for d in lay['drains']],
+        'exit_bar': {'x0': round(lay['exit_bar']['x0']), 'x1': round(lay['exit_bar']['x1']),
+                     'y': round(lay['exit_bar']['y']),
+                     'link': flat(lay['exit_bar']['link']) if lay['exit_bar']['link'] else None},
         'vc_cuts': [{'pc': c['pc'], 'cut_lemma': c.get('cut_lemma', 'open'),
                      'residual': c.get('residual'), 'n_leaves': len(c['leaves']),
                      'thm': c.get('thm')}
                     for c in f.get('vc_cuts') or []],
-        'source': {k: v for k, v in src_out.items()},
-        'card': workqueue.card(m, f),
-        'layout': lay,
-        'disassembly': insns is not None,
+        'leaf_paths': {str(pc): dict(lp, leaves=[dict(l, blocks=[index[s] for s in l['blocks']])
+                                                 for l in lp['leaves']])
+                       for pc, lp in lay['leaf_paths'].items()},
+        'bounds': [round(v) for v in lay['bounds']],
     }
+    detail = {'dis': dis_rows, 'source': dict(src_out), 'card': workqueue.card(m, f)}
+    return main, detail
 
 
 def read_jsonl(path):
@@ -302,13 +368,17 @@ def build(m, queue, reviews, out, ui, insns=None, metrics=None, history=None):
         if os.path.exists(p):
             os.remove(p)
     shutil.copy(os.path.join(ui, 'graph.html'), os.path.join(out, 'index.html'))
-    shutil.copy(os.path.join(ui, 'vendor', 'd3.min.js'), os.path.join(out, 'vendor', 'd3.min.js'))
+    for v in VENDOR:
+        shutil.copy(os.path.join(ui, 'vendor', v), os.path.join(out, 'vendor', v))
     write_js(os.path.join(data, 'index.js'), 'window.ZMAP_INDEX = ', index)
     sources = Sources()
+    names = {g['id']: g['name'] for g in fns}
     for r in rows:
         f = by_id[r['id']]
-        write_js(os.path.join(fn_dir, f'{f["id"]}.js'), f'ZMAP_FN({json.dumps(f["id"])}, ',
-                 fn_data(m, f, by_id, insns, sources), ');\n')
+        main, detail = fn_data(m, f, insns, sources, names)
+        write_js(os.path.join(fn_dir, f'{f["id"]}.js'), f'ZMAP_FN({json.dumps(f["id"])}, ', main, ');\n')
+        write_js(os.path.join(fn_dir, f'{f["id"]}.detail.js'), f'ZMAP_FN_DETAIL({json.dumps(f["id"])}, ',
+                 detail, ');\n')
     return {'index_bytes': os.path.getsize(os.path.join(data, 'index.js')), 'functions': len(rows)}
 
 
