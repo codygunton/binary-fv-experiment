@@ -293,107 +293,11 @@
   "name": "rlp_decode.decodeTxFields",
   "status_id": "ZesuExec.Fn.DTF.DTF",
   "cut": 2147493920,
-  "i": 0,
-  "exit": "at",
-  "target": 2147492896,
-  "residual": "1 goal; head @LeafGoal; class oblig ?",
-  "rank": 25
- },
- {
-  "type": "leaf",
-  "fn": "f_8000050c",
-  "name": "rlp_decode.decodeTxFields",
-  "status_id": "ZesuExec.Fn.DTF.DTF",
-  "cut": 2147493920,
-  "i": 1,
-  "exit": "at",
-  "target": 2147494340,
-  "residual": "1 goal; head @LeafGoal; class oblig ?",
-  "rank": 26
- },
- {
-  "type": "leaf",
-  "fn": "f_8000050c",
-  "name": "rlp_decode.decodeTxFields",
-  "status_id": "ZesuExec.Fn.DTF.DTF",
-  "cut": 2147493920,
-  "i": 2,
-  "exit": "call",
-  "target": 2147754380,
-  "residual": "1 goal; head @LeafGoal; class oblig ?",
-  "rank": 27
- },
- {
-  "type": "leaf",
-  "fn": "f_8000050c",
-  "name": "rlp_decode.decodeTxFields",
-  "status_id": "ZesuExec.Fn.DTF.DTF",
-  "cut": 2147493920,
-  "i": 3,
-  "exit": "at",
-  "target": 2147494340,
-  "residual": "1 goal; head @LeafGoal; class oblig ?",
-  "rank": 28
- },
- {
-  "type": "leaf",
-  "fn": "f_8000050c",
-  "name": "rlp_decode.decodeTxFields",
-  "status_id": "ZesuExec.Fn.DTF.DTF",
-  "cut": 2147493920,
   "i": 4,
   "exit": "at",
   "target": 2147493992,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 29
- },
- {
-  "type": "leaf",
-  "fn": "f_8000050c",
-  "name": "rlp_decode.decodeTxFields",
-  "status_id": "ZesuExec.Fn.DTF.DTF",
-  "cut": 2147493992,
-  "i": 1,
-  "exit": "at",
-  "target": 2147492896,
-  "residual": "1 goal; head @LeafGoal; class oblig ?",
-  "rank": 30
- },
- {
-  "type": "leaf",
-  "fn": "f_8000050c",
-  "name": "rlp_decode.decodeTxFields",
-  "status_id": "ZesuExec.Fn.DTF.DTF",
-  "cut": 2147493992,
-  "i": 2,
-  "exit": "at",
-  "target": 2147494340,
-  "residual": "1 goal; head @LeafGoal; class oblig ?",
-  "rank": 31
- },
- {
-  "type": "leaf",
-  "fn": "f_8000050c",
-  "name": "rlp_decode.decodeTxFields",
-  "status_id": "ZesuExec.Fn.DTF.DTF",
-  "cut": 2147493992,
-  "i": 3,
-  "exit": "call",
-  "target": 2147754380,
-  "residual": "1 goal; head @LeafGoal; class oblig ?",
-  "rank": 32
- },
- {
-  "type": "leaf",
-  "fn": "f_8000050c",
-  "name": "rlp_decode.decodeTxFields",
-  "status_id": "ZesuExec.Fn.DTF.DTF",
-  "cut": 2147493992,
-  "i": 4,
-  "exit": "at",
-  "target": 2147494340,
-  "residual": "1 goal; head @LeafGoal; class oblig ?",
-  "rank": 33
+  "rank": 25
  },
  {
   "type": "leaf",
@@ -405,7 +309,7 @@
   "exit": "at",
   "target": 2147494340,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 34
+  "rank": 26
  },
  {
   "type": "leaf",
@@ -417,7 +321,7 @@
   "exit": "at",
   "target": 2147494344,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 35
+  "rank": 27
  },
  {
   "type": "leaf",
@@ -429,7 +333,7 @@
   "exit": "at",
   "target": 2147494344,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 36
+  "rank": 28
  },
  {
   "type": "leaf",
@@ -441,7 +345,7 @@
   "exit": "at",
   "target": 2147492892,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 37
+  "rank": 29
  },
  {
   "type": "leaf",
@@ -453,7 +357,7 @@
   "exit": "at",
   "target": 2147494428,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 38
+  "rank": 30
  },
  {
   "type": "leaf",
@@ -465,7 +369,7 @@
   "exit": "call",
   "target": 2147755156,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 39
+  "rank": 31
  },
  {
   "type": "leaf",
@@ -477,7 +381,7 @@
   "exit": "at",
   "target": 2147494428,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 40
+  "rank": 32
  },
  {
   "type": "leaf",
@@ -489,7 +393,7 @@
   "exit": "call",
   "target": 2148402880,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 41
+  "rank": 33
  },
  {
   "type": "leaf",
@@ -501,7 +405,7 @@
   "exit": "at",
   "target": 2147494508,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 42
+  "rank": 34
  },
  {
   "type": "leaf",
@@ -513,7 +417,7 @@
   "exit": "call",
   "target": 2147753784,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 43
+  "rank": 35
  },
  {
   "type": "leaf",
@@ -525,7 +429,7 @@
   "exit": "at",
   "target": 2147492892,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 44
+  "rank": 36
  },
  {
   "type": "leaf",
@@ -537,7 +441,7 @@
   "exit": "at",
   "target": 2147495628,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 45
+  "rank": 37
  },
  {
   "type": "leaf",
@@ -549,7 +453,7 @@
   "exit": "at",
   "target": 2147488248,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 46
+  "rank": 38
  },
  {
   "type": "leaf",
@@ -561,7 +465,7 @@
   "exit": "call",
   "target": 2148402880,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 47
+  "rank": 39
  },
  {
   "type": "leaf",
@@ -573,7 +477,7 @@
   "exit": "call",
   "target": 2147753784,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 48
+  "rank": 40
  },
  {
   "type": "leaf",
@@ -585,7 +489,7 @@
   "exit": "at",
   "target": 2147492580,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 49
+  "rank": 41
  },
  {
   "type": "leaf",
@@ -597,7 +501,7 @@
   "exit": "at",
   "target": 2147492580,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 50
+  "rank": 42
  },
  {
   "type": "function",
@@ -609,7 +513,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 51
+  "rank": 43
  },
  {
   "type": "function",
@@ -621,7 +525,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 52
+  "rank": 44
  },
  {
   "type": "function",
@@ -633,7 +537,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 3,
-  "rank": 53
+  "rank": 45
  },
  {
   "type": "function",
@@ -645,7 +549,7 @@
   "loops_needing_measure": 2,
   "contract_missing": true,
   "leaves_estimate": 29,
-  "rank": 54
+  "rank": 46
  },
  {
   "type": "function",
@@ -657,7 +561,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 19,
-  "rank": 55
+  "rank": 47
  },
  {
   "type": "function",
@@ -669,7 +573,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 6,
-  "rank": 56
+  "rank": 48
  },
  {
   "type": "function",
@@ -681,7 +585,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 105,
-  "rank": 57
+  "rank": 49
  },
  {
   "type": "function",
@@ -693,7 +597,7 @@
   "loops_needing_measure": 2,
   "contract_missing": true,
   "leaves_estimate": 16,
-  "rank": 58
+  "rank": 50
  },
  {
   "type": "function",
@@ -705,7 +609,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 24,
-  "rank": 59
+  "rank": 51
  },
  {
   "type": "function",
@@ -717,7 +621,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 20,
-  "rank": 60
+  "rank": 52
  },
  {
   "type": "function",
@@ -729,7 +633,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 18,
-  "rank": 61
+  "rank": 53
  },
  {
   "type": "function",
@@ -741,7 +645,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 20,
-  "rank": 62
+  "rank": 54
  },
  {
   "type": "function",
@@ -753,7 +657,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 86,
-  "rank": 63
+  "rank": 55
  },
  {
   "type": "function",
@@ -765,7 +669,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 67,
-  "rank": 64
+  "rank": 56
  },
  {
   "type": "function",
@@ -777,7 +681,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 8,
-  "rank": 65
+  "rank": 57
  },
  {
   "type": "function",
@@ -789,7 +693,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 37,
-  "rank": 66
+  "rank": 58
  },
  {
   "type": "function",
@@ -801,7 +705,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 20,
-  "rank": 67
+  "rank": 59
  },
  {
   "type": "function",
@@ -813,7 +717,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 86,
-  "rank": 68
+  "rank": 60
  },
  {
   "type": "blocker",
@@ -887,7 +791,7 @@
    "f_800e8c44",
    "f_800f7824"
   ],
-  "rank": 69
+  "rank": 61
  },
  {
   "type": "blocker",
@@ -931,7 +835,7 @@
    "f_800d5898",
    "f_8010f90c"
   ],
-  "rank": 70
+  "rank": 62
  },
  {
   "type": "blocker",
@@ -954,7 +858,7 @@
    "f_80103a7c",
    "f_8010f90c"
   ],
-  "rank": 71
+  "rank": 63
  },
  {
   "type": "blocker",
@@ -973,7 +877,7 @@
    "f_8009f348",
    "f_8010f90c"
   ],
-  "rank": 72
+  "rank": 64
  },
  {
   "type": "blocker",
@@ -990,7 +894,7 @@
    "f_8008baec",
    "f_8009f348"
   ],
-  "rank": 73
+  "rank": 65
  },
  {
   "type": "blocker",
@@ -1049,7 +953,7 @@
    "f_800dfa30",
    "f_800dfe5c"
   ],
-  "rank": 74
+  "rank": 66
  },
  {
   "type": "blocker",
@@ -1112,7 +1016,7 @@
    "f_800dfa30",
    "f_800dfe5c"
   ],
-  "rank": 75
+  "rank": 67
  },
  {
   "type": "blocker",
@@ -1127,7 +1031,7 @@
    "f_8008baec",
    "f_800cbb74"
   ],
-  "rank": 76
+  "rank": 68
  },
  {
   "type": "blocker",
@@ -1193,7 +1097,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 77
+  "rank": 69
  },
  {
   "type": "blocker",
@@ -1222,7 +1126,7 @@
    "f_800dded0",
    "f_800de310"
   ],
-  "rank": 78
+  "rank": 70
  },
  {
   "type": "blocker",
@@ -1288,7 +1192,7 @@
    "f_800dfe5c",
    "f_8010f90c"
   ],
-  "rank": 79
+  "rank": 71
  },
  {
   "type": "blocker",
@@ -1316,7 +1220,7 @@
    "f_800d7a60",
    "f_800f7824"
   ],
-  "rank": 80
+  "rank": 72
  },
  {
   "type": "blocker",
@@ -1331,7 +1235,7 @@
    "f_800ab11c",
    "f_8010f90c"
   ],
-  "rank": 81
+  "rank": 73
  },
  {
   "type": "blocker",
@@ -1341,7 +1245,7 @@
    "f_8001e8fc",
    "f_800308b0"
   ],
-  "rank": 82
+  "rank": 74
  },
  {
   "type": "blocker",
@@ -1351,7 +1255,7 @@
    "f_8001e8fc",
    "f_800cfa50"
   ],
-  "rank": 83
+  "rank": 75
  },
  {
   "type": "blocker",
@@ -1365,7 +1269,7 @@
    "f_800f5ad8",
    "f_800f5b98"
   ],
-  "rank": 84
+  "rank": 76
  },
  {
   "type": "blocker",
@@ -1375,7 +1279,7 @@
    "f_800ab11c",
    "f_800e06f0"
   ],
-  "rank": 85
+  "rank": 77
  },
  {
   "type": "blocker",
@@ -1384,7 +1288,7 @@
   "functions": [
    "f_8000a48c"
   ],
-  "rank": 86
+  "rank": 78
  },
  {
   "type": "blocker",
@@ -1405,7 +1309,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 87
+  "rank": 79
  },
  {
   "type": "blocker",
@@ -1422,7 +1326,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 88
+  "rank": 80
  },
  {
   "type": "blocker",
@@ -1437,7 +1341,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 89
+  "rank": 81
  },
  {
   "type": "blocker",
@@ -1449,7 +1353,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 90
+  "rank": 82
  },
  {
   "type": "blocker",
@@ -1463,7 +1367,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 91
+  "rank": 83
  },
  {
   "type": "blocker",
@@ -1476,7 +1380,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 92
+  "rank": 84
  },
  {
   "type": "blocker",
@@ -1487,7 +1391,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 93
+  "rank": 85
  },
  {
   "type": "blocker",
@@ -1499,7 +1403,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 94
+  "rank": 86
  },
  {
   "type": "blocker",
@@ -1509,7 +1413,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 95
+  "rank": 87
  },
  {
   "type": "blocker",
@@ -1519,7 +1423,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 96
+  "rank": 88
  },
  {
   "type": "blocker",
@@ -1529,7 +1433,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 97
+  "rank": 89
  },
  {
   "type": "blocker",
@@ -1539,7 +1443,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 98
+  "rank": 90
  },
  {
   "type": "blocker",
@@ -1549,7 +1453,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 99
+  "rank": 91
  },
  {
   "type": "blocker",
@@ -1560,7 +1464,7 @@
    "f_800f7824",
    "f_8010f90c"
   ],
-  "rank": 100
+  "rank": 92
  },
  {
   "type": "blocker",
@@ -1571,7 +1475,7 @@
    "f_800e8c44",
    "f_800f7824"
   ],
-  "rank": 101
+  "rank": 93
  },
  {
   "type": "blocker",
@@ -1580,7 +1484,7 @@
   "functions": [
    "f_800e06f0"
   ],
-  "rank": 102
+  "rank": 94
  },
  {
   "type": "blocker",
@@ -1590,7 +1494,7 @@
    "f_800e8c44",
    "f_800ea180"
   ],
-  "rank": 103
+  "rank": 95
  },
  {
   "type": "blocker",
@@ -1599,7 +1503,7 @@
   "functions": [
    "f_800f7824"
   ],
-  "rank": 104
+  "rank": 96
  },
  {
   "type": "blocker",
@@ -1610,7 +1514,7 @@
    "f_800fcda8",
    "f_8010f78c"
   ],
-  "rank": 105
+  "rank": 97
  },
  {
   "type": "blocker",
@@ -1619,7 +1523,7 @@
   "functions": [
    "f_8010f90c"
   ],
-  "rank": 106
+  "rank": 98
  },
  {
   "type": "blocker",
@@ -1628,7 +1532,7 @@
   "functions": [
    "f_800ea180"
   ],
-  "rank": 107
+  "rank": 99
  },
  {
   "type": "blocker",
@@ -1638,7 +1542,7 @@
    "f_800e17b8",
    "f_800f5b30"
   ],
-  "rank": 108
+  "rank": 100
  },
  {
   "type": "blocker",
@@ -1647,7 +1551,7 @@
   "functions": [
    "f_8010f78c"
   ],
-  "rank": 109
+  "rank": 101
  },
  {
   "type": "blocker",
@@ -1657,7 +1561,7 @@
    "f_800e0680",
    "f_800f5b30"
   ],
-  "rank": 110
+  "rank": 102
  },
  {
   "type": "blocker",
@@ -1667,7 +1571,7 @@
    "f_800ea5d4",
    "f_800f5b30"
   ],
-  "rank": 111
+  "rank": 103
  },
  {
   "type": "blocker",
@@ -1677,6 +1581,6 @@
    "f_800e0680",
    "f_800e0692"
   ],
-  "rank": 112
+  "rank": 104
  }
 ]
