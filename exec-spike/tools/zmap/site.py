@@ -19,7 +19,7 @@ import os
 import shutil
 from collections import Counter, defaultdict
 
-from . import elfread, layout, workqueue
+from . import elfread, layout, source, workqueue
 from .analyze import CSR, FORMS, csr_number
 
 ZIG_SRC = '/home/cody/zesislar/_build/p0c-zesu-source/src/'
@@ -207,7 +207,7 @@ def call_edges(m):
 BLOCK_KINDS = ('plain', 'join', 'loop_head')
 EXITS = (None, 'call', 'tail', 'table', 'ret')
 EDGE_KINDS = ('fall', 'taken', 'jump', 'back', 'table')
-CUT_WHY = ('entry', 'loop', 'ret', 'join')
+CUT_WHY = ('entry', 'loop', 'ret', 'join', 'cycle')
 CALL_KINDS = ('direct', 'indirect', 'tail')
 
 
@@ -304,6 +304,8 @@ def fn_data(m, f, insns, sources, names):
                          for s in lay['caller_stubs']],
         'stub_w': layout.STUB_W, 'stub_h': layout.STUB_H,
         'hulls': {'depth': [h['depth'] for h in lay['hulls']], 'pts': [flat(h['pts']) for h in lay['hulls']]},
+        'irr': {'pts': [flat(r['pts']) for r in lay['irr']],
+                'entries': [[index[s] for s in r['entries']] for r in lay['irr']]},
         'drains': [flat(d['pts']) for d in lay['drains']],
         'exit_bar': {'x0': round(lay['exit_bar']['x0']), 'x1': round(lay['exit_bar']['x1']),
                      'y': round(lay['exit_bar']['y']),
@@ -335,8 +337,76 @@ def write_js(path, prefix, obj, suffix=';\n'):
         f.write(suffix)
 
 
-def build(m, queue, reviews, out, ui, insns=None, metrics=None, history=None):
-    """Write the site. Returns {'index_bytes', 'functions'}."""
+SITE_KINDS = ('inlined', 'call', 'tail', 'indirect', 'accelerator')
+
+
+def write_src(data, src, m):
+    """data/src/index.js (source functions, edges, groups, files) and data/src/file/<n>.js.
+
+    Locations are [binary function id, exclusive instructions, out of line 0/1, block indices];
+    sites are [file index, line, kind index in SITE_KINDS, address, extra]; `in`/`out` are the
+    offline display order of the depth-one neighbourhood (layout.neighbourhood).
+    """
+    src_dir = os.path.join(data, 'src')
+    if os.path.isdir(src_dir):
+        shutil.rmtree(src_dir)
+    os.makedirs(os.path.join(src_dir, 'file'))
+    order = layout.neighbourhood(src['functions'], src['edges'])
+    fns = []
+    for f, nb in zip(src['functions'], order):
+        fns.append({k: f[k] for k in ('id', 'kind', 'name', 'short', 'group', 'file', 'decl_line',
+                                      'lo', 'hi', 'instances', 'derived')}
+                   | {'loc': [[L['fn'], L['instr'], int(L['out_of_line']), L['blocks']]
+                              for L in f['locations']], 'in': nb['in'], 'out': nb['out']})
+    # Landing function: the Zesu program's entry, the first function reached from `_start`
+    # (breadth first over binary callees: _start -> _zisk_main -> main) whose out-of-line source
+    # function is in the Zesu tree.
+    by_id = {f['id']: f for f in m['functions']}
+    out_of_line = {L['fn']: f for f in src['functions'] for L in f['locations']
+                   if L['out_of_line'] and f['kind'] == 'source'}
+    start = next((f['id'] for f in m['functions'] if f['name'] == '_start'), None)
+    default, seen, queue = None, {start}, [start] if start else []
+    while queue and default is None:
+        fid = queue.pop(0)
+        sf = out_of_line.get(fid)
+        if sf is not None and sf['group'] == 'zesu':
+            default = sf
+            break
+        for c in by_id[fid]['callees']:
+            if c not in seen:
+                seen.add(c)
+                queue.append(c)
+    if default is None:
+        zesu = [f for f in src['functions'] if f['group'] == 'zesu' and f['kind'] == 'source']
+        default = max(zesu, key=lambda f: sum(L['instr'] for L in f['locations']), default=None)
+    files = []
+    missing = []
+    for fl in src['files']:
+        path = local_file(fl['path'])
+        try:
+            with open(path, errors='replace') as fh:
+                text = fh.read()
+        except OSError:
+            text = None
+            missing.append(fl['short'])
+        files.append({k: fl[k] for k in ('n', 'short', 'group')} | {'missing': text is None,
+                                                                     'n_functions': len(fl['functions'])})
+        write_js(os.path.join(src_dir, 'file', f'{fl["n"]}.js'), f'ZMAP_SRC_FILE({fl["n"]}, ',
+                 {'n': fl['n'], 'short': fl['short'], 'path': fl['path'], 'text': text,
+                  'functions': fl['functions'], 'code_lines': fl['code_lines']}, ');\n')
+    index = {'schema': 'zmap.src.v1', 'functions': fns,
+             'edges': [{'from': e['from'], 'to': e['to'],
+                        'sites': [[s[0], s[1], SITE_KINDS.index(s[2]), s[3], s[4]] for s in e['sites']]}
+                       for e in src['edges']],
+             'site_kinds': SITE_KINDS, 'groups': list(source.GROUPS), 'files': files,
+             'default': default['id'] if default else None, 'stats': src['stats'] | {'missing_files': missing}}
+    write_js(os.path.join(src_dir, 'index.js'), 'window.ZMAP_SRC = ', index)
+    return {'src_bytes': os.path.getsize(os.path.join(src_dir, 'index.js')), 'missing': missing,
+            'stats': src['stats']}
+
+
+def build(m, queue, reviews, out, ui, insns=None, metrics=None, history=None, src=None):
+    """Write the site. Returns {'index_bytes', 'functions', 'src'}."""
     fns = m['functions']
     by_id = {f['id']: f for f in fns}
     rows, derived = summaries(m, reviews)
@@ -379,7 +449,13 @@ def build(m, queue, reviews, out, ui, insns=None, metrics=None, history=None):
         write_js(os.path.join(fn_dir, f'{f["id"]}.js'), f'ZMAP_FN({json.dumps(f["id"])}, ', main, ');\n')
         write_js(os.path.join(fn_dir, f'{f["id"]}.detail.js'), f'ZMAP_FN_DETAIL({json.dumps(f["id"])}, ',
                  detail, ');\n')
-    return {'index_bytes': os.path.getsize(os.path.join(data, 'index.js')), 'functions': len(rows)}
+    if src is not None:
+        src_info = write_src(data, src, m)
+    else:
+        src_info = None
+        shutil.rmtree(os.path.join(data, 'src'), ignore_errors=True)
+    return {'index_bytes': os.path.getsize(os.path.join(data, 'index.js')), 'functions': len(rows),
+            'src': src_info}
 
 
 def cmd(args):
@@ -398,10 +474,17 @@ def cmd(args):
         with open(args.metrics) as f:
             metrics = json.load(f)
     insns = elfread.disassemble(args.elf) if args.elf and os.path.exists(args.elf) else None
+    src = None
+    if insns is not None and args.debug_object and os.path.exists(args.debug_object):
+        src = source.load(args.elf, args.debug_object, m, insns)
     r = build(m, queue, reviews, args.out, args.ui, insns=insns, metrics=metrics,
-              history=read_jsonl(args.history))
+              history=read_jsonl(args.history), src=src)
+    s = r['src']
     print(f'zmap: site -> {os.path.join(args.out, "index.html")} ({r["functions"]} functions, '
-          f'index.js {r["index_bytes"]} bytes, disassembly {"yes" if insns else "no"})')
+          f'index.js {r["index_bytes"]} bytes, disassembly {"yes" if insns else "no"}, source view '
+          + (f'{s["stats"]["source_functions"]} source functions, src/index.js {s["src_bytes"]} bytes, '
+             f'inlined sites without line {s["stats"]["inlined_sites_without_line"]}/'
+             f'{s["stats"]["inlined_sites"]}, missing files {s["missing"] or "none"})' if s else 'no)'))
 
 
 def register(sub, package, ui):
@@ -413,6 +496,7 @@ def register(sub, package, ui):
     st.add_argument('--metrics', default=os.path.join(mp, 'metrics.json'))
     st.add_argument('--history', default=os.path.join(mp, 'history.jsonl'))
     st.add_argument('--elf', help='ELF for the block disassembly (omitted: no disassembly)')
+    st.add_argument('--debug-object', help='pre-link debug object for the source view (needs --elf)')
     st.add_argument('--ui', default=ui, help='directory with graph.html and vendor/d3.min.js')
     st.add_argument('--out', required=True)
     st.set_defaults(func=cmd)

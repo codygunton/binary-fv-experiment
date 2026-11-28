@@ -16,8 +16,9 @@ for a `PlanW` (runs by `runWith`). The items and their statements:
 
 `F.reach_from` / `F.reach` come from `vc_soundW`; the run equations are checked by `Eq.refl`, or
 by the theorem `F.run_<pc>` when it exists (`runProof?`), and `hpos` and the call-free test of
-each leaf by kernel `decide`. `zesu_autow` tries `cut_auto`
-and, on leaves without calls, `leaf_auto`. `unsafe` only evaluates the plan to list its items.
+each leaf by kernel `decide`. `zesu_autow` tries `cut_auto`, `leaf_diag` (`leaf_auto` in one
+pass) on leaves without calls and `leafc_auto` on the others. `unsafe` only evaluates the plan to
+list its items.
 -/
 
 namespace ZesuExec.Vc
@@ -112,9 +113,8 @@ unsafe def elabZesuAutoW : CommandElab := fun stx => do
       if !(← getEnv).contains ln then
         nTried := nTried + 1
         if c.plain[j] then
-          tryItem fn ln (leafGoalTxtW fn i c.pc j true) (← `(tactic| leaf_auto))
+          tryItem fn ln (leafGoalTxtW fn i c.pc j true) (← `(tactic| leaf_diag))
           if (← getEnv).contains ln then nAuto := nAuto + 1
-          else tryItem fn ln (leafGoalTxtW fn i c.pc j true) (← `(tactic| leaf_diag))
         else
           tryItem fn ln (leafGoalTxtW fn i c.pc j false) (← `(tactic| leafc_auto))
           if (← getEnv).contains ln then nAuto := nAuto + 1
@@ -260,23 +260,34 @@ open Lean.Elab.Tactic in
   let k ← evalClosed CallRec (mkConst ``CallRec) a[4]!
   replaceMainGoal [← g.replaceTargetDefEq (mkAppN (mkConst ``CallGoal) #[a[0]!, a[1]!, a[2]!, c, k])]
 
-/-- An infeasible leaf through summarised calls: move its conditions back to the cut's `Env`
-(`SBool.conds_agree`, checked by `decide`), then as `leaf_auto`'s facts rule. -/
+/-- A leaf through summarised calls, as `leaf_auto`: the assertion facts, then either the leaf is
+infeasible (its conditions moved back to the cut's `Env` by `SBool.conds_agree`, checked by
+`decide`) or `oblig_auto`, `budget_auto` and the exit goal close. -/
 macro_rules
   | `(tactic| leafc_auto) => `(tactic| (
       leafc_intro
       intro g m hA env' hag hc0
       try dsimp only at hA hag hc0 ⊢
-      have hc := SBool.conds_agree hag (by decide) hc0
-      clear hc0
-      exfalso
       zesu_facts
       first
-        | (leaf_norm; first | omega | bv_omega | (simp_all [zesu_simp]; done))
-        | (sym_simp at hc
-           try simp only [zesu_simp] at hc
-           simp at hc
-           simp only [*] at hc
-           first | (simp at hc; done) | (simp_all; done))))
+        | (have hc := SBool.conds_agree hag (by decide) hc0
+           clear hc0
+           exfalso
+           first
+             | (leaf_norm; first | omega | bv_omega | (simp_all [zesu_simp]; done))
+             | (sym_simp at hc
+                try simp only [zesu_simp] at hc
+                simp at hc
+                simp only [*] at hc
+                first | (simp at hc; done) | (simp_all; done)))
+        | (refine ⟨?_, ?_, fun hcalls k m' hrun hm' he hso => ?_⟩
+           · oblig_auto
+           · budget_auto
+           · try dsimp only at he
+             match_regs hm'
+             exit_intro
+             all_goals (try dsimp only)
+             all_goals leaf_norm
+             all_goals (and_intros <;> field_auto))))
 
 end ZesuExec.Vc

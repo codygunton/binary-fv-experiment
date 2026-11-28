@@ -61,6 +61,13 @@ import ZesuExec.Sail.Rel
 import ZesuExec.Sail.Run
 import ZesuExec.Sail.Step
 import ZesuExec.Service
+import ZesuExec.Fn.SvcSteps
+import ZesuExec.Fn.Memmove.Proof
+import ZesuExec.Fn.Memmove.Sail
+import ZesuExec.Fn.Memset.Spec
+import ZesuExec.Fn.Memset.Table
+import ZesuExec.Fn.Memset.Proof
+import ZesuExec.Fn.Memset.Sail
 import ZesuExec.Sym.Compose
 import ZesuExec.Sym.Join
 import ZesuExec.Sym.Env
@@ -109,6 +116,8 @@ import ZesuExec.Fn.F6.Vc
 import ZesuExec.Fn.DTF.Spec
 import ZesuExec.Fn.DTF.Regions
 import ZesuExec.Fn.DTF.Runs
+import ZesuExec.Fn.DTF.Field
+import ZesuExec.Fn.DTF.Rows
 import ZesuExec.Fn.DTF.Cuts
 import ZesuExec.Fn.DTF.Fields
 import ZesuExec.Fn.DTF.Vc
@@ -120,6 +129,7 @@ import ZesuExec.Fn.DTF.Head
 import ZesuExec.Fn.DTF.Gen
 import ZesuExec.Fn.DTF.LeavesGen
 import ZesuExec.Fn.DTF.Hand
+import ZesuExec.Fn.DTF.Bridge
 import ZesuExec.Fn.DTF.Hash
 import ZesuExec.Fn.DTF.HashF1
 import ZesuExec.Fn.DTF.HashSlot

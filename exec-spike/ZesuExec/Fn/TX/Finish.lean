@@ -361,7 +361,7 @@ theorem TX.leaf_80000460_0 :
       [SBool.ne (Sym.bin .sub (Sym.var 21) (Sym.var 26)) (Sym.lit 0)] := by decide
   have hsteps : (run460_leaves[0]!).S.steps - cut460.S.steps = 11 := by decide
   intro σ m hA hc
-  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 311; unfold bTail; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run460_leaves[0]!).exit = .at 0x800000c4 := by decide
   rw [hx] at hex ⊢
@@ -396,7 +396,7 @@ theorem TX.leaf_80000460_1 :
       [SBool.eq (Sym.bin .sub (Sym.var 21) (Sym.var 26)) (Sym.lit 0)] := by decide
   have hsteps : (run460_leaves[1]!).S.steps - cut460.S.steps = 16 := by decide
   intro σ m hA hc
-  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 311; unfold bTail; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run460_leaves[1]!).exit = .call 0x800d6554 0x800004a0 := by decide
   rw [hx] at hex ⊢

@@ -142,8 +142,10 @@ theorem envOf_size0 (sh : Shape) (σ : Sig) (m : Machine) : (envOf sh σ m).size
 /-- A state whose regions are the base regions, without region 4. -/
 def BaseRegs (S : SState) : Prop := S.regions = baseRegions
 
-theorem loc_word_eval {sh : Shape} {σ : Sig} {m mm : Machine} {S : SState}
-    (hwf : Env.WF (envOf sh σ m) S) (hm : Match (envOf sh σ m) S mm) (hS : BaseRegs S)
+/-- A location's word at a machine matching `S`, when `S`'s region 0 is the frame. -/
+theorem loc_word_eval0 {sh : Shape} {σ : Sig} {m mm : Machine} {S : SState}
+    (hwf : Env.WF (envOf sh σ m) S) (hm : Match (envOf sh σ m) S mm)
+    (hR : S.regions[0]? = some frameR)
     {loc : Loc} (hf : loc.fine = true) : loc.word σ mm = (loc.sym S).eval (envOf sh σ m) := by
   cases loc with
   | reg i =>
@@ -154,10 +156,14 @@ theorem loc_word_eval {sh : Shape} {σ : Sig} {m mm : Machine} {S : SState}
     rw [e, ← this]
   | slot o =>
     simp only [Loc.fine, decide_eq_true_eq] at hf
-    have hR : S.regions[0]? = some frameR := by rw [hS]; rfl
     have := load_cst hwf hm hR (by rw [envOf_size0]; exact hf)
     rw [env_base0] at this
     simp only [Loc.word, Loc.sym, TX.wordAt, w, this, Option.getD_some]
+
+theorem loc_word_eval {sh : Shape} {σ : Sig} {m mm : Machine} {S : SState}
+    (hwf : Env.WF (envOf sh σ m) S) (hm : Match (envOf sh σ m) S mm) (hS : BaseRegs S)
+    {loc : Loc} (hf : loc.fine = true) : loc.word σ mm = (loc.sym S).eval (envOf sh σ m) :=
+  loc_word_eval0 hwf hm (by rw [hS]; rfl) hf
 
 /-- A shape value with a word evaluates to it. -/
 theorem Val.sym_eval {sh : Shape} {σ : Sig} {m : Machine} {v : Val} {a : Word} (n : Nat)

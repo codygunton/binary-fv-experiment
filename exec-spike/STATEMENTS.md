@@ -647,3 +647,32 @@ registers); copy 8330 is `C8330.cfg` (`E = 48`, 32-byte frame saving `s1`, `s0`,
   Unicorn snapshots `test/snapshots/R8330` (lengths 0–8, amounts 0..len), made by
   `tools/snap.py --fn R8330` from `tools/snap_inputs/rotate.json` and rendered by
   `tools/snap_post.py`.
+
+## S14 (services)
+
+- **`next` gains service steps** (`ZesuExec/Service.lean`): when `step` is `none` (a word the
+  decoder does not know), `next` takes the registry's service step `svc` (CSR `0x813`, `0x816`,
+  `0x805`, `0xf12`; `ZesuExec/Service/*.lean`). Before, such a machine was stuck. Every existing
+  theorem still builds unchanged: a run that reached such a word was impossible before, so no
+  existing `Reaches` changes meaning; theorems about paths through service sites become provable.
+- **`SailReaches` gains a constructor `svc`**: at a service step the service acts on a related
+  Sail state (`sailSvc`), like the existing `service` constructor for `memcpy`'s entry. The
+  meaning of every `_sail` theorem now includes "with the registry's services", as it already
+  included `ziskMemcpy`.
+- **`memmove`** (`f_800e06d0`, draft, unreviewed): `memcpy`'s contract (`MemcpyPre`,
+  `MemcpyPost`) — the code is `memcpy`'s three instructions, so it inherits its contract exactly.
+  `memmove_spec`, `memmove_sail`, `pre_nonvacuous` (`Fn/Memmove/`).
+- **`memset`** (`f_800e06f0`, draft, unreviewed, `Fn/Memset/Spec.lean`): `Pre` = return address
+  4-aligned and destination empty or present RAM; `Post` = memory is `fillMem a0 a2 (a1 & 0xff)`,
+  `pc` = return address, all registers except `t0`, `a1` unchanged. The indirect jump is resolved
+  in the proof: target `0x800e0720 + 16 (a1 & 0xff)` (256-entry table, `Fn/Memset/Table.lean`).
+  `memset_spec` (bound 10), `memset_sail`, `pre_nonvacuous`.
+- **`zkvm_sha256`**: no theorem. It contains `rev8` (unsupported, S12); a function-level
+  intercept was rejected (coordinator: rule 11, and it would fix dead state the code does not
+  produce). Drafted contract (not in Lean): `a0 = 0`; the 32 bytes at `a2` are
+  `Sha256.hash` of `[a0, a0 + a1)`; it writes `0xa05340b8 ← 0xa05340c8`,
+  `0xa05340c0 ← 0xa0d340c8` (its bump-allocator words); callee-saved registers and `sp` kept;
+  memory changed only there and in its `0xe0`-byte frame below `sp`. `Sha256.hash` agrees with
+  Python's `hashlib` on lengths 0, 3, 55, 56, 64, 200.
+- **Known divergence:** `Layout.extraParams = 0xa0400f00`, ZisK stages at `0xa0000f00`
+  (`OPEN/services/extra_params.md`); not changed here (coordinator schedules it after S13).

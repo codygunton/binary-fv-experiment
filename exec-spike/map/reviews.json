@@ -59,6 +59,18 @@
       "review": "unreviewed",
       "reviewer": "",
       "source": "S16 mem.rotate__anon_8330: no zesislar contract; drafted from std/mem.zig rotate/reverse (Zig 0.16) and the binary; generic over element size (ZesuExec/Fn/Rotate/Spec.lean, Cfg E=48); STATEMENTS.md S16 rotate"
+    },
+    "f_800e06d0": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S14 memmove: memcpy contract (MemcpyPre/MemcpyPost) proved against CSR 0x813; STATEMENTS.md S14"
+    },
+    "f_800e06f0": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S14 memset: Fn/Memset/Spec.lean drafted from the code; STATEMENTS.md S14"
     }
   },
   "assumed": [
@@ -83,5 +95,35 @@
     "f_800d677c": "machine-only",
     "f_8000050c": "machine-only",
     "f_8006464c": "machine-only"
+  },
+  "csr": {
+    "0x813": {
+      "defined": true,
+      "emulator_tested": false,
+      "file": "ZesuExec/Service/Memcpy.lean",
+      "lines": 109,
+      "test": "svc_test 0x813-reg: copy and registers 100/100, staging word 0/100 (Layout.extraParams 0xa0400f00 vs ZisK 0xa0000f00, OPEN/services/extra_params.md); 0x813-imm 100/100"
+    },
+    "0x816": {
+      "defined": true,
+      "emulator_tested": true,
+      "file": "ZesuExec/Service/Memset.lean",
+      "test": "svc_test 0x816-reg 100/100; 0x816-imm: pinned ziskemu panics on load (riscv2zisk_context.rs:695), 100/100 on ziskemu-relaxed12",
+      "lines": 62
+    },
+    "0x805": {
+      "defined": true,
+      "emulator_tested": true,
+      "file": "ZesuExec/Service/Sha256f.lean",
+      "test": "svc_test 0x805 100/100",
+      "lines": 116
+    },
+    "0xf12": {
+      "defined": true,
+      "emulator_tested": true,
+      "file": "ZesuExec/Service/Arch.lean",
+      "test": "svc_test 0xf12 100/100 (marchid, after ZiskBoot); exit ecall 100/100",
+      "lines": 52
+    }
   }
 }

@@ -120,6 +120,190 @@ theorem memcpy_preserved {m m' : Machine} (h : ziskMemcpy m = some m') : Preserv
         · simp [writable, inRange] at hw; omega
   · simp at h
 
+/-! ## Service steps are framed (`SvcEffect.Framed`) -/
+theorem mem_rangeMap {d n x : Nat} : x ∈ (List.range n).map (d + ·) ↔ d ≤ x ∧ x < d + n := by
+  simp only [List.mem_map, List.mem_range]
+  constructor
+  · rintro ⟨t, ht, rfl⟩; omega
+  · intro h; exact ⟨x - d, by omega, by omega⟩
+
+theorem present_get {mem : Word → Option Byte} {a n : Nat} (h : present mem a n = true) {t : Nat}
+    (ht : t < n) : (mem (BitVec.ofNat 64 (a + t))).isSome :=
+  readBytes_isSome_get (by simpa [present] using h) t ht
+
+theorem writable_bounds {a n : Nat} (h : writable a n = true) :
+    Layout.ramLo ≤ a ∧ a + n ≤ Layout.ramHi := by
+  simpa [writable, inRange] using h
+
+theorem ofNat_toNat' (x : Word) : BitVec.ofNat 64 x.toNat = x := by simp
+
+theorem memsetEffect_framed {m : Machine} {d n : Nat} {b : Byte} {len : Nat} {e : SvcEffect}
+    (h : memsetEffect m d n b len = some e) : e.Framed m := by
+  unfold memsetEffect at h
+  split at h
+  · rename_i hc
+    cases h
+    refine ⟨fun x hx => ?_, fun a ha => ?_, fun x hx => ?_⟩
+    · simp only [fillMem]; rw [if_neg]; rwa [mem_rangeMap] at hx
+    · rw [mem_rangeMap] at ha
+      simp only [Bool.or_eq_true, beq_iff_eq, dstOk, Bool.and_eq_true] at hc
+      rcases hc with hc | ⟨hw, -⟩
+      · omega
+      · have := writable_bounds hw; simp only [Layout.ramLo, Layout.ramHi] at this ⊢; omega
+    · simp only [fillMem]; split <;> simp_all
+  · cases h
+
+theorem copyMem_framed {mem : Word → Option Byte} {d s n : Nat}
+    (hsrc : n = 0 ∨ present mem s n = true) :
+    ∀ x : Word, (mem x).isSome → (copyMem mem d s n x).isSome := by
+  intro x hx
+  simp only [copyMem]
+  split
+  · rename_i hc
+    rcases hsrc with h0 | hp
+    · exact absurd h0 hc.1
+    · have := present_get hp (t := x.toNat - d) (by omega)
+      rwa [show s + (x.toNat - d) = s + x.toNat - d by omega] at this
+  · exact hx
+
+theorem csr813_framed {img : Image} {m : Machine} {e : SvcEffect} (h : csr813 img m = some e) :
+    e.Framed m := by
+  unfold csr813 at h
+  split at h
+  · rename_i w0 w1 _ _
+    split at h
+    dsimp only at h
+    · split at h
+      · split at h
+        · rename_i hd
+          cases h
+          simp only [dmaMemcpyDomain, Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at hd
+          obtain ⟨⟨hew, hep⟩, hn⟩ := hd
+          have heb := writable_bounds hew
+          refine ⟨fun x hx => ?_, fun a ha => ?_, fun x hx => ?_⟩
+          · simp only [List.mem_append, mem_rangeMap, not_or] at hx
+            simp only [dmaMemcpyMem]
+            rw [if_neg (by omega), if_neg (by omega), ofNat_toNat']
+          · simp only [List.mem_append, mem_rangeMap] at ha
+            simp only [Layout.ramLo, Layout.ramHi, Layout.extraParams] at heb ha ⊢
+            rcases ha with ha | ha
+            · omega
+            · rcases hn with hn | ⟨⟨⟨-, -⟩, hw⟩, -⟩
+              · omega
+              · have := writable_bounds hw
+                simp only [Layout.ramLo, Layout.ramHi] at this; omega
+          · simp only [dmaMemcpyMem]
+            split
+            · rename_i hc
+              split
+              · simp
+              · rcases hn with hn | ⟨⟨⟨-, hp⟩, -⟩, -⟩
+                · exact absurd hn hc.1
+                · have := present_get hp (t := x.toNat - (m.reg (Decode.reg w1 15)).toNat)
+                    (by omega)
+                  rwa [show (m.reg (Decode.reg w0 15)).toNat +
+                      (x.toNat - (m.reg (Decode.reg w1 15)).toNat) =
+                      (m.reg (Decode.reg w0 15)).toNat + x.toNat -
+                      (m.reg (Decode.reg w1 15)).toNat by omega] at this
+            · split
+              · simp
+              · rw [ofNat_toNat']; exact hx
+        · cases h
+      · split at h
+        · split at h
+          · rename_i hd
+            cases h
+            simp only [Bool.or_eq_true, beq_iff_eq, srcOk, dstOk, Bool.and_eq_true] at hd
+            refine ⟨fun x hx => ?_, fun a ha => ?_, ?_⟩
+            · rw [mem_rangeMap] at hx
+              simp only [copyMem]; rw [if_neg (by omega)]
+            · rw [mem_rangeMap] at ha
+              rcases hd with hd | ⟨-, hw, -⟩
+              · omega
+              · have := writable_bounds hw
+                simp only [Layout.ramLo, Layout.ramHi] at this ⊢; omega
+            · exact copyMem_framed (by rcases hd with hd | ⟨⟨-, hp⟩, -⟩ <;> simp_all)
+          · cases h
+        · cases h
+    · cases h
+  · cases h
+
+theorem csr816_framed {img : Image} {m : Machine} {e : SvcEffect} (h : csr816 img m = some e) :
+    e.Framed m := by
+  unfold csr816 at h
+  split at h
+  · split at h
+    · split at h
+      · exact memsetEffect_framed h
+      · cases h
+    · split at h
+      · split at h
+        · split at h
+          · exact memsetEffect_framed h
+          · cases h
+        · cases h
+      · cases h
+  · cases h
+
+theorem csr805_framed {img : Image} {m : Machine} {e : SvcEffect} (h : csr805 img m = some e) :
+    e.Framed m := by
+  unfold csr805 at h
+  split at h
+  · split at h
+    dsimp only at h
+    · split at h
+      · split at h
+        · split at h
+          · split at h
+            · rename_i hd _ _ _ _ _ _
+              cases h
+              simp only [dstOk, srcOk, Bool.and_eq_true] at hd
+              obtain ⟨-, -, ⟨hw, hp⟩, -⟩ := hd
+              refine ⟨fun x hx => ?_, fun a ha => ?_, fun x hx => ?_⟩
+              · rw [mem_rangeMap] at hx
+                simp only [putBytes]; rw [if_neg (by omega)]
+              · rw [mem_rangeMap] at ha
+                have := writable_bounds hw
+                simp only [Layout.ramLo, Layout.ramHi] at this ⊢; omega
+              · simp only [putBytes]; split <;> simp_all
+            · cases h
+          · cases h
+        · cases h
+      · cases h
+    · cases h
+  · cases h
+
+theorem csrF12_framed {img : Image} {m : Machine} {e : SvcEffect} (h : csrF12 img m = some e) :
+    e.Framed m := by
+  unfold csrF12 at h
+  split at h
+  · split at h
+    · split at h
+      · cases h
+        exact ⟨fun _ _ => rfl, fun _ ha => absurd ha (by simp), fun _ hx => hx⟩
+      · cases h
+    · cases h
+  · cases h
+
+theorem svc_framed {img : Image} {m : Machine} {e : SvcEffect} (h : svc img m = some e) :
+    e.Framed m := by
+  unfold svc at h
+  cases h1 : csr813 img m with
+  | some e1 => simp [h1] at h; subst h; exact csr813_framed h1
+  | none =>
+    cases h2 : csr816 img m with
+    | some e2 => simp [h1, h2] at h; subst h; exact csr816_framed h2
+    | none =>
+      cases h3 : csr805 img m with
+      | some e3 => simp [h1, h2, h3] at h; subst h; exact csr805_framed h3
+      | none => simp [h1, h2, h3] at h; exact csrF12_framed h
+
+/-- A framed service step preserves present bytes and everything below RAM. -/
+theorem framed_preserved {e : SvcEffect} {m : Machine} (h : e.Framed m) :
+    Preserved m (e.apply m) := by
+  refine ⟨fun a ha => h.2.2 a ha, fun a ha => h.1 a fun hx => ?_⟩
+  have := (h.2.1 _ hx).1; omega
+
 theorem next_preserved {img : Image} {m m' : Machine} {c : Nat} (h : next img m = some (m', c)) :
     Preserved m m' := by
   unfold next at h
@@ -128,7 +312,10 @@ theorem next_preserved {img : Image} {m m' : Machine} {c : Nat} (h : next img m 
     | none => simp [hz] at h
     | some m₁ => simp [hz] at h; obtain ⟨rfl, -⟩ := h; exact memcpy_preserved hz
   · cases hs : step img m with
-    | none => simp [hs] at h
+    | none =>
+      simp only [hs, Option.map_eq_some_iff, Prod.mk.injEq] at h
+      obtain ⟨e, he, rfl, -⟩ := h
+      exact framed_preserved (svc_framed he)
     | some m₁ =>
       simp [hs] at h; obtain ⟨rfl, -⟩ := h
       unfold step at hs

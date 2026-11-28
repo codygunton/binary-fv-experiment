@@ -1747,3 +1747,17 @@
 {"schema": 2, "rec": "stop", "id": 21, "agent": "S16Generic", "ts": "2026-11-28T07:59:05Z", "outcome": "abandoned", "note": "opened late: the 8330 proof work (contract, assertions, 28 items) is item 20"}
 {"schema": 2, "rec": "start", "id": 22, "ts": "2026-11-28T07:59:05Z", "fn": "f_8006464c", "item": "rotate_8330 contract rule: pre_nonvacuous, post_snapshot, axioms, reviews/STATEMENTS", "kind": "contract", "agent": "S16Generic"}
 {"schema": 2, "rec": "stop", "id": 22, "agent": "S16Generic", "ts": "2026-11-28T08:04:28Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:10:38Z", "fn": null, "item": "S11 budget_auto/oblig_auto: baseline measures, goal grammar, tactics", "kind": "rule", "agent": "S11Auto"}
+{"schema": 2, "rec": "stop", "id": 2, "agent": "S11Auto", "ts": "2026-11-28T07:12:00Z", "outcome": "closed", "note": "budget_auto/oblig_auto/leaf_diag one pass; TX zesu_auto moved to Facts; 39 TX budget subproofs -> budget_auto; toy leaf auto"}
+{"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:10:10Z", "fn": null, "item": "S17 exact indirect-call resolution (backward slice)", "kind": "infra", "agent": "S17MapPrecision"}
+{"schema": 2, "rec": "stop", "id": 2, "agent": "S17MapPrecision", "ts": "2026-11-28T07:19:34Z", "outcome": "closed", "note": "S17 gate measured; make map test passes"}
+{"schema": 2, "rec": "start", "id": 20, "ts": "2026-11-28T07:07:13Z", "fn": null, "item": "S9.4 source view", "kind": "infra", "agent": "S9Viewer"}
+{"schema": 2, "rec": "stop", "id": 20, "agent": "S9Viewer", "ts": "2026-11-28T07:28:04Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 4, "ts": "2026-11-28T06:38:18Z", "fn": "f_8000050c", "item": "S7 stage 2: field rows, 80002dc4_0, DTF.reach/dtf_spec/dtf_sail", "kind": "leaf", "agent": "DTFFieldsB"}
+{"schema": 2, "rec": "stop", "id": 4, "agent": "DTFFieldsB", "ts": "2026-11-28T07:42:51Z", "outcome": "open", "note": null}
+{"schema": 2, "rec": "start", "id": 21, "ts": "2026-11-28T07:33:17Z", "fn": null, "item": "S9.4 source view feedback (5 fixes)", "kind": "infra", "agent": "S9Viewer"}
+{"schema": 2, "rec": "stop", "id": 21, "agent": "S9Viewer", "ts": "2026-11-28T07:52:35Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 22, "ts": "2026-11-28T07:54:51Z", "fn": null, "item": "S9.2 layers + refit + HTML labels", "kind": "infra", "agent": "S9Viewer"}
+{"schema": 2, "rec": "stop", "id": 22, "agent": "S9Viewer", "ts": "2026-11-28T08:06:36Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 20, "ts": "2026-11-28T07:10:41Z", "fn": "f_800e06d0", "item": "S14 service registry + memmove", "kind": "service", "agent": "S14Services"}
+{"schema": 2, "rec": "stop", "id": 20, "agent": "S14Services", "ts": "2026-11-28T08:00:12Z", "outcome": "closed", "note": "registry, svc_test, memmove, memset closed; sha256 blocked (rev8)"}

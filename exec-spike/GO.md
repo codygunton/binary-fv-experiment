@@ -36,3 +36,168 @@ extensions and a corrected arithmetic shift would unblock the last 14 form-block
   mostly the same text with different indices).
 - Open: `__anon_10572` (E=104, 16-byte frame), `__anon_12629` (E=64), both `mergeInPlace`
   copies, the reuse ratio, the `model` meaning layer for `mergeInPlace`.
+
+## S11
+
+**Measured.** `budget_auto` evaluates a cut's budget at its literal address (`measure_norm`) and
+closes it with `omega`. It closes the budget stage on every leaf of the five plans: 124/643 before,
+643/643 after. `oblig_auto` (region normal form, `sym_rw`, `omega`/`bv_omega`/`region_arith`,
+opened assertions) closes the obligation stage on 71/186 leaves that have obligations; before it
+was 58/186. Per plan: F6 27/27 (was 20), TX 21/23 (was 15), F1 6/6, F2 17/17, DTF 0/113. Leaves
+closed whole: 17/643 before and after. Every leaf that passes both stages fails at the exit goal
+(postcondition, next cut's assertion, callee precondition), which S11 does not address.
+
+**Hand lines.** 39 TX budget sub-proofs became `budget_auto` (TX leaf files: 70 lines deleted, 39
+added). The toy return leaf of `Test/Vc.lean` (23 lines) is now closed by `zesu_auto`.
+
+**Build time.** Failures are cheap: `zesu_auto` runs one pass per leaf (`leaf_diag` proves the leaf
+or names the stage that stopped it), and `zesu_apply` skips lemmas about other functions' `Env`.
+TX `zesu_auto` now runs after the facts.
+
+- Fn/TX: 366 s → 92 s.
+- Fn/F6: 132 s → 55 s.
+- F1/Vc: 46 s → 20 s.
+- F2/Vc: 35 s → 19 s.
+- DTF/Vc: 308 s, against 304 s for the old tactics in W. Budgets passing did not bring back the
+  897 s regression.
+
+**Cost.** Ledger item 2 (S11Auto): $15.07 for the session, $13.86 of it inside items.
+
+**Forecast.** Budgets are no longer a residual class. The 386 manual or open `budget` leaves of
+S10's class table need no hand budget proof in future plans. Obligations close when the bound is
+linear in the assertion's facts:
+- loop cursors under an invariant (F6),
+- the saved `ra` with a fact (TX).
+
+They stay manual when the bound comes from decoder semantics:
+- TX `10c_3` and `1a0_3`;
+- DTF's 113 byte-loop and call-argument reads under `PlainA ∨ RetA`.
+
+The automation gate (60% whole-leaf share) is not moved by S11. The next lever is the exit stage
+(`post`, `cut`, `callee-pre`, `tail`).
+
+## S17
+
+Map precision, no proofs. Python in `tools/zmap/precision.py` (hooks in `analyze.py`), tests in
+`tools/zmap/tests/test_precision.py`; `map/static.json` regenerated (`zmap build`, 40 s wall).
+
+**Method.** One forward abstract interpretation per function computes, at every indirect call
+and jump, a term for the target address (the backward slice of the pointer source, field
+`slice`). Values: constants, small constant sets, entry arguments, frame offsets, loads,
+bounded index ranges (byte/halfword loads, low-bit masks, `bltu`/`bgeu` against a constant).
+Frame slots are tracked; a call marks unknown the slots its callee may write through a pointer
+argument (per-function write summaries: argument and offset window, least fixpoint, three
+rounds); `memcpy`/`memmove`/`memset` copy or fill frame slots; a CSR instruction writes through
+its operand. Assumptions are listed in the module docstring (map, not proof).
+
+**Sites by resolution kind** (the 458 indirect call sites of the S0–S8 target set):
+
+| Kind | Sites | Notes |
+|---|---|---|
+| exact | 49 | constant or slot of a constant `.rodata` table; 1 target each |
+| precondition | 392 | field chain from an argument; targets from callers: 348 have targets, 296 complete, 44 none |
+| unknown | 17 | value merged from paths or computed (`deinit`s, `executeIterative`, `_zisk_main`, …) |
+
+All 504 sites of the binary: exact 49, precondition 437, unknown 18. The target set is now 222
+functions (16 added: slots of the journal and allocator vtables whose address target code
+materialises, and their callees); its 461 sites: exact 49, precondition 394, unknown 18.
+
+**Heuristic against exact.** Of the 345 sites with complete targets, 342 have targets inside
+the old candidate list, which held 1006 false candidates there (`Io.Writer.*` and journal
+functions on allocator calls); 3 sites the heuristic left unresolved now resolve
+(`scratch_arena.free` in `rlpBlobVersionedHashes`, `rlpAuthorizationList`). Checked by reading
+disassembly: `txAccessList` `0x800003d0` (`ld a4,0(t0)`, `t0 = ld 8(a1)`; the only caller
+chain passes guestMain's allocator at `0x801136d8`: `alt_fl_alloc.alloc` only, was 4
+candidates), `0x8000033c`/`0x80000428` (`remap`, `free`); guestMain `0x8003ca0c` (`a5 = ld
+0(ld -0x760(s0))`, slot written at `0x8003c984` with `0x80113708`: `Io.Writer.fixedDrain`);
+`rlpBlobVersionedHashes` `0x80004864` (`ld 0x18(ld 8(s4))`: `free`); `ExecuteEvm.execute`
+`0x8000d630` (`finalizeCreateFn`); runDispatch `0x800ab1b8` (`lbu`, `slli 3`, table
+`0x80113d20`, 256 slots, 87 handlers); memset `0x800e0714` (`andi 0xff`, `slli 4`, base
+`0x800e0720`: 256 targets).
+
+**Indirect jumps** (S0–S8 target set): before 175 unresolved, 18 `table-heuristic`; after 188
+`exact`, 5 `precondition` (the index reaches past the table, its bound is the argument's type:
+`decodeTxFields` tx type, `JournalEntry.revert` tag, `guestMain`, `executeBlockStateless`,
+`transitionWithContext`). runDispatch: 174/174 exact; memset: exact.
+
+**Recursion and states.** Recursive target functions 19 → 7 (`builder.buildNode`,
+`main.batchUpdateNodeIndexed`, `main.updNodeEx`, two `updNodeExImpl`, `ssz_output.sparseRoot`,
+`progressiveRootAt`); `scratch_arena.alloc` is not recursive. States: ready 18 → 31, waiting 44
+→ 38, blocked 318 → 317, out 132 → 126.
+
+**Irreducible functions.** Cuts in the old map, cuts before cycle cuts (new blocks), after:
+
+| Function | Old cuts | Uncut cycle regions (old) | Cuts before | Cycle cuts | Cuts after | Multi-entry regions (entries, blocks) |
+|---|---|---|---|---|---|---|
+| `ExecuteEvm.execute__anon_3724` | 266 | 0 | 266 | 0 | 266 | 1 (2, 19) |
+| `BaTracker.computeHash__anon_5051` | 1032 | 3 (24 blocks) | 1032 | 3 | 1035 | 6 (2 each; 64, 59, 29, 9, 9, 9) |
+| `transitionWithContext__anon_2321` | 729 | 0 | 728 | 0 | 728 | 2 (2, 220; 2, 177) |
+| `main.executeBlockStateless` | 531 | 0 | 531 | 0 | 531 | 3 (2, 96; 2, 78; 2, 22) |
+| `sort.block.block__anon_10892` | 727 | 3 (24 blocks) | 727 | 3 | 730 | 3 (2, 9 each) |
+| `sort.block.block__anon_11541` | 776 | 0 | 776 | 0 | 776 | 1 (2, 13) |
+| `BaTracker.detectAndRecord__anon_2554` | 145 | 0 | 145 | 0 | 145 | 1 (2, 43) |
+| `runDispatch__anon_13271` (new: dispatch resolved) | 40 | 0 | 174 | 0 | 174 | 1 (86, 1026) |
+
+In five of the seven, the existing cuts (loop heads, return sites, join cuts) already break
+every cycle; two need 3 cuts each. Every cycle of every target function now passes a cut
+(test), so `irreducible` is no longer a blocker (the flag and class stay).
+
+**Fallbacks.** Contingency S17 applies to 17 unknown sites and 44 precondition sites with no
+target; proofs treat every indirect call as a leaf goal anyway.
+
+**Viewer.** Call-graph edges carry `resolution` `exact`/`precondition` (the colours in
+`graph.html`); unknown sites have no targets, so no edges. `irreducible_regions` (`entries`,
+`nodes`) is in `map.json` for the hatched hulls; `site.py` does not emit it yet (S9.2).
+
+**Forecast.** The target set grows by 16 functions; the irreducible class needs 6 extra cut
+points in total, not a new mechanism; 12 fewer recursive functions leave the S15 class to the
+seven above.
+
+## S14
+
+**Defined.** Registry `ZesuExec/Service/` (495 lines with `Service.lean`), one file per CSR, each
+citing `/home/cody/zisk` (eed62f4d9) file:line: `0x813` DMA memcpy, register and immediate count
+(`Memcpy.lean`, 109 lines; keeps `ziskMemcpy` and relates it, `ziskMemcpyMem_eq`); `0x816` DMA
+memset, both forms (`Memset.lean`, 62); `0x805` SHA-256 compression plus the full SHA-256 model
+(`Sha256f.lean`, 116); `0xf12` marchid read, the exit `ecall` (`ziskExit`) and `ZiskBoot`
+(`Arch.lean`, 52); shared vocabulary (`Basic.lean`, 116). `next` takes a service step at a word
+the decoder does not know; `SailReaches` gained the matching constructor (STATEMENTS.md S14).
+
+**Tested** (`tools/svc_test.py`, 100 random cases per check, the Lean registry evaluated vs
+`ziskemu`; `map/svc_test.json`, `map/svc_test_relaxed12.json`):
+
+| check | result |
+|---|---|
+| 0x813 register count | copy and registers 100/100; staging word 0/100 (`Layout.extraParams` 0xa0400f00, ZisK 0xa0000f00) |
+| 0x813 immediate count | 100/100 |
+| 0x816 register count | 100/100 |
+| 0x816 immediate count | pinned ziskemu panics on load (`riscv2zisk_context.rs:695`); 100/100 on `ziskemu-relaxed12` |
+| 0x805 | 100/100 |
+| 0xf12 (after `ZiskBoot`) | 100/100 |
+| exit `ecall` output | 100/100 |
+| `memmove` run by ziskemu vs `MemcpyPost` | window, registers 100/100; staging word 0/100 (same cause) |
+| `memset` run by ziskemu vs `Memset.Post` | 100/100 |
+
+Trust metric: 4 CSR numbers defined (`map/reviews.json` `csr`), 3 emulator-tested clean
+(`0x816`, `0x805`, `0xf12`); `0x813` fails only on the staging cell.
+
+**Proved.** `memmove_spec`/`memmove_sail` (memcpy's contract, bound 3) and `memset_spec`/
+`memset_sail` (bound 10; the indirect jump resolved inside the proof: `0x800e0720 + 16 (a1 & 0xff)`,
+a 256-entry table checked by kernel evaluation, `Fn/Memset/Table.lean`, ~200 s), each with
+`pre_nonvacuous`; snapshot check = the `fn-memmove`/`fn-memset` emulator rows above (real ZisK
+instead of Unicorn, which has no ZisK CSRs). Proof lines: memmove 98, memset 336.
+
+**Not proved.** `zkvm_sha256`: contains `rev8` (S12: no Zbb in the Sail model). Contingency taken:
+drafted service contract (STATEMENTS.md S14) with the Lean SHA-256 model (agrees with `hashlib`);
+no `next` intercept (coordinator: rule 11). The `fn-sha256` emulator check in `svc_test.py`
+does not work yet: with the binary's whole `.text` linked in, ziskemu-relaxed12 ends the run
+before the harness dumps (all-zero output); not diagnosed.
+
+**Findings.** (1) The pinned ZisK cannot load the target ELF (immediate-count memset).
+(2) `Layout.extraParams` is wrong vs ZisK (`OPEN/services/extra_params.md`).
+
+**Cost.** One ledger item (id 20, 07:10–08:00Z); dollars come from `zmap merge`.
+
+**Forecast implication.** A short service-only function costs a hand proof of ~100–300 lines
+against `next`; a CSR the executor meets inline still ends a symbolic path (an executor rule that
+turns a service site into a call-like leaf is the next step for functions with inline CSRs).

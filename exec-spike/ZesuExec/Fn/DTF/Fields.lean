@@ -105,4 +105,119 @@ theorem holds_free {σ : Sig} {m m' : Machine} {v : FieldVal} {x : Word} (hv : v
     (h : v.Holds σ m x) : v.Holds σ m' x := by
   cases v <;> simp only [FieldVal.free, Bool.false_eq_true] at hv <;> exact h
 
+/-! ## Bytes of a symbolic word (the address copy, sub-word stores) -/
+
+/-- Byte `j` of `s` as a one-byte symbol, read off the form: a byte of a region's initial memory
+(`init`, a unit-scale `initx`), zero, a byte of a variable, through `bytes`, a 32-bit `sext` and
+`cat` (what `lw`/`sw` and partial frame reads produce). -/
+def byteAt : Sym → Nat → Option Sym
+  | .lit 0, _ => some (.lit 0)
+  | .var i, j => some (.bytes (.var i) j 1)
+  | .init r off n, j => if j < n ∧ n ≤ 8 then some (.init r (off + j) 1) else none
+  | .initx r off x s n, j =>
+    if s = 1 ∧ j < n ∧ n ≤ 8 then some (.initx r (off + j) x 1 1) else none
+  | .bytes a k n, j => if j < n ∧ n ≤ 8 ∧ k + j < 8 then byteAt a (k + j) else none
+  | .sext bits a, j => if bits = 32 ∧ j < 4 then byteAt a j else none
+  | .cat lo hi nlo, j =>
+    if j < nlo then (if nlo ≤ 8 then byteAt lo j else none)
+    else if j < 8 then byteAt hi (j - nlo) else none
+  | _, _ => none
+
+theorem byteOf_cat_lo (lo hi : Word) {nlo j : Nat} (hn : nlo ≤ 8) (hj : j < nlo) :
+    byteOf ((lo &&& BitVec.ofNat 64 (2 ^ (8 * nlo) - 1)) ||| (hi <<< (8 * nlo))) j =
+      byteOf lo j := by
+  apply BitVec.eq_of_getLsbD_eq; intro k hk
+  simp only [byteOf, BitVec.getLsbD_extractLsb', hk, decide_true, Bool.true_and,
+    BitVec.getLsbD_or, BitVec.getLsbD_and, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_ofNat]
+  have h1 : 8 * j + k < 8 * nlo := by omega
+  have h2 : (2 ^ (8 * nlo) - 1).testBit (8 * j + k) = true := by
+    rw [Nat.testBit_two_pow_sub_one]; simp [h1]
+  simp [h2, h1, show 8 * j + k < 64 by omega]
+
+theorem byteOf_cat_hi (lo hi : Word) {nlo j : Nat} (hj : nlo ≤ j) (h8 : j < 8) :
+    byteOf ((lo &&& BitVec.ofNat 64 (2 ^ (8 * nlo) - 1)) ||| (hi <<< (8 * nlo))) j =
+      byteOf hi (j - nlo) := by
+  apply BitVec.eq_of_getLsbD_eq; intro k hk
+  simp only [byteOf, BitVec.getLsbD_extractLsb', hk, decide_true, Bool.true_and,
+    BitVec.getLsbD_or, BitVec.getLsbD_and, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_ofNat]
+  have h2 : (2 ^ (8 * nlo) - 1).testBit (8 * j + k) = false := by
+    rw [Nat.testBit_two_pow_sub_one]; simp; omega
+  simp only [h2, Bool.and_false, Bool.false_or, show 8 * j + k < 64 by omega, decide_true,
+    Bool.true_and, show ¬ (8 * j + k < 8 * nlo) by omega, decide_false, Bool.not_false]
+  congr 1
+  omega
+
+theorem byteAt_sound : ∀ {s b : Sym} {j : Nat}, byteAt s j = some b → j < 8 → ∀ env : Env,
+    byteOf (s.eval env) j = byteOf (b.eval env) 0
+  | .lit n, b, j, h, hj, env => by
+    cases n with
+    | zero =>
+      simp only [byteAt, Option.some.injEq] at h
+      subst h
+      simp [Sym.eval]
+    | succ n => simp [byteAt] at h
+  | .var i, b, j, h, hj, env => by
+    simp only [byteAt, Option.some.injEq] at h
+    subst h
+    simp only [Sym.eval]
+    rw [byteOf_ofBytesLE _ (by rw [byteList_length]; omega) 0
+      (by rw [byteList_length]; omega)]
+    rfl
+  | .ptr r o, b, j, h, hj, env => by simp [byteAt] at h
+  | .init r off n, b, j, h, hj, env => by
+    simp only [byteAt] at h
+    split at h
+    · next hc =>
+      simp only [Option.some.injEq] at h
+      subst h
+      simp only [Sym.eval]
+      rw [TX.byteOf_byteList hc.2 hc.1, TX.byteOf_byteList (by omega) (by omega), Nat.add_zero]
+    · cases h
+  | .initx r off x s n, b, j, h, hj, env => by
+    simp only [byteAt] at h
+    split at h
+    · next hc =>
+      obtain ⟨rfl, hjn, hn⟩ := hc
+      simp only [Option.some.injEq] at h
+      subst h
+      simp only [Sym.eval]
+      rw [TX.byteOf_byteList hn hjn, TX.byteOf_byteList (by omega) (by omega)]
+      congr 1
+      omega
+    · cases h
+  | .bin op a c, b, j, h, hj, env => by simp [byteAt] at h
+  | .sext bits a, b, j, h, hj, env => by
+    simp only [byteAt] at h
+    split at h
+    · next hc =>
+      obtain ⟨rfl, hj4⟩ := hc
+      simp only [Sym.eval]
+      rw [TX.byteOf_sext32 _ hj4]
+      exact byteAt_sound h hj env
+    · cases h
+  | .bytes a k n, b, j, h, hj, env => by
+    simp only [byteAt] at h
+    split at h
+    · next hc =>
+      obtain ⟨hjn, hn, hk⟩ := hc
+      simp only [Sym.eval]
+      rw [TX.byteOf_byteList hn hjn]
+      exact byteAt_sound h hk env
+    · cases h
+  | .cat lo hi nlo, b, j, h, hj, env => by
+    simp only [byteAt] at h
+    split at h
+    · next hjl =>
+      split at h
+      · next hn =>
+        simp only [Sym.eval]
+        rw [byteOf_cat_lo _ _ hn hjl]
+        exact byteAt_sound h hj env
+      · cases h
+    · next hjl =>
+      try simp only [hj, if_true] at h
+      simp only [Sym.eval]
+      rw [byteOf_cat_hi _ _ (by omega) hj]
+      exact byteAt_sound h (by omega) env
+
 end ZesuExec.Fn.DTF

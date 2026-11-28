@@ -1257,3 +1257,171 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     image change); `zesu-difftest --fn R8330` prints `agree` on all 9 snapshots (21–2,455
     transitions; sail = machine = unicorn); F2 regression snapshot `agree`. Not run: full
     `lake build`, `tools/verify.sh`, `make -C tools/zmap map test`.
+- S11 automation (S11Auto, 2026-11-28, branch `s11`): `budget_auto` and `oblig_auto` as decision
+  procedures; residual class `budget` closed on every leaf of the five plans; `oblig` partly.
+  Contingency taken for the rest of `oblig` (goal shapes below). Whole-leaf auto counts unchanged.
+  - `Vc/Tactics.lean`: `measure_norm` (unfolds `Nat`-valued non-recursive project definitions,
+    `Env.base`, projections of such values, `List.getD` at numerals, `if` on closed conditions,
+    `match` on constructors; closed `Nat`/`BitVec` terms become numerals by compiled evaluation,
+    kernel-checked; goal and arithmetic hypotheses), `sym_rw` (rewrite with `Sym.eval env t = u`
+    hypotheses), `assert_open` (unfold the assertion, split `∧`/`∃`/structures). `budget_auto` =
+    `leaf_norm`, `measure_norm at *`, `omega` (or split `if`s). `oblig_auto` = `oblig_region`
+    (normal form, `sym_rw`, hypothesis/`omega`/`bv_omega`/`region_arith`, then `assert_open`) |
+    `zesu_apply` | the old fallback; goal grammar from 20 TX leaves plus DTF/F6 in its doc comment.
+    `field_auto` gains a `Nat ≤` budget branch. `leaf_auto` is one rule (was four); `leafc_auto`
+    gets the main path (`oblig_auto`, `budget_auto`, exit).
+  - Cheap failure (the DTF lesson): `leaf_diag` now proves the leaf when its stages close and
+    otherwise fails at the first open stage/conjunct; `zesu_auto`/`zesu_autow` run it once per leaf
+    instead of `leaf_auto` then `leaf_diag`. `zesu_apply` skips `@[zesu_oblig]` lemmas whose `Env`
+    head differs from the goal's (TX's oblig stage spent ~5 s per leaf unifying F1/F2/F6 lemmas).
+    TX: `zesu_auto TX` moved from `Cuts.lean` (ran before any fact, 280 s) to the end of
+    `Facts.lean`; `Proof.lean` no longer re-runs it; `@[zesu_simp] envP_init`, `envS_init` (`rfl`)
+    so `common_ra` applies at `envP`/`envS` cuts.
+  - Stage shares (per-leaf harness over every leaf, facts in scope; before → after): budget F1
+    15/15, F2 17/17, F6 67/74 → 74/74, TX 25/51 → 51/51, DTF 0/486 → 486/486 (all: 124/643 →
+    643/643); oblig (leaves with obligations) F1 6/6, F2 17/17, F6 20/27 → 27/27, TX 15/23 → 21/23,
+    DTF 0/113 → 0/113 (all: 58/186 → 71/186). Whole leaves auto: 17/643 before and after.
+  - Not closed (contingency; shapes): TX `10c_3`, `1a0_3`: `inBounds 4 off (var 40) 1 n`, the bound
+    is the decoded item's payload length (decode semantics, `fits_bounds`); DTF 113 leaves:
+    `inBounds 3 0 (var 42) 1 1` (byte loops) and `inBounds 3 off (var 156) 1 n` (call arguments)
+    under the disjunctive assertion `plain ∧ PlainA ∨ ∃ s, site = some s ∧ RetA s`, the bound from
+    `F2.Post`'s decoded header (`out_ptr`) or `CurOk`; ra alignment in F1/F2/F6 still needs their
+    `@[zesu_oblig]` lemmas (no saved-`ra` fact; without the lemmas 4/6, 4/17, 6/27 close).
+  - Hand proofs removed: 27 TX budget bullets (2 lines each) and 12 inline budget proofs now
+    `budget_auto` (TX leaf files: 70 lines out, 39 in); `Test/Vc.lean`'s toy return leaf
+    (23 lines) is now closed by `zesu_auto` (guards updated). `Test/Auto.lean`: positive and
+    `fail_if_success` tests for both tactics (its garbled module doc repaired).
+  - Build times (`lake env lean`, 23 modules concurrently, same machine, before → after): Fn/TX
+    modules 366.0 → 92.3 s (Cuts 283.6 → 3.4, Facts 1.9 → 19.2, Proof 18.3 → 7.5); Fn/F6 132.4 →
+    54.9 s (Vc 125.0 → 48.0); F1/Vc 45.7 → 19.5; F2/Vc 34.5 → 18.7; Test/Auto 18.4 → 10.7.
+    DTF (read-only): `Fn/DTF/Vc` 307.7 s here vs 303.5 s in W with the old tactics (W's DTF cuts
+    are newer); per-leaf tactic time of `zesu_auto` on DTF: old `leaf_auto` 180 s (old `leaf_diag`
+    not measured) vs new `leaf_diag` 281 s, budget passing on all 486 leaves.
+  - `lake build` 325 jobs OK; no `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no
+    `maxHeartbeats` change. Ledger item 2 (S11Auto), $15.07 session.
+- S17 map precision (S17MapPrecision, 2026-11-28, branch `s17`): gate measured; `make -C
+  tools/zmap test` passes (see GO.md § S17 for the tables).
+  - `tools/zmap/precision.py`: one forward abstract interpretation per function (registers,
+    frame slots, terms over entry arguments, read-only loads, bounded indices from byte loads,
+    masks and `bltu`/`bgeu` bounds, small constant sets) gives each indirect call/jump a target
+    term (`calls[].slice`). Kinds: `exact` (all values enumerated from constants and
+    `.rodata`), `precondition` (an argument or a load chain from one; `targets` substituted from
+    every caller's state, `targets_complete`), `unknown` (`reason`). Write summaries (argument,
+    offset window) per function, least fixpoint over rounds; memcpy/memmove/memset modelled.
+    `table-heuristic` is gone for calls; jumps use it only when nothing else applies (now none
+    in the target set).
+  - Indirect calls of the 458 sites: exact 49, precondition 392 (296 complete, 44 without a
+    target), unknown 17. Jumps: runDispatch 174/174 and memset exact; 5 tables bounded by an
+    argument. Recursive target functions 19 -> 7. Target set 206 -> 222 (vtable slots referenced
+    by target code count for reachability). ready 18 -> 31, waiting 44 -> 38.
+  - Irreducible: every multi-entry region listed (`irreducible_regions`); cycle cuts (`why:
+    cycle`) +3 in `computeHash`, +3 in `sort.block.block__anon_10892`, 0 elsewhere; the
+    `irreducible` blocker is removed.
+- S9.4 gate (S9Viewer, 2026-11-28, branch `viewer`): source-centred main view; the page opens on
+  it, Program and the control-flow view stay (`#view=program`, `#fn=`). Data: `vendor/dwarf.py`
+  gains `inline_frames` (every out-of-line subprogram and its nested inlined subroutines with
+  call file/line) and `line_rows`/`file_name` (moved from `hints.py`); `tools/zmap/source.py`
+  assigns each target instruction to its innermost source function, a `compiler` bucket (frame
+  but no line) or a `runtime` bucket (no debug code), keys source functions by declaration so a
+  generic is one record, and builds source edges with sites (inlined, call, tail, indirect with
+  resolution, accelerator with CSR); call and CSR sites are drawn from the innermost Zesu frame
+  at the Zesu line that reached them. `zmap site --debug-object` writes `data/src/index.js`
+  (1.7 MB) and 71 `data/src/file/<n>.js`; `layout.neighbourhood` orders each depth-one view.
+  On the 222-function target set (after S17): 207,134 instructions; 723 source functions (540
+  zesu, 183 std) plus 179 compiler and 29 runtime buckets and 14 accelerators; 13,314 inlined
+  sites, 55 of them (0.41%) without a call-site line (DW_AT_call_line 0), drawn as `inlined`, no
+  line; instructions without a source line (compiler bucket) 48,627 (23.5%). Missing file: `std/builtin.zig`
+  (generated by Zig, not on disk), listed as missing, functions kept. Tests `test_source.py`
+  (instruction ownership, location totals equal the target total, TX edges to `rlp.decodeItem`
+  call and `alt_fl_alloc.alloc` indirect, site lines inside caller ranges, generics, closed
+  rule); `make -C tools/zmap map test` passes (78 tests). Screenshots in `map/site/shots/`:
+  `src-txAccessList`, `src-executeBlockStateless` (runtime and compiler folded),
+  `src-drilldown-cfg` (`nibbles.hpEncode` inlined into `main.updMakeExtension`, 11 blocks
+  highlighted), `src-meaning-layer`.
+- S7 cont. (DTFFieldsB, 2026-11-28, branch `dtf`): field rows, stage 2 steps 1-3 (arms 0-2
+  committed), bridge lemmas. **Counts before → after: manual 646 → 646, open 1 → 1** after each
+  arm step (arm 0: 281 entries; arms 0-1: 592; arms 0-2: 963; each: `gen_leaves.py` 415 instances,
+  `lake build ZesuExec.Fn.DTF.Reach` 647 items, 646 manual, 1 open).
+  - `OPEN/DTF/shape.py --fields <arms>` runs `OPEN/DTF/fields_infer.lean` (greatest-fixpoint
+    must-analysis over the leaves with `Gen.lean`'s own `fieldOk`, per arm; backward pruning from
+    the entries at `0x80002dc4` and the allocator sites' copy arguments; a final pass re-checks every
+    leaf's packed row) and writes `ZesuExec/Fn/DTF/Rows.lean` (generated; types in `Field.lean`).
+  - Carry rules (`Gen.lean`): `guardOk` also accepts "every arm of the target's guard reaching the
+    source is in the source's guard"; clamp literals compared mod 2^64 (u128 limb 0); address copy:
+    `raw` from bytes of a 20-byte payload read at the outcome pointer (`payBytes`) and zero bytes of
+    an empty one (`zeroBytes`); sub-word loads/stores: `rawKept` compares bytes (`Fields.lean`
+    `byteAt`, `byteAt_sound`); both-kind cuts (`0x80002a6c`) take the `cutFields` entries the call
+    site also states (`srcFieldsOf`). `keptOk`/`keptOk_sound` factor the source-only rules;
+    `Slot.lean` `keptCarry` for store-cut sources (no `Ctx`), `Keep.lean` `loc_word_eval0`.
+  - Hand proofs: `CallFacts.fields` (the call site's `FieldsOk`, from `CallChk`) replaces the
+    eleven `siteFields … = []` proofs; `AuthFields.field_call` lost its `hfl`; `Jump`'s `ArmCheck`
+    checks the arm heads' rows are empty.
+  - Measured (all arms, not committed): 2481 entries; every scalar field of every arm reaches
+    `0x80002dc4` at the locations the success write reads, except legacy `chainId` (`s10`), its tag
+    (`a4`) and `v` (`s7`), computed from `vRaw` in the leaves `0x80001fac_3..5`, `0x80002004_1..3`.
+    Arm 3 rows break `HashStore.lean` (the store cut's two leaves use `fieldsOk_nil`/`siteFields
+    0x80002180 = []`; replace by `keptCarry_sound … (by decide)` with `store_src` returning the
+    source's `FieldsOk`), same for `AuthStore.lean` with arm 4.
+  - `Bridge.lean`: `StepV`/`ReadsV` values of the field helpers (`numOf`, `payOf`, `addrOf`, `alOf`),
+    `body_legacy`, `head_run`, `body_typed`, `body_blob`, `body_auth`, `decode_legacy`,
+    `decode_typed` (`decode t b = some (legacyOf/typedOf …)` from `ChecksL (armChecks t) b`).
+    `restOf` is irreducible (nested ones unfold to exponentially many `F2.decode`s).
+  - Not done: arms 3-4 rows committed, legacy `v` values, `Extra 0x80002dc4` (`ChecksOk σ
+    (fieldCount σ.t)` plus buffers), the 16 leaves into `0x80002db8/dbc/dc4` by hand, `TxAt` from
+    the stores, the buffers (data copy, access list image, hashes, tuples) — CUTS.md § Open.
+- S9.4 feedback (S9Viewer, 2026-11-28, branch `viewer`): the page lands on the Zesu entry
+  `root.main` (`zkvm/root.zig:46`, the first Zesu function reached from `_start` via
+  `_zisk_main`), pinned as "★ main" at the top of the file tree and found by searching `main`;
+  the tree opens the Zesu group and lists each file's functions. Navigation: every navigation
+  (centre a function, open a control-flow view, select a block, change the source file, switch
+  view) pushes a history entry with the whole view in the hash and `popstate` restores it;
+  in-page ◀ ▶ and the list of visited places, Alt+Left/Alt+Right. Scripted check (GPU Chromium):
+  main -> root.guestMain -> alt_fl_alloc.get -> Back -> Back -> Forward -> Alt+Right -> ◀ gave
+  root.main, guestMain, get, guestMain, main, guestMain, get, guestMain (PASS). Call lines in the
+  source are marked and clickable (enter the callee). Hand-written Zig highlighter (keywords,
+  types, literals, builtins, strings, numbers, comments, calls; nothing vendored); layer colour
+  as a gutter bar and faint background. Draggable splitters (source | stage | panel, drawer),
+  sizes in localStorage. Linked hover: a source line lights the neighbour node and edge whose
+  call site is on it, or in the control-flow view the blocks covering it; a node, label or block
+  marks its lines with a dashed outline, scrolled into view after a 0.7 s hold. Neighbours are
+  ordered by the line of their first call site (tested). Crisp drawing: renderer at the device
+  pixel ratio with autoDensity and roundPixels (re-sized on DPR change), stage translation
+  snapped to device pixels, label font rasterised at 1.5x the pixel ratio, source view at scale
+  1 when it fits; MSAA back on (GPU: `f_8001e8fc` pans at 60 fps at zoom 1.5/0.6/0.1/0.03).
+  Screenshots `map/site/shots/fb-*.png` (DPR 1 and 2, hovers, resized panes); `make -C
+  tools/zmap map test` passes (80 tests).
+- S9.2 + viewer follow-up (S9Viewer, 2026-11-28, branch `viewer`): views the user has not moved
+  are refitted when the stage changes size (splitter drag, window resize). HTML label overlay
+  (S9.3 contingency) at pixel ratio < 1.5: node, block and edge labels are HTML spans in a layer
+  that follows the stage transform (one CSS transform per frame). S9.2 layers: Cost spent and
+  Forecast (dollar bands from `cost.all.usd` and `forecast.p50`), Automation (`auto_share`);
+  Meaning edges drawn thick green from `meaning_link` (0 true in today's map, so none show);
+  Metrics drawer renders every group of `metrics.json`; Trend drawer lists `history.jsonl`
+  (17 commits) and a click moves the time slider, which recolours Proof and Meaning as of that
+  commit (program, source and control-flow views); block panel lists the leaves through the
+  block with theorem name, file:lines and closing rule (S10.2); badge legend shows the cost
+  multiplier per driver ($ per cut point in closed functions with ÷ without; "not measured"
+  where either side has no cost); indirect calls coloured exact / precondition / unknown (S17);
+  irreducible regions hatched with entry marks from `irreducible_regions`. Screenshots
+  `map/site/shots/s92-*.png`; `make -C tools/zmap map test` passes (80 tests).
+
+## S14 gate (services) — 2026-11-28, branch s14
+
+- `ziskemu` (ZisK eed62f4d9) builds only from a clone (`/home/cody/.cache/zesu-tmp/zisk-src`,
+  `/home/cody/zisk` untouched) with two build fixes: `mpi-sys` patched to bindgen 0.72 (0.69 with
+  clang 23 emits an opaque `ompi_status_public_t`), `lib-float/c/lib` copied back after the clone's
+  mtimes triggered `make clean`, linked with `RUSTFLAGS=-L ~/.local/lib` (`libiomp5`). Binary:
+  `/home/cody/.cache/zesu-tmp/ziskemu-eed62f4d9` (needs `LD_LIBRARY_PATH=~/.local/lib`).
+  `ziskemu-relaxed12` = same with the `inst_size` assertion at `riscv2zisk_context.rs:695`
+  admitting 12.
+- **The pinned ziskemu cannot load the target ELF**: `csrsi 0x816, 2; addi; addi` (immediate
+  `memset`, e.g. in `zkvm_sha256`) → `create_extended_precompiles_op(.., 12)` asserts
+  `inst_size ∈ {2,4,8}`. The relaxed build loads it.
+- Registry `ZesuExec/Service/` (Basic, Memcpy 0x813, Memset 0x816, Sha256f 0x805, Arch 0xf12 +
+  exit + `ZiskBoot`); `next` and `SailReaches` extended (STATEMENTS.md S14). Full `lake build`
+  green after the `next` change.
+- `tools/svc_test.py` (100 random cases each, Lean evaluation of the registry vs ziskemu): see
+  GO.md S14 and `map/svc_test.json`.
+- Proved: `memmove_spec/_sail`, `memset_spec/_sail` (+ `pre_nonvacuous` each), guarded in
+  Axioms.lean. Image gains `memmove`, `memset` (`tools/gen_image.sh`).
+- `zkvm_sha256`: blocked on `rev8`; contract drafted, not proved (coordinator decision B).
