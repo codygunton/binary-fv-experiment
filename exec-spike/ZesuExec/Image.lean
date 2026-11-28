@@ -98,6 +98,8 @@ def exec (m : Machine) : Instr → Option Machine
   | .bge rs1 rs2 imm => m.branch (!(m.reg rs1).slt (m.reg rs2)) imm
   | .lwu rd rs1 imm => m.loadInto rd rs1 imm 4 id
   | .srliw rd rs1 sh => m.writeReg rd (((m.reg rs1).setWidth 32 >>> sh.toNat).signExtend 64)
+  | .subw rd rs1 rs2 =>
+    m.writeReg rd (((m.reg rs1).setWidth 32 - (m.reg rs2).setWidth 32).signExtend 64)
 
 end Machine
 

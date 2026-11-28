@@ -427,6 +427,11 @@ theorem setWidth_srl_mask (a : Word) (k : Nat) :
     show (4294967295 : Nat) = 2 ^ 32 - 1 from rfl, Nat.testBit_two_pow_sub_one]
   by_cases h : k + i < 32 <;> simp [h] <;> omega
 
+theorem setWidth_sub32 (a b : Word) : (a - b).setWidth 32 = a.setWidth 32 - b.setWidth 32 := by
+  apply BitVec.eq_of_toNat_eq
+  simp [BitVec.toNat_sub]
+  omega
+
 theorem lit_toNat_eval (env : Env) (t : Nat) (h : t < 2 ^ 64) :
     ((Sym.lit t).eval env).toNat = t := by
   simp [Sym.eval, Nat.mod_eq_of_lt h]
@@ -480,6 +485,7 @@ theorem stepI_sound {img : Image} {pc : Nat} {i : Instr} {S S' : SState} {e : St
       have := sh.isLt
       simp [r, BinOp.eval, Sym.eval, Nat.mod_eq_of_lt (show sh.toNat < 2 ^ 64 by omega),
         Nat.mod_eq_of_lt (show sh.toNat < 64 by omega), setWidth_srl_mask]) h
+  | subw rd rs1 rs2 => exact wr rd _ _ (by simp [r, setWidth_sub32]) h
   | beq rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | bne rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | blt rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
