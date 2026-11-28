@@ -6,11 +6,11 @@ import ZesuExec.Sail.Run
 namespace ZesuExec.Fn.SszRoot.Sparse
 open ZesuExec ZesuExec.Machine ZesuExec.Fn ZesuExec.SailLink
 
-theorem sparseRoot_sail (hsha : ShaSpec) {m : Machine} {s : BinaryFv.RiscV.State}
+theorem sparseRoot_sail {m : Machine} {s : BinaryFv.RiscV.State}
     (h : Rel zesuImage m s) (hpc : m.pc.toNat = sparseEntry) (hpre : SparsePre m) :
     SailReaches zesuImage (sparseCost (depthOf m) (lenOf m))
       (fun s' => ∃ m', Rel zesuImage m' s' ∧ SparsePost m m') s :=
-  sail_reaches h (sparse_reaches hsha m hpc hpre)
+  sail_reaches h (sparse_reaches shaSpec m hpc hpre)
 
 /-- The witness's own bytes: the stack `sparseStack 2` below `sp = 0xa0010000`, the result at
 `0xa0020000`, three chunks at `0xa0030000`, `zkvm_sha256`'s bump words and the staging word. -/

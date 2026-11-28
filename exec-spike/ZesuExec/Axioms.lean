@@ -32,6 +32,7 @@ import ZesuExec.Fn.Memset.Sail
 import ZesuExec.Vc.SoundRec
 import ZesuExec.Fn.SszRoot.SparseSail
 import ZesuExec.Fn.SszRoot.ProgProof
+import ZesuExec.Fn.Sha256.Sail
 
 /-! Axiom guards for every end theorem (plan Verification item 4). -/
 
@@ -460,3 +461,21 @@ info: 'ZesuExec.Fn.SszRoot.Prog.pre_nonvacuous' depends on axioms: [propext, Cla
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.SszRoot.Prog.pre_nonvacuous
+
+/--
+info: 'ZesuExec.Fn.Sha256.sha256_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Sha256.sha256_spec
+
+/--
+info: 'ZesuExec.Fn.Sha256.sha256_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Sha256.sha256_sail
+
+/--
+info: 'ZesuExec.Fn.Sha256.pre_nonvacuous' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Sha256.pre_nonvacuous

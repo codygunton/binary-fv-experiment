@@ -5,21 +5,21 @@ import ZesuExec.Sail.Run
 /-!
 # `progressiveRootAt` (`0x80042b2c`): contract, Sail level, a machine satisfying its precondition
 
-`progressiveRootAt_spec`: `prog_spec` with `sparseRoot`'s contract discharged by
-`Sparse.sparseRoot_spec`; `zkvm_sha256`'s contract stays the hypothesis `ShaSpec`.
+`progressiveRootAt_spec`: `prog_spec` with `zkvm_sha256`'s contract discharged by
+`Sparse.shaSpec` (`Sha256.sha256_spec 64`) and `sparseRoot`'s by `Sparse.sparseRoot_spec`.
 -/
 
 namespace ZesuExec.Fn.SszRoot.Prog
 open ZesuExec ZesuExec.Machine ZesuExec.Fn ZesuExec.SailLink
 
-theorem progressiveRootAt_spec (hsha : ShaSpec) : ProgSpec :=
-  prog_spec hsha (Sparse.sparseRoot_spec hsha)
+theorem progressiveRootAt_spec : ProgSpec :=
+  prog_spec Sparse.shaSpec Sparse.sparseRoot_spec
 
-theorem progressiveRootAt_sail (hsha : ShaSpec) {m : Machine} {s : BinaryFv.RiscV.State}
+theorem progressiveRootAt_sail {m : Machine} {s : BinaryFv.RiscV.State}
     (h : Rel zesuImage m s) (hpc : m.pc.toNat = progEntry) (hpre : ProgPre m) :
     SailReaches zesuImage (progCost (lenOf m) (depthOf m))
       (fun s' => ∃ m', Rel zesuImage m' s' ∧ ProgPost m m') s :=
-  sail_reaches h (progressiveRootAt_spec hsha _ _ m hpc ⟨hpre, rfl, rfl⟩)
+  sail_reaches h (progressiveRootAt_spec _ _ m hpc ⟨hpre, rfl, rfl⟩)
 
 /-- The witness's own bytes: 4 KiB of stack below `sp = 0xa0010000`, the result at
 `0xa0020000`, three chunks at `0xa0030000`, `zkvm_sha256`'s bump words and the staging word. -/

@@ -1,4 +1,5 @@
 import ZesuExec.Fn.SszRoot.SparseRec
+import ZesuExec.Fn.Sha256.Proof
 
 /-!
 # `sparseRoot` (`0x80042c0c`): the leaves after the left call, assembly, `sparseRoot_spec`
@@ -6,7 +7,8 @@ import ZesuExec.Fn.SszRoot.SparseRec
 The leaves of `c70` (after the left recursive call): `ccK (depth - 1)` when no chunk reaches the
 right half (the right root is `ZERO_HASHES[depth - 1]`), else the right recursive call (a
 `SelfGoal` on the chunks from `half`, its root at `fb + 0x68`, then `c94`). `vc_sound_rec`
-assembles the plan into `sparseRoot_spec`, with `zkvm_sha256` as the hypothesis `ShaSpec`.
+assembles the plan into `sparse_spec_of`, with `zkvm_sha256`'s contract as the hypothesis
+`ShaSpec`; `sparseRoot_spec` discharges it with `Sha256.sha256_spec 64` (`shaSpec`).
 -/
 
 namespace ZesuExec.Fn.SszRoot.Sparse
@@ -249,8 +251,13 @@ def SparseSpec : Prop :=
     (fun m => SparsePre m ∧ depthOf m = d ∧ lenOf m = n) SparsePost
 
 include hsha in
-theorem sparseRoot_spec : SparseSpec := by
+theorem sparse_spec_of : SparseSpec := by
   rintro d n m hpc ⟨hpre, rfl, rfl⟩
   exact sparse_reaches hsha m hpc hpre
+
+/-- `zkvm_sha256`'s contract on 64 bytes (`Fn/Sha256/Proof.lean`). -/
+theorem shaSpec : ShaSpec := Sha256.sha256_spec 64
+
+theorem sparseRoot_spec : SparseSpec := sparse_spec_of shaSpec
 
 end ZesuExec.Fn.SszRoot.Sparse
