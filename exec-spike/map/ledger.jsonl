@@ -1751,3 +1751,5 @@
 {"schema": 2, "rec": "stop", "id": 20, "agent": "S9Viewer", "ts": "2026-11-28T07:28:04Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 21, "ts": "2026-11-28T07:44:33Z", "fn": "f_8000050c", "item": "S7 stage 2 cont.: arms 3-4 rows, legacy v, Extra 80002dc4, TxAt, buffers; DTF.reach/dtf_spec/dtf_sail", "kind": "leaf", "agent": "DTFFieldsC"}
 {"schema": 2, "rec": "stop", "id": 21, "agent": "DTFFieldsC", "ts": "2026-11-28T09:06:11Z", "outcome": "open", "note": "steps 1-3 + scalar rows done; 80002dc4_0 open (loop walks, TxAt stores, buffers)"}
+{"schema": 2, "rec": "start", "id": 22, "ts": "2026-11-28T09:07:19Z", "fn": "f_8000050c", "item": "S7 stage 2 cont. (D): 80002dc4_0 TxAt store, loop element facts, buffers; DTF.reach/dtf_spec/dtf_sail", "kind": "leaf", "agent": "DTFFieldsD"}
+{"schema": 2, "rec": "stop", "id": 22, "agent": "DTFFieldsD", "ts": "2026-11-28T10:00:03Z", "outcome": "open", "note": "step 2 + hash walk done; 80002dc4_0 open (tuple walk, buffers need shared live list L)"}
