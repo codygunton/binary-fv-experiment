@@ -10,6 +10,7 @@ ZMAP   := cd $(P)/tools && python3 -m zmap
 .PHONY: map static status test
 
 map: static status
+	$(ZMAP) cost backfill
 	$(ZMAP) merge --static $(MAP)/static.json --status $(MAP)/status.json \
 	  --reviews $(MAP)/reviews.json --ledger $(MAP)/ledger.jsonl --out $(MAP)/map.json
 	$(ZMAP) queue --map $(MAP)/map.json --out $(MAP)/QUEUE.md --json $(MAP)/queue.json

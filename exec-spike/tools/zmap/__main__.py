@@ -1,7 +1,8 @@
-"""zmap: static map of the Zesu ELF, merged proof map, work queue, page, effort ledger.
+"""zmap: static map of the Zesu ELF, merged proof map, work queue, page, effort ledger, cost,
+metrics.
 
 Run from `P/tools`: `python3 -m zmap <command> ...` (build, merge, queue, show, next, site,
-ledger log).
+ledger start/stop, cost backfill/agents, metrics, brief, check, costmodel).
 """
 import argparse
 import json
@@ -9,7 +10,7 @@ import os
 import shutil
 import sys
 
-from . import analyze, elfread, ledger, merge, workqueue
+from . import analyze, cost, costmodel, elfread, ledger, merge, metrics, workqueue
 
 PACKAGE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_LEDGER = os.path.join(PACKAGE, 'map', 'ledger.jsonl')
@@ -61,19 +62,6 @@ def cmd_build(args):
           f'-> {args.out}')
 
 
-def cmd_merge(args):
-    static = load(args.static)
-    status = load(args.status)
-    if status.get('schema') != 'zmap.status.v1':
-        sys.exit(f'zmap: {args.status} is not zmap.status.v1')
-    reviews = load(args.reviews) if args.reviews else {}
-    rows = merge.read_ledger(args.ledger)
-    out = merge.merge(static, status, reviews, rows, status_source=status.get('source', args.status))
-    dump(out, args.out)
-    print('zmap: ' + ', '.join(f'{k} {v}' for k, v in out['state_counts'].items() if v)
-          + f' -> {args.out}')
-
-
 def cmd_queue(args):
     items = workqueue.build_queue(load(args.map))
     dump(items, args.json, compact=False)
@@ -112,12 +100,6 @@ def cmd_site(args):
     print(f'zmap: site -> {os.path.join(args.out, "map.html")}')
 
 
-def cmd_ledger_log(args):
-    row = ledger.log(args.ledger, args.fn, args.item, args.kind, args.agent, args.minutes,
-                     args.outcome, usd=args.usd, requests=args.requests, note=args.note)
-    print(json.dumps(row))
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(prog='zmap')
     sub = p.add_subparsers(dest='cmd', required=True)
@@ -132,13 +114,7 @@ def main(argv=None):
                         'cuts there (S5 probe 1 passed)')
     b.set_defaults(func=cmd_build)
 
-    mg = sub.add_parser('merge', help='merge static map, status, reviews, ledger')
-    mg.add_argument('--static', required=True)
-    mg.add_argument('--status', required=True)
-    mg.add_argument('--reviews')
-    mg.add_argument('--ledger', default=DEFAULT_LEDGER)
-    mg.add_argument('--out', required=True)
-    mg.set_defaults(func=cmd_merge)
+    merge.register(sub, PACKAGE, load, dump)
 
     q = sub.add_parser('queue', help='work queue')
     q.add_argument('--map', default=DEFAULT_MAP)
@@ -163,31 +139,10 @@ def main(argv=None):
     st.add_argument('--out', required=True)
     st.set_defaults(func=cmd_site)
 
-    lg = sub.add_parser('ledger', help='effort ledger')
-    lsub = lg.add_subparsers(dest='ledger_cmd', required=True)
-    log = lsub.add_parser('log', help='append one work item')
-    log.add_argument('--fn', required=True, help='function id, or - for none')
-    log.add_argument('--item', required=True)
-    log.add_argument('--kind', required=True, choices=ledger.KINDS)
-    log.add_argument('--agent', required=True)
-    log.add_argument('--minutes', required=True, type=float)
-    log.add_argument('--usd', type=float)
-    log.add_argument('--requests', type=int)
-    log.add_argument('--outcome', required=True, choices=ledger.OUTCOMES)
-    log.add_argument('--note')
-    log.add_argument('--ledger', default=DEFAULT_LEDGER)
-    log.set_defaults(func=cmd_ledger_log)
-
-    def cmd_costmodel(args):
-        from . import costmodel
-        with open(args.out, 'w') as f:
-            f.write(costmodel.render(load(args.map), merge.read_ledger(args.ledger)))
-        print(f'zmap: cost model -> {args.out}')
-    cm = sub.add_parser('costmodel', help='cost model (COSTMODEL.md) from map and ledger')
-    cm.add_argument('--map', default=DEFAULT_MAP)
-    cm.add_argument('--ledger', default=DEFAULT_LEDGER)
-    cm.add_argument('--out', required=True)
-    cm.set_defaults(func=cmd_costmodel)
+    ledger.register(sub, DEFAULT_LEDGER)
+    cost.register(sub, PACKAGE)
+    metrics.register(sub, PACKAGE, load)
+    costmodel.register(sub, PACKAGE, load)
 
     args = p.parse_args(argv)
     args.func(args)
