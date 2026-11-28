@@ -1704,3 +1704,4 @@
 {"schema": 2, "rec": "start", "id": 3, "ts": "2026-11-28T06:13:38Z", "fn": "f_8000050c", "item": "field-value carry stage 1 (generic leaf_gen carry, empty cut field table) toward leaf_80002dc4_0", "kind": "assertion", "agent": "DTFAuth3"}
 {"schema": 2, "rec": "stop", "id": 3, "agent": "DTFAuth3", "ts": "2026-11-28T06:36:46Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 4, "ts": "2026-11-28T06:38:18Z", "fn": "f_8000050c", "item": "S7 stage 2: field rows, 80002dc4_0, DTF.reach/dtf_spec/dtf_sail", "kind": "leaf", "agent": "DTFFieldsB"}
+{"schema": 2, "rec": "stop", "id": 4, "agent": "DTFFieldsB", "ts": "2026-11-28T07:42:51Z", "outcome": "open", "note": null}
