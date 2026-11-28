@@ -5,6 +5,7 @@ import ZesuExec.Fn.DTF.Jump
 import ZesuExec.Fn.DTF.AuthOwn
 import ZesuExec.Fn.DTF.AuthFields
 import ZesuExec.Fn.DTF.AuthStore
+import ZesuExec.Fn.DTF.ErrWrite
 
 /-!
 # DTF assembly (programme plan S7 step 3)

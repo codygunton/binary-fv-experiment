@@ -380,10 +380,11 @@ def NewL (σ : Sig) (m : Machine) (n : Nat) (L : List (Word × Nat)) : Prop :=
   ∃ newp : Word, ∃ X, m.load (σ.fr + w 0x50) 8 = some newp ∧ Live σ m L X ∧
     (newp, newCap n * 0x90) ∈ X
 
-/-- The cuts of the tuple loop with an `Extra` conjunct. -/
+/-- The cuts of the tuple loop with an `Extra` conjunct, and the error write `0x80001400`. -/
 def authExtraPcs : List Nat :=
   [0x800024d0, 0x80002574, 0x80002690, 0x80002710, 0x8000279c, 0x80002868, 0x80002420,
-    0x8000241c, 0x800029c4, 0x800029c8, 0x80002a1c, 0x80002a6c, 0x800022e4, 0x80002ecc]
+    0x8000241c, 0x800029c4, 0x800029c8, 0x80002a1c, 0x80002a6c, 0x800022e4, 0x80002ecc,
+    0x80001400]
 
 def AuthExtra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
   if pc = 0x800024d0 then AuthLoop σ m
@@ -400,6 +401,7 @@ def AuthExtra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
   else if pc = 0x80002a6c then ∃ n, AuthNewF σ m n
   else if pc = 0x800022e4 then ∃ n, AuthDone σ m n
   else if pc = 0x80002ecc then ∃ n, AuthOwn σ m n
+  else if pc = 0x80001400 then m.reg 10 = w 3
   else True
 
 /-- The return sites of the tuple loop's calls with a `SiteX` conjunct. -/

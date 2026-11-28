@@ -7,17 +7,17 @@ Rates and counts only; no extrapolated total.
 
 | kind | items | median min | total min | median $ | total $ |
 |---|---:|---:|---:|---:|---:|
-| assertion | 172 | 0.3 | 162.4 | 0 | 0 |
+| assertion | 173 | 0.3 | 172.4 | 0 | 0 |
 | compliance | 2 | 45 | 90 | 0 | 0 |
 | contract | 3 | 7 | 41 | 0 | 0 |
 | cut | 9 | 0.2 | 31.4 | 0 | 0 |
 | cut_lemma | 255 | 0.5 | 279 | 0 | 0 |
 | infra | 24 | 13.5 | 803 | 0 | 0 |
-| leaf | 1033 | 0.2 | 1937 | 0 | 0 |
+| leaf | 1039 | 0.2 | 1977 | 0 | 0 |
 | rule | 18 | 30 | 634 | 0 | 0 |
 | run | 162 | 0.0 | 13.2 | 0 | 0 |
 
-Plan leaves: auto 17, manual 624, open 2 (auto share 3%). Ledger `leaf` minutes per manual leaf: 3.1.
+Plan leaves: auto 17, manual 625, open 1 (auto share 3%). Ledger `leaf` minutes per manual leaf: 3.2.
 
 | residual class (manual and open leaves) | leaves |
 |---|---:|
@@ -34,7 +34,7 @@ Plan leaves: auto 17, manual 624, open 2 (auto share 3%). Ledger `leaf` minutes 
 | function | state | cuts | loops | calls | joins | leaves_estimate | n_instr | leaves auto/manual/open | ledger items | minutes | $ |
 |---|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|
 | f_80000000 rlp_decode.txAccessList | closed+compliance | 21 | 2 | 12 | 11 | 50 | 323 | 10/41/0 | 69 | 1266 | 0 |
-| f_8000050c rlp_decode.decodeTxFields | conditional | 153 | 50 | 87 | 75 | 478 | 2825 | 0/484/2 | 1580 | 1750.0 | 0 |
+| f_8000050c rlp_decode.decodeTxFields | conditional | 153 | 50 | 87 | 75 | 478 | 2825 | 0/485/1 | 1587 | 1800.0 | 0 |
 | f_8004218c alt_fl_alloc.remap | closed+sail | 1 | 0 | 0 | 0 | 1 | 9 | 0/0/0 | 0 | 0 | 0 |
 | f_800cb40c array_list.Aligned([32]u8,null).ensureTotalCapacity | closed+sail | 9 | 0 | 4 | 7 | 18 | 107 | 7/8/0 | 10 | 172 | 0 |
 | f_800d5cb8 rlp_decode.decodeParentHeader | closed+compliance | 32 | 3 | 21 | 13 | 82 | 367 | 0/74/0 | 1 | 25 | 0 |

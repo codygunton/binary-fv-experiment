@@ -4,24 +4,12 @@
   "fn": "f_8000050c",
   "name": "rlp_decode.decodeTxFields",
   "status_id": "ZesuExec.Fn.DTF.DTF",
-  "cut": 2147488768,
-  "i": 0,
-  "exit": "at",
-  "target": 2147488248,
-  "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 1
- },
- {
-  "type": "leaf",
-  "fn": "f_8000050c",
-  "name": "rlp_decode.decodeTxFields",
-  "status_id": "ZesuExec.Fn.DTF.DTF",
   "cut": 2147495364,
   "i": 0,
   "exit": "at",
   "target": 2147488248,
   "residual": "1 goal; head @LeafGoal; class budget LE.le",
-  "rank": 2
+  "rank": 1
  },
  {
   "type": "function",
@@ -33,7 +21,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 3
+  "rank": 2
  },
  {
   "type": "function",
@@ -45,7 +33,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 1,
-  "rank": 4
+  "rank": 3
  },
  {
   "type": "function",
@@ -57,7 +45,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 3,
-  "rank": 5
+  "rank": 4
  },
  {
   "type": "function",
@@ -69,7 +57,7 @@
   "loops_needing_measure": 2,
   "contract_missing": true,
   "leaves_estimate": 29,
-  "rank": 6
+  "rank": 5
  },
  {
   "type": "function",
@@ -81,7 +69,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 19,
-  "rank": 7
+  "rank": 6
  },
  {
   "type": "function",
@@ -93,7 +81,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 6,
-  "rank": 8
+  "rank": 7
  },
  {
   "type": "function",
@@ -105,7 +93,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 105,
-  "rank": 9
+  "rank": 8
  },
  {
   "type": "function",
@@ -117,7 +105,7 @@
   "loops_needing_measure": 2,
   "contract_missing": true,
   "leaves_estimate": 16,
-  "rank": 10
+  "rank": 9
  },
  {
   "type": "function",
@@ -129,7 +117,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 24,
-  "rank": 11
+  "rank": 10
  },
  {
   "type": "function",
@@ -141,7 +129,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 20,
-  "rank": 12
+  "rank": 11
  },
  {
   "type": "function",
@@ -153,7 +141,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 18,
-  "rank": 13
+  "rank": 12
  },
  {
   "type": "function",
@@ -165,7 +153,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 20,
-  "rank": 14
+  "rank": 13
  },
  {
   "type": "function",
@@ -177,7 +165,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 86,
-  "rank": 15
+  "rank": 14
  },
  {
   "type": "function",
@@ -189,7 +177,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 67,
-  "rank": 16
+  "rank": 15
  },
  {
   "type": "function",
@@ -201,7 +189,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 8,
-  "rank": 17
+  "rank": 16
  },
  {
   "type": "function",
@@ -213,7 +201,7 @@
   "loops_needing_measure": 1,
   "contract_missing": true,
   "leaves_estimate": 37,
-  "rank": 18
+  "rank": 17
  },
  {
   "type": "function",
@@ -225,7 +213,7 @@
   "loops_needing_measure": 6,
   "contract_missing": true,
   "leaves_estimate": 20,
-  "rank": 19
+  "rank": 18
  },
  {
   "type": "function",
@@ -237,7 +225,7 @@
   "loops_needing_measure": 0,
   "contract_missing": true,
   "leaves_estimate": 86,
-  "rank": 20
+  "rank": 19
  },
  {
   "type": "blocker",
@@ -311,7 +299,7 @@
    "f_800e8c44",
    "f_800f7824"
   ],
-  "rank": 21
+  "rank": 20
  },
  {
   "type": "blocker",
@@ -355,7 +343,7 @@
    "f_800d5898",
    "f_8010f90c"
   ],
-  "rank": 22
+  "rank": 21
  },
  {
   "type": "blocker",
@@ -378,7 +366,7 @@
    "f_80103a7c",
    "f_8010f90c"
   ],
-  "rank": 23
+  "rank": 22
  },
  {
   "type": "blocker",
@@ -397,7 +385,7 @@
    "f_8009f348",
    "f_8010f90c"
   ],
-  "rank": 24
+  "rank": 23
  },
  {
   "type": "blocker",
@@ -414,7 +402,7 @@
    "f_8008baec",
    "f_8009f348"
   ],
-  "rank": 25
+  "rank": 24
  },
  {
   "type": "blocker",
@@ -473,7 +461,7 @@
    "f_800dfa30",
    "f_800dfe5c"
   ],
-  "rank": 26
+  "rank": 25
  },
  {
   "type": "blocker",
@@ -536,7 +524,7 @@
    "f_800dfa30",
    "f_800dfe5c"
   ],
-  "rank": 27
+  "rank": 26
  },
  {
   "type": "blocker",
@@ -551,7 +539,7 @@
    "f_8008baec",
    "f_800cbb74"
   ],
-  "rank": 28
+  "rank": 27
  },
  {
   "type": "blocker",
@@ -617,7 +605,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 29
+  "rank": 28
  },
  {
   "type": "blocker",
@@ -646,7 +634,7 @@
    "f_800dded0",
    "f_800de310"
   ],
-  "rank": 30
+  "rank": 29
  },
  {
   "type": "blocker",
@@ -712,7 +700,7 @@
    "f_800dfe5c",
    "f_8010f90c"
   ],
-  "rank": 31
+  "rank": 30
  },
  {
   "type": "blocker",
@@ -740,7 +728,7 @@
    "f_800d7a60",
    "f_800f7824"
   ],
-  "rank": 32
+  "rank": 31
  },
  {
   "type": "blocker",
@@ -755,7 +743,7 @@
    "f_800ab11c",
    "f_8010f90c"
   ],
-  "rank": 33
+  "rank": 32
  },
  {
   "type": "blocker",
@@ -765,7 +753,7 @@
    "f_8001e8fc",
    "f_800308b0"
   ],
-  "rank": 34
+  "rank": 33
  },
  {
   "type": "blocker",
@@ -775,7 +763,7 @@
    "f_8001e8fc",
    "f_800cfa50"
   ],
-  "rank": 35
+  "rank": 34
  },
  {
   "type": "blocker",
@@ -789,7 +777,7 @@
    "f_800f5ad8",
    "f_800f5b98"
   ],
-  "rank": 36
+  "rank": 35
  },
  {
   "type": "blocker",
@@ -799,7 +787,7 @@
    "f_800ab11c",
    "f_800e06f0"
   ],
-  "rank": 37
+  "rank": 36
  },
  {
   "type": "blocker",
@@ -808,7 +796,7 @@
   "functions": [
    "f_8000a48c"
   ],
-  "rank": 38
+  "rank": 37
  },
  {
   "type": "blocker",
@@ -829,7 +817,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 39
+  "rank": 38
  },
  {
   "type": "blocker",
@@ -846,7 +834,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 40
+  "rank": 39
  },
  {
   "type": "blocker",
@@ -861,7 +849,7 @@
    "f_8010f4f8",
    "f_8010f78c"
   ],
-  "rank": 41
+  "rank": 40
  },
  {
   "type": "blocker",
@@ -873,7 +861,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 42
+  "rank": 41
  },
  {
   "type": "blocker",
@@ -887,7 +875,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 43
+  "rank": 42
  },
  {
   "type": "blocker",
@@ -900,7 +888,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 44
+  "rank": 43
  },
  {
   "type": "blocker",
@@ -911,7 +899,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 45
+  "rank": 44
  },
  {
   "type": "blocker",
@@ -923,7 +911,7 @@
    "f_80103a7c",
    "f_8010f78c"
   ],
-  "rank": 46
+  "rank": 45
  },
  {
   "type": "blocker",
@@ -933,7 +921,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 47
+  "rank": 46
  },
  {
   "type": "blocker",
@@ -943,7 +931,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 48
+  "rank": 47
  },
  {
   "type": "blocker",
@@ -953,7 +941,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 49
+  "rank": 48
  },
  {
   "type": "blocker",
@@ -963,7 +951,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 50
+  "rank": 49
  },
  {
   "type": "blocker",
@@ -973,7 +961,7 @@
    "f_80103308",
    "f_80103a7c"
   ],
-  "rank": 51
+  "rank": 50
  },
  {
   "type": "blocker",
@@ -984,7 +972,7 @@
    "f_800f7824",
    "f_8010f90c"
   ],
-  "rank": 52
+  "rank": 51
  },
  {
   "type": "blocker",
@@ -995,7 +983,7 @@
    "f_800e8c44",
    "f_800f7824"
   ],
-  "rank": 53
+  "rank": 52
  },
  {
   "type": "blocker",
@@ -1004,7 +992,7 @@
   "functions": [
    "f_800e06f0"
   ],
-  "rank": 54
+  "rank": 53
  },
  {
   "type": "blocker",
@@ -1014,7 +1002,7 @@
    "f_800e8c44",
    "f_800ea180"
   ],
-  "rank": 55
+  "rank": 54
  },
  {
   "type": "blocker",
@@ -1023,7 +1011,7 @@
   "functions": [
    "f_800f7824"
   ],
-  "rank": 56
+  "rank": 55
  },
  {
   "type": "blocker",
@@ -1034,7 +1022,7 @@
    "f_800fcda8",
    "f_8010f78c"
   ],
-  "rank": 57
+  "rank": 56
  },
  {
   "type": "blocker",
@@ -1043,7 +1031,7 @@
   "functions": [
    "f_8010f90c"
   ],
-  "rank": 58
+  "rank": 57
  },
  {
   "type": "blocker",
@@ -1052,7 +1040,7 @@
   "functions": [
    "f_800ea180"
   ],
-  "rank": 59
+  "rank": 58
  },
  {
   "type": "blocker",
@@ -1062,7 +1050,7 @@
    "f_800e17b8",
    "f_800f5b30"
   ],
-  "rank": 60
+  "rank": 59
  },
  {
   "type": "blocker",
@@ -1071,7 +1059,7 @@
   "functions": [
    "f_8010f78c"
   ],
-  "rank": 61
+  "rank": 60
  },
  {
   "type": "blocker",
@@ -1081,7 +1069,7 @@
    "f_800e0680",
    "f_800f5b30"
   ],
-  "rank": 62
+  "rank": 61
  },
  {
   "type": "blocker",
@@ -1091,7 +1079,7 @@
    "f_800ea5d4",
    "f_800f5b30"
   ],
-  "rank": 63
+  "rank": 62
  },
  {
   "type": "blocker",
@@ -1101,6 +1089,6 @@
    "f_800e0680",
    "f_800e0692"
   ],
-  "rank": 64
+  "rank": 63
  }
 ]

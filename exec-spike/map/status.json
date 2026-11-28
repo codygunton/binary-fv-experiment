@@ -1721,9 +1721,7 @@
    "assembled": true},
   {"theorems":
    {"spec": false, "sail": false, "reach": false, "compliance": false},
-   "open":
-   ["ZesuExec.Fn.DTF.DTF.leaf_80001400_0",
-    "ZesuExec.Fn.DTF.DTF.leaf_80002dc4_0"],
+   "open": ["ZesuExec.Fn.DTF.DTF.leaf_80002dc4_0"],
    "names":
    {"spec": "ZesuExec.Fn.DTF.dtf_spec",
     "sail": "ZesuExec.Fn.DTF.dtf_sail",
@@ -3861,7 +3859,7 @@
      [{"target_sym": null,
        "target": 2147488248,
        "steps": 3,
-       "state": "open",
+       "state": "manual",
        "residual": "1 goal; head @LeafGoal; class budget LE.le",
        "obligs": 0,
        "i": 0,
