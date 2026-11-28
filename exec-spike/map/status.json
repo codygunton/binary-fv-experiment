@@ -7505,7 +7505,7 @@
    "legacy": false,
    "id": "f_8000050c",
    "hyps": [],
-   "hashes": {"cuts": "0e6a872b5e247747", "callees": "2b8dd714b7499576"},
+   "hashes": {"cuts": "67f3f99bf5bcaf46", "callees": "2b8dd714b7499576"},
    "fn": "ZesuExec.Fn.DTF.DTF",
    "entry": 2147484940,
    "cuts":
@@ -12447,7 +12447,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80001ccc_2",
-        "lines": [476, 511],
+        "lines": [487, 526],
         "file": "ZesuExec/Fn/DTF/AuthOwn.lean"},
        "target_sym": null,
        "target": 2147492580,
@@ -13620,7 +13620,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_800022e4_0",
-        "lines": [141, 170],
+        "lines": [152, 181],
         "file": "ZesuExec/Fn/DTF/AuthOwn.lean"},
        "target_sym": null,
        "target": 2147495628,
@@ -13634,7 +13634,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_800022e4_1",
-        "lines": [172, 225],
+        "lines": [183, 236],
         "file": "ZesuExec/Fn/DTF/AuthOwn.lean"},
        "target_sym": null,
        "target": 2147755156,
@@ -14037,7 +14037,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_800024d0_0",
-        "lines": [317, 351],
+        "lines": [344, 378],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2148362592,
@@ -14060,7 +14060,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_800024ec_0",
-        "lines": [364, 438],
+        "lines": [391, 466],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2148362592,
@@ -14111,7 +14111,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_8000252c_0",
-        "lines": [478, 507],
+        "lines": [470, 503],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2148362592,
@@ -14125,7 +14125,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_8000252c_1",
-        "lines": [688, 717],
+        "lines": [700, 734],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2147493236,
@@ -14190,7 +14190,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002574_0",
-        "lines": [283, 287],
+        "lines": [286, 290],
         "file": "ZesuExec/Fn/DTF/AuthStep.lean"},
        "target_sym": null,
        "target": 2147493236,
@@ -14204,7 +14204,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002574_1",
-        "lines": [863, 887],
+        "lines": [892, 917],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2148362592,
@@ -14227,7 +14227,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002600_0",
-        "lines": [509, 554],
+        "lines": [505, 554],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2148362592,
@@ -14292,7 +14292,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002654_0",
-        "lines": [563, 593],
+        "lines": [563, 596],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2148362592,
@@ -14306,7 +14306,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002654_1",
-        "lines": [719, 752],
+        "lines": [736, 771],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2147493520,
@@ -14371,7 +14371,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002690_0",
-        "lines": [289, 293],
+        "lines": [292, 296],
         "file": "ZesuExec/Fn/DTF/AuthStep.lean"},
        "target_sym": null,
        "target": 2147493520,
@@ -14385,7 +14385,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002690_1",
-        "lines": [889, 913],
+        "lines": [919, 945],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2148362592,
@@ -14408,7 +14408,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_800026d4_0",
-        "lines": [595, 625],
+        "lines": [598, 631],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2148362592,
@@ -14422,7 +14422,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_800026d4_1",
-        "lines": [754, 787],
+        "lines": [773, 808],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2147493648,
@@ -14487,7 +14487,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002710_0",
-        "lines": [295, 299],
+        "lines": [298, 302],
         "file": "ZesuExec/Fn/DTF/AuthStep.lean"},
        "target_sym": null,
        "target": 2147493648,
@@ -14501,7 +14501,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002710_1",
-        "lines": [915, 939],
+        "lines": [947, 973],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2148362592,
@@ -14524,7 +14524,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002754_0",
-        "lines": [627, 655],
+        "lines": [633, 666],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2148362592,
@@ -14538,7 +14538,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002754_1",
-        "lines": [789, 819],
+        "lines": [810, 845],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2147493788,
@@ -14603,7 +14603,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_8000279c_0",
-        "lines": [301, 305],
+        "lines": [304, 308],
         "file": "ZesuExec/Fn/DTF/AuthStep.lean"},
        "target_sym": null,
        "target": 2147493788,
@@ -14617,7 +14617,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_8000279c_1",
-        "lines": [941, 965],
+        "lines": [975, 1002],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2148362592,
@@ -14640,7 +14640,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002820_0",
-        "lines": [330, 343],
+        "lines": [352, 366],
         "file": "ZesuExec/Fn/DTF/AuthExit.lean"},
        "target_sym": null,
        "target": 2147492896,
@@ -14654,7 +14654,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002820_1",
-        "lines": [345, 358],
+        "lines": [368, 382],
         "file": "ZesuExec/Fn/DTF/AuthExit.lean"},
        "target_sym": null,
        "target": 2147494340,
@@ -14668,7 +14668,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002820_2",
-        "lines": [360, 371],
+        "lines": [384, 396],
         "file": "ZesuExec/Fn/DTF/AuthExit.lean"},
        "target_sym": null,
        "target": 2147754380,
@@ -14682,7 +14682,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002820_3",
-        "lines": [373, 382],
+        "lines": [398, 407],
         "file": "ZesuExec/Fn/DTF/AuthExit.lean"},
        "target_sym": null,
        "target": 2147494340,
@@ -14696,7 +14696,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002820_4",
-        "lines": [821, 843],
+        "lines": [847, 871],
         "file": "ZesuExec/Fn/DTF/AuthFields.lean"},
        "target_sym": null,
        "target": 2147493992,
@@ -14761,7 +14761,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002868_0",
-        "lines": [307, 311],
+        "lines": [310, 314],
         "file": "ZesuExec/Fn/DTF/AuthStep.lean"},
        "target_sym": null,
        "target": 2147493992,
@@ -14775,7 +14775,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002868_1",
-        "lines": [276, 289],
+        "lines": [298, 311],
         "file": "ZesuExec/Fn/DTF/AuthExit.lean"},
        "target_sym": null,
        "target": 2147492896,
@@ -14789,7 +14789,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002868_2",
-        "lines": [291, 304],
+        "lines": [313, 326],
         "file": "ZesuExec/Fn/DTF/AuthExit.lean"},
        "target_sym": null,
        "target": 2147494340,
@@ -14803,7 +14803,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002868_3",
-        "lines": [306, 317],
+        "lines": [328, 339],
         "file": "ZesuExec/Fn/DTF/AuthExit.lean"},
        "target_sym": null,
        "target": 2147754380,
@@ -14817,7 +14817,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002868_4",
-        "lines": [319, 328],
+        "lines": [341, 350],
         "file": "ZesuExec/Fn/DTF/AuthExit.lean"},
        "target_sym": null,
        "target": 2147494340,
@@ -15201,7 +15201,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002c68_0",
-        "lines": [279, 302],
+        "lines": [290, 313],
         "file": "ZesuExec/Fn/DTF/AuthOwn.lean"},
        "target_sym": null,
        "target": 2147495628,
@@ -15419,7 +15419,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002ecc_0",
-        "lines": [304, 372],
+        "lines": [315, 383],
         "file": "ZesuExec/Fn/DTF/AuthOwn.lean"},
        "target_sym": null,
        "target": 2148402880,
@@ -15456,7 +15456,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002ee0_1",
-        "lines": [417, 474],
+        "lines": [428, 485],
         "file": "ZesuExec/Fn/DTF/AuthOwn.lean"},
        "target_sym": null,
        "target": 2147753784,
@@ -15502,7 +15502,7 @@
      [{"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002f54_0",
-        "lines": [109, 119],
+        "lines": [117, 129],
         "file": "ZesuExec/Fn/DTF/AuthOwn.lean"},
        "target_sym": null,
        "target": 2147492580,
@@ -15516,7 +15516,7 @@
       {"thm":
        {"rule": "manual",
         "name": "ZesuExec.Fn.DTF.DTF.leaf_80002f54_1",
-        "lines": [121, 131],
+        "lines": [131, 142],
         "file": "ZesuExec/Fn/DTF/AuthOwn.lean"},
        "target_sym": null,
        "target": 2147492580,
