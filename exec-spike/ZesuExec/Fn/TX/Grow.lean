@@ -122,7 +122,7 @@ theorem TX.leaf_800003d4_0 :
   intro σ m hA hc
   have hcm := A3d4_common hA
   have hpre := hcm.2.1
-  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 389; unfold bTail; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run3d4_leaves[0]!).exit = .call 0x800e06c0 0x80000400 := by decide
   rw [hx] at hex ⊢
@@ -387,7 +387,7 @@ theorem TX.leaf_80000400_1 :
   intro σ m hA hc
   obtain ⟨hcm, -, hsp⟩ := ret_400 hA
   have hpre := hcm.2.1
-  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 377; unfold bTail; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run400_leaves[1]!).exit = .call 0x80041f38 0x8000042c := by decide
   rw [hx] at hex ⊢
@@ -743,7 +743,7 @@ theorem TX.leaf_8000042c_0 :
   intro σ m hA _
   have hcm := A42c_common hA
   have hpre := hcm.2.1
-  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 324; unfold bTail; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run42c_leaves[0]!).exit = .at 0x80000460 := by decide
   rw [hx] at hex ⊢
@@ -982,7 +982,7 @@ theorem TX.leaf_8000025c_1 :
   intro σ m hA hc
   have hcm := (ret_25c hA).1
   have hpre := hcm.2.1
-  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 539; unfold bTail; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run25c_leaves[1]!).exit = .at 0x80000460 := by decide
   rw [hx] at hex ⊢
@@ -1344,7 +1344,7 @@ theorem TX.leaf_8000025c_4 :
   intro σ m hA hc
   have hcm := (ret_25c hA).1
   have hpre := hcm.2.1
-  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 539; unfold bTail; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run25c_leaves[4]!).exit = .call 0x80042494 0x800003d4 := by decide
   rw [hx] at hex ⊢
@@ -1419,7 +1419,7 @@ theorem TX.leaf_8000025c_5 :
   intro σ m hA hc
   have hcm := (ret_25c hA).1
   have hpre := hcm.2.1
-  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 539; unfold bTail; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run25c_leaves[5]!).exit = .call 0x8004218c 0x80000340 := by decide
   rw [hx] at hex ⊢
@@ -1565,7 +1565,7 @@ theorem TX.leaf_80000340_2 :
   intro σ m hA _
   obtain ⟨hcm, -, hsp⟩ := ret_340 hA
   have hpre := hcm.2.1
-  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 478; unfold bTail; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run340_leaves[2]!).exit = .call 0x80042494 0x800003d4 := by decide
   rw [hx] at hex ⊢

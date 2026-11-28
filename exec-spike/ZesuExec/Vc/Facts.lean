@@ -115,11 +115,21 @@ def closeByConj (g : MVarId) : MetaM Bool := g.withContext do
 
 syntax (name := zesuApplyCmd) "zesu_apply" : tactic
 
+/-- The head constant of the `Env` in a type `… → Oblig.holds env o`. -/
+def obligEnvHead? (ty : Expr) : Option Name :=
+  let c := ty.getForallBody
+  if c.isAppOfArity ``Oblig.holds 2 then c.appFn!.appArg!.getAppFn.constName? else none
+
 /-- Close the goal by a `@[zesu_oblig]` lemma whose premises are hypotheses or conjuncts of
-hypotheses (the lemma's arguments come from unifying its conclusion with the goal). -/
+hypotheses (the lemma's arguments come from unifying its conclusion with the goal). A lemma whose
+`Env` has another head constant than the goal's (another function's `Env`) is skipped without
+unifying, so a goal no lemma is about fails at once. -/
 @[tactic zesuApplyCmd] def evalZesuApply : Tactic := fun _ => withMainContext do
   let g ← getMainGoal
+  let gHead := obligEnvHead? (← instantiateMVars (← g.getType))
   for n in zesuObligs (← getEnv) do
+    if let (some a, some b) := (gHead, obligEnvHead? (← getConstInfo n).type) then
+      if a != b then continue
     let s ← saveState
     try
       let gs ← g.apply (← mkConstWithFreshMVarLevels n)

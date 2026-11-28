@@ -7,10 +7,10 @@ import ZesuExec.Axioms
 # Obligation framework tests (programme plan S2 step 6)
 
 A toy function from four words: `li a0,3; L: addi a0,a0,-1; bnez a0,L; ret`. Cut points at the
-entry and at the loop head `L`; three leaves. `zesu_auto` closes nothing (no automation before
-S4); with every item proved by hand `zesu_assemble Toy` yields `Toy.reach`; a copy `Toy2` of the
-plan without the theorem for leaf 1 of `L` yields `Toy2.Open` with exactly that field. Last, the
-legacy table's theorem names exist.
+entry and at the loop head `L`; three leaves. `zesu_auto` closes the return leaf of `L`
+(obligation, budget and postcondition, programme plan S11); with every other item proved by hand
+`zesu_assemble Toy` yields `Toy.reach`; a copy `Toy2` of the plan without the theorem for leaf 1
+of `L` yields `Toy2.Open` with exactly that field. Last, the legacy table's theorem names exist.
 -/
 
 namespace ZesuExec.Test.VcTest
@@ -91,7 +91,7 @@ info: ZesuExec.Test.VcTest.Toy: 2 cut points
 zesu_plan Toy := toyPlan
 
 /--
-info: ZesuExec.Test.VcTest.Toy: zesu_auto closed 0 of 5 items
+info: ZesuExec.Test.VcTest.Toy: zesu_auto closed 1 of 5 items
 -/
 #guard_msgs in
 zesu_auto Toy
@@ -135,31 +135,8 @@ theorem Toy.leaf_80000004_0 :
   refine ⟨c1, by simp [Toy.plan, toyPlan, cuts], he, ⟨he, r1 ▸ h1, ?_, ?_⟩, ?_⟩ <;>
     simp only [c1, ← r10] <;> bv_omega
 
-theorem Toy.leaf_80000004_1 :
-    LeafGoal Toy.plan Toy.plan.cuts[1]! ((Toy.plan.leaves 0x80000004)[1]!) := by
-  show LeafGoal Toy.plan c1 (run1_leaves[1]!)
-  intro g m hA hc
-  obtain ⟨_, h1, hlo, _⟩ := hA
-  have heq := hc _ (List.mem_singleton_self _)
-  simp [SBool.eval, Sym.eval, BinOp.eval, envOf, c1] at heq
-  have hs : run1_leaves[1]!.S.steps - c1.S.steps = 3 := rfl
-  have hob : run1_leaves[1]!.obligs = [.aligned (.bin .and (.var 1) (.lit 18446744073709551614)) 4] :=
-    rfl
-  have he0 : run1_leaves[1]!.exit = .ret (.bin .and (.var 1) (.lit 18446744073709551614)) := rfl
-  rw [hs, hob, he0]
-  refine ⟨?_, by simp [c1]; omega, fun m' hm' _ _ => ?_⟩
-  · intro o ho
-    simp only [List.mem_singleton] at ho
-    subst ho
-    simp [Oblig.holds, Sym.eval, BinOp.eval, envOf, c1, h1, retAddr]
-  · have r10 : (Sym.bin .add (.var 10) (.lit 18446744073709551615)).eval (c1.env g m) = m'.reg 10 :=
-      hm'.regs 10
-    simp [Sym.eval, BinOp.eval, envOf, c1] at r10
-    show m'.reg 10 = 0
-    rw [← r10, heq]; rfl
-
 /--
-info: ZesuExec.Test.VcTest.Toy: 5 items, 0 auto, 5 manual, 0 open
+info: ZesuExec.Test.VcTest.Toy: 5 items, 1 auto, 4 manual, 0 open
 -/
 #guard_msgs in
 zesu_assemble Toy

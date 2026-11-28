@@ -92,8 +92,7 @@ theorem TX.leaf_8000010c_0 :
   refine err_leaf rfl (fun σ m hA => envP_ok (A10c_common hA) (by decide) (by decide))
     (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_)
     (fun σ m hA hc => ?_)
-  · have : (run10c_leaves[0]!).S.steps - S10c.steps = 21 := by decide
-    show _ ≤ 32 * outerLeft m + 132; simp only [cut10c, mkCut] at *; omega
+  · budget_auto
   obtain ⟨hcm, o, k, L, hs, before, hb⟩ := ret10c hA
   have h1 : SBool.eval (envP 0x180 σ m) (SBool.ne (Sym.init 0 224 2) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; exact List.mem_singleton.mpr rfl)
@@ -111,8 +110,7 @@ theorem TX.leaf_8000010c_1 :
   refine err_leaf rfl (fun σ m hA => envP_ok (A10c_common hA) (by decide) (by decide))
     (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_)
     (fun σ m hA hc => ?_)
-  · have : (run10c_leaves[1]!).S.steps - S10c.steps = 24 := by decide
-    show _ ≤ 32 * outerLeft m + 132; simp only [cut10c, mkCut] at *; omega
+  · budget_auto
   obtain ⟨hcm, o, k, L, hs, before, hb⟩ := ret10c hA
   have h1 : SBool.eval (envP 0x180 σ m) (SBool.eq (Sym.init 0 224 2) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; simp)
@@ -140,8 +138,7 @@ theorem TX.leaf_8000010c_2 :
   refine err_leaf rfl (fun σ m hA => envP_ok (A10c_common hA) (by decide) (by decide))
     (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_)
     (fun σ m hA hc => ?_)
-  · have : (run10c_leaves[2]!).S.steps - S10c.steps = 26 := by decide
-    show _ ≤ 32 * outerLeft m + 132; simp only [cut10c, mkCut] at *; omega
+  · budget_auto
   obtain ⟨hcm, o, k, L, hs, before, hb⟩ := ret10c hA
   have h1 : SBool.eval (envP 0x180 σ m) (SBool.eq (Sym.init 0 224 2) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; simp)

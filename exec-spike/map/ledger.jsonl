@@ -1699,3 +1699,5 @@
 {"schema": 2, "rec": "stop", "id": 1, "agent": "S10Tracking", "ts": "2026-11-28T06:01:24Z", "outcome": "closed", "note": "S10.1-S10.7; gate passed in worktree"}
 {"schema": 2, "rec": "start", "id": 1, "ts": "2026-11-28T05:43:26Z", "fn": null, "item": "S9.1 viewer", "kind": "infra", "agent": "S9Viewer"}
 {"schema": 2, "rec": "stop", "id": 1, "agent": "S9Viewer", "ts": "2026-11-28T06:00:55Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:10:38Z", "fn": null, "item": "S11 budget_auto/oblig_auto: baseline measures, goal grammar, tactics", "kind": "rule", "agent": "S11Auto"}
+{"schema": 2, "rec": "stop", "id": 2, "agent": "S11Auto", "ts": "2026-11-28T07:12:00Z", "outcome": "closed", "note": "budget_auto/oblig_auto/leaf_diag one pass; TX zesu_auto moved to Facts; 39 TX budget subproofs -> budget_auto; toy leaf auto"}
