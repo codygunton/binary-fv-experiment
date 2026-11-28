@@ -60,7 +60,7 @@ sym_runw runJ4 := runWith zesuImage sums cutPcs 64 400 0x800cb5a8 SJ4
 /-! ## Parameters, environments, assertions -/
 
 structure Sig where
-  A : AllocAssumptions zesuImage
+  A : AllocContract zesuImage
   L : List (Word × Nat)
   items : List Byte
   m : Machine
@@ -180,8 +180,10 @@ def freeC : Callee Sig zesuImage where
   entry := freeEntry
   bound := 42
   Pre := fun g L' m => g.A.Heap L' m ∧ (m.reg 11, (m.reg 12).toNat) ∈ L' ∧
-    0 < (m.reg 12).toNat ∧ (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 4 ∧ StackOk m 16 ∧
-    RetAligned m ∧ CalleeFrameFree (g.A.Priv L') m
+    0 < (m.reg 12).toNat ∧ (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 4 ∧
+    ((m.reg 13).toNat ≤ 3 ∨ 8 < (m.reg 12).toNat) ∧ StackOk m 16 ∧ RetAligned m ∧
+    CalleeFrameFree (g.A.Priv L') m ∧
+    ∀ a, InRange (m.reg 2 - 16) 16 a → ¬ InRange (m.reg 11) (m.reg 12).toNat a
   Post := fun g L' m m' => (Returns m m' ∧
       SameOutside (fun a => g.A.Priv L' a ∨ InRange (m.reg 11) (m.reg 12).toNat a ∨
         InRange (m.reg 2 - 16) 16 a) m m' ∧
@@ -192,7 +194,7 @@ def freeC : Callee Sig zesuImage where
 
 /-- `Post` and, on the no-growth branch, the list's items unchanged: the early return writes
 only F1's frame and the header (`f1_spec_keep`). -/
-def PostKeep (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (items : List Byte)
+def PostKeep (A : AllocContract zesuImage) (L : List (Word × Nat)) (items : List Byte)
     (m m' : Machine) : Prop :=
   Post A L items m m' ∧
   ((m.reg 12).toNat ≤ (wordAt m (m.reg 10 + 16)).toNat → BytesAt m' (wordAt m (m.reg 10)) items)
@@ -222,7 +224,7 @@ def vcPlan : PlanW Sig zesuImage where
   (Entry.of_pre h.2.2).cap
 
 @[zesu_fact] theorem AE.grown_or {g : Sig} {m : Machine} (h : AE g m) :
-    ((-if BitVec.ult (m.reg 12 >>> 1 + m.reg 12 + BitVec.ofNat 64 2) (m.reg 12) = true
+    ((- if BitVec.ult (m.reg 12 >>> 1 + m.reg 12 + BitVec.ofNat 64 2) (m.reg 12) = true
         then BitVec.ofNat 64 1 else BitVec.ofNat 64 0) |||
       (m.reg 12 >>> 1 + m.reg 12 + BitVec.ofNat 64 2)) = BitVec.ofNat 64 (grown (m.reg 12).toNat) :=
   g_or' _ (AE.req h)
@@ -366,7 +368,7 @@ theorem F1.call_800cb40c_0 :
 
 /-- `alloc_step` split for `ExitGoal`: the callee's precondition, and what every result of
 `alloc` gives at the return site. -/
-theorem alloc_call {A : AllocAssumptions zesuImage} {L : List (Word × Nat)} {items : List Byte}
+theorem alloc_call {A : AllocContract zesuImage} {L : List (Word × Nat)} {items : List Byte}
     {m : Machine} (E : Entry A L items m) {env : Env} {S Sl : SState} {mk mc : Machine} {F : Nat}
     (he : EnvOk m env) (hS : S.regions = [frameR, headerR, allocObjR])
     (hSl : Sl.regions = [frameR, headerR, allocObjR]) (hmc : Match env Sl mc) (hwf : Env.WF env S)
@@ -557,7 +559,7 @@ theorem AJ4.ok {g : Sig} {m : Machine} (h : AJ4 g m) :
   JoinIn.ok (by decide) (by decide) h.2.2.2.2.2.2.2
 
 /-- The new block's bytes survive a run of F1's own code. -/
-theorem Entry.blockSame {A : AllocAssumptions zesuImage} {L : List (Word × Nat)}
+theorem Entry.blockSame {A : AllocContract zesuImage} {L : List (Word × Nat)}
     {items : List Byte} {m : Machine} (E : Entry A L items m) {env : Env} {S : SState}
     {m1 m2 : Machine} {p' : Word} (he : EnvOk m env) (hS : S.regions = [frameR, headerR, allocObjR])
     (hfr : SameOutside (InWritable env S) m1 m2)
@@ -577,7 +579,7 @@ theorem Entry.blockSame {A : AllocAssumptions zesuImage} {L : List (Word × Nat)
     exact E.ownNotPriv (E.inWritable2 he hS hw) (hblk _ (by simpa only [grown, elemBytes] using hin))
 
 /-- The scratch word survives a run of F1's own code. -/
-theorem Entry.scratchKeep {A : AllocAssumptions zesuImage} {L : List (Word × Nat)}
+theorem Entry.scratchKeep {A : AllocContract zesuImage} {L : List (Word × Nat)}
     {items : List Byte} {m : Machine} (E : Entry A L items m) {env : Env} {S : SState}
     {m1 m2 : Machine} {bs : List Byte} (hbs : bs.length = 8) (he : EnvOk m env)
     (hS : S.regions = [frameR, headerR, allocObjR]) (hfr : SameOutside (InWritable env S) m1 m2)
@@ -732,8 +734,9 @@ theorem F1.leaf_800cb588_1 :
   have hheapc : A.Heap L3 mc := A.heap_frame' L3 m3 mc hheap (fun a ha => hfr a fun hw =>
     E.ownNotPriv (own a hw) (hpriv a ha)) hp
   have hpre : freeC.Pre ⟨A, L, items, m⟩ L3 mc := by
-    refine ⟨hheapc, ?_, ?_, ?_, by rw [r13]; decide, E.calleeStack (hinv.2.trans hp) r2,
-      by unfold RetAligned; rw [r1]; decide, E.calleeFree hpriv r2⟩
+    refine ⟨hheapc, ?_, ?_, ?_, by rw [r13]; decide, .inl (by rw [r13]; decide),
+      E.calleeStack (hinv.2.trans hp) r2, by unfold RetAligned; rw [r1]; decide,
+      E.calleeFree hpriv r2, by rw [r11, r12]; exact E.calleeNotOld hc0 r2⟩
     · rw [r11, r12, ← hL3]; exact List.mem_append_left _ hbufL
     · rw [r12]; simp only [elemBytes]; omega
     · rw [r12]; simp only [elemBytes] at hcR ⊢; omega

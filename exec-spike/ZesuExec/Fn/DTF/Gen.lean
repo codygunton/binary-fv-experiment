@@ -1774,7 +1774,7 @@ def fieldFrom (d : CutData) (l : Leaf) (f : Loc × FieldVal) : Bool :=
         (zeroBytes (f.1.sym l.S) n && l.conds.contains (.eq (.init 0 (ko + 8) 8) (.lit 0))) ||
         (decide (o + n ≤ 20 ∧ ko % 8 = 0) && l.conds.contains (.eq (.init 0 (ko + 8) 8) (.lit 20)) &&
           payBytes (f.1.sym l.S) (.var (64 + ko / 8)) o n)
-    | .lc _ | .lt _ | .lv _ | .ty | .cst _ => false
+    | .lc _ | .lt _ | .lv _ | .ty | .cst _ | .hwalk _ => false
     | .acc _ n _ cur fin => f.1.sym l.S == .lit 0 && decide (cur < 32 ∧ fin < 32) &&
         l.S.reg cur == (Loc.slot ko).sym d.shape.S &&
         l.S.reg fin == .bin .add ((Loc.slot ko).sym d.shape.S) (.init 0 (ko + 8) 8) &&
@@ -1908,7 +1908,7 @@ theorem fieldFrom_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
       rw [F1.add_add_ofNat]
     · rw [h0]
       simp [Sym.eval, limb, be, F2.bigEndian, w]
-  | lc _ | lt _ | lv _ | ty | cst _ => simp at h
+  | lc _ | lt _ | lv _ | ty | cst _ | hwalk _ => simp at h
 
 /-- `s` is `A` shifted up by a byte with `B` below. -/
 def orShift (s A B : Sym) : Bool :=

@@ -465,7 +465,7 @@ theorem DTF.leaf_80002ee0_1 :
   have hidx : IdxOk (siteAt 155).kind σ (L, [], ⟨[], []⟩) m' := by
     rw [show (siteAt 155).kind = .free by decide]
     exact ⟨free_pre_dtf CF.common hsp CF.aligned hlive' hmem (by omega) (by omega)
-      (by rw [r13]; decide), X, hlive', hmem⟩
+      (by rw [r13]; decide) (by omega), X, hlive', hmem⟩
   have hsx : SiteX (table[155]!).pc σ (L, [], ⟨[], []⟩) m' := siteX_of_no (by decide) _ _ _
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩
   have hfld := CF.fields

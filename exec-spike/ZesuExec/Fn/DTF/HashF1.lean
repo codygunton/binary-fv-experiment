@@ -137,7 +137,7 @@ theorem hash_ret {σ : Sig} {m : Machine} (hA : (mkCut (table[108]!)).A σ m) :
     ∃ c h p n j before, HashList σ c h p ∧
       skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧ n ≤ j ∧
       m.reg 23 = σ.inp + w (c + h + j) ∧ m.reg 22 = w (p - j) ∧ m.reg 25 = w n ∧
-      ListHdr σ m 0x258 n 0 ∧
+      ListHdr σ m 0x258 n 0 ∧ HashesOk (TX.itemPayload (σ.payload.drop c) h p) n ∧
       BytesAt m (σ.fr + w 0x2e0) (F2.result40 (σ.inp + w (c + h + j))
         ((σ.payload.drop (c + h + j)).take (p - j)) before) := by
   have hpc : (table[108]!).pc ≠ entry := by decide
@@ -158,7 +158,7 @@ theorem hash_ret {σ : Sig} {m : Machine} (hA : (mkCut (table[108]!)).A σ m) :
   have hsx := hsite.2.2.2.2.2.2.2.2
   rw [show (table[108]!).pc = 0x800020c0 by decide] at hsx
   simp only [SiteX, if_true] at hsx
-  obtain ⟨⟨c, h, p, n, j, hl, hsk, hnj, r23, r22, r25, hdr⟩, a11, a12⟩ := hsx
+  obtain ⟨⟨c, h, p, n, j, hl, hsk, hnj, r23, r22, r25, hdr, hok⟩, a11, a12⟩ := hsx
   obtain ⟨hq, hp⟩ := hpost
   replace hq : F2.Post mc m := by rw [hkind] at hq; exact hq
   have hle := hashList_le hpre h3 hl
@@ -193,7 +193,7 @@ theorem hash_ret {σ : Sig} {m : Machine} (hA : (mkCut (table[108]!)).A σ m) :
     (by rw [hl12]; simp only [List.length_take, List.length_drop, hlen]; omega) hbb hbl
   rw [hout, a11, r23] at hres
   exact ⟨c, h, p, n, j, before, hl, hsk, hnj, e23.trans r23, e22.trans r22, e25.trans r25, hdr',
-    hres⟩
+    hok, hres⟩
 
 /-! ## `ensureTotalCapacity` at DTF's call -/
 
@@ -328,10 +328,10 @@ theorem hash_item {σ : Sig} {m : Machine} (hA : (mkCut (table[108]!)).A σ m)
       skip (n + 1) (TX.itemPayload (σ.payload.drop c) h p) = some (j + k) ∧ n ≤ j ∧ 32 ≤ k ∧
       j + k ≤ p ∧ c + h + p ≤ σ.len ∧
       m.reg 23 = σ.inp + w (c + h + j) ∧ m.reg 22 = w (p - j) ∧ m.reg 25 = w n ∧
-      ListHdr σ m 0x258 n 0 ∧
+      ListHdr σ m 0x258 n 0 ∧ HashesOk (TX.itemPayload (σ.payload.drop c) h p) (n + 1) ∧
       (Sym.init 0 (0x2e0 + 24) 8).eval (envOf (table[108]!).shape σ m) = w k ∧
       TX.wordAt m (σ.fr + w 0x2e0) = σ.inp + w (c + h + j + (k - 32)) := by
-  obtain ⟨c, h, p, n, j, before, hl, hsk, hnj, r23, r22, r25, hdr, hres⟩ := hash_ret hA
+  obtain ⟨c, h, p, n, j, before, hl, hsk, hnj, r23, r22, r25, hdr, hok, hres⟩ := hash_ret hA
   have F := facts_of_A (d := table[108]!) (by decide) (by decide) hA
   have hpre := F.common.2.1
   have hav := F.common.avail
@@ -355,14 +355,16 @@ theorem hash_item {σ : Sig} {m : Machine} (hA : (mkCut (table[108]!)).A σ m)
     rw [hP] at hlen
     have := congrArg BitVec.toNat hlen
     simpa [w] using this
+  have hp32' : p' = 32 := by have := decode_p_lt hd; omega
   obtain ⟨hh9, h128⟩ := decode_hdr hd
   have hcons := decode_consumed_le hd
   simp only [TX.itemConsumed, List.length_take, List.length_drop] at hcons
   have hcons' : (h' + p') % 2 ^ 64 = h' + 32 := by omega
   refine ⟨c, h, p, n, j, h' + 32, hl, hsk, ?_, hnj, by omega, by omega, hle, r23, r22, r25, hdr,
-    ?_, ?_⟩
+    hashesOk_succ hok hsk (h := h') ?_, ?_, ?_⟩
   · have := skip_snoc hsk (by rw [itemPayload_drop]; exact hd)
     rw [this]; simp only [TX.itemConsumed, hcons']
+  · rw [itemPayload_drop, hd, hl0, hp32']
   · rw [hK]; apply BitVec.eq_of_toNat_eq; simp only [w, BitVec.toNat_ofNat]; omega
   · have hp0 : p' ≠ 0 := fun h0 => by rw [h0] at hp32; simp at hp32
     rw [hW, if_neg (fun h1 => hp0 (h128 h1)), show h' + 32 - 32 = h' by omega]
@@ -388,7 +390,7 @@ theorem DTF.leaf_800020c0_3 :
     (by decide) ?_
   · intro σ m hA hc
     obtain ⟨he, hli, hln⟩ := hash_conds hc
-    obtain ⟨c, h, p, n, j, k, -, -, -, -, hk32, hjk, hle, -, -, -, -, -, hW⟩ :=
+    obtain ⟨c, h, p, n, j, k, -, -, -, -, hk32, hjk, hle, -, -, -, -, -, -, hW⟩ :=
       hash_item hA he hli hln
     have hob : ((leavesAt 0x800020c0)[3]!).obligs = [.inBounds 3 0 (.var 156) 1 8,
         .inBounds 3 8 (.var 156) 1 8, .inBounds 3 16 (.var 156) 1 8,
@@ -407,7 +409,7 @@ theorem DTF.leaf_800020c0_3 :
       simp only [Oblig.holds, env_size3, hv] <;> omega
   intro σ m m' hA hc C CF
   obtain ⟨he, hli, hln⟩ := hash_conds hc
-  obtain ⟨c, h, p, n, j, k, hl, hsk, hsk1, hnj, hk32, hjk, hle, r23, r22, r25, hdr, hK, -⟩ :=
+  obtain ⟨c, h, p, n, j, k, hl, hsk, hsk1, hnj, hk32, hjk, hle, r23, r22, r25, hdr, hok, hK, -⟩ :=
     hash_item hA he hli hln
   have hpre := C.F.common.2.1
   have e23 := ctx_reg C (i := 23) (i' := 23) (by decide) (by decide) (by decide)
@@ -424,7 +426,7 @@ theorem DTF.leaf_800020c0_3 :
     simp only [w]; rw [BitVec.ofNat_add]
   have hdr' := hdr_keep C (o := 0x258) (by decide) (by decide) (by decide) (by decide) hdr
   have hitem : HashItem σ m' 0 := ⟨c, h, p, n, j, k, hl, hsk, hsk1, by omega, hk32,
-    e23.trans r23, e22.trans r22, e25.trans r25, e20, hdr'⟩
+    e23.trans r23, e22.trans r22, e25.trans r25, e20, hdr', hok⟩
   have hsp : m'.reg 2 = σ.fr + w 0 := CF.shape.1 (2, .fr 0) (by decide) _ rfl
   have hhdr : m'.reg 10 = σ.fr + w 0x258 := CF.shape.1 (10, .fr 0x258) (by decide) _ rfl
   have hao : m'.reg 11 = σ.ao + w 0 := CF.shape.1 (11, .ao 0) (by decide) _ rfl

@@ -6,7 +6,8 @@ cd "$(dirname "$0")/.." && exec python3 tools/gen_image.py --elf /home/cody/zesi
     rlp_decode.nextUint64 'array_list.Aligned([32]u8,null).toOwnedSlice' \
     'array_list.Aligned(input.AccessListEntry,null).toOwnedSlice' rlp_decode.decodeParentHeader \
     rlp_decode.txAccessList rlp_decode.decodeTxFields alt_fl_alloc.alloc alt_fl_alloc.free memcpy \
-    memmove memset zkvm_sha256 ssz_output.sparseRoot ssz_output.progressiveRootAt \
+    memmove memset scratch_arena.alloc scratch_arena.free scratch_arena.remap zkvm_sha256 \
+    ssz_output.sparseRoot ssz_output.progressiveRootAt \
   --rodata 0x801136d8:32 0x80114fb8:80 0x801152b0:16 0x80110050:40 0x8010fe00:8 0x801153e0:32 \
     0x801154c0:32 \
     0x80113728:32 0x80113748:32 0x80113768:32 0x80113788:32 0x801137a8:32 0x801137c8:32 \

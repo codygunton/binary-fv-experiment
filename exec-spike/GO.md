@@ -220,3 +220,22 @@ before the harness dumps (all-zero output); not diagnosed.
 **Forecast implication.** A short service-only function costs a hand proof of ~100–300 lines
 against `next`; a CSR the executor meets inline still ends a symbolic path (an executor rule that
 turns a service site into a call-like leaf is the next step for functions with inline CSRs).
+
+## S13
+
+**Proved.** `alt_fl_alloc.alloc` (`AllocF.allocf_spec`, bound 53; 9 cuts, 52 items) and `free`
+(`FreeF.freef_spec`, bound 42; 4 cuts, 36 items) to Sail level over one free-list invariant
+(`Fn/Alloc/Inv.lean`); `scratch_arena.free` (`FS.fs_spec`, 6 items) and `remap` (`RS.rs_spec`,
+9 items). Every item by hand (0 auto). `AllocContract` now has a proved instance (`Alloc.contract`);
+F1, F4, F5, TX (and TX compliance) end theorems carry no allocator hypothesis; DTF re-pointed.
+
+**Contract rule.** `pre_nonvacuous` for alloc, free, F1, F4, F5, TX (concrete start-up machines);
+`post_snapshot` for alloc and free on 16 Unicorn snapshots; `zesu-difftest` agrees on all 16.
+
+**Measures.** Linked-structure code: free 36 items over 4 cut points (~9 per cut), alloc 52 over
+9 (~6 per cut); scratch free/remap 7.5 per cut. Rework on the five callers: one edit per free site
+(5 sites: F1, F4/F5 shared `free_step`, TX, DTF) plus a mechanical rename; no leaf re-proved.
+
+**Not done.** `scratch_arena.alloc` (88 instructions, one indirect call): its indirect target is to
+be fixed by `Pre` (`ctx + 8` holds `0x801136d8`, `alt_fl_alloc.vtable`; the target is then read from
+rodata, as in F1). Cost: ledger items 23–25.

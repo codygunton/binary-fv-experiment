@@ -88,16 +88,34 @@
       "source": "S15 ssz_output.progressiveRootAt: Fn/SszRoot/Spec.lean (ProgPre/ProgPost) drafted from the code and ssz_output.zig:41-166; model Fn/SszRoot/Model.lean; STATEMENTS.md S15",
       "model": "ZesuExec.Fn.SszRoot.progressiveRootAt",
       "meaning": "model"
+    },
+    "f_80042494": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S13 alt_fl_alloc.alloc: Alloc.AllocPre/AllocPost (Fn/Alloc/Spec.lean) over the free-list invariant Fn/Alloc/Inv.lean, drafted from alt_fl_alloc.zig and FREELIST_ALLOC.md; former AllocAssumptions.alloc_spec (altFlAllocCallSpec, AltFlAllocPremises.v:230); log2 alignment <= 4 (S7 trust-base change); STATEMENTS.md S13"
+    },
+    "f_80041f38": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S13 alt_fl_alloc.free: Alloc.FreePre/FreePost (Fn/Alloc/Spec.lean); former AllocAssumptions.free_spec (altFlFreeCallSpec, AltFlAllocPremises.v:263) strengthened by log2_align <= 3 or len > 8, and the callee frame apart from the block; STATEMENTS.md S13"
+    },
+    "f_800db904": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S13 scratch_arena.free: Scratch.FreePre/FreePost (Fn/Scratch/Spec.lean) drafted from src/stateless/executor/scratch_arena.zig; STATEMENTS.md S13"
+    },
+    "f_800db944": {
+      "contract": "draft",
+      "review": "unreviewed",
+      "reviewer": "",
+      "source": "S13 scratch_arena.remap: Scratch.RemapPre/RemapPost (Fn/Scratch/Spec.lean) drafted from src/stateless/executor/scratch_arena.zig; STATEMENTS.md S13"
     }
   },
-  "assumed": [
-    "f_80042494",
-    "f_80041f38"
-  ],
-  "assumed_notes": {
-    "f_80042494": "AllocAssumptions (Fn/Assumed.lean): alloc_spec; structural field Arena/arena_split (S6 TX interface change, STATEMENTS.md); log2 alignment a2 <= 4 (S7 trust-base change approved by the user, diverges from zesislar's altFlMaxLog2Alignment := 3; evidence from alt_fl_alloc.zig and the disassembly in STATEMENTS.md)",
-    "f_80041f38": "AllocAssumptions (Fn/Assumed.lean): free_spec; structural field Arena/arena_split (S6 TX interface change, STATEMENTS.md); log2 alignment a3 <= 4 (S7 trust-base change approved by the user, diverges from zesislar's altFlMaxLog2Alignment := 3; evidence in STATEMENTS.md)"
-  },
+  "assumed": [],
+  "assumed_notes": {},
   "services": [
     "f_800e06c0"
   ],

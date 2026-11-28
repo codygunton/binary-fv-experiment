@@ -55,7 +55,7 @@ open ZesuExec ZesuExec.Sym ZesuExec.Machine ZesuExec.Vc
 abbrev w (n : Nat) : Word := BitVec.ofNat 64 n
 
 structure Sig where
-  A : AllocAssumptions zesuImage
+  A : AllocContract zesuImage
   g : Params
   m : Machine
 
@@ -172,6 +172,8 @@ def FieldVal.At (σ : Sig) (m : Machine) (c h p : Nat) (x : Word) : FieldVal →
   | .lv _ => x = w (legacyV (numVal 32 p (TX.itemPayload (σ.payload.drop c) h p))).2
   | .ty => x = σ.m.reg 12
   | .cst v => x = w v
+  | .hwalk _ => ∃ hs, walkList hash (TX.itemPayload (σ.payload.drop c) h p).length
+      (TX.itemPayload (σ.payload.drop c) h p) = some hs
 
 /-- `x` is `v` of item `v.k` when that item decodes; nothing is said otherwise. -/
 def FieldVal.Holds (σ : Sig) (m : Machine) (v : FieldVal) (x : Word) : Prop :=
@@ -248,21 +250,26 @@ def ListHdr (σ : Sig) (m : Machine) (o n r : Nat) : Prop :=
 def HashList (σ : Sig) (c h p : Nat) : Prop :=
   skip 10 σ.payload = some c ∧ F2.decode (σ.payload.drop c) = .success true h p
 
+/-- The first `n` items of the list payload `pl` are strings of 32 bytes (`hash` accepts each). -/
+def HashesOk (pl : List Byte) (n : Nat) : Prop :=
+  ∀ i < n, ∀ c, skip i pl = some c → ∃ h, F2.decode (pl.drop c) = .success false h 32
+
 /-- The `txHashList` loop (open assertion item 3) after `n` versioned hashes, `j` bytes of the
 list payload: the cursor `s7 = inp + c + h + j`, the bytes left `s6 = p - j`, the count
-`s9 = n`, the list header at `S-0x118` with `n` elements. -/
+`s9 = n`, the list header at `S-0x118` with `n` elements; the `n` items were 32-byte strings. -/
 def HashLoop (σ : Sig) (m : Machine) : Prop :=
   ∃ c h p n j, HashList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧
     n ≤ j ∧ m.reg 23 = σ.inp + w (c + h + j) ∧ m.reg 22 = w (p - j) ∧ m.reg 25 = w n ∧
-    ListHdr σ m 0x258 n 0
+    ListHdr σ m 0x258 n 0 ∧ HashesOk (TX.itemPayload (σ.payload.drop c) h p) n
 
 /-- The loop after the `n + 1`-th hash's item (`k` bytes, in `s4`) decoded, the cursor still at it;
-the header has room for `r` more. -/
+the header has room for `r` more; the `n + 1` items were 32-byte strings. -/
 def HashItem (σ : Sig) (m : Machine) (r : Nat) : Prop :=
   ∃ c h p n j k, HashList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧
     skip (n + 1) (TX.itemPayload (σ.payload.drop c) h p) = some (j + k) ∧ n + 1 ≤ j + k ∧
     32 ≤ k ∧ m.reg 23 = σ.inp + w (c + h + j) ∧ m.reg 22 = w (p - j) ∧ m.reg 25 = w n ∧
-    m.reg 20 = w k ∧ ListHdr σ m 0x258 n r
+    m.reg 20 = w k ∧ ListHdr σ m 0x258 n r ∧
+    HashesOk (TX.itemPayload (σ.payload.drop c) h p) (n + 1)
 
 /-- The slot `a0` of the store cut `0x80002138`: `p + 32 n`, `p` the header's buffer, `n = s9`. -/
 def HashSlot (σ : Sig) (m : Machine) : Prop :=
@@ -498,11 +505,11 @@ def famCallee (entry bound : Nat) (P : Sig → Idx → Machine → Prop)
   Post := fun σ x m m' => Q σ x m m' ∧ Preserved m m'
   spec := fun σ x m hpc hx => Reaches.preserve (h σ x m hpc hx)
 
-def allocPre (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m : Machine) : Prop :=
+def allocPre (A : AllocContract zesuImage) (L : List (Word × Nat)) (m : Machine) : Prop :=
   A.Heap L m ∧ 0 < (m.reg 11).toNat ∧ (m.reg 11).toNat < 2 ^ 63 ∧ (m.reg 12).toNat ≤ 4 ∧
     StackOk m 16 ∧ RetAligned m ∧ CalleeFrameFree (A.Priv L) m
 
-def allocPost (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m m' : Machine) : Prop :=
+def allocPost (A : AllocContract zesuImage) (L : List (Word × Nat)) (m m' : Machine) : Prop :=
   Returns m m' ∧ SameOutside (fun a => A.Priv L a ∨ InRange (m.reg 2 - 16) 16 a) m m' ∧
   ((m'.reg 10 = 0 ∧ A.Heap L m') ∨
    (m'.reg 10 ≠ 0 ∧ A.Heap (L ++ [(m'.reg 10, (m.reg 11).toNat)]) m' ∧
@@ -510,12 +517,14 @@ def allocPost (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m m' : 
     (∀ a, InRange (m'.reg 10) (m.reg 11).toNat a → A.Priv L a) ∧
     (∀ a, A.Priv (L ++ [(m'.reg 10, (m.reg 11).toNat)]) a → A.Priv L a)))
 
-def freePre (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m : Machine) : Prop :=
+def freePre (A : AllocContract zesuImage) (L : List (Word × Nat)) (m : Machine) : Prop :=
   A.Heap L m ∧ (m.reg 11, (m.reg 12).toNat) ∈ L ∧ 0 < (m.reg 12).toNat ∧
-    (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 4 ∧ StackOk m 16 ∧ RetAligned m ∧
-    CalleeFrameFree (A.Priv L) m
+    (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 4 ∧
+    ((m.reg 13).toNat ≤ 3 ∨ 8 < (m.reg 12).toNat) ∧ StackOk m 16 ∧ RetAligned m ∧
+    CalleeFrameFree (A.Priv L) m ∧
+    ∀ a, InRange (m.reg 2 - 16) 16 a → ¬ InRange (m.reg 11) (m.reg 12).toNat a
 
-def freePost (A : AllocAssumptions zesuImage) (L : List (Word × Nat)) (m m' : Machine) : Prop :=
+def freePost (A : AllocContract zesuImage) (L : List (Word × Nat)) (m m' : Machine) : Prop :=
   Returns m m' ∧
   SameOutside (fun a => A.Priv L a ∨ InRange (m.reg 11) (m.reg 12).toNat a ∨
     InRange (m.reg 2 - 16) 16 a) m m' ∧
@@ -555,9 +564,9 @@ theorem Kind.spec : ∀ (k : Kind) (σ : Sig) (x : Idx),
     Spec zesuImage k.entry k.bound (k.Pre σ x) (k.Post σ x)
   | .f2, _, _ => F2.f2_spec
   | .f1, σ, x => F1.f1_spec_keep σ.A x.1 x.2.1
-  | .f4, σ, x => F4.f4_spec σ.A x.1 x.2.1
+  | .f4, σ, x => F4.f4_spec_of σ.A x.1 x.2.1
   | .memcpy, _, _ => memcpy_spec zesuImage
-  | .tx, σ, x => TX.tx_spec σ.A x.2.2
+  | .tx, σ, x => TX.tx_spec_of σ.A x.2.2
   | .alloc, σ, x => σ.A.alloc_spec x.1
   | .remap, _, _ => F0.f0_spec
   | .free, σ, x => σ.A.free_spec x.1

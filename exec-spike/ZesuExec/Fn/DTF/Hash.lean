@@ -1,5 +1,6 @@
 import ZesuExec.Fn.DTF.Hand
 import ZesuExec.Fn.DTF.Leaves
+import ZesuExec.Fn.DTF.Bridge
 
 /-!
 # DTF: the `txHashList` loop (arm 3, programme plan S7 step 4)
@@ -138,6 +139,130 @@ theorem hashList_le {σ : Sig} (hpre : Pre σ.A σ.g σ.m) (h3 : σ.t = 3) {c h 
   rw [payload_len hpre] at this
   omega
 
+theorem hashesOk_zero (pl : List Byte) : HashesOk pl 0 := fun _ hi => absurd hi (Nat.not_lt_zero _)
+
+/-- One more 32-byte string at the cursor `j` after `n` items. -/
+theorem hashesOk_succ {pl : List Byte} {n j h : Nat} (hok : HashesOk pl n)
+    (hs : skip n pl = some j) (hd : F2.decode (pl.drop j) = .success false h 32) :
+    HashesOk pl (n + 1) := by
+  intro i hi c hc
+  rcases Nat.lt_or_ge i n with hlt | hge
+  · exact hok i hlt c hc
+  · obtain rfl : i = n := by omega
+    rw [hs, Option.some.injEq] at hc
+    subst hc
+    exact ⟨h, hd⟩
+
+/-- `Fits`'s `inner` holds for the payload of a list item among the first `n`. -/
+theorem fits_inner {inner : List Byte → Prop} : ∀ {k n : Nat} {b : List Byte} {c : Nat},
+    ItemsFit inner n b → skip k b = some c → k < n → ∀ {h p : Nat},
+    F2.decode (b.drop c) = .success true h p → inner (TX.itemPayload (b.drop c) h p)
+  | 0, _ + 1, b, c, hf, hs, _, h, p, hd => by
+    simp only [skip, Option.some.injEq] at hs; subst hs
+    simp only [List.drop_zero] at hd ⊢
+    simp only [ItemsFit, hd] at hf
+    exact hf.2.1 trivial
+  | k + 1, n + 1, b, c, hf, hs, hk, h, p, hd => by
+    simp only [skip] at hs
+    split at hs
+    · next l h0 p0 hd0 =>
+      obtain ⟨c', h', rfl⟩ := Option.map_eq_some_iff.mp hs
+      simp only [ItemsFit, hd0] at hf
+      have hd' : F2.decode ((TX.itemRest b h0 p0).drop c') = .success true h p := by
+        rwa [TX.itemRest, List.drop_drop]
+      have := fits_inner hf.2.2 h' (by omega) hd'
+      rwa [TX.itemRest, List.drop_drop] at this
+    · cases hs
+  | _, 0, _, _, _, _, hk, _, _, _ => absurd hk (Nat.not_lt_zero _)
+
+theorem walkList_nil {α : Type} (f : P α) (fuel : Nat) : walkList f fuel [] = some [] := by
+  cases fuel <;> rfl
+
+/-- One 32-byte string: `hash` reads it. -/
+theorem hash_run {b : List Byte} {h : Nat} (hf : TX.HeaderFits b)
+    (hd : F2.decode b = .success false h 32) :
+    hash.run b = some (TX.itemPayload b h 32, TX.itemRest b h 32) := by
+  simp only [hash, StateT.run_bind, bytesView_run hd, Option.bind_eq_bind, Option.bind_some,
+    payload_length hf hd, if_true]
+  rfl
+
+/-- The walk over `n` 32-byte strings that fill `b` succeeds. -/
+theorem walk_hash : ∀ (n : Nat) (b : List Byte) (fuel : Nat), n ≤ fuel →
+    (∀ i < n, ∀ c, skip i b = some c → TX.HeaderFits (b.drop c)) → HashesOk b n →
+    skip n b = some b.length → ∃ hs, walkList hash fuel b = some hs
+  | 0, b, fuel, _, _, _, hs => by
+    simp only [skip, Option.some.injEq] at hs
+    rw [List.eq_nil_of_length_eq_zero hs.symm]
+    exact ⟨[], walkList_nil _ _⟩
+  | n + 1, b, fuel, hn, hfit, hok, hs => by
+    obtain ⟨h, hd⟩ := hok 0 (by omega) 0 rfl
+    simp only [List.drop_zero] at hd
+    have hf := hfit 0 (by omega) 0 rfl
+    simp only [List.drop_zero] at hf
+    obtain ⟨f, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by omega⟩
+    cases b with
+    | nil => simp [F2.decode] at hd
+    | cons x xs =>
+    have hrun := hash_run hf hd
+    have hsk : ∀ i c, skip i (TX.itemRest (x :: xs) h 32) = some c →
+        skip (i + 1) (x :: xs) = some (TX.itemConsumed h 32 + c) := by
+      intro i c hc
+      simp only [skip, hd]; rw [← TX.itemRest, hc]; rfl
+    have hdrop : ∀ c, (TX.itemRest (x :: xs) h 32).drop c =
+        (x :: xs).drop (TX.itemConsumed h 32 + c) := by
+      intro c; rw [TX.itemRest, List.drop_drop]
+    have hs' : skip n (TX.itemRest (x :: xs) h 32) = some (TX.itemRest (x :: xs) h 32).length := by
+      simp only [skip, hd] at hs
+      obtain ⟨c', h', hc'⟩ := Option.map_eq_some_iff.mp hs
+      rw [← TX.itemRest] at h'
+      rw [h']
+      simp only [TX.itemRest, List.length_drop]
+      congr 1; omega
+    obtain ⟨hs2, hw⟩ := walk_hash n _ f (by omega)
+      (fun i hi c hc => by rw [hdrop]; exact hfit (i + 1) (by omega) _ (hsk i c hc))
+      (fun i hi c hc => by rw [hdrop]; exact hok (i + 1) (by omega) _ (hsk i c hc)) hs'
+    refine ⟨TX.itemPayload (x :: xs) h 32 :: hs2, ?_⟩
+    simp only [walkList]
+    rw [show hash (x :: xs) = hash.run (x :: xs) from rfl, hrun]
+    simp only [hw, Option.map_some]
+
+/-- The hash list's walk succeeds once its `n` items were 32-byte strings filling its payload. -/
+theorem hash_walk_ok {σ : Sig} (hpre : Pre σ.A σ.g σ.m) (h3 : σ.t = 3) {c h p n : Nat}
+    (hl : HashList σ c h p) (hs : skip n (TX.itemPayload (σ.payload.drop c) h p) = some p)
+    (hn : n ≤ p) (hok : HashesOk (TX.itemPayload (σ.payload.drop c) h p) n) :
+    ∃ hs, walkList hash (TX.itemPayload (σ.payload.drop c) h p).length
+      (TX.itemPayload (σ.payload.drop c) h p) = some hs := by
+  obtain ⟨hs10, hd⟩ := hl
+  have hfits := hpre.2.2.2.2.2.2.2.2.2.2.2.2.2.1.2
+  have h3' : (σ.m.reg 12).toNat = 3 := h3
+  have hf := fits_at hfits hs10 (by rw [h3']; decide)
+  have hlen := payload_length hf hd
+  have hin := fits_inner hfits hs10 (by rw [h3']; decide) hd
+  refine walk_hash n _ _ (by rw [hlen]; exact hn) (fun i hi c' hc => ?_) hok
+    (by rw [hlen]; exact hs)
+  exact fits_at hin hc (by omega)
+
+/-- Call-site entries that are all the hash walk of item 10 hold once the walk succeeds. -/
+theorem hwalk_fields {σ : Sig} {m : Machine} {fs : List Field}
+    (hv : ∀ f ∈ fs, f.v = .hwalk 10) {c h p : Nat} (hl : HashList σ c h p)
+    (hw : ∃ hs, walkList hash (TX.itemPayload (σ.payload.drop c) h p).length
+      (TX.itemPayload (σ.payload.drop c) h p) = some hs) : FieldsOk σ m fs := by
+  intro f hf _
+  rw [hv f hf]
+  intro c' hs' l' h' p' hd'
+  obtain ⟨hs10, hd⟩ := hl
+  simp only [FieldVal.k] at hs'
+  rw [hs10, Option.some.injEq] at hs'
+  subst hs'
+  rw [hd] at hd'
+  cases hd'
+  exact hw
+
+/-- The entries `!(f.v != .hwalk 10)` selects are the hash walk. -/
+theorem hwalk_sel {fs : List Field} :
+    ∀ f ∈ fs.filter (fun f => !(f.v != .hwalk 10)), f.v = .hwalk 10 := fun f hf => by
+  simpa using (List.mem_filter.mp hf).2
+
 /-! ## The loop's leaves -/
 
 /-- The call site of the return site `table[i]!`. -/
@@ -166,7 +291,7 @@ theorem DTF.leaf_800020ac_0 :
   intro σ m m' hA hc C CF
   have hpre := C.F.common.2.1
   have h3 : σ.t = 3 := arm3 C.F.arms (by decide)
-  obtain ⟨c, h, p, n, j, hl, hsk, hnj, r23, r22, r25, hdr⟩ :=
+  obtain ⟨c, h, p, n, j, hl, hsk, hnj, r23, r22, r25, hdr, hok⟩ :=
     hashLoop_of (by decide) (by decide) hA
   have e23 := ctx_reg C (i := 23) (i' := 23) (by decide) (by decide) (by decide)
   have e22 := ctx_reg C (i := 22) (i' := 22) (by decide) (by decide) (by decide)
@@ -175,7 +300,7 @@ theorem DTF.leaf_800020ac_0 :
   have e12 := ctx_reg C (i := 12) (i' := 22) (by decide) (by decide) (by decide)
   have hdr' := hdr_keep C (o := 0x258) (by decide) (by decide) (by decide) (by decide) hdr
   have hloop : HashLoop σ m' := ⟨c, h, p, n, j, hl, hsk, hnj, e23.trans r23, e22.trans r22,
-    e25.trans r25, hdr'⟩
+    e25.trans r25, hdr', hok⟩
   have hjp : j ≤ p := by
     have := skip_le hsk
     simp only [TX.itemPayload, List.length_take, List.length_drop] at this
@@ -274,7 +399,8 @@ theorem DTF.leaf_80002064_3 :
       ctx_word C (o := 0x258 + 8) (s := .lit 0) (by decide) (by decide),
       ctx_word C (o := 0x258 + 16) (s := .lit 0) (by decide) (by decide), by decide, by decide,
       L, X, hlive, fun h0 => absurd h0 (by decide)⟩
-  have hloop : HashLoop σ m' := ⟨c, h, p, 0, 0, hl, rfl, Nat.le_refl _, r23, r22, r25, hdr⟩
+  have hloop : HashLoop σ m' :=
+    ⟨c, h, p, 0, 0, hl, rfl, Nat.le_refl _, r23, r22, r25, hdr, hashesOk_zero _⟩
   refine ⟨?_, ?_, ?_⟩
   · rw [show (table[107]!).pc = 0x800020ac by decide]; simpa [Extra] using hloop
   · rw [show budgetAt (table[107]!).pc = (2871, .list (.reg 22)) from rfl]; trivial
@@ -479,9 +605,26 @@ theorem f4_pre_dtf {σ : Sig} {m : Machine} (hc : Common σ m) {ko ho n : Nat}
 /-- The empty list (`0x80002064`, leaf 2): `toOwnedSlice` on the header `{1, 0, 0}`. -/
 theorem DTF.leaf_80002064_2 :
     LeafGoal DTF.plan DTF.plan.cuts[106]! ((DTF.plan.leaves 0x80002064)[2]!) := by
-  refine leaf_call_x (table[106]!) (table[111]!) (siteAt 111) ((leavesAt 0x80002064)[2]!)
-    F4.entry (by decide) DTF.cut_80002064 (by decide) (by decide) (by decide) rfl rfl
-    (by decide) ?_
+  refine leaf_call_xf (fun f => f.v != .hwalk 10) (table[106]!) (table[111]!) (siteAt 111)
+    ((leavesAt 0x80002064)[2]!) F4.entry (by decide) DTF.cut_80002064 (by decide) (by decide)
+    (by decide) rfl rfl (by decide) ?_ ?_
+  · -- the empty list's walk
+    intro σ m m' hA hc C
+    have herr := hc _ (show SBool.eq (.init 0 728 2) (.lit 0) ∈ _ by decide)
+    have hlist := hc _ (show SBool.ne (.bin .and (.init 0 712 1) (.lit 1)) (.lit 0) ∈ _ by decide)
+    have hp0 := hc _ (show SBool.eq (.init 0 704 8) (.lit 0) ∈ _ by decide)
+    simp only [SBool.eval, beq_iff_eq, bne_iff_ne, ne_eq] at herr hlist hp0
+    obtain ⟨c, h, p, hl, hpw, -⟩ := list_out hA (by simpa using herr) (by simpa using hlist)
+    have hpz : p = 0 := by
+      have hp64 := decode_p_lt hl.2
+      rw [hpw] at hp0
+      have := congrArg BitVec.toNat hp0
+      simp only [w, BitVec.toNat_ofNat, Sym.eval_lit] at this
+      omega
+    subst hpz
+    refine hwalk_fields hwalk_sel hl ⟨[], ?_⟩
+    simp only [TX.itemPayload, List.take_zero, List.length_nil]
+    exact walkList_nil _ _
   intro σ m m' hA hc C CF
   obtain ⟨L0, X0, hlive0⟩ := (ctx_common C).2.2.2.2.2.2.2.2
   have hdr : ListHdr σ m' 0x258 0 0 :=

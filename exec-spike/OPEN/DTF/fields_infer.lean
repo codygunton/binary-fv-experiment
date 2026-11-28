@@ -143,6 +143,11 @@ def keyArms (key : Bool × Nat) : List Nat :=
 
 def inter (a b : List Ent) : List Ent := a.filter b.contains
 
+/-- Entries the hand proofs of a key's leaves produce: the hash walk at `toOwnedSlice`'s call site
+`0x80002180` (`Hash.lean`, `HashStore.lean`: the loop state's `HashesOk`), kept in slot `0x130`. -/
+def hand (key : Bool × Nat) (t : Nat) : List Ent :=
+  if key == (true, 0x80002180) && t == 3 then [(.slot 0x130, .hwalk 10)] else []
+
 /-- One pass over every key. -/
 def pass (rs : Rows) : Rows :=
   keys.map fun key =>
@@ -150,7 +155,7 @@ def pass (rs : Rows) : Rows :=
     let per := (keyArms key).filterMap fun t =>
       let outs := ins.filterMap fun (d, l, _) =>
         if (d.arms.isEmpty || d.arms.contains t) && srcKnown rs d t then
-          some (produce (srcFieldsOf (cfOf rs) (sfOf rs) d) d l t)
+          some (produce (srcFieldsOf (cfOf rs) (sfOf rs) d) d l t ++ hand key t)
         else none
       match outs with
       | [] => none
@@ -237,6 +242,7 @@ def valStr : FieldVal → String
   | .lv k => s!".lv {k}"
   | .ty => ".ty"
   | .cst v => s!".cst {v}"
+  | .hwalk k => s!".hwalk {k}"
 
 end Infer
 
@@ -256,5 +262,5 @@ open Infer in
     let tgt := if key.1 then sfOf rs key.2 else cfOf rs key.2
     let src := srcFieldsOf (cfOf rs) (sfOf rs) d
     for f in tgt do
-      if !fieldOk src d l f then
+      if !fieldOk src d l f && !(hand key 3).contains (f.loc, f.v) then
         IO.println s!"FAIL {d.pc} {key.2} {locStr f.loc} {f.arms} {valStr f.v}"
