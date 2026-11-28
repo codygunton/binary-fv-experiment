@@ -42,8 +42,7 @@ theorem TX.leaf_800004a0_0 :
     have := saved_eval hcm hbe (k := 0) (by decide)
     simp only [retTarget, Sym.eval, BinOp.eval] at this ⊢
     rw [this]; exact hcm.2.1.2.2.1
-  · have : (run4a0_leaves[0]!).S.steps - SBody.steps = 23 := by decide
-    show _ ≤ 23; simp only [cut4a0, mkCut] at *; omega
+  · budget_auto
   have hx : (run4a0_leaves[0]!).exit = .ret retTarget := by decide
   rw [hx] at hex ⊢
   have h1 : SBool.eval (envB σ m) (SBool.eq (Sym.init 0 456 2) (Sym.lit 0)) = true :=

@@ -58,7 +58,7 @@ theorem TX.leaf_800000c4_0 :
   show LeafGoal TX.plan cut0c4 (run0c4_leaves[0]!)
   rintro σ m ⟨hpc, o, L, hs⟩ -
   have hsteps : (run0c4_leaves[0]!).S.steps - cut0c4.S.steps = 5 := by decide
-  refine ⟨nil_obligs (by decide), by show _ ≤ bOuter m; unfold bOuter; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run0c4_leaves[0]!).exit = .call 0x800d6960 0x800000d8 := by decide
   rw [hx] at hex ⊢
@@ -131,7 +131,7 @@ theorem TX.leaf_8000018c_0 :
   show LeafGoal TX.plan cut18c (run18c_leaves[0]!)
   rintro σ m ⟨hpc, o, k, L, hie, hko, hK, hj⟩ -
   have hsteps : (run18c_leaves[0]!).S.steps - cut18c.S.steps = 5 := by decide
-  refine ⟨nil_obligs (by decide), by show _ ≤ bKeys m; unfold bKeys; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run18c_leaves[0]!).exit = .call 0x800d6960 0x800001a0 := by decide
   rw [hx] at hex ⊢

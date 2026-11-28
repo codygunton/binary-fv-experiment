@@ -4,8 +4,8 @@ import ZesuExec.Fn.TX.Done
 /-!
 # TX assembled (programme plan S6 step 7): `tx_spec : Spec zesuImage 0x80000000 bound Pre Post`
 
-`zesu_auto TX` runs again with the `@[zesu_fact]` lemmas of `Facts.lean` (S4b); then
-`zesu_assemble TX` collects the cut lemmas and leaf theorems of `Vc.lean`, `Ret.lean`,
+`zesu_assemble TX` collects the leaf theorems `zesu_auto TX` proved (it runs in `Facts.lean`,
+after the `@[zesu_fact]` lemmas), the cut lemmas and leaf theorems of `Vc.lean`, `Ret.lean`,
 `Store.lean` and the leaf modules into `TX.reach`. At the entry cut the assertion is `Pre` of
 the entry machine and the budget `32 · len + 424`, at most `bound` since the input lies in the
 input buffer or RAM.
@@ -13,8 +13,6 @@ input buffer or RAM.
 
 namespace ZesuExec.Fn.TX
 open ZesuExec ZesuExec.Sym ZesuExec.Machine ZesuExec.Vc
-
-zesu_auto TX
 
 zesu_assemble TX
 

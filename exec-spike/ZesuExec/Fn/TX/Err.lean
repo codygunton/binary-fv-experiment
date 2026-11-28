@@ -206,8 +206,7 @@ theorem TX.leaf_80000068_0 :
   have hcs : (run068_leaves[0]!).conds = [SBool.ne (Sym.init 0 120 2) (Sym.lit 0)] := by decide
   refine err_leaf rfl (fun σ m hA => envB_ok (A068_common hA)) (by decide) (by decide)
     (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_) (fun σ m hA hc => ?_)
-  · have : (run068_leaves[0]!).S.steps - S068.steps = 21 := by decide
-    show _ ≤ 32 * σ.len + 323; simp only [cut068, mkCut] at *; omega
+  · budget_auto
   obtain ⟨hcm, ⟨L, hlive⟩, hr0, hr8, before, hbl, hb⟩ := ret068 hA
   have h1 : SBool.eval (envB σ m) (SBool.ne (Sym.init 0 120 2) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; exact List.mem_singleton.mpr rfl)
@@ -231,8 +230,7 @@ theorem TX.leaf_80000068_1 :
       SBool.eq (Sym.bin BinOp.and (Sym.init 0 104 1) (Sym.lit 1)) (Sym.lit 0)] := by decide
   refine err_leaf rfl (fun σ m hA => envB_ok (A068_common hA)) (by decide) (by decide)
     (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_) (fun σ m hA hc => ?_)
-  · have : (run068_leaves[1]!).S.steps - S068.steps = 24 := by decide
-    show _ ≤ 32 * σ.len + 323; simp only [cut068, mkCut] at *; omega
+  · budget_auto
   obtain ⟨hcm, ⟨L, hlive⟩, hr0, hr8, before, hbl, hb⟩ := ret068 hA
   have h1 : SBool.eval (envB σ m) (SBool.eq (Sym.init 0 120 2) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; simp)

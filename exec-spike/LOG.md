@@ -1190,3 +1190,153 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - Not done: arms 3-4 rows committed, legacy `v` values, `Extra 0x80002dc4` (`ChecksOk σ
     (fieldCount σ.t)` plus buffers), the 16 leaves into `0x80002db8/dbc/dc4` by hand, `TxAt` from
     the stores, the buffers (data copy, access list image, hashes, tuples) — CUTS.md § Open.
+- S9.3 step 1 (S9Viewer, 2026-11-28, branch `viewer`): S9.1 viewer measured before any change,
+  in omp's managed headless Chromium 157 on this machine (WebGL 2 via ANGLE), 1365x768 window,
+  site served from `map/site` on a scratch port. Pan = one d3-zoom `translateBy` per animation
+  frame for 3 s; fps = frames / seconds. First frame = `openFn` (the double-click handler) until
+  the fitted function is drawn and one more frame has passed.
+  - program level: pan 33.4 fps (worst frame 43 ms); layer change proof->meaning 81 ms,
+    meaning->proof 41 ms; selecting a function 56 ms.
+  - `f_8001e8fc` (2,690 blocks, `data/fn` file 2.54 MB, Canvas path): first frame 241 ms;
+    pan 36.8 fps at zoom 0.6, 20.3 fps at zoom 0.1 (worst frame 51 ms).
+- S9.3 gate (S9Viewer, 2026-11-28, branch `viewer`): WebGL renderer in. `graph.html` draws both
+  levels into one PixiJS 8.23.0 stage (`vendor/pixi.min.js`, sha256 in `vendor/README.md`); the
+  SVG and Canvas 2D code is deleted; D3 keeps zoom, quadtrees and the HTML panels. Scenes are
+  built once per view (program once; each function once, cached); clicks, hovers, layer, badge
+  and size changes set tint, alpha, visibility (size redraws node circles); pan and zoom set the
+  stage transform. Culling via `PIXI.Culler` (labels, nodes, edges, 1200 px tiles of blocks and
+  CFG edges); bitmap-font labels, glyphs and cut labels hidden below zoom 0.35. Hit-testing
+  through d3 quadtrees over block, stub and node rectangles and edge samples; no per-object
+  listeners. `data/fn/<id>.js` now holds flat arrays (largest 463 KB, was 2.54 MB);
+  disassembly, source lines and the card are in `data/fn/<id>.detail.js` (largest 829 KB),
+  loaded when a block or the card opens. No WebGL context: one line, no second renderer.
+  Two fixes found by measuring: dashed long call/return routes made 2.5 M stroke primitives
+  (17 M indices per frame on `f_8001e8fc`, 2.1 s first frame) and are now solid; MSAA and
+  translucent program edges halved software-WebGL frame rates and are off (edge colours are
+  pre-mixed with the background).
+  Before -> after, `f_8001e8fc`, same harness as step 1, 1365x768:
+  - omp's managed headless Chromium (the step-1 browser; WebGL there is software, SwiftShader):
+    first frame 241 -> 215-231 ms; pan at zoom 0.6 36.8 -> 49.3-52.3 fps, at zoom 0.1 20.3 ->
+    59.9 fps; program layer change 81/41 -> 47/45 ms (1.2 ms of it JavaScript, the rest one
+    software-rasterised frame); program pan 33.4 -> 20 fps (not gated; software raster of 1,095
+    curved edges is the top cost, JavaScript per frame is about 3 ms).
+  - `/usr/bin/chromium` 157 with this machine's GPU (`--enable-gpu --ignore-gpu-blocklist
+    --use-angle=vulkan`, ANGLE Vulkan on the RTX 5090): first frame 226 -> 165 ms; pan at zoom
+    1.5/0.6/0.1/0.03: 54.7/50.1/25.5/4.7 -> 60/60/59.9/60 fps; program pan 11.1 -> 60 fps;
+    layer change 94 -> 16 ms (one frame); selection 95 -> 27 ms.
+  Gate: on the GPU browser every number passes; on the software-WebGL browser first frame and
+  layer change pass and pan at zoom 0.6 sits at the 50 fps line (49-52 over runs). No main
+  per-function file exceeds 1 MB (test). S9.1 screenshots retaken in `map/site/shots/` (same
+  content; `fn-decodeTxFields-webgl.png` replaces the Canvas one). `make -C tools/zmap map test`
+  passes (54 tests).
+- S12 instruction forms (S12Forms, 2026-11-28, branch `s12` from `adcabc3e`): 14 of the 23
+  non-CSR forms added; 9 left unsupported under the contingency; `unimp` handled.
+  - Added, each with decoder case, `Machine.exec` case, `stepI` case, `stepI_sound` case, Sail
+    decode lemma `dec_<form>`, Sail simulation `sim_<form>` (in `sail_step_sim`), an executor
+    test (`Test/Sym.lean`, two operand shapes for most) and an ELF sample word
+    (`Test/Decode.lean` `decode_s12_samples`): `xor addiw bge lwu srliw subw lh ori srl divu
+    remu slliw slti slt`. New `BinOp`s `divu remu slt`; word forms use `mkSext 32`. `divu`/`remu`
+    needed the `funct3` bit facts in `dec_<form>` (the generated decoder splits bit 12).
+  - Unsupported (`OPEN/forms/`): `srai` — the generated `shift_bits_right_arith` is
+    `BitVec.rotateRight` (`sail-riscv-lean/.../Prelude.lean:381`), so the model's `srai`/`sra`/
+    `sraiw`/`sraw` rotate (`srai 1, 1` = `2^63`, checked by `decide`); `sim_srai` is false for the
+    RISC-V shift. `maxu packh pack rev8 bext bset bclri clz`: the compiled model has no Zbb/Zbkb/
+    Zbs instructions (`inductive instruction` lacks them; `currentlyEnabled` has no clause), so the
+    model decodes them as `ILLEGAL`.
+  - `unimp`: before, `Sym.go` returned `none` for the whole run at an undecodable word (no plan
+    at all, not an assumption). Now it ends the path with a leaf whose obligations include the new
+    `Oblig.unreachable pc` (`holds = False`): `LeafGoal` then asks for the path to be infeasible.
+    Same in `Summary.goW`; `go_sound`, `goW_follow/calls/sound` re-proved. `analyze.py` `TRAPS`
+    stops `unimp` blocking a function. `Fn/Preserve.lean` (exhaustive on `Instr`) gained the new
+    load and branch names (mechanical; no other `Fn/` or `Vc/` file changed).
+  - Measures (`zmap build` forced, then `make -C tools/zmap map`): target functions in state
+    `blocked` 132 → 33 (`ready` 18 → 32, `waiting` 44 → 129); with any blocker 133 → 34; blocked
+    only by non-CSR forms 103 → 4. Cost per form (ledger ids 2–16): closed forms $0.30–$1.31,
+    mean $0.52, 1–3 min each ($7.23 for 14); `srai` $0.62 (open); the 8 bit-manipulation forms
+    share one item, $0.39 (open); `unimp` $3.86 (includes the 13 min full build). Core chain
+    build per form ~25 s; full `lake build` (491
+    jobs) 12 min 47 s, passes; `tools/verify.sh` passes.
+  - Three-way difftest: no function of the image uses any added form (the image tables hold none
+    of their mnemonics), so none applies. Regression: `lake exe zesu-difftest` on all 80
+    snapshots (F1, F2, TX, DTF) prints `agree`.
+- S11 automation (S11Auto, 2026-11-28, branch `s11`): `budget_auto` and `oblig_auto` as decision
+  procedures; residual class `budget` closed on every leaf of the five plans; `oblig` partly.
+  Contingency taken for the rest of `oblig` (goal shapes below). Whole-leaf auto counts unchanged.
+  - `Vc/Tactics.lean`: `measure_norm` (unfolds `Nat`-valued non-recursive project definitions,
+    `Env.base`, projections of such values, `List.getD` at numerals, `if` on closed conditions,
+    `match` on constructors; closed `Nat`/`BitVec` terms become numerals by compiled evaluation,
+    kernel-checked; goal and arithmetic hypotheses), `sym_rw` (rewrite with `Sym.eval env t = u`
+    hypotheses), `assert_open` (unfold the assertion, split `∧`/`∃`/structures). `budget_auto` =
+    `leaf_norm`, `measure_norm at *`, `omega` (or split `if`s). `oblig_auto` = `oblig_region`
+    (normal form, `sym_rw`, hypothesis/`omega`/`bv_omega`/`region_arith`, then `assert_open`) |
+    `zesu_apply` | the old fallback; goal grammar from 20 TX leaves plus DTF/F6 in its doc comment.
+    `field_auto` gains a `Nat ≤` budget branch. `leaf_auto` is one rule (was four); `leafc_auto`
+    gets the main path (`oblig_auto`, `budget_auto`, exit).
+  - Cheap failure (the DTF lesson): `leaf_diag` now proves the leaf when its stages close and
+    otherwise fails at the first open stage/conjunct; `zesu_auto`/`zesu_autow` run it once per leaf
+    instead of `leaf_auto` then `leaf_diag`. `zesu_apply` skips `@[zesu_oblig]` lemmas whose `Env`
+    head differs from the goal's (TX's oblig stage spent ~5 s per leaf unifying F1/F2/F6 lemmas).
+    TX: `zesu_auto TX` moved from `Cuts.lean` (ran before any fact, 280 s) to the end of
+    `Facts.lean`; `Proof.lean` no longer re-runs it; `@[zesu_simp] envP_init`, `envS_init` (`rfl`)
+    so `common_ra` applies at `envP`/`envS` cuts.
+  - Stage shares (per-leaf harness over every leaf, facts in scope; before → after): budget F1
+    15/15, F2 17/17, F6 67/74 → 74/74, TX 25/51 → 51/51, DTF 0/486 → 486/486 (all: 124/643 →
+    643/643); oblig (leaves with obligations) F1 6/6, F2 17/17, F6 20/27 → 27/27, TX 15/23 → 21/23,
+    DTF 0/113 → 0/113 (all: 58/186 → 71/186). Whole leaves auto: 17/643 before and after.
+  - Not closed (contingency; shapes): TX `10c_3`, `1a0_3`: `inBounds 4 off (var 40) 1 n`, the bound
+    is the decoded item's payload length (decode semantics, `fits_bounds`); DTF 113 leaves:
+    `inBounds 3 0 (var 42) 1 1` (byte loops) and `inBounds 3 off (var 156) 1 n` (call arguments)
+    under the disjunctive assertion `plain ∧ PlainA ∨ ∃ s, site = some s ∧ RetA s`, the bound from
+    `F2.Post`'s decoded header (`out_ptr`) or `CurOk`; ra alignment in F1/F2/F6 still needs their
+    `@[zesu_oblig]` lemmas (no saved-`ra` fact; without the lemmas 4/6, 4/17, 6/27 close).
+  - Hand proofs removed: 27 TX budget bullets (2 lines each) and 12 inline budget proofs now
+    `budget_auto` (TX leaf files: 70 lines out, 39 in); `Test/Vc.lean`'s toy return leaf
+    (23 lines) is now closed by `zesu_auto` (guards updated). `Test/Auto.lean`: positive and
+    `fail_if_success` tests for both tactics (its garbled module doc repaired).
+  - Build times (`lake env lean`, 23 modules concurrently, same machine, before → after): Fn/TX
+    modules 366.0 → 92.3 s (Cuts 283.6 → 3.4, Facts 1.9 → 19.2, Proof 18.3 → 7.5); Fn/F6 132.4 →
+    54.9 s (Vc 125.0 → 48.0); F1/Vc 45.7 → 19.5; F2/Vc 34.5 → 18.7; Test/Auto 18.4 → 10.7.
+    DTF (read-only): `Fn/DTF/Vc` 307.7 s here vs 303.5 s in W with the old tactics (W's DTF cuts
+    are newer); per-leaf tactic time of `zesu_auto` on DTF: old `leaf_auto` 180 s (old `leaf_diag`
+    not measured) vs new `leaf_diag` 281 s, budget passing on all 486 leaves.
+  - `lake build` 325 jobs OK; no `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no
+    `maxHeartbeats` change. Ledger item 2 (S11Auto), $15.07 session.
+- S17 map precision (S17MapPrecision, 2026-11-28, branch `s17`): gate measured; `make -C
+  tools/zmap test` passes (see GO.md § S17 for the tables).
+  - `tools/zmap/precision.py`: one forward abstract interpretation per function (registers,
+    frame slots, terms over entry arguments, read-only loads, bounded indices from byte loads,
+    masks and `bltu`/`bgeu` bounds, small constant sets) gives each indirect call/jump a target
+    term (`calls[].slice`). Kinds: `exact` (all values enumerated from constants and
+    `.rodata`), `precondition` (an argument or a load chain from one; `targets` substituted from
+    every caller's state, `targets_complete`), `unknown` (`reason`). Write summaries (argument,
+    offset window) per function, least fixpoint over rounds; memcpy/memmove/memset modelled.
+    `table-heuristic` is gone for calls; jumps use it only when nothing else applies (now none
+    in the target set).
+  - Indirect calls of the 458 sites: exact 49, precondition 392 (296 complete, 44 without a
+    target), unknown 17. Jumps: runDispatch 174/174 and memset exact; 5 tables bounded by an
+    argument. Recursive target functions 19 -> 7. Target set 206 -> 222 (vtable slots referenced
+    by target code count for reachability). ready 18 -> 31, waiting 44 -> 38.
+  - Irreducible: every multi-entry region listed (`irreducible_regions`); cycle cuts (`why:
+    cycle`) +3 in `computeHash`, +3 in `sort.block.block__anon_10892`, 0 elsewhere; the
+    `irreducible` blocker is removed.
+- S9.4 gate (S9Viewer, 2026-11-28, branch `viewer`): source-centred main view; the page opens on
+  it, Program and the control-flow view stay (`#view=program`, `#fn=`). Data: `vendor/dwarf.py`
+  gains `inline_frames` (every out-of-line subprogram and its nested inlined subroutines with
+  call file/line) and `line_rows`/`file_name` (moved from `hints.py`); `tools/zmap/source.py`
+  assigns each target instruction to its innermost source function, a `compiler` bucket (frame
+  but no line) or a `runtime` bucket (no debug code), keys source functions by declaration so a
+  generic is one record, and builds source edges with sites (inlined, call, tail, indirect with
+  resolution, accelerator with CSR); call and CSR sites are drawn from the innermost Zesu frame
+  at the Zesu line that reached them. `zmap site --debug-object` writes `data/src/index.js`
+  (1.7 MB) and 71 `data/src/file/<n>.js`; `layout.neighbourhood` orders each depth-one view.
+  On the 222-function target set (after S17): 207,134 instructions; 723 source functions (540
+  zesu, 183 std) plus 179 compiler and 29 runtime buckets and 14 accelerators; 13,314 inlined
+  sites, 55 of them (0.41%) without a call-site line (DW_AT_call_line 0), drawn as `inlined`, no
+  line; instructions without a source line (compiler bucket) 48,627 (23.5%). Missing file: `std/builtin.zig`
+  (generated by Zig, not on disk), listed as missing, functions kept. Tests `test_source.py`
+  (instruction ownership, location totals equal the target total, TX edges to `rlp.decodeItem`
+  call and `alt_fl_alloc.alloc` indirect, site lines inside caller ranges, generics, closed
+  rule); `make -C tools/zmap map test` passes (78 tests). Screenshots in `map/site/shots/`:
+  `src-txAccessList`, `src-executeBlockStateless` (runtime and compiler folded),
+  `src-drilldown-cfg` (`nibbles.hpEncode` inlined into `main.updMakeExtension`, 11 blocks
+  highlighted), `src-meaning-layer`.

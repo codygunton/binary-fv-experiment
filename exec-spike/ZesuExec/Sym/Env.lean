@@ -30,6 +30,9 @@ def BinOp.eval : BinOp → Word → Word → Word
   | .sltu, a, b => if a.ult b then 1 else 0
   | .mul, a, b => a * b
   | .mulhu, a, b => BitVec.ofNat 64 (a.toNat * b.toNat / 2 ^ 64)
+  | .divu, a, b => if b = 0 then -1 else a / b
+  | .remu, a, b => a % b
+  | .slt, a, b => if a.slt b then 1 else 0
 
 structure Env where
   vars : Nat → Word
@@ -86,6 +89,7 @@ def memByte (env : Env) (ws : List Write) (r j : Nat) : Byte :=
 def Oblig.holds (env : Env) : Oblig → Prop
   | .inBounds r off idx scale n => off + scale * (idx.eval env).toNat + n ≤ env.size r
   | .aligned x n => (x.eval env).toNat % n = 0
+  | .unreachable _ => False
 
 /-- Region shapes: no wrap, pairwise disjoint, sizes and alignments as `S.regions` states,
 writable regions in RAM, the others in rodata, input or RAM. -/

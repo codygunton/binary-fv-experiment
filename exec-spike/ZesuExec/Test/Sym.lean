@@ -3,10 +3,12 @@ import ZesuExec.Sym.Exec
 /-!
 # Executor tests (plan S4 step 4)
 
-For each of the 33 forms, `stepI` on a symbolic state with literal registers and one 64-byte
-RAM region agrees with `Machine.exec` on the matching concrete machine (registers, `pc`, and
-the region's bytes). Then the refusals: `csrrs` does not run, a store one past the end of a
-region and a two-byte load at an odd offset return `none`.
+For each form, `stepI` on a symbolic state with literal registers and one 64-byte RAM region
+agrees with `Machine.exec` on the matching concrete machine (registers, `pc`, and the region's
+bytes); the S12 forms are tested at more than one operand shape. Then the words that do not
+decode (`memcpy`'s `csrrs`, an `unimp`): `run` stops there with a leaf whose obligation
+`unreachable` never holds. Then the refusals: a store one past the end of a region and a two-byte
+load past the end return `none`.
 -/
 
 namespace ZesuExec.Test.SymTest
@@ -60,9 +62,13 @@ def forms : List Instr :=
    .blt 6 7 (-16), .bltu 6 7 16, .bgeu 6 7 16, .lb 7 5 3, .lbu 7 5 3, .lhu 7 5 2, .lw 7 5 4,
    .ld 7 5 8, .sb 5 9 1, .sh 5 9 2, .sw 5 9 4, .sd 5 9 (-8), .addi 7 6 (-1), .andi 7 6 0x0f0,
    .xori 7 6 (-1), .sltiu 7 6 5, .slli 7 6 13, .srli 7 6 61, .add 7 6 8, .sub 7 6 8, .and 7 6 8,
-   .or 7 6 8, .sll 7 6 8, .sltu 7 6 8, .mul 7 6 8, .mulhu 7 6 8]
+   .or 7 6 8, .sll 7 6 8, .sltu 7 6 8, .mul 7 6 8, .mulhu 7 6 8, .xor 7 6 8, .addiw 7 6 (-1),
+   .bge 6 7 16, .bge 7 6 (-16), .lwu 7 5 4, .srliw 7 6 3, .srliw 7 6 0, .subw 7 6 8,
+   .lh 7 5 2, .lh 7 5 3, .ori 7 6 0x080, .ori 7 6 (-2), .srl 7 6 8, .divu 7 6 8, .divu 7 6 0,
+   .remu 7 8 6, .remu 7 6 0, .slliw 7 6 24, .slliw 7 6 0, .slti 7 6 0, .slti 7 3 5,
+   .slt 7 6 8, .slt 7 0 4]
 
-theorem forms_count : forms.length = 32 := by decide
+theorem forms_count : forms.length = 55 := by decide
 
 /-- `jalr` to a literal target (`x5` replaced by a literal) exercises the literal branch. -/
 theorem jalr_literal_agrees :
@@ -70,9 +76,25 @@ theorem jalr_literal_agrees :
 
 theorem all_forms_agree : forms.all agrees = true := by decide +kernel
 
-/-- The `csrrs` word of `memcpy` does not decode, so `run` refuses it. -/
-theorem csrrs_refused :
-    run ⟨[⟨0x800e06c4, [0x8135a073]⟩], []⟩ [] 4 0x800e06c4 S0 = none := by decide +kernel
+/-- The `csrrs` word of `memcpy` does not decode: `run` stops with an infeasibility leaf. -/
+theorem csrrs_unreachable :
+    run ⟨[⟨0x800e06c4, [0x8135a073]⟩], []⟩ [] 4 0x800e06c4 S0 =
+      some [⟨S0, .at 0x800e06c4, [], [.unreachable 0x800e06c4]⟩] := by decide +kernel
+
+/-- An `unimp` (`csrrw zero, cycle, zero`, word `0xc0001073` at `0x800ea5d4` in the ELF) behind
+`beq x5, zero, +8` (`x5` a pointer, so the branch forks; its target is a cut): the taken path
+ends at the cut with no obligation, the fall-through path at the `unimp` with `unreachable`,
+under the negated condition. -/
+theorem unimp_unreachable :
+    (run ⟨[⟨0x800ea5d0, [0x00028463, 0xc0001073, 0x00000013]⟩], []⟩ [0x800ea5d8] 8 0x800ea5d0
+        S0).map (·.map fun l => (l.exit, l.conds, l.obligs)) =
+      some [(.at 0x800ea5d8, [.eq (.ptr 0 8) (.lit 0)], []),
+        (.at 0x800ea5d4, [.ne (.ptr 0 8) (.lit 0)], [.unreachable 0x800ea5d4])] := by
+  decide +kernel
+
+/-- The obligation of such a leaf is never met. -/
+theorem unreachable_never_holds (env : Env) (pc : Nat) : ¬ (Oblig.unreachable pc).holds env :=
+  fun h => h
 
 /-- A store at `ptr r (size r)` is refused. -/
 theorem store_past_end_refused : storeSym S0 (.ptr 0 64) 1 (.lit 0) = none := by decide +kernel

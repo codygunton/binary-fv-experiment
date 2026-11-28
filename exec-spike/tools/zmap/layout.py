@@ -620,3 +620,27 @@ def function(fn, fn_names=None):
                        round(max([grid_w + 80] + [s['x'] + s['w'] for s in callee_stubs.values()]
                                  + [s['x'] + s['w'] for s in caller_stubs]) + 20, 1),
                        round(callee_y + STUB_H + 20, 1)]}
+
+
+# ---------------------------------------------------------------------------------------------
+# Source view (S9.4)
+
+GROUP_RANK = {'zesu': 0, 'accelerator': 1, 'std': 2, 'runtime': 3, 'compiler': 4}
+
+
+def neighbourhood(functions, edges):
+    """Display order of each source function's depth-one neighbourhood (the offline layout of the
+    source view): for every function, the indices of its incoming and outgoing edges, ordered by
+    the other end's group (zesu, accelerator, std, runtime, compiler) and then by name. The page
+    places the i-th caller and the i-th callee on row i; self edges are left out."""
+    ins, outs = defaultdict(list), defaultdict(list)
+    for i, e in enumerate(edges):
+        if e['from'] != e['to']:
+            outs[e['from']].append(i)
+            ins[e['to']].append(i)
+
+    def key(other):
+        f = functions[other]
+        return GROUP_RANK.get(f['group'], 9), f['name'], other
+    return [{'in': sorted(ins[f['id']], key=lambda i: key(edges[i]['from'])),
+             'out': sorted(outs[f['id']], key=lambda i: key(edges[i]['to']))} for f in functions]

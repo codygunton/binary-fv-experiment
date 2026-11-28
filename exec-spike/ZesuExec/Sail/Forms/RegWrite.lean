@@ -4,7 +4,8 @@ import BinaryFv.RiscV.Instruction.Execute.RegisterOp
 /-!
 # Simulation of the register-writing forms
 
-`lui auipc addi andi xori sltiu slli srli add sub and or sll sltu mul mulhu`: `execute` reads the
+`lui auipc addi andi xori ori slti sltiu slli srli add sub and or xor sll srl slt sltu mul mulhu
+divu remu addiw subw slliw srliw`: `execute` reads the
 source registers, writes `x rd` and falls through; each theorem is `sim_wreg` plus the form's
 `execute_*_run` contract and the agreement of Sail's result with `Machine.exec`.
 -/
@@ -52,6 +53,7 @@ theorem rType_add (a b : Word) : rTypeResult .ADD a b = a + b := rfl
 theorem rType_sub (a b : Word) : rTypeResult .SUB a b = a - b := rfl
 theorem rType_and (a b : Word) : rTypeResult .AND a b = a &&& b := rfl
 theorem rType_or (a b : Word) : rTypeResult .OR a b = a ||| b := rfl
+theorem rType_xor (a b : Word) : rTypeResult .XOR a b = a ^^^ b := rfl
 theorem rType_sltu (a b : Word) : rTypeResult .SLTU a b = if a.ult b then 1 else 0 := by
   simp only [rTypeResult]; rw [ult_bit]
 theorem rType_sll (a b : Word) : rTypeResult .SLL a b = a <<< (b.toNat % 64) := by
@@ -93,6 +95,76 @@ theorem mul_high_uu (a b : Word) :
   generalize a.toNat * b.toNat = p at hp ⊢
   simp
   omega
+
+theorem extractLsb_31 (x : Word) : Sail.BitVec.extractLsb x 31 0 = x.setWidth 32 := by
+  rw [extractLsb_field]; apply BitVec.eq_of_toNat_eq; simp
+
+theorem addiw_eq (imm : BitVec 12) (v : Word) :
+    addiwResult imm v = ((v + Machine.sx imm).setWidth 32).signExtend 64 := by
+  simp only [addiwResult, sign_extend_eq, extractLsb_31]
+
+theorem srliw_eq (sh : BitVec 5) (v : Word) :
+    shiftIWopResult .SRLIW sh v = (v.setWidth 32 >>> sh.toNat).signExtend 64 := by
+  simp only [shiftIWopResult, sign_extend_eq, extractLsb_31, Sail.shift_bits_right,
+    BitVec.ushiftRight_eq']
+
+theorem subw_eq (a b : Word) :
+    rTypeWResult .SUBW a b = (a.setWidth 32 - b.setWidth 32).signExtend 64 := by
+  simp only [rTypeWResult, sign_extend_eq, extractLsb_31]
+
+theorem iType_ori (imm : BitVec 12) (v : Word) :
+    iTypeResult .ORI imm v = v ||| Machine.sx imm := by simp [iTypeResult, sign_extend_eq]
+
+theorem rType_srl (a b : Word) : rTypeResult .SRL a b = a >>> (b.toNat % 64) := by
+  simp only [rTypeResult, Sail.shift_bits_right, BitVec.ushiftRight_eq']
+  rw [extractLsb_field]; simp [LeanRV64DExecutable.Functions.log2_xlen]
+
+/-- An `l`-bit truncation of a natural number below `2^64`, read back at 64 bits. -/
+theorem toNat_ofNat_small (q : Nat) (h : q < 2 ^ 64) :
+    ((q : Int) % 36893488147419103232).toNat % 18446744073709551616 = q := by
+  rw [Int.emod_eq_of_lt (by omega) (by omega)]
+  simp; omega
+
+theorem divu_eq (a b : Word) : divResult true a b = if b = 0 then -1 else a / b := by
+  simp only [divResult, if_true, LeanRV64DExecutable.Functions.not, Bool.not_true, Bool.false_and,
+    to_bits_truncate, Sail.get_slice_int, Bool.false_eq_true, if_false]
+  by_cases hb : b = 0
+  · subst hb; apply BitVec.eq_of_toNat_eq; simp [Sail.BitVec.toNatInt]
+  · have hb' : b.toNat ≠ 0 := fun h => hb (BitVec.eq_of_toNat_eq (by simpa using h))
+    rw [if_neg hb]
+    apply BitVec.eq_of_toNat_eq
+    simp [Sail.BitVec.toNatInt, hb', BitVec.toNat_udiv]
+    rw [show (a.toNat : Int) / (b.toNat : Int) = ((a.toNat / b.toNat : Nat) : Int) from rfl]
+    exact toNat_ofNat_small _ (Nat.lt_of_le_of_lt (Nat.div_le_self _ _) a.isLt)
+
+theorem remu_eq (a b : Word) : remResult true a b = a % b := by
+  simp only [remResult, if_true, to_bits_truncate, Sail.get_slice_int]
+  by_cases hb : b = 0
+  · subst hb; apply BitVec.eq_of_toNat_eq; simp [Sail.BitVec.toNatInt]
+    all_goals exact a.isLt
+  · have hb' : b.toNat ≠ 0 := fun h => hb (BitVec.eq_of_toNat_eq (by simpa using h))
+    apply BitVec.eq_of_toNat_eq
+    simp [Sail.BitVec.toNatInt, hb', BitVec.toNat_umod]
+    rw [show (a.toNat : Int).tmod (b.toNat : Int) = ((a.toNat % b.toNat : Nat) : Int) from rfl]
+    exact toNat_ofNat_small _ (Nat.lt_of_le_of_lt (Nat.mod_le _ _) a.isLt)
+
+theorem slliw_eq (sh : BitVec 5) (v : Word) :
+    shiftIWopResult .SLLIW sh v = (v.setWidth 32 <<< sh.toNat).signExtend 64 := by
+  simp only [shiftIWopResult, sign_extend_eq, extractLsb_31, Sail.shift_bits_left,
+    BitVec.shiftLeft_eq']
+
+theorem slt_bit (a b : Word) :
+    zero_extend (m := 64) (bool_to_bit (zopz0zI_s a b)) = if a.slt b then 1 else 0 := by
+  by_cases h : a.toInt < b.toInt <;>
+    simp [zopz0zI_s, BitVec.slt, bool_to_bit, bool_bit_forwards, h, zero_extend,
+      Sail.BitVec.zeroExtend]
+
+theorem iType_slti (imm : BitVec 12) (v : Word) :
+    iTypeResult .SLTI imm v = if v.slt (Machine.sx imm) then 1 else 0 := by
+  simp only [iTypeResult]; rw [slt_bit, sign_extend_eq]
+
+theorem rType_slt (a b : Word) : rTypeResult .SLT a b = if a.slt b then 1 else 0 := by
+  simp only [rTypeResult]; rw [slt_bit]
 
 /-! ## The simulation theorems -/
 
@@ -285,6 +357,166 @@ theorem sim_mulhu {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
   refine execute_MUL_run _ _ _ _ _ _ (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
     (rX_rg_run hag rs2) ?_
   rw [mul_high_uu]; exact wX_rg_run _ rd _
+
+theorem sim_xor {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.xor rd rs1 rs2))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  have hag := RegsAgree.T (m := m) hR.regs m.pc
+  change Runs (execute_RTYPE (rg rs2) (rg rs1) (rg rd) .XOR) _ _ _
+  refine execute_RTYPE_run _ _ _ _ _ .XOR (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
+    (rX_rg_run hag rs2) ?_
+  rw [rType_xor]; exact wX_rg_run _ rd _
+
+theorem sim_addiw {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.addiw rd rs1 imm))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  change Runs (execute_ADDIW imm (rg rs1) (rg rd)) _ _ _
+  refine execute_ADDIW_run _ _ imm _ _ (m.reg rs1)
+    (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
+  rw [addiw_eq]; exact wX_rg_run _ rd _
+
+theorem sim_srliw {rd rs1 : Fin 32} {sh : BitVec 5} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.srliw rd rs1 sh))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  change Runs (execute_SHIFTIWOP sh (rg rs1) (rg rd) .SRLIW) _ _ _
+  refine execute_SHIFTIWOP_run _ _ sh _ _ .SRLIW (m.reg rs1)
+    (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
+  rw [srliw_eq]; exact wX_rg_run _ rd _
+
+theorem sim_subw {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.subw rd rs1 rs2))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  have hag := RegsAgree.T (m := m) hR.regs m.pc
+  change Runs (execute_RTYPEW (rg rs2) (rg rs1) (rg rd) .SUBW) _ _ _
+  refine execute_RTYPEW_run _ _ _ _ _ .SUBW (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
+    (rX_rg_run hag rs2) ?_
+  rw [subw_eq]; exact wX_rg_run _ rd _
+
+theorem sim_ori {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.ori rd rs1 imm))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  change Runs (execute_ITYPE imm (rg rs1) (rg rd) .ORI) _ _ _
+  refine execute_ITYPE_run _ _ imm _ _ .ORI (m.reg rs1)
+    (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
+  rw [iType_ori]; exact wX_rg_run _ rd _
+
+theorem sim_srl {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.srl rd rs1 rs2))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  have hag := RegsAgree.T (m := m) hR.regs m.pc
+  change Runs (execute_RTYPE (rg rs2) (rg rs1) (rg rd) .SRL) _ _ _
+  refine execute_RTYPE_run _ _ _ _ _ .SRL (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
+    (rX_rg_run hag rs2) ?_
+  rw [rType_srl]; exact wX_rg_run _ rd _
+
+theorem sim_divu {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.divu rd rs1 rs2))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  have hag := RegsAgree.T (m := m) hR.regs m.pc
+  change Runs (execute_DIV (rg rs2) (rg rs1) (rg rd) true) _ _ _
+  refine execute_DIV_run _ _ _ _ _ true (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
+    (rX_rg_run hag rs2) ?_
+  rw [divu_eq]; exact wX_rg_run _ rd _
+
+theorem sim_remu {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.remu rd rs1 rs2))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  have hag := RegsAgree.T (m := m) hR.regs m.pc
+  change Runs (execute_REM (rg rs2) (rg rs1) (rg rd) true) _ _ _
+  refine execute_REM_run _ _ _ _ _ true (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
+    (rX_rg_run hag rs2) ?_
+  rw [remu_eq]; exact wX_rg_run _ rd _
+
+theorem sim_slliw {rd rs1 : Fin 32} {sh : BitVec 5} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.slliw rd rs1 sh))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  change Runs (execute_SHIFTIWOP sh (rg rs1) (rg rd) .SLLIW) _ _ _
+  refine execute_SHIFTIWOP_run _ _ sh _ _ .SLLIW (m.reg rs1)
+    (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
+  rw [slliw_eq]; exact wX_rg_run _ rd _
+
+theorem sim_slti {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.slti rd rs1 imm))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  change Runs (execute_ITYPE imm (rg rs1) (rg rd) .SLTI) _ _ _
+  refine execute_ITYPE_run _ _ imm _ _ .SLTI (m.reg rs1)
+    (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
+  rw [iType_slti]; exact wX_rg_run _ rd _
+
+theorem sim_slt {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.slt rd rs1 rs2))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  have hag := RegsAgree.T (m := m) hR.regs m.pc
+  change Runs (execute_RTYPE (rg rs2) (rg rs1) (rg rd) .SLT) _ _ _
+  refine execute_RTYPE_run _ _ _ _ _ .SLT (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
+    (rX_rg_run hag rs2) ?_
+  rw [rType_slt]; exact wX_rg_run _ rd _
 
 theorem sim_lui {rd : Fin 32} {imm : BitVec 20} (hR : Rel img m s)
     (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.lui rd imm))

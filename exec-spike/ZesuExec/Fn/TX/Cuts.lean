@@ -754,6 +754,4 @@ def vcPlan : Plan Sig zesuImage where
 
 zesu_plan TX := vcPlan
 
-zesu_auto TX
-
 end ZesuExec.Fn.TX

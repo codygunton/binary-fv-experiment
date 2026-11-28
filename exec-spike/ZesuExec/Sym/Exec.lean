@@ -5,7 +5,9 @@ import ZesuExec.Sym.Smart
 
 `stepI` executes one decoded instruction on a symbolic state; `run` follows fall-through and
 literal jumps, forks at conditional branches, and stops with a `Leaf` at a cut, a call, a
-return, another indirect jump or the `memcpy` entry. Every function is structural recursion on
+return, another indirect jump or the `memcpy` entry. At an address where nothing decodes (an
+`unimp`, a form `decodeNat` lacks) it stops with a leaf carrying `Oblig.unreachable`, which never
+holds: that leaf is a goal that its path is infeasible. Every function is structural recursion on
 fuel or on lists, so the kernel evaluates it (`ZesuExec.Sym.Tactic`).
 -/
 
@@ -196,6 +198,21 @@ def stepI (img : Image) (pc : Nat) (i : Instr) (S : SState) :
   | .sltu rd rs1 rs2 => wr rd (mkBin .sltu (S.reg rs1) (S.reg rs2))
   | .mul rd rs1 rs2 => wr rd (mkBin .mul (S.reg rs1) (S.reg rs2))
   | .mulhu rd rs1 rs2 => wr rd (mkBin .mulhu (S.reg rs1) (S.reg rs2))
+  | .xor rd rs1 rs2 => wr rd (mkBin .xor (S.reg rs1) (S.reg rs2))
+  | .addiw rd rs1 imm => wr rd (mkSext 32 (mkAdd (S.reg rs1) (wlit (sx imm))))
+  | .bge rs1 rs2 imm => branchSym S1 pc (.ges (S.reg rs1) (S.reg rs2)) imm
+  | .lwu rd rs1 imm => loadI img S S1 pc rd rs1 imm 4 id
+  | .srliw rd rs1 sh =>
+    wr rd (mkSext 32 (mkBin .srl (mkBin .and (S.reg rs1) (.lit 0xffffffff)) (.lit sh.toNat)))
+  | .subw rd rs1 rs2 => wr rd (mkSext 32 (mkSub (S.reg rs1) (S.reg rs2)))
+  | .lh rd rs1 imm => loadI img S S1 pc rd rs1 imm 2 (mkSext 16)
+  | .ori rd rs1 imm => wr rd (mkBin .or (S.reg rs1) (wlit (sx imm)))
+  | .srl rd rs1 rs2 => wr rd (mkBin .srl (S.reg rs1) (S.reg rs2))
+  | .divu rd rs1 rs2 => wr rd (mkBin .divu (S.reg rs1) (S.reg rs2))
+  | .remu rd rs1 rs2 => wr rd (mkBin .remu (S.reg rs1) (S.reg rs2))
+  | .slliw rd rs1 sh => wr rd (mkSext 32 (mkBin .sll (S.reg rs1) (.lit sh.toNat)))
+  | .slti rd rs1 imm => wr rd (mkBin .slt (S.reg rs1) (wlit (sx imm)))
+  | .slt rd rs1 rs2 => wr rd (mkBin .slt (S.reg rs1) (S.reg rs2))
 
 /-- Fetch and decode at `pc` (inside `.text`, 4-aligned). -/
 def fetchI (img : Image) (pc : Nat) : Option Instr :=
@@ -212,7 +229,7 @@ def go (img : Image) (cuts : List Nat) :
     if (started && cuts.contains pc) || pc == Layout.memcpyEntry then some [⟨S, .at pc, cs, os⟩]
     else
       match fetchI img pc with
-      | none => none
+      | none => some [⟨S, .at pc, cs, os ++ [.unreachable pc]⟩]
       | some i =>
         match stepI img pc i S with
         | none => none

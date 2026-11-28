@@ -1705,3 +1705,47 @@
 {"schema": 2, "rec": "stop", "id": 3, "agent": "DTFAuth3", "ts": "2026-11-28T06:36:46Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 4, "ts": "2026-11-28T06:38:18Z", "fn": "f_8000050c", "item": "S7 stage 2: field rows, 80002dc4_0, DTF.reach/dtf_spec/dtf_sail", "kind": "leaf", "agent": "DTFFieldsB"}
 {"schema": 2, "rec": "stop", "id": 4, "agent": "DTFFieldsB", "ts": "2026-11-28T07:42:51Z", "outcome": "open", "note": null}
+{"schema": 2, "rec": "start", "id": 3, "ts": "2026-11-28T06:14:08Z", "fn": null, "item": "S9.3 WebGL renderer", "kind": "infra", "agent": "S9Viewer"}
+{"schema": 2, "rec": "stop", "id": 3, "agent": "S9Viewer", "ts": "2026-11-28T06:39:52Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:12:58Z", "fn": null, "item": "S12 form xor", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 2, "agent": "S12Forms", "ts": "2026-11-28T06:14:27Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 3, "ts": "2026-11-28T06:14:28Z", "fn": null, "item": "S12 form addiw", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 3, "agent": "S12Forms", "ts": "2026-11-28T06:16:13Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 4, "ts": "2026-11-28T06:16:13Z", "fn": null, "item": "S12 form bge", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 4, "agent": "S12Forms", "ts": "2026-11-28T06:17:14Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 5, "ts": "2026-11-28T06:17:14Z", "fn": null, "item": "S12 form lwu", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 5, "agent": "S12Forms", "ts": "2026-11-28T06:18:27Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 6, "ts": "2026-11-28T06:18:27Z", "fn": null, "item": "S12 form srliw", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 6, "agent": "S12Forms", "ts": "2026-11-28T06:20:08Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 7, "ts": "2026-11-28T06:20:08Z", "fn": null, "item": "S12 form subw", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 7, "agent": "S12Forms", "ts": "2026-11-28T06:21:09Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 8, "ts": "2026-11-28T06:21:09Z", "fn": null, "item": "S12 form lh", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 8, "agent": "S12Forms", "ts": "2026-11-28T06:22:14Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 9, "ts": "2026-11-28T06:22:14Z", "fn": null, "item": "S12 form ori", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 9, "agent": "S12Forms", "ts": "2026-11-28T06:23:13Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 10, "ts": "2026-11-28T06:23:13Z", "fn": null, "item": "S12 form srl", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 10, "agent": "S12Forms", "ts": "2026-11-28T06:24:10Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 11, "ts": "2026-11-28T06:24:10Z", "fn": null, "item": "S12 form divu", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 11, "agent": "S12Forms", "ts": "2026-11-28T06:27:07Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 12, "ts": "2026-11-28T06:27:07Z", "fn": null, "item": "S12 form remu", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 12, "agent": "S12Forms", "ts": "2026-11-28T06:28:14Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 13, "ts": "2026-11-28T06:28:14Z", "fn": null, "item": "S12 form srai", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 13, "agent": "S12Forms", "ts": "2026-11-28T06:29:13Z", "outcome": "open", "note": "model bug: shift_bits_right_arith is rotateRight; sim_srai false; OPEN/forms/Srai.lean"}
+{"schema": 2, "rec": "start", "id": 14, "ts": "2026-11-28T06:29:13Z", "fn": null, "item": "S12 form slliw", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 14, "agent": "S12Forms", "ts": "2026-11-28T06:30:18Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 15, "ts": "2026-11-28T06:30:18Z", "fn": null, "item": "S12 form slti", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 15, "agent": "S12Forms", "ts": "2026-11-28T06:31:22Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 16, "ts": "2026-11-28T06:31:23Z", "fn": null, "item": "S12 form slt", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 16, "agent": "S12Forms", "ts": "2026-11-28T06:32:22Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 17, "ts": "2026-11-28T06:32:22Z", "fn": null, "item": "S12 form Zbb/Zbs/Zbkb forms (maxu packh pack rev8 bext bset bclri clz)", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 17, "agent": "S12Forms", "ts": "2026-11-28T06:33:01Z", "outcome": "open", "note": "8 forms absent from compiled Sail model (no B/Zbkb instructions); OPEN/forms/README.md"}
+{"schema": 2, "rec": "start", "id": 18, "ts": "2026-11-28T06:33:01Z", "fn": null, "item": "S12 form unimp (undecodable word = infeasibility goal)", "kind": "form", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 18, "agent": "S12Forms", "ts": "2026-11-28T06:48:56Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 19, "ts": "2026-11-28T06:48:56Z", "fn": null, "item": "S12 measure: map rebuild, blocked counts, gate", "kind": "infra", "agent": "S12Forms"}
+{"schema": 2, "rec": "stop", "id": 19, "agent": "S12Forms", "ts": "2026-11-28T06:55:28Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:10:38Z", "fn": null, "item": "S11 budget_auto/oblig_auto: baseline measures, goal grammar, tactics", "kind": "rule", "agent": "S11Auto"}
+{"schema": 2, "rec": "stop", "id": 2, "agent": "S11Auto", "ts": "2026-11-28T07:12:00Z", "outcome": "closed", "note": "budget_auto/oblig_auto/leaf_diag one pass; TX zesu_auto moved to Facts; 39 TX budget subproofs -> budget_auto; toy leaf auto"}
+{"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:10:10Z", "fn": null, "item": "S17 exact indirect-call resolution (backward slice)", "kind": "infra", "agent": "S17MapPrecision"}
+{"schema": 2, "rec": "stop", "id": 2, "agent": "S17MapPrecision", "ts": "2026-11-28T07:19:34Z", "outcome": "closed", "note": "S17 gate measured; make map test passes"}
+{"schema": 2, "rec": "start", "id": 20, "ts": "2026-11-28T07:07:13Z", "fn": null, "item": "S9.4 source view", "kind": "infra", "agent": "S9Viewer"}
+{"schema": 2, "rec": "stop", "id": 20, "agent": "S9Viewer", "ts": "2026-11-28T07:28:04Z", "outcome": "closed", "note": null}

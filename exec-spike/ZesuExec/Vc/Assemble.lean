@@ -6,10 +6,11 @@ import ZesuExec.Vc.Sound
 
 * `zesu_plan F := P` adds `def F.plan := P` (a `Plan σ img`), evaluates its cut points and the
   leaves of each with compiled code, and records them in `zesuExt`.
-* `zesu_auto F` tries `cut_auto` on `CutOK` of every cut point and `leaf_auto` on `LeafGoal` of
-  every leaf that has no theorem yet; a success becomes the theorem `F.cut_<pc>` or
-  `F.leaf_<pc>_<i>` (`pc` in lower-case hex) and is recorded `auto`; a failure is recorded with the
-  number of remaining goals and the head symbol of the first. Both tactics fail until S4.
+* `zesu_auto F` tries `cut_auto` on `CutOK` of every cut point and `leaf_diag` (`leaf_auto`'s
+  stages in one pass that names the first stage left open) on `LeafGoal` of every leaf that has
+  no theorem yet; a success becomes the theorem `F.cut_<pc>` or `F.leaf_<pc>_<i>` (`pc` in
+  lower-case hex) and is recorded `auto`; a failure is recorded with the number of remaining goals
+  and the head symbol of the first, or the tactic's error (for a leaf, its residual class).
 * `zesu_assemble F` takes the theorems `F.cut_<pc>` / `F.leaf_<pc>_<i>` that exist (hand-written
   ones are `manual`), makes the missing ones the fields of `structure F.Open : Prop`, and adds
   `theorem F.reach_from (o : F.Open)` by `vc_sound`, and `theorem F.reach` when nothing is missing.
@@ -92,8 +93,8 @@ syntax (name := leafAuto) "leaf_auto" : tactic
 syntax (name := cutAuto) "cut_auto" : tactic
 macro_rules | `(tactic| leaf_auto) => `(tactic| fail "leaf_auto: no automation before plan S4")
 macro_rules | `(tactic| cut_auto) => `(tactic| fail "cut_auto: no automation before plan S4")
-/-- Residual class of a leaf `leaf_auto` did not close (implemented in `Vc/Tactics`); it always
-fails, with the class as its message. -/
+/-- `leaf_auto`'s stages in one pass (implemented in `Vc/Tactics`): closes the goal when they all
+close, else fails with the residual class of the first stage left open as its message. -/
 syntax (name := leafDiagCmd) "leaf_diag" : tactic
 
 def parseTxt (cat : Name) (s : String) : CoreM Syntax := do
@@ -200,9 +201,8 @@ def elabZesuAuto : CommandElab := fun stx => do
       let ln := leafItem fn c.pc j
       unless (← getEnv).contains ln do
         nTried := nTried + 1
-        tryItem fn ln (leafGoalTxt fn i c.pc j) (← `(tactic| leaf_auto))
+        tryItem fn ln (leafGoalTxt fn i c.pc j) (← `(tactic| leaf_diag))
         if (← getEnv).contains ln then nAuto := nAuto + 1
-        else tryItem fn ln (leafGoalTxt fn i c.pc j) (← `(tactic| leaf_diag))
   logInfo s!"{fn}: zesu_auto closed {nAuto} of {nTried} items"
 
 /-- A proof of `∀ x ∈ l, Q x` (by `forall_mem_of_idx`) from the proofs `pf i : Q l[i]!` for
