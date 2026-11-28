@@ -55,22 +55,26 @@ theorem alloc_pre_dtf {σ : Sig} {m : Machine} (hc : Common σ m) (hsp : m.reg 2
   exact (stack_R hpre (by rw [e2]; unfold stackBytes TX.stackBytes; omega) (by rw [e2]; omega)
     ha).2 (priv_sub hpre hlive hP)
 
-/-- `free`'s precondition at a DTF call. -/
+/-- `free`'s precondition at a DTF call. The block is one of DTF's (`X`), so in the entry `Priv`;
+the callee frame is DTF's stack, which avoids it. -/
 theorem free_pre_dtf {σ : Sig} {m : Machine} (hc : Common σ m) (hsp : m.reg 2 = σ.fr + w 0)
     (hra : RetAligned m) {L X : List (Word × Nat)} (hlive : Live σ m L X)
     (hmem : (m.reg 11, (m.reg 12).toNat) ∈ X)
-    (h0 : 0 < (m.reg 12).toNat) (h63 : (m.reg 12).toNat < 2 ^ 63) (h4 : (m.reg 13).toNat ≤ 4) :
+    (h0 : 0 < (m.reg 12).toNat) (h63 : (m.reg 12).toNat < 2 ^ 63) (h4 : (m.reg 13).toNat ≤ 4)
+    (h8 : 8 < (m.reg 12).toNat) :
     freePre σ.A L m := by
   have hpre := hc.2.1
-  refine ⟨hlive.1, hlive.2.1.symm.subset (List.mem_append_right _ hmem), h0, h63, h4,
-    stack16 hc hsp, hra, fun a ha hP => ?_⟩
-  rw [hsp] at ha
-  have e2 := below_fr_toNat hpre
-  have hsp' := pre_sp hpre
-  have hfr := fr_toNat hpre
-  unfold frameBytes stackBytes TX.stackBytes Layout.ramLo at *
-  exact (stack_R hpre (by rw [e2]; unfold stackBytes TX.stackBytes; omega) (by rw [e2]; omega)
-    ha).2 (priv_sub hpre hlive hP)
+  have hst : ∀ a, InRange (m.reg 2 - 16) 16 a → ¬ σ.A.Priv σ.g.L a := fun a ha => by
+    rw [hsp] at ha
+    have e2 := below_fr_toNat hpre
+    have hsp' := pre_sp hpre
+    have hfr := fr_toNat hpre
+    unfold frameBytes stackBytes TX.stackBytes Layout.ramLo at *
+    exact (stack_R hpre (by rw [e2]; unfold stackBytes TX.stackBytes; omega) (by rw [e2]; omega)
+      ha).2
+  exact ⟨hlive.1, hlive.2.1.symm.subset (List.mem_append_right _ hmem), h0, h63, h4, .inr h8,
+    stack16 hc hsp, hra, fun a ha hP => hst a ha (priv_sub hpre hlive hP),
+    fun a ha hb => hst a ha ((hlive.2.2 _ hmem).2.2 a hb)⟩
 
 /-- The plain source's `Extra` at `pc`. -/
 theorem src_extra {d : CutData} {σ : Sig} {m : Machine} (hpc : d.pc ≠ entry)
@@ -506,7 +510,7 @@ theorem DTF.leaf_80002a38_1 :
   have hidx : IdxOk (siteAt 144).kind σ (L, [], ⟨[], []⟩) m' := by
     rw [show (siteAt 144).kind = .free by decide]
     exact ⟨free_pre_dtf CF.common hsp CF.aligned hlive' hmem (by omega) (by omega)
-      (by rw [r13]; decide), X, hlive', hmem⟩
+      (by rw [r13]; decide) (by omega), X, hlive', hmem⟩
   have hsx : SiteX (table[144]!).pc σ (L, [], ⟨[], []⟩) m' := by
     rw [show (table[144]!).pc = 0x80002a6c by decide]
     simp only [SiteX, AuthSite, Nat.reduceEqDiff, if_false, if_true]
