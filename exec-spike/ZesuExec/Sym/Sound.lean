@@ -432,6 +432,11 @@ theorem setWidth_sub32 (a b : Word) : (a - b).setWidth 32 = a.setWidth 32 - b.se
   simp [BitVec.toNat_sub]
   omega
 
+theorem setWidth_sll32 (a : Word) (k : Nat) : (a <<< k).setWidth 32 = a.setWidth 32 <<< k := by
+  ext i hi
+  simp only [BitVec.getElem_setWidth, BitVec.getElem_shiftLeft, BitVec.getLsbD_shiftLeft]
+  by_cases h : i < k <;> simp [h] <;> omega
+
 theorem lit_toNat_eval (env : Env) (t : Nat) (h : t < 2 ^ 64) :
     ((Sym.lit t).eval env).toNat = t := by
   simp [Sym.eval, Nat.mod_eq_of_lt h]
@@ -491,6 +496,11 @@ theorem stepI_sound {img : Image} {pc : Nat} {i : Instr} {S S' : SState} {e : St
   | srl rd rs1 rs2 => exact wr rd _ _ (by simp [r, BinOp.eval]) h
   | divu rd rs1 rs2 => exact wr rd _ _ (by simp [r, BinOp.eval]) h
   | remu rd rs1 rs2 => exact wr rd _ _ (by simp [r, BinOp.eval]) h
+  | slliw rd rs1 sh =>
+    exact wr rd _ _ (by
+      have := sh.isLt
+      simp [r, BinOp.eval, Sym.eval, Nat.mod_eq_of_lt (show sh.toNat < 2 ^ 64 by omega),
+        Nat.mod_eq_of_lt (show sh.toNat < 64 by omega), setWidth_sll32]) h
   | beq rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | bne rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | blt rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h

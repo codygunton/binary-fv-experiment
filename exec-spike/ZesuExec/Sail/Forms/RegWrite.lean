@@ -147,6 +147,11 @@ theorem remu_eq (a b : Word) : remResult true a b = a % b := by
     rw [show (a.toNat : Int).tmod (b.toNat : Int) = ((a.toNat % b.toNat : Nat) : Int) from rfl]
     exact toNat_ofNat_small _ (Nat.lt_of_le_of_lt (Nat.mod_le _ _) a.isLt)
 
+theorem slliw_eq (sh : BitVec 5) (v : Word) :
+    shiftIWopResult .SLLIW sh v = (v.setWidth 32 <<< sh.toNat).signExtend 64 := by
+  simp only [shiftIWopResult, sign_extend_eq, extractLsb_31, Sail.shift_bits_left,
+    BitVec.shiftLeft_eq']
+
 /-! ## The simulation theorems -/
 
 theorem sim_andi {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
@@ -455,6 +460,20 @@ theorem sim_remu {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
   refine execute_REM_run _ _ _ _ _ true (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
     (rX_rg_run hag rs2) ?_
   rw [remu_eq]; exact wX_rg_run _ rd _
+
+theorem sim_slliw {rd rs1 : Fin 32} {sh : BitVec 5} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.slliw rd rs1 sh))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  change Runs (execute_SHIFTIWOP sh (rg rs1) (rg rd) .SLLIW) _ _ _
+  refine execute_SHIFTIWOP_run _ _ sh _ _ .SLLIW (m.reg rs1)
+    (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
+  rw [slliw_eq]; exact wX_rg_run _ rd _
 
 theorem sim_lui {rd : Fin 32} {imm : BitVec 20} (hR : Rel img m s)
     (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.lui rd imm))

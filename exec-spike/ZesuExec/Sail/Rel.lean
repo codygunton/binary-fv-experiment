@@ -230,5 +230,6 @@ def toSail : Instr → instruction
   | .srl rd rs1 rs2 => .RTYPE (rg rs2, rg rs1, rg rd, .SRL)
   | .divu rd rs1 rs2 => .DIV (rg rs2, rg rs1, rg rd, true)
   | .remu rd rs1 rs2 => .REM (rg rs2, rg rs1, rg rd, true)
+  | .slliw rd rs1 sh => .SHIFTIWOP (sh, rg rs1, rg rd, .SLLIW)
 
 end ZesuExec.SailLink

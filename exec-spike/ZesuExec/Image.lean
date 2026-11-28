@@ -106,6 +106,7 @@ def exec (m : Machine) : Instr → Option Machine
   | .divu rd rs1 rs2 =>
     m.writeReg rd (if m.reg rs2 = 0 then -1 else m.reg rs1 / m.reg rs2)
   | .remu rd rs1 rs2 => m.writeReg rd (m.reg rs1 % m.reg rs2)
+  | .slliw rd rs1 sh => m.writeReg rd (((m.reg rs1).setWidth 32 <<< sh.toNat).signExtend 64)
 
 end Machine
 
