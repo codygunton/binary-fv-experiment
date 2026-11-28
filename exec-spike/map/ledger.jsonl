@@ -1767,3 +1767,10 @@
 {"schema": 2, "rec": "stop", "id": 24, "agent": "S16GenericB", "ts": "2026-11-28T08:40:10Z", "outcome": "closed", "note": "new: Runs/Vc (regs, budgets, cut regs) + Snaps; Leaves/Proof by renaming 8330's (all 28 items unchanged)"}
 {"schema": 2, "rec": "start", "id": 25, "ts": "2026-11-28T08:40:14Z", "fn": "f_8004f388", "item": "mergeInPlace_7964 Lean model (sorted permutation), contract, shared merge library", "kind": "contract", "agent": "S16GenericB"}
 {"schema": 2, "rec": "stop", "id": 25, "agent": "S16GenericB", "ts": "2026-11-28T09:01:45Z", "outcome": "closed", "note": "Model (lexLt, MergeOf, Inv + steps), Spec, Win (windows, rot, searches), Bytes (memSrc), Cuts/Steps (states, Common, copy/swap steps), C7964 Runs (18 cuts, 43 leaves); machine proof handed to S16Merge"}
+{"schema": 2, "rec": "start", "id": 26, "ts": "2026-11-28T09:02:11Z", "fn": "f_8004f388", "item": "S16 m7964 machine proof: shared lemmas, Vc, Leaves, Proof", "kind": "contract", "agent": "S16GenericB.S16Merge"}
+{"schema": 2, "rec": "start", "id": 27, "ts": "2026-11-28T09:02:21Z", "fn": "f_8004f388", "item": "M7964 snapshot test + difftest", "kind": "contract", "agent": "S16GenericB.S16MergeSnap"}
+{"schema": 2, "rec": "start", "id": 28, "ts": "2026-11-28T09:03:29Z", "fn": "f_80098ddc", "item": "mergeInPlace_11564: cut design and runs over the shared merge library", "kind": "run", "agent": "S16GenericB"}
+{"schema": 2, "rec": "stop", "id": 27, "agent": "S16GenericB.S16MergeSnap", "ts": "2026-11-28T09:05:27Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 29, "ts": "2026-11-28T09:06:48Z", "fn": "f_80098ddc", "item": "M11564 snapshot test + difftest", "kind": "contract", "agent": "S16GenericB.S16MergeSnap"}
+{"schema": 2, "rec": "stop", "id": 28, "agent": "S16GenericB", "ts": "2026-11-28T09:07:40Z", "outcome": "closed", "note": "22 cuts, 50 leaves, all runs succeed; new shapes SF, SR3; design local S16Merge11564.md"}
+{"schema": 2, "rec": "stop", "id": 29, "agent": "S16GenericB.S16MergeSnap", "ts": "2026-11-28T09:09:45Z", "outcome": "closed", "note": null}
