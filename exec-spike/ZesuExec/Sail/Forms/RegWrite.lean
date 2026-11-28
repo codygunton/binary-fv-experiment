@@ -102,6 +102,11 @@ theorem addiw_eq (imm : BitVec 12) (v : Word) :
     addiwResult imm v = ((v + Machine.sx imm).setWidth 32).signExtend 64 := by
   simp only [addiwResult, sign_extend_eq, extractLsb_31]
 
+theorem srliw_eq (sh : BitVec 5) (v : Word) :
+    shiftIWopResult .SRLIW sh v = (v.setWidth 32 >>> sh.toNat).signExtend 64 := by
+  simp only [shiftIWopResult, sign_extend_eq, extractLsb_31, Sail.shift_bits_right,
+    BitVec.ushiftRight_eq']
+
 /-! ## The simulation theorems -/
 
 theorem sim_andi {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
@@ -322,6 +327,20 @@ theorem sim_addiw {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   refine execute_ADDIW_run _ _ imm _ _ (m.reg rs1)
     (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
   rw [addiw_eq]; exact wX_rg_run _ rd _
+
+theorem sim_srliw {rd rs1 : Fin 32} {sh : BitVec 5} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.srliw rd rs1 sh))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  change Runs (execute_SHIFTIWOP sh (rg rs1) (rg rd) .SRLIW) _ _ _
+  refine execute_SHIFTIWOP_run _ _ sh _ _ .SRLIW (m.reg rs1)
+    (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
+  rw [srliw_eq]; exact wX_rg_run _ rd _
 
 theorem sim_lui {rd : Fin 32} {imm : BitVec 20} (hR : Rel img m s)
     (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.lui rd imm))

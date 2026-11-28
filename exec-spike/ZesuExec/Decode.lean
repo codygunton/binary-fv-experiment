@@ -46,6 +46,7 @@ inductive Instr
   | addiw (rd rs1 : Fin 32) (imm : BitVec 12)
   | bge (rs1 rs2 : Fin 32) (imm : BitVec 13)
   | lwu (rd rs1 : Fin 32) (imm : BitVec 12)
+  | srliw (rd rs1 : Fin 32) (shamt : BitVec 5)
   deriving DecidableEq, Repr
 
 namespace Decode
@@ -129,6 +130,8 @@ def decodeNat (w : Nat) : Option Instr :=
       else none
     else if opc = 0x1b then
       if f3 = 0 then some (.addiw rd rs1 (immI w))
+      else if f3 = 5 then
+        (if f7 = 0 then some (.srliw rd rs1 (BitVec.ofNat 5 (field w 20 5))) else none)
       else none
     else none
   else none
@@ -145,6 +148,6 @@ def Instr.mnemonic : Instr → String
   | .sltiu .. => "sltiu" | .slli .. => "slli" | .srli .. => "srli" | .add .. => "add"
   | .sub .. => "sub" | .and .. => "and" | .or .. => "or" | .sll .. => "sll"
   | .sltu .. => "sltu" | .mul .. => "mul" | .mulhu .. => "mulhu" | .xor .. => "xor"
-  | .addiw .. => "addiw" | .bge .. => "bge" | .lwu .. => "lwu"
+  | .addiw .. => "addiw" | .bge .. => "bge" | .lwu .. => "lwu" | .srliw .. => "srliw"
 
 end ZesuExec

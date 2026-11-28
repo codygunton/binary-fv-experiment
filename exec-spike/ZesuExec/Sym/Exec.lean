@@ -200,6 +200,8 @@ def stepI (img : Image) (pc : Nat) (i : Instr) (S : SState) :
   | .addiw rd rs1 imm => wr rd (mkSext 32 (mkAdd (S.reg rs1) (wlit (sx imm))))
   | .bge rs1 rs2 imm => branchSym S1 pc (.ges (S.reg rs1) (S.reg rs2)) imm
   | .lwu rd rs1 imm => loadI img S S1 pc rd rs1 imm 4 id
+  | .srliw rd rs1 sh =>
+    wr rd (mkSext 32 (mkBin .srl (mkBin .and (S.reg rs1) (.lit 0xffffffff)) (.lit sh.toNat)))
 
 /-- Fetch and decode at `pc` (inside `.text`, 4-aligned). -/
 def fetchI (img : Image) (pc : Nat) : Option Instr :=

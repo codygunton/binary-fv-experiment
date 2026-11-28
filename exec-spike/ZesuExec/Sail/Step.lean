@@ -63,6 +63,7 @@ theorem sail_step_sim {img : Image} {m m' : Machine} {s : State} (h : Rel img m 
         | addiw rd rs1 imm => exact sim_addiw h hw hd hs n
         | bge rs1 rs2 imm => exact sim_bge h hw hd hs n
         | lwu rd rs1 imm => exact sim_lwu h hw hd hs n
+        | srliw rd rs1 sh => exact sim_srliw h hw hd hs n
       · cases hs'
     · cases hs'
   · cases hs'

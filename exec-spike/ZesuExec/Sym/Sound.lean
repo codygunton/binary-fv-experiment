@@ -418,6 +418,15 @@ theorem storeI_ok {env : Env} {S S' : SState} {m : Machine} {pc : Nat}
       simpa [Machine.advance] using hfr a ha,
       by simp [StepExitOk, Machine.advance, hpc', pc_eq hpc]⟩
 
+/-- The low word shifted right: masking to the low word first keeps the high word out. -/
+theorem setWidth_srl_mask (a : Word) (k : Nat) :
+    ((a &&& BitVec.ofNat 64 4294967295) >>> k).setWidth 32 = a.setWidth 32 >>> k := by
+  ext i hi
+  simp only [BitVec.getElem_setWidth, BitVec.getElem_ushiftRight, BitVec.getLsbD_and,
+    BitVec.getLsbD_ushiftRight, BitVec.getLsbD_setWidth, BitVec.getLsbD_ofNat,
+    show (4294967295 : Nat) = 2 ^ 32 - 1 from rfl, Nat.testBit_two_pow_sub_one]
+  by_cases h : k + i < 32 <;> simp [h] <;> omega
+
 theorem lit_toNat_eval (env : Env) (t : Nat) (h : t < 2 ^ 64) :
     ((Sym.lit t).eval env).toNat = t := by
   simp [Sym.eval, Nat.mod_eq_of_lt h]
@@ -466,6 +475,11 @@ theorem stepI_sound {img : Image} {pc : Nat} {i : Instr} {S S' : SState} {e : St
   | addiw rd rs1 imm => exact wr rd _ _ (by simp [r, eval_wlit]) h
   | bge rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | lwu rd rs1 imm => exact loadI_ok hwf hm hro hpc rd rs1 imm 4 _ _ (fun s => rfl) h hob
+  | srliw rd rs1 sh =>
+    exact wr rd _ _ (by
+      have := sh.isLt
+      simp [r, BinOp.eval, Sym.eval, Nat.mod_eq_of_lt (show sh.toNat < 2 ^ 64 by omega),
+        Nat.mod_eq_of_lt (show sh.toNat < 64 by omega), setWidth_srl_mask]) h
   | beq rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | bne rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | blt rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
