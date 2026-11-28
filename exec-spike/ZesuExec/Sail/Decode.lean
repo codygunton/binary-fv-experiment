@@ -301,6 +301,10 @@ theorem dec_lh (hop : field w.toNat 0 7 = 0x03) (hf3 : field w.toNat 12 3 = 1) :
     Runs (ext_decode w) s s (toSail (.lh (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
   have := opc_of_field hop; have := fld_of_field hf3; dec_tac
 
+theorem dec_ori (hop : field w.toNat 0 7 = 0x13) (hf3 : field w.toNat 12 3 = 6) :
+    Runs (ext_decode w) s s (toSail (.ori (reg w.toNat 7) (reg w.toNat 15) (immI w.toNat))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; dec_tac
+
 end forms
 
 /-- Case split on an `if` in a hypothesis `ite c a b = x`. -/
@@ -362,6 +366,7 @@ theorem decode_sound {w : BitVec 32} {i : Instr} {s : State} (h : decodeWord w =
         | exact dec_lwu w hc (by assumption) (by assumption)
         | exact dec_srliw w hc (by assumption) (by assumption) (by assumption)
         | exact dec_subw w hc (by assumption) (by assumption) (by assumption)
-        | exact dec_lh w hc (by assumption) (by assumption))
+        | exact dec_lh w hc (by assumption) (by assumption)
+        | exact dec_ori w hc (by assumption) (by assumption))
 
 end ZesuExec.SailLink

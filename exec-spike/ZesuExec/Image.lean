@@ -101,6 +101,7 @@ def exec (m : Machine) : Instr → Option Machine
   | .subw rd rs1 rs2 =>
     m.writeReg rd (((m.reg rs1).setWidth 32 - (m.reg rs2).setWidth 32).signExtend 64)
   | .lh rd rs1 imm => m.loadInto rd rs1 imm 2 fun v => (v.truncate 16).signExtend 64
+  | .ori rd rs1 imm => m.writeReg rd (m.reg rs1 ||| sx imm)
 
 end Machine
 
