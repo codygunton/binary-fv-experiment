@@ -53,10 +53,11 @@ buffer slot (RAM, present, from `Priv`), `0x800011f8` the written result (`Done`
 2. Per-field checks before the current item (the reference parser's `isList`/length tests) — the
    prefix of `body t` that has succeeded; with 1, `RestOk` becomes "the first `k` fields of `body t`
    parse to the held values".
-3. List loops: the `txHashList` buffer `{ptr, len, cap}` at `S-0x118` and its bytes; the
-   `txAuthList` buffer at `S-0x330`/`S-0x338`/`S-0x318` and the tuples so far; the inner cursors
-   (`s7`/`s6`, `S-0x300`/`S-0x308`); the list bytes left (budget term) must be tied to the list
-   payload.
+3. List loops: the `txAuthList` buffer at `S-0x330`/`S-0x338`/`S-0x318` and the tuples so far;
+   the inner cursors (`s7`/`s6`, `S-0x300`/`S-0x308`); the list bytes left (budget term) tied to
+   the list payload. (The `txHashList` loop is stated: `ListHdr`/`HashList`/`HashLoop`/`HashItem`
+   in `Cuts.lean`, see "Hash-list loop" below; its buffer bytes are not stated yet — F1/F4 take
+   the bytes present at the buffer, `bytesOf` — so the hashes themselves are item 1.)
 4. Byte loops: (cursor part stated) `CurOk` at every `Inner.be` head: cursor/end are `inp + c`,
    `inp + e`, `c < e ≤ len`, `e ≤ c + 32` (DTFCursor). Not stated: that `c..e` is the current
    item's payload and the accumulator so far (needed with item 1).
@@ -109,13 +110,33 @@ bytes), authorization loop 4200 ≤ 256·27 (a tuple is ≥ 27 bytes). Entry bud
 
 ## Cut lemmas (`Lemmas.lean`, `Ret.lean`, `Leaves.lean`)
 
-150 of 161 closed: `cut_plain` (70 jump/branch-only cuts), `cut_ret` (76 return sites of
-`decodeItem`, `alloc`, `remap`, TX), `cut_entry`, `cut_table` (`0x80000574`), `cut_slot`
-(`0x80002138`, `0x80002434`). Open (11), each needing a fact the assertions do not state yet:
+159 of 161 closed: `cut_plain` (70 jump/branch-only cuts), `cut_ret` (85 return sites of
+`decodeItem`, `alloc`, `remap`, TX, `memcpy`, F1, F4), `cut_entry`, `cut_table` (`0x80000574`),
+`cut_slot` (`0x80002138`, `0x80002434`). F1/F4: `IdxOk` states the list buffer is one of DTF's
+blocks (`BufOwn`); `ret_f1` (F1 by `f1_spec_keep`) and `ret_f4` rebuild `Live` with
+`live_drop`/`live_swap`. Open (2):
 
 | cut | callee | missing |
 |---|---|---|
-| `0x800017c4`, `0x80001a5c`, `0x80001c84`, `0x80001d40`, `0x80001eb0`, `0x80002a38`, `0x80002ee0` | `memcpy` | the destination range (`Owned ∨ Priv g.L`, apart from the save area and the shape's slots): items 1/3 |
-| `0x80002a6c` (also a jump target), `0x80002f14` | `free` | the freed block is one of DTF's (`∈ X`), item 3 |
-| `0x8000211c` | F1 | the list buffer's block is DTF's (item 3) |
-| `0x80002180` | F4 | the list buffer's block is DTF's (item 3) |
+| `0x80002a6c` (also a jump target), `0x80002f14` | `free` | the freed block is one of DTF's (`∈ X`), item 3 (authorization list) |
+
+## Hash-list loop (arm 3, `0x80002064..0x80002180`)
+
+State (`Cuts.lean`): `ListHdr σ m o n r` (header `{p, n, cap}` at frame offset `o`, `n + r ≤ cap`,
+`p ≠ 0`, the buffer of `cap` 32-byte elements one of DTF's blocks); `HashLoop` at `0x800020ac`
+(`Extra`) and at the call returning to `0x800020c0` (`SiteX`): item 10's list payload after `n`
+hashes (`skip n`), `s7 = inp + c + h + j`, `s6 = p - j`, `s9 = n`, header with `n`;
+`HashItem σ m r` at the F1 call (`SiteX 0x8000211c`, `r = 0`) and the slot cut `0x80002138`
+(`Extra`, `r = 1`): the `n + 1`-th item decoded (`skip (n+1) = j + k`, `32 ≤ k`, `s4 = k`).
+
+Leaves: `Hand.lean` (`leaf_at_x`/`leaf_call_x`: `leaf_gen` with `Extra`/cursor/budget resp. the
+callee index, `SiteX` and return budget as hypotheses over the leaf's `Ctx`), `Hash.lean`
+(`ctx_reg`/`ctx_slot`/`ctx_word`/`hdr_keep`, `f2_pre_cur`, `f4_pre_dtf`). Closed: `80002064_2`
+(empty list → F4), `80002064_3` (into the loop), `800020ac_0` (decodeItem on the cursor).
+Open, with what each needs:
+
+| leaf | needs |
+|---|---|
+| `800020c0_3` (→ F1) | its 4 reads at the item's payload pointer (`CoreChk` fails: `advUse` is `none` for a cursor call; give `leaf_call_x` the obligations as a hypothesis), an `f1_pre_dtf` (as `f4_pre_dtf`, from `ListHdr` with `r = 0`, request `n + 1 < 2^32` from `n ≤ j ≤ len`), `HashItem` from the F2 outcome on the cursor slice (`(payload.drop (c+h+j)).take (p-j)`: an `f2_out` for cursor calls) |
+| `8000211c_1` (→ slot `0x80002138`) | `CoreChk`/`AtChk` pass; `HashItem σ m' 1` and `SlotOk` from F1's `PostKeep` (no growth: header kept, `n + 1 ≤ cap`; growth: `{p', n, grown}` with `live_swap` and the new block in `X`; OOM excluded by the leaf's condition), slot `p + 32 n` present by `live_ok` |
+| `80002138_0` (loop back), `80002138_1` (→ F4) | a leaf core for a source with region 4 (the slot): `Ctx` assumes base regions; the 4 slot stores write one of DTF's blocks (`CallR` via `Priv g.L`), the header `len` store a frame word; budget back edge `2871 - 2564 + steps ≤ 256 k` |

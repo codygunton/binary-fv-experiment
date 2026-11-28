@@ -1045,3 +1045,28 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - Open (67): 4 TX call leaves (need `accessListInput` from `ChecksOk` and a `TX.Pre` builder at
     DTF's call site); hash-list loop (12 leaves, F1/F4 return cuts: list buffer state, CUTS item 3);
     authorization list (~45 leaves, 2 `free` return cuts); 2 success writes (field values, step 4).
+- S7 cont. (DTFLists, 2026-11-27, branch `dtf`): TX call leaves, F1/F4 return sites, hash-list
+  loop state and its first leaves. **Counts before → after: manual 580 → 592, auto 0, open 67 → 55**
+  (leaves open 63 → 53, cut lemmas open 4 → 2). No contract change (coordinator: `Domain`'s TX part
+  kept).
+  - Typed head (`Head.lean`): `ChecksL`/`Reads`/`StepOk`, `head_reads`, `al_input` (checked and
+    fitting typed head ⇒ `accessListInput t payload = some (payload.drop c)`); `fits_at` moved here.
+  - `Gen.lean`: `tx_pre_dtf` (`TX.Pre` at DTF's call from the site's result/`rest` slots, the
+    input, `Domain` via `al_input`, the live list), `txArgs` in `argsOk`, `call_idx` TX branch (takes
+    the site's arms and checks), `allowed_le`/`tx_ret_len`/`retLen`/`ret_len` (TX return budget: TX
+    consumes at most its input). Leaves `80001a5c_0`, `80001c84_0`, `80001d40_0`, `80001eb0_0`.
+  - F1/F4 (`Cuts.lean`, `Ret.lean`): F1's callee is `f1_spec_keep`; `IdxOk` f1/f4 states the list
+    buffer is one of DTF's blocks (`BufOwn`); `SiteFine`/`Keeps` f1/f4, `ret_f1`/`ret_f4` with
+    `live_erase`/`live_drop`/`live_swap`. Cut lemmas `0x8000211c`, `0x80002180`; leaves
+    `8000211c_0`, `80002180_0`, `80002180_1` by `leaf_gen`.
+  - Hash-list loop (CUTS item 3, arm 3): `ListHdr`, `HashList`, `HashLoop`, `HashItem` in
+    `Cuts.lean`; `Extra 0x800020ac = HashLoop`, `Extra 0x80002138 = SlotOk ∧ HashItem 1`; `SiteA`
+    gains `SiteX` (`0x800020c0`, `0x8000211c`), `leaf_gen` builds it where `noSiteX`. `Hand.lean`:
+    `leaf_at_x`/`leaf_call_x` (`leaf_gen` with the target's `Extra`/budget or the callee index,
+    `SiteX` and return budget as hypotheses). `Hash.lean`: `ctx_*` keep lemmas, `f2_pre_cur`,
+    `f4_pre_dtf` (`apart_priv`, `bytesOf`), leaves `800020ac_0`, `80002064_3`, `80002064_2`.
+  - Open (55): hash loop 4 leaves (`800020c0_3`, `8000211c_1`, `80002138_0`, `80002138_1`; what
+    each needs: `OPEN/DTF/CUTS.md` "Hash-list loop"); authorization list (~45 leaves, `free`
+    return cuts `0x80002a6c`, `0x80002f14`); 2 success writes (field values, step 4).
+  - Checks: `lake build` (311 jobs) passes; `Vc.lean` not touched in its `zesu_simp`/`zesu_fact`
+    sets; no `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no `maxHeartbeats` change.

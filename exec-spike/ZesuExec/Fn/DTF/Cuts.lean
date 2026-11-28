@@ -221,11 +221,46 @@ def Done (σ : Sig) (m : Machine) : Prop :=
   m.load (σ.res + w errOff) 2 = some 3 ∨
   ∃ tx, decode σ.t σ.payload = some tx ∧ m.load (σ.res + w errOff) 2 = some 0 ∧ TxAt m σ.res tx
 
+/-- An array list's header `{p, n, cap}` at frame offset `o`: `n + r ≤ cap` (room for `r` more),
+`p ≠ 0`, and the buffer of `cap` 32-byte elements one of DTF's blocks (when it has one). -/
+def ListHdr (σ : Sig) (m : Machine) (o n r : Nat) : Prop :=
+  ∃ p cap : Word, m.load (σ.fr + w o) 8 = some p ∧ m.load (σ.fr + w (o + 8)) 8 = some (w n) ∧
+    m.load (σ.fr + w (o + 16)) 8 = some cap ∧ n + r ≤ cap.toNat ∧ 0 < p.toNat ∧
+    ∃ L X, Live σ m L X ∧ (0 < cap.toNat → (p, cap.toNat * 32) ∈ X)
+
+/-- Top-level item 10 (arm 3's `blobVersionedHashes`) is a list of payload length `p` at `c + h`. -/
+def HashList (σ : Sig) (c h p : Nat) : Prop :=
+  skip 10 σ.payload = some c ∧ F2.decode (σ.payload.drop c) = .success true h p
+
+/-- The `txHashList` loop (open assertion item 3) after `n` versioned hashes, `j` bytes of the
+list payload: the cursor `s7 = inp + c + h + j`, the bytes left `s6 = p - j`, the count
+`s9 = n`, the list header at `S-0x118` with `n` elements. -/
+def HashLoop (σ : Sig) (m : Machine) : Prop :=
+  ∃ c h p n j, HashList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧
+    n ≤ j ∧ m.reg 23 = σ.inp + w (c + h + j) ∧ m.reg 22 = w (p - j) ∧ m.reg 25 = w n ∧
+    ListHdr σ m 0x258 n 0
+
+/-- The loop after the `n + 1`-th hash's item (`k` bytes, in `s4`) decoded, the cursor still at it;
+the header has room for `r` more. -/
+def HashItem (σ : Sig) (m : Machine) (r : Nat) : Prop :=
+  ∃ c h p n j k, HashList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧
+    skip (n + 1) (TX.itemPayload (σ.payload.drop c) h p) = some (j + k) ∧ n + 1 ≤ j + k ∧
+    32 ≤ k ∧ m.reg 23 = σ.inp + w (c + h + j) ∧ m.reg 22 = w (p - j) ∧ m.reg 25 = w n ∧
+    m.reg 20 = w k ∧ ListHdr σ m 0x258 n r
+
 def Extra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
   if pc = 0x80000574 then m.reg 10 = w (0x80110050 + 8 * σ.t)
-  else if pc = 0x80002138 then SlotOk σ m 32
+  else if pc = 0x80002138 then SlotOk σ m 32 ∧ HashItem σ m 1
   else if pc = 0x80002434 then SlotOk σ m 0x90
   else if pc = 0x800011f8 then Done σ m
+  else if pc = 0x800020ac then HashLoop σ m
+  else True
+
+/-- What a call site states beyond its kind's: the hash loop's state across the item's
+`decodeItem` (`0x800020c0`) and the list's `ensureTotalCapacity` (`0x8000211c`). -/
+def SiteX (r : Nat) (σ : Sig) (m : Machine) : Prop :=
+  if r = 0x800020c0 then HashLoop σ m
+  else if r = 0x8000211c then HashItem σ m 0
   else True
 
 /-! ## Callees -/
@@ -288,7 +323,7 @@ def Kind.Pre : Kind → Sig → Idx → Machine → Prop
 
 def Kind.Post : Kind → Sig → Idx → Machine → Machine → Prop
   | .f2, _, _ => F2.Post
-  | .f1, σ, x => F1.Post σ.A x.1 x.2.1
+  | .f1, σ, x => F1.PostKeep σ.A x.1 x.2.1
   | .f4, σ, x => F4.Post σ.A x.1 x.2.1
   | .memcpy, _, _ => MemcpyPost
   | .tx, σ, x => TX.Post σ.A x.2.2
@@ -299,7 +334,7 @@ def Kind.Post : Kind → Sig → Idx → Machine → Machine → Prop
 theorem Kind.spec : ∀ (k : Kind) (σ : Sig) (x : Idx),
     Spec zesuImage k.entry k.bound (k.Pre σ x) (k.Post σ x)
   | .f2, _, _ => F2.f2_spec
-  | .f1, σ, x => F1.f1_spec σ.A x.1 x.2.1
+  | .f1, σ, x => F1.f1_spec_keep σ.A x.1 x.2.1
   | .f4, σ, x => F4.f4_spec σ.A x.1 x.2.1
   | .memcpy, _, _ => memcpy_spec zesuImage
   | .tx, σ, x => TX.tx_spec σ.A x.2.2
@@ -316,16 +351,23 @@ def MemDst (σ : Sig) (m : Machine) : Prop :=
   (m.reg 12).toNat = 0 ∨ ∃ L X, Live σ m L X ∧
     ∃ b ∈ X, ∀ j < (m.reg 12).toNat, InRange b.1 b.2 (m.reg 10 + BitVec.ofNat 64 j)
 
+/-- A list buffer `{p, cap}` of 32-byte elements is one of DTF's blocks (when it has one). -/
+def BufOwn (X : List (Word × Nat)) (p c : Word) : Prop := 0 < c.toNat → (p, c.toNat * 32) ∈ X
+
 /-- What the call site says about the callee's index: the callee's precondition, and the live list
 is DTF's `Live` list (allocator calls, F1, F4, TX; TX's parameters carry it too); a `memcpy`
-writes into one of DTF's blocks. The return-site cut lemmas need these (`Live` after an `alloc`,
-its size positive; `Common` after a `memcpy`). -/
+writes into one of DTF's blocks; the list buffer F1 or F4 is handed is one of DTF's blocks. The
+return-site cut lemmas need these (`Live` after an `alloc`, its size positive; `Common` after a
+`memcpy`, F1 or F4). -/
 def IdxOk (k : Kind) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   k.Pre σ x m ∧
   match k with
   | .f2 | .remap => True
   | .memcpy => MemDst σ m
   | .tx => x.2.2.L = x.1 ∧ ∃ X, Live σ m x.1 X
+  | .f1 => ∃ X, Live σ m x.1 X ∧
+      BufOwn X (F1.wordAt m (m.reg 10)) (F1.wordAt m (m.reg 10 + 16))
+  | .f4 => ∃ X, Live σ m x.1 X ∧ BufOwn X (ToOwned.listPtr m) (ToOwned.listCap m)
   | _ => ∃ X, Live σ m x.1 X
 
 /-! ## Budgets -/
@@ -524,7 +566,8 @@ def PlainA (d : CutData) (σ : Sig) (m : Machine) : Prop :=
 /-- The call-site predicate of the call returning to `r`. -/
 def SiteA (s : Site) (r : Nat) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   m.reg 1 = w r ∧ Common σ m ∧ ShapeOk σ s.shape m ∧ ArmOk σ s.arms ∧ RestOk σ m s.rest ∧
-    IdxOk s.kind σ x m ∧ FieldsOk σ m (siteFields r) ∧ ChecksOk σ (chkCount s.rest)
+    IdxOk s.kind σ x m ∧ FieldsOk σ m (siteFields r) ∧ ChecksOk σ (chkCount s.rest) ∧
+    SiteX r σ m
 
 def RetA (s : Site) (r : Nat) (σ : Sig) (m : Machine) : Prop :=
   ∃ mc x, SiteA s r σ x mc ∧ (calleeOf s.kind).Post σ x mc m

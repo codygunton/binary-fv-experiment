@@ -114,8 +114,11 @@ import ZesuExec.Fn.DTF.Lemmas
 import ZesuExec.Fn.DTF.Ret
 import ZesuExec.Fn.DTF.Leaves
 import ZesuExec.Fn.DTF.Keep
+import ZesuExec.Fn.DTF.Head
 import ZesuExec.Fn.DTF.Gen
 import ZesuExec.Fn.DTF.LeavesGen
+import ZesuExec.Fn.DTF.Hand
+import ZesuExec.Fn.DTF.Hash
 import ZesuExec.Fn.DTF.Reach
 import ZesuExec.Test.Auto
 import ZesuExec.Compliance.TXSail
