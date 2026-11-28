@@ -1,6 +1,6 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T08:25:42Z",
+ "generated": "2026-11-28T09:17:00Z",
  "coverage": {
   "headline": {
    "cut_points_closed": 41,
@@ -308,7 +308,7 @@
      "unreviewed",
      "ZesuExec.Fn.TX.pre_nonvacuous",
      "-",
-     0
+     2
     ],
     [
      "f_8000050c",
@@ -335,7 +335,7 @@
      "unreviewed",
      "ZesuExec.Fn.F1.pre_nonvacuous",
      "-",
-     5
+     7
     ],
     [
      "f_800d5cb8",
@@ -344,7 +344,7 @@
      "unreviewed",
      "-",
      "-",
-     0
+     2
     ],
     [
      "f_800d6274",
@@ -380,7 +380,7 @@
      "unreviewed",
      "-",
      "-",
-     0
+     2
     ],
     [
      "f_800e06d0",
@@ -610,22 +610,22 @@
    "auto:infeasible": 2,
    "auto:cut": 3
   },
-  "hand_lines_per_manual_leaf": 10.26
+  "hand_lines_per_manual_leaf": 10.3
  },
  "effort": {
   "total": {
-   "usd": 638.23,
-   "totalTokens": 1926154902.15,
-   "requests": 5966.35,
-   "minutes": 1809.96,
-   "builds": 1379.84
+   "usd": 652.19,
+   "totalTokens": 1964552137.15,
+   "requests": 6125.35,
+   "minutes": 1891.59,
+   "builds": 1405.84
   },
-  "session_usd": 964.34,
-  "unattributed_usd": 323.41,
-  "unattributed_share": 0.3354,
+  "session_usd": 1024.46,
+  "unattributed_usd": 369.57,
+  "unattributed_share": 0.3607,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
-  "infrastructure_share": 0.3334,
+  "infrastructure_share": 0.3262,
   "abandoned": {
    "usd": 0.0,
    "totalTokens": 0.0,
@@ -709,12 +709,12 @@
     ],
     [
      "leaf",
-     1040,
-     252.42,
-     746197424.58,
-     2349.28,
-     669.55,
-     731.97
+     1041,
+     266.38,
+     784594659.58,
+     2508.28,
+     751.18,
+     757.97
     ],
     [
      "rule",
@@ -777,14 +777,14 @@
      "f_8000050c",
      "rlp_decode.decodeTxFields",
      "conditional",
-     1589,
-     219.34,
-     664594772.78,
-     2091.09,
-     647.77,
-     561.87,
-     1.43,
-     0.0776
+     1590,
+     233.3,
+     702992007.78,
+     2250.09,
+     729.4,
+     587.87,
+     1.52,
+     0.0826
     ],
     [
      "f_800cb40c",
@@ -864,19 +864,19 @@
    ],
    "rows": [
     [
+     "coordinator",
+     85.38,
+     10.79,
+     74.59,
+     0.8737,
+     0
+    ],
+    [
      "P2Summaries",
      85.24,
      84.82,
      0.41,
      0.0049,
-     0
-    ],
-    [
-     "coordinator",
-     82.57,
-     10.79,
-     71.79,
-     0.8694,
      0
     ],
     [
@@ -1104,10 +1104,42 @@
      0
     ],
     [
+     "S13AllocB",
+     15.01,
+     0.0,
+     15.01,
+     1.0,
+     0
+    ],
+    [
+     "DTFFieldsC",
+     14.99,
+     13.96,
+     1.03,
+     0.069,
+     0
+    ],
+    [
      "TrackT",
      14.96,
      0.0,
      14.96,
+     1.0,
+     0
+    ],
+    [
+     "S16GenericB",
+     14.72,
+     0.0,
+     14.72,
+     1.0,
+     0
+    ],
+    [
+     "SailRegen",
+     13.29,
+     0.0,
+     13.29,
      1.0,
      0
     ],
@@ -1124,14 +1156,6 @@
      12.53,
      0.0,
      12.53,
-     1.0,
-     0
-    ],
-    [
-     "DTFFieldsC",
-     11.28,
-     0.0,
-     11.28,
      1.0,
      0
     ],
@@ -1168,26 +1192,34 @@
      0
     ],
     [
-     "SailRegen",
-     4.75,
+     "S16GenericB.S16Merge",
+     5.72,
      0.0,
-     4.75,
+     5.72,
      1.0,
      0
     ],
     [
-     "S13AllocB",
-     3.27,
+     "S13AllocC",
+     5.26,
      0.0,
-     3.27,
+     5.26,
      1.0,
      0
     ],
     [
-     "S16GenericB",
-     2.37,
+     "DTFFieldsD",
+     4.43,
      0.0,
-     2.37,
+     4.43,
+     1.0,
+     0
+    ],
+    [
+     "XParamsFix",
+     3.75,
+     0.0,
+     3.75,
      1.0,
      0
     ],
@@ -1196,6 +1228,14 @@
      1.84,
      0.0,
      1.84,
+     1.0,
+     0
+    ],
+    [
+     "S16GenericB.S16MergeSnap",
+     1.83,
+     0.0,
+     1.83,
      1.0,
      0
     ],
@@ -2099,7 +2139,7 @@
     [
      "f_8000050c",
      "rlp_decode.decodeTxFields",
-     2661
+     2768
     ],
     [
      "f_8004218c",
