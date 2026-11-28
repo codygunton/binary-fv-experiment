@@ -302,4 +302,215 @@ theorem DTF.leaf_80002064_3 :
   simp only [if_true, w, BitVec.toNat_sub, BitVec.toNat_ofNat]
   omega
 
+/-! ## The list buffer at a call -/
+
+/-- Two nonempty ranges, one of the allocator's private memory and one outside it, are apart. -/
+theorem apart_priv {σ : Sig} {p q : Word} {k k' : Nat}
+    (hp : ∀ a, InRange p k a → σ.A.Priv σ.g.L a) (hq : ∀ a, InRange q k' a → ¬ σ.A.Priv σ.g.L a)
+    (hk : 0 < k) (hk' : 0 < k') (hpk : p.toNat + k ≤ 2 ^ 64) (hqk : q.toNat + k' ≤ 2 ^ 64) :
+    p.toNat + k ≤ q.toNat ∨ q.toNat + k' ≤ p.toNat := by
+  refine Classical.byContradiction fun hn => ?_
+  have h1 : q.toNat < p.toNat + k := by omega
+  have h2 : p.toNat < q.toNat + k' := by omega
+  by_cases hpq : p.toNat ≤ q.toNat
+  · exact hq q (by simp only [InRange]; omega) (hp q (by simp only [InRange]; omega))
+  · exact hq p (by simp only [InRange]; omega) (hp p (by simp only [InRange]; omega))
+
+/-- The bytes at `p`, read off a machine where they are present. -/
+def bytesOf (m : Machine) (p : Word) (k : Nat) : List Byte :=
+  (List.range k).map fun j => (m.mem (p + BitVec.ofNat 64 j)).getD 0
+
+theorem bytesOf_at {m : Machine} {p : Word} {k : Nat} (h : Present m p k) :
+    BytesAt m p (bytesOf m p k) := by
+  intro i hi
+  simp only [bytesOf, List.length_map, List.length_range] at hi
+  obtain ⟨b, hb⟩ := Option.isSome_iff_exists.mp (h i hi)
+  simp [bytesOf, hb]
+
+theorem bytesOf_length (m : Machine) (p : Word) (k : Nat) : (bytesOf m p k).length = k := by
+  simp [bytesOf]
+
+/-- What a list header gives at a call: the words, the live list with the buffer, its bytes. -/
+theorem hdr_facts {σ : Sig} {m : Machine} (hc : Common σ m) {o n r : Nat}
+    (hh : ListHdr σ m o n r) :
+    ∃ p cap : Word, ∃ L X, m.load (σ.fr + w o) 8 = some p ∧
+      m.load (σ.fr + w (o + 8)) 8 = some (w n) ∧ m.load (σ.fr + w (o + 16)) 8 = some cap ∧
+      n + r ≤ cap.toNat ∧ 0 < p.toNat ∧ Live σ m L X ∧ BufOwn X p cap ∧
+      (0 < cap.toNat → RamRange p (cap.toNat * 32) ∧ (p, cap.toNat * 32) ∈ L ∧
+        ∀ a, InRange p (cap.toNat * 32) a → σ.A.Priv σ.g.L a) ∧
+      Present m p (n * 32) := by
+  obtain ⟨p, cap, l0, l8, l16, hnr, hp0, L, X, hlive, hbuf⟩ := hh
+  have hb : 0 < cap.toNat → RamRange p (cap.toNat * 32) ∧ (p, cap.toNat * 32) ∈ L ∧
+      ∀ a, InRange p (cap.toNat * 32) a → σ.A.Priv σ.g.L a := fun h0 => by
+    obtain ⟨-, hram, hpriv⟩ := hlive.2.2 _ (hbuf h0)
+    exact ⟨hram, hlive.2.1.symm.subset (List.mem_append_right _ (hbuf h0)), hpriv⟩
+  refine ⟨p, cap, L, X, l0, l8, l16, hnr, hp0, hlive, hbuf, hb, fun j hj => ?_⟩
+  rcases Nat.eq_zero_or_pos cap.toNat with h0 | h0
+  · omega
+  · exact ((σ.A.live_ok L m hlive.1).2 _ (hb h0).2.1).2 j (by simp; omega)
+
+/-- `toOwnedSlice`'s precondition at a call with `sp = fr`, the result slot `fr + ko` and the
+list header `fr + ho` below the save area and apart, `a2` the allocator object; the items are
+the buffer's first `32 n` bytes, the live list DTF's. -/
+theorem f4_pre_dtf {σ : Sig} {m : Machine} (hc : Common σ m) {ko ho n : Nat}
+    (hsp : m.reg 2 = σ.fr + w 0) (hres : m.reg 10 = σ.fr + w ko) (hhdr : m.reg 11 = σ.fr + w ho)
+    (hao : m.reg 12 = σ.ao + w 0) (hko : ko + 24 + 104 ≤ frameBytes)
+    (hho : ho + 24 + 104 ≤ frameBytes) (hko8 : ko % 8 = 0) (hho8 : ho % 8 = 0)
+    (hkh : ko + 24 ≤ ho ∨ ho + 24 ≤ ko) (hh : ListHdr σ m ho n 0) (hra : RetAligned m) :
+    ∃ L X items, F4.Pre σ.A L items m ∧ Live σ m L X ∧
+      BufOwn X (ToOwned.listPtr m) (ToOwned.listCap m) := by
+  obtain ⟨p, cap, L, X, l0, l8, l16, hnr, hp0, hlive, hbuf, hb, hpres⟩ := hdr_facts hc hh
+  have hpre := hc.2.1
+  have hav := hc.avail
+  have hS := pre_sp hpre
+  have hF : σ.fr.toNat = σ.S.toNat - frameBytes := fr_toNat hpre
+  have hst : (σ.S - w stackBytes).toNat = σ.S.toNat - stackBytes :=
+    S_sub_toNat hpre (Nat.le_refl _)
+  have e8 : σ.fr + w ho + 8 = σ.fr + w (ho + 8) := by
+    rw [show (8 : Word) = BitVec.ofNat 64 8 from rfl]; simp only [w]; rw [F1.add_add_ofNat]
+  have e16 : σ.fr + w ho + 16 = σ.fr + w (ho + 16) := by
+    rw [show (16 : Word) = BitVec.ofNat 64 16 from rfl]; simp only [w]; rw [F1.add_add_ofNat]
+  have ep : ToOwned.listPtr m = p := by simp [ToOwned.listPtr, ToOwned.wordAt, hhdr, l0]
+  have en : ToOwned.listLen m = w n := by
+    simp only [ToOwned.listLen, ToOwned.wordAt, hhdr]; rw [e8, l8]; rfl
+  have ec : ToOwned.listCap m = cap := by
+    simp only [ToOwned.listCap, ToOwned.wordAt, hhdr]; rw [e16, l16]; rfl
+  have hP : ∀ a, InRange σ.res resultBytes a ∨ InRange σ.ao 16 a ∨ InRange σ.inp σ.len a ∨
+      InRange (σ.S - w stackBytes) stackBytes a ∨ InRange TX.scratch 8 a →
+      ¬ σ.A.Priv σ.g.L a := hpre.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2
+  -- the entry's separation facts, kept folded (`omega` would split every disjunction)
+  obtain ⟨-, -, -, -, -, haoR, hao8, haoS, -, -, -, -, -, -, -, -, -, -, -, -, d5, -,
+    -, d8, -, d10, -⟩ := hpre
+  have haoR' : Layout.ramLo ≤ σ.ao.toNat ∧ σ.ao.toNat + 16 ≤ Layout.ramHi := haoR
+  have hao8' : σ.ao.toNat % 8 = 0 := hao8
+  have d5' : TX.Apart (σ.S - w stackBytes) stackBytes σ.ao 16 := d5
+  have d8' : TX.Apart TX.scratch 8 σ.ao 16 := d8
+  have d10' : TX.Apart TX.scratch 8 (σ.S - w stackBytes) stackBytes := d10
+  clear haoR hao8 d5 d8 d10
+  have hn : (w n).toNat = n := by
+    rcases Nat.eq_zero_or_pos cap.toNat with h0 | h0
+    · simp only [w, BitVec.toNat_ofNat]; omega
+    · simp only [w, BitVec.toNat_ofNat]; have := cap.isLt; omega
+  have hsb : stackBytes = 1584 := rfl
+  have hfb : frameBytes = 880 := rfl
+  have hfS : σ.fr.toNat + 880 = σ.S.toNat := by
+    rw [hF]; simp only [hfb, stackBytes, TX.stackBytes] at hS ⊢; omega
+  have eko : (σ.fr + w ko).toNat = σ.fr.toNat + ko := fr_add_toNat hc.2.1 (by omega)
+  have eho : (σ.fr + w ho).toNat = σ.fr.toNat + ho := fr_add_toNat hc.2.1 (by omega)
+  have esp : (σ.fr - 112).toNat = σ.fr.toNat - 112 := by
+    have := below_fr_toNat' hc.2.1 (n := 112) (by decide)
+    simpa [w] using this
+  have hscr : ToOwned.scratch.toNat = Layout.extraParams := rfl
+  have hscr' : TX.scratch.toNat = Layout.extraParams := rfl
+  have hao0 : σ.ao + w 0 = σ.ao := by simp [w]
+  have hsp0 : σ.fr + w 0 = σ.fr := by simp [w]
+  have hnot : ∀ a, (InRange (σ.fr + w ko) 24 a ∨ InRange (σ.fr + w ho) 24 a ∨
+      InRange (σ.fr - 112) 112 a) → ¬ σ.A.Priv σ.g.L a := fun a ha =>
+    hP a (.inr (.inr (.inr (.inl (by
+      simp only [InRange, hst, eko, eho, esp] at ha ⊢
+      simp only [hsb] at hfS ⊢; omega)))))
+  refine ⟨L, X, bytesOf m p (n * 32), ?_, hlive, by rw [ep, ec]; exact hbuf⟩
+  show ToOwned.Pre F4.elemBytes σ.A L (bytesOf m p (n * 32)) m
+  unfold ToOwned.Pre
+  simp only [ep, en, ec, hsp, hres, hhdr, hao, hao0, hsp0]
+  unfold ToOwned.Apart RamRange InRange
+  simp only [eko, eho, esp, hscr, hn, F4.elemBytes]
+  have hbA : ∀ q k', 0 < k' → q.toNat + k' ≤ 2 ^ 64 →
+      (∀ a, InRange q k' a → ¬ σ.A.Priv σ.g.L a) →
+      0 < cap.toNat → p.toNat + cap.toNat * 32 ≤ q.toNat ∨ q.toNat + k' ≤ p.toNat :=
+    fun q k' hk' hq hn h0 => by
+      have hr := (hb h0).1
+      unfold RamRange Layout.ramHi at hr
+      exact apart_priv (hb h0).2.2 hn (by omega) hk' (by omega) hq
+  have hlo := hS.1
+  have hhi := hS.2.1
+  simp only [Layout.ramLo, Layout.ramHi, hsb] at hlo hhi haoR' ⊢
+  refine ⟨hc.2.2.1, ⟨?_, ?_, ?_, fun j hj => ?_⟩, hra, ⟨by omega, by omega⟩, by omega,
+    fun j hj => ?_, ⟨by omega, by omega⟩, by omega,
+    ⟨l0, by rw [e8]; exact l8, by rw [e16]; exact l16⟩, by omega, bytesOf_length _ _ _, hp0,
+    fun h0 => ⟨(hb h0).1, (hb h0).2.1⟩, bytesOf_at hpres, haoR', hao8', ?_, common_vtable hav,
+    hc.2.2.2.2.2.2.1, hlive.1, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+    fun h0 => ⟨?_, ?_, ?_, ?_, ?_⟩, fun a ha hPa => ?_⟩
+  · rw [hsp, hsp0, hF]; omega
+  · rw [hsp, hsp0, hF]; omega
+  · rw [hsp, hsp0, hF]; omega
+  · rw [hsp, hsp0]
+    have := hav.stack (1584 - 880 - 112 + j) (by omega)
+    rwa [show σ.S - w stackBytes + BitVec.ofNat 64 (1584 - 880 - 112 + j) =
+      σ.fr - BitVec.ofNat 64 112 + BitVec.ofNat 64 j by
+        apply BitVec.eq_of_toNat_eq
+        simp only [Sig.fr, w, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat, hfb, hsb]
+        omega] at this
+  · rw [show σ.fr + w ko + BitVec.ofNat 64 j = σ.fr + BitVec.ofNat 64 (ko + j) by
+      simp only [w]; rw [F1.add_add_ofNat]]
+    exact stack_present hav (by omega)
+  · rw [load_congr (m := σ.m) fun t ht => hav.ao (by omega)]; exact haoS
+  -- the ten `Apart`s of the call's own ranges, each from at most one of the entry's
+  all_goals first
+    | omega
+    | (have := d5'; unfold TX.Apart at this; rw [hst] at this; omega)
+    | (have := d8'; unfold TX.Apart at this; rw [hscr'] at this; omega)
+    | (have := d10'; unfold TX.Apart at this; rw [hscr', hst] at this; omega)
+    | skip
+  -- the buffer, one of DTF's blocks, against the call's ranges
+  · have := hbA (σ.fr + w ko) 24 (by decide) (by rw [eko]; omega)
+      (fun a ha => hnot a (.inl ha)) h0
+    rwa [eko] at this
+  · have := hbA (σ.fr + w ho) 24 (by decide) (by rw [eho]; omega)
+      (fun a ha => hnot a (.inr (.inl ha))) h0
+    rwa [eho] at this
+  · exact hbA σ.ao 16 (by decide) (by omega) (fun a ha => hP a (.inr (.inl ha))) h0
+  · have := hbA (σ.fr - 112) 112 (by decide) (by rw [esp]; omega)
+      (fun a ha => hnot a (.inr (.inr ha))) h0
+    rwa [esp] at this
+  · have := hbA TX.scratch 8 (by decide) (by rw [hscr']; unfold Layout.extraParams; omega)
+      (fun a ha => hP a (.inr (.inr (.inr (.inr ha))))) h0
+    rwa [hscr'] at this
+  -- the owned ranges are not the allocator's
+  have hP' := priv_sub hc.2.1 hlive hPa
+  rcases ha with h | h | h | h | h
+  · exact hnot a (.inl (by simpa only [InRange, eko] using h)) hP'
+  · exact hnot a (.inr (.inl (by simpa only [InRange, eho] using h))) hP'
+  · exact hP a (.inr (.inl h)) hP'
+  · exact hnot a (.inr (.inr (by simpa only [InRange, esp] using h))) hP'
+  · exact hP a (.inr (.inr (.inr (.inr (by simpa only [InRange, hscr'] using h))))) hP'
+
+/-- The empty list (`0x80002064`, leaf 2): `toOwnedSlice` on the header `{1, 0, 0}`. -/
+theorem DTF.leaf_80002064_2 :
+    LeafGoal DTF.plan DTF.plan.cuts[106]! ((DTF.plan.leaves 0x80002064)[2]!) := by
+  refine leaf_call_x (table[106]!) (table[111]!) (siteAt 111) ((leavesAt 0x80002064)[2]!)
+    F4.entry (by decide) DTF.cut_80002064 (by decide) (by decide) (by decide) rfl rfl
+    (by decide) ?_
+  intro σ m m' hA hc C CF
+  obtain ⟨L0, X0, hlive0⟩ := (ctx_common C).2.2.2.2.2.2.2.2
+  have hdr : ListHdr σ m' 0x258 0 0 :=
+    ⟨1, 0, ctx_word C (o := 0x258) (s := .lit 1) (by decide) (by decide),
+      ctx_word C (o := 0x258 + 8) (s := .lit 0) (by decide) (by decide),
+      ctx_word C (o := 0x258 + 16) (s := .lit 0) (by decide) (by decide), by decide, by decide,
+      L0, X0, hlive0, fun h0 => absurd h0 (by decide)⟩
+  have hsp : m'.reg 2 = σ.fr + w 0 := CF.shape.1 (2, .fr 0) (by decide) _ rfl
+  have hres : m'.reg 10 = σ.fr + w 0x270 := CF.shape.1 (10, .fr 0x270) (by decide) _ rfl
+  have hhdr : m'.reg 11 = σ.fr + w 0x258 := CF.shape.1 (11, .fr 0x258) (by decide) _ rfl
+  have hao : m'.reg 12 = σ.ao + w 0 := CF.shape.1 (12, .ao 0) (by decide) _ rfl
+  obtain ⟨L, X, items, hpre4, hlive, hbuf⟩ := f4_pre_dtf CF.common hsp hres hhdr hao
+    (by decide) (by decide) (by decide) (by decide) (by decide) hdr CF.aligned
+  have hsx : SiteX (table[111]!).pc σ m' := by
+    rw [show (table[111]!).pc = 0x80002180 by decide]; simp [SiteX]
+  have hidx : IdxOk (siteAt 111).kind σ (L, items, ⟨[], []⟩) m' := by
+    rw [show (siteAt 111).kind = .f4 by decide]; exact ⟨hpre4, X, hlive, hbuf⟩
+  refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩
+  have hfld : FieldsOk σ m' (siteFields (table[111]!).pc) := fun f hf => by
+    rw [show siteFields (table[111]!).pc = [] by decide] at hf; cases hf
+  have hsite : SiteA (siteAt 111) (table[111]!).pc σ (L, items, ⟨[], []⟩) m' :=
+    ⟨CF.ra, CF.common, CF.shape, CF.arms, CF.rest, hidx, hfld, CF.chk, hsx⟩
+  have hSF : (siteAt 111).kind.SiteFine (siteAt 111) = true := by decide
+  have hR := ret_len C hSF hsite hpost (by decide)
+  rw [show (siteAt 111).kind.bound = 194 by decide]
+  unfold budgetOf
+  rw [show budgetAt (table[111]!).pc = (2352, .none) from rfl,
+    show budgetAt (table[106]!).pc = (2889, .none) from rfl,
+    show ((leavesAt 0x80002064)[2]!).S.steps - (table[106]!).shape.S.steps = 22 by decide]
+  simp only [innerOf]
+  omega
+
 end ZesuExec.Fn.DTF
