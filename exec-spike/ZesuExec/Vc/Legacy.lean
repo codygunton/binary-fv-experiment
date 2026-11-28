@@ -28,6 +28,15 @@ def legacyFns : List LegacyFn := [
   ⟨"F4", 0x800d677c, `ZesuExec.Fn.F4.f4_spec, `ZesuExec.Fn.F4.f4_sail, none⟩,
   ⟨"F5", 0x800d6554, `ZesuExec.Fn.F5.f5_spec, `ZesuExec.Fn.F5.f5_sail, none⟩,
   ⟨"F6", 0x800d5cb8, `ZesuExec.Fn.F6.f6_spec, `ZesuExec.Fn.F6.f6_sail,
-    some `ZesuExec.Compliance.F6.f6_compliance⟩]
+    some `ZesuExec.Compliance.F6.f6_compliance⟩,
+  ⟨"memmove", 0x800e06d0, `ZesuExec.Fn.Memmove.memmove_spec, `ZesuExec.Fn.Memmove.memmove_sail,
+    none⟩,
+  ⟨"memset", 0x800e06f0, `ZesuExec.Fn.Memset.memset_spec, `ZesuExec.Fn.Memset.memset_sail, none⟩,
+  ⟨"zkvm_sha256", 0x800ea180, `ZesuExec.Fn.Sha256.sha256_spec, `ZesuExec.Fn.Sha256.sha256_sail,
+    none⟩,
+  ⟨"sparseRoot", 0x80042c0c, `ZesuExec.Fn.SszRoot.Sparse.sparseRoot_spec,
+    `ZesuExec.Fn.SszRoot.Sparse.sparseRoot_sail, none⟩,
+  ⟨"progressiveRootAt", 0x80042b2c, `ZesuExec.Fn.SszRoot.Prog.progressiveRootAt_spec,
+    `ZesuExec.Fn.SszRoot.Prog.progressiveRootAt_sail, none⟩]
 
 end ZesuExec.Vc

@@ -1,3 +1,38 @@
+## S15
+
+**Rule.** `vc_sound_rec` (`Vc/SoundRec.lean`, 162 lines, guarded): `PlanR` lists leaves by cut
+index, and two call exits are added: `SelfGoal` (a call into the plan with a smaller budget) and
+`DGoal` (a callee whose budget depends on the caller's parameters, `CalleeD`). Proof: the strong
+induction of `vc_sound`. **Cost of the rule:** ledger item 35, 4 min, one fix round (the
+self-call goal needed an explicit budget conjunct). Contingency not taken.
+
+**Proved** (both to Sail level, with `pre_nonvacuous`; no hypotheses left: `zkvm_sha256`'s
+contract is discharged by `Sha256.sha256_spec 64`, `Sparse.shaSpec`):
+
+| function | cuts / leaves | lines | ledger (min) |
+|---|---|---|---|
+| `sparseRoot` (`Sparse.sparseRoot_spec`, budget `sparseCost d n`) | 30 / 34 | ~1,960 | 36 (59) + 38 (24) |
+| `progressiveRootAt` (`Prog.progressiveRootAt_spec`, budget `progCost n d`) | 4 / 6 | 1,385 | 39 (23) |
+
+`sparseRoot` has 26 of its cuts at one pc (`0x80042cc4`, one per depth): the executor reads
+rodata only at literal addresses, so `ZERO_HASHES[depth]` is split by depth, and one generic
+proof covers the 26 leaves. `progressiveRootAt` calls `sparseRoot` as a `CalleeD` and itself as
+a `SelfGoal`.
+
+**Cost per cut point, recursive code.** `progressiveRootAt`: 23 min and ~350 lines per cut.
+`sparseRoot`: 83 min over 30 cuts (2.8 min), but per distinct cut kind (5: entry, after the left
+call, after the right call, after `zkvm_sha256`, the depth cut) ~17 min and ~390 lines. The
+expensive part is the self-call leaf (`SelfGoal`: the callee's `Pre` from the caller's frame,
+and what the callee's run keeps), ~70–90 lines each once the per-call helpers (`callee_pre`,
+`keep_after`/`fr_after`, `chunks_same`) exist; the helpers are written once per function.
+
+**Snapshot.** Unicorn cannot run either function (they reach `zkvm_sha256`'s CSRs and `rev8`).
+
+**Forecast implication.** Recursion costs one rule (done) and, per recursive function, a fixed
+set of call helpers plus one leaf per call site; the remaining recursive targets need no new
+mechanism. Rodata read at a symbolic index costs one cut per index value until the executor
+handles it.
+
 ## S12b
 
 **Root cause.** The `srai` defect was in the Sail compiler, not in sail-riscv or our patches:
@@ -204,11 +239,21 @@ a 256-entry table checked by kernel evaluation, `Fn/Memset/Table.lean`, ~200 s),
 `pre_nonvacuous`; snapshot check = the `fn-memmove`/`fn-memset` emulator rows above (real ZisK
 instead of Unicorn, which has no ZisK CSRs). Proof lines: memmove 98, memset 336.
 
-**Not proved.** `zkvm_sha256`: contains `rev8` (S12: no Zbb in the Sail model). Contingency taken:
-drafted service contract (STATEMENTS.md S14) with the Lean SHA-256 model (agrees with `hashlib`);
-no `next` intercept (coordinator: rule 11). The `fn-sha256` emulator check in `svc_test.py`
-does not work yet: with the binary's whole `.text` linked in, ziskemu-relaxed12 ends the run
-before the harness dumps (all-zero output); not diagnosed.
+**Proved after S12b (Zbb in the Sail model).** `zkvm_sha256`: `Sha256.sha256_spec n` (budget
+`bound n = 200 + 10 ⌊n / 64⌋`, longest path `192 + 10 ⌊n / 64⌋`), `sha256_sail`,
+`pre_nonvacuous` (`"abc"`), guarded. `Post`: the 32 bytes at `a2` are `Sha256.hash` of the
+input (the FIPS 180-4 model; `hash_eq` restates it as whole blocks plus one or two padding
+blocks, the shape the code computes). Structure: the executor stops at every service site, so the
+proof is 12 symbolic runs between 10 service steps (`0x813` immediate ×2 and register count ×1,
+`0x816` ×2, `0x805` ×4), plus 9 hand steps in the prologue and one hand store (`sb 0x80` at a
+symbolic offset, `0x800ea2b4`). The three slice-bound panic paths are infeasible leaves.
+Invariants: `Mid` (frame, saved registers, bump words, memory outside the frame), `UAt`/`AAt`
+(the two block loops), `TAt`/`PAt`/`OAt` (after the blocks, the marker, the padding).
+Lines: 3,124 in `Fn/Sha256/` (contract 76, model 131, proof 2,917). Cost: ledger 33 (44 min:
+prologue, loops), 34 (5 min: emulator check), 37 (tail, padding, output, end theorems).
+Snapshot check = the `fn-sha256` emulator row (100/100 on every `Post` clause on
+`ziskemu-relaxed12`, `rev8` sites through harness stubs: the pinned ZisK has no Zbb), as for
+memset; Unicorn has neither the CSRs nor `rev8`.
 
 **Findings.** (1) The pinned ZisK cannot load the target ELF (immediate-count memset).
 (2) `Layout.extraParams` is wrong vs ZisK (`OPEN/services/extra_params.md`). Corrected after S14

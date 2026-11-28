@@ -690,13 +690,18 @@ Open (to settle before review):
   `pc` = return address, all registers except `t0`, `a1` unchanged. The indirect jump is resolved
   in the proof: target `0x800e0720 + 16 (a1 & 0xff)` (256-entry table, `Fn/Memset/Table.lean`).
   `memset_spec` (bound 10), `memset_sail`, `pre_nonvacuous`.
-- **`zkvm_sha256`**: no theorem. It contains `rev8` (unsupported, S12); a function-level
-  intercept was rejected (coordinator: rule 11, and it would fix dead state the code does not
-  produce). Drafted contract (not in Lean): `a0 = 0`; the 32 bytes at `a2` are
-  `Sha256.hash` of `[a0, a0 + a1)`; it writes `0xa05340b8 ← 0xa05340c8`,
-  `0xa05340c0 ← 0xa0d340c8` (its bump-allocator words); callee-saved registers and `sp` kept;
-  memory changed only there and in its `0xe0`-byte frame below `sp`. `Sha256.hash` agrees with
-  Python's `hashlib` on lengths 0, 3, 55, 56, 64, 200.
+- **`zkvm_sha256`** (`f_800ea180`, draft, unreviewed, `Fn/Sha256/Spec.lean`; proved after S12b
+  added `rev8`): `Pre`: rodata loaded, `0xe0` bytes of present 16-aligned RAM stack below `sp`,
+  `ra` aligned, the input `[a0, a0 + a1)` empty or present readable memory, `out = a2` (32 bytes),
+  the bump words (`0xa05340b8`, 16 bytes) and the staging word (`Layout.extraParams`, 8 bytes)
+  present RAM; frame, `out`, bump words, staging word pairwise disjoint, and a nonempty input
+  disjoint from frame, bump words and staging word. `Post`: `Returns`, `a0 = 0`, the 32 bytes at
+  `a2` are `Sha256.hash` of the input, the bump words hold `0xa05340c8`, `0xa0d340c8`, memory
+  changed only in the frame, `out`, the bump words and the staging word (the tail's register-count
+  copy stages there). `sha256_spec n : Spec zesuImage entry (bound n) (Pre ∧ a1 = n) Post`, `bound n =
+  200 + 10 ⌊n / 64⌋`; `sha256_sail`, `pre_nonvacuous`. `Sha256.hash` agrees with Python's
+  `hashlib` on lengths 0, 3, 55, 56, 64, 200; `hash_eq` restates it in the code's shape (whole
+  blocks, then one padding block when `n mod 64 ≤ 55`, else two).
 - **Known divergence (closed by the correction below):** `Layout.extraParams` was `0xa0400f00`,
   ZisK stages at `0xa0000f00` (`OPEN/services/extra_params.md`).
 
@@ -749,10 +754,12 @@ Open (to settle before review):
   Budget `sparseCost a3 a2`. `progressiveRootAt` (`0x80042b2c`): `ProgPre`: `progFits a2 a3`
   (every `sparseRoot` depth it asks is ≤ 26) and `PreN (progStack a2 a3)`; `ProgPost` with
   `progressiveRootAt`; budget `progCost`. The `zkvm_sha256` calls use `ShaSpec` (`sha256_spec 64`
-  of `Fn/Sha256/Proof.lean`), taken as a hypothesis until that theorem exists.
-- **State:** `sparseRoot` plan `Sparse.plan` (30 cuts: entry, after the left call, after the
-  right call, after `zkvm_sha256`, 26 cuts at `0x80042cc4` one per `s4 = k`, since the executor
-  reads rodata only at literal addresses). Proved: all 5 kinds of cut lemma, the leaves of the
-  entry (both depth-0 returns and both left self-calls), of `c94`, of the 26 `ccK k` and of `c54`.
-  Open: the 2 leaves of `c70` (to `ccK (depth-1)`, and the right self-call), the assembly by
-  `vc_sound_rec`, `sparseRoot_spec`/`_sail`/`pre_nonvacuous`. `progressiveRootAt`: contract only.
+  of `Fn/Sha256/Proof.lean`), discharged as `Sparse.shaSpec`; no end theorem keeps a hypothesis.
+- **State:** proved. `sparseRoot`: plan `Sparse.plan` (30 cuts: entry, after the left call,
+  after the right call, after `zkvm_sha256`, 26 cuts at `0x80042cc4` one per `s4 = k`, since the
+  executor reads rodata only at literal addresses), 34 leaves; `Sparse.sparseRoot_spec :
+  SparseSpec` (`∀ d n`, budget `sparseCost d n`, `Pre` with `depthOf m = d`, `lenOf m = n`),
+  `sparseRoot_sail`, `pre_nonvacuous`. `progressiveRootAt`: plan with 4 cuts (entry, after
+  `sparseRoot`, after the self-call, after `zkvm_sha256`), 6 leaves; `sparseRoot` a `CalleeD`;
+  `Prog.progressiveRootAt_spec : ProgSpec` (budget `progCost n d`), `progressiveRootAt_sail`,
+  `pre_nonvacuous`.

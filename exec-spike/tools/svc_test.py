@@ -2,6 +2,7 @@
 """Each ZisK service definition of `ZesuExec/Service/` against `ziskemu` (plan S14).
 
     svc_test.py [--n 100] [--seed 14] [--check NAME ...] [--ziskemu PATH] [--json OUT]
+    svc_test.py --snap-out DIR [--snap-n 6] [--check fn-NAME ...] [--ziskemu PATH]
 
 For every check, `n` random cases. A case is an initial machine (register values, byte regions)
 and an instruction pattern. The pattern runs twice:
@@ -75,7 +76,8 @@ class Case:
     dump: [(name, addr, len)] regions observed after the pattern (regs are always dumped)."""
 
     def __init__(self, regs, regions, words, plen, dump, exit_only=False, fn=None, mask=(),
-                 extra=None, pool=POOL, ret_bit=None, unchanged=(), expect=None, alt=()):
+                 extra=None, pool=POOL, ret_bit=None, unchanged=(), expect=None, alt=(),
+                 lean_skip=()):
         self.regs, self.regions, self.words, self.plen = regs, regions, words, plen
         self.dump, self.exit_only = dump, exit_only
         # fn: call the binary's own function (its words at their addresses) instead of a pattern;
@@ -93,6 +95,8 @@ class Case:
         # expect: {part: bytes} parts compared against a Python expectation instead of Lean;
         # alt: [(name, part, bytes, must_differ)] further comparisons of a dumped part
         self.expect, self.alt = expect or {}, alt
+        # lean_skip: indices of regions the Lean side does not read (not passed to it)
+        self.lean_skip = lean_skip
 
 
 def rbytes(rng, n):
@@ -179,7 +183,10 @@ def case_exit(rng):
 
 ELF = '/home/cody/zesislar/build/stock-zisk/zesu-zisk.elf'
 FN_LO, FN_HI = 0x800e06d0, 0x800e06f0 + 4 * 1036      # memmove, memset
-FN = {'memmove': 0x800e06d0, 'memset': 0x800e06f0, 'sha256': 0x800ea180}
+FN = {'memmove': 0x800e06d0, 'memset': 0x800e06f0, 'sha256': 0x800ea180,
+      'sparseRoot': 0x80042c0c, 'progressiveRootAt': 0x80042b2c}
+# functions run with the whole patched `.text` and `.rodata` (`LINK_SHA`, `sha_text`)
+SHA_FNS = ('sha256', 'sparseRoot', 'progressiveRootAt')
 _FN_WORDS = None
 
 
@@ -268,6 +275,121 @@ def case_fn_sha256(rng, i):
 case_fn_sha256.indexed = True
 
 
+# -- `ssz_output.sparseRoot` / `progressiveRootAt` (S15): Python mirror of `Fn/SszRoot/Model.lean`
+# and of the stack sizes of `Fn/SszRoot/Spec.lean`
+SSZ_MAXN = 48                # chunks per case
+SSZ_WIN = 1600               # chunk window: 48 chunks at offsets 0..7
+SSZ_ZERO = [bytes(32)]
+
+
+def ssz_zero(k):
+    while len(SSZ_ZERO) <= k:
+        z = SSZ_ZERO[-1]
+        SSZ_ZERO.append(hashlib.sha256(z + z).digest())
+    return SSZ_ZERO[k]
+
+
+def ssz_sparse(ls, d):
+    """`sparseRoot ls d`."""
+    if d == 0:
+        return ls[0] if ls else bytes(32)
+    h = 1 << (d - 1)
+    right = ssz_zero(d - 1) if len(ls) <= h else ssz_sparse(ls[h:], d - 1)
+    return hashlib.sha256(ssz_sparse(ls[:h], d - 1) + right).digest()
+
+
+def ssz_prog(ls, d):
+    """`progressiveRootAt ls d`."""
+    if not ls:
+        return ssz_zero(0)
+    return hashlib.sha256(ssz_sparse(ls[:1 << d], d) + ssz_prog(ls[1 << d:], d + 2)).digest()
+
+
+def prog_fits(n, d):
+    return n == 0 or (d <= 26 and prog_fits(max(n - (1 << d), 0), d + 2))
+
+
+def sparse_stack(d):
+    return 0x120 * (d + 1) + SHA_FRAME
+
+
+def prog_stack(n, d):
+    return 0xa0 if n == 0 else 0xa0 + max(sparse_stack(d), prog_stack(max(n - (1 << d), 0), d + 2))
+
+
+def ssz_case(rng, fn, n, d):
+    """Every clause of `SparsePost`/`ProgPost` the emulator can observe, on `n` chunks at depth `d`
+    (`SparsePre`/`ProgPre` hold: depth bound, stack of the contract's size below a 16-aligned `sp`,
+    result/chunks/bump/staging/stack disjoint, rodata = the binary's)."""
+    sparse = fn == 'sparseRoot'
+    assert d <= 26 if sparse else prog_fits(n, d)
+    need = sparse_stack(d) if sparse else prog_stack(n, d)
+    regs = base_regs(rng)
+    off, oo = rng.choice([0, 0, rng.randrange(1, 8)]), rng.randrange(8)
+    regs.update({10: SHA_OUT + oo, 11: WIN + off, 12: n, 13: d})
+    extra = {name: rng.getrandbits(64) for name in CALLEE_SAVED}
+    sp = 0xa0300000 + 16 * rng.randrange(256)
+    extra['sp'] = sp
+    win = rbytes(rng, 32 * n + 40)
+    bump = rbytes(rng, 144)
+    regions = [(WIN, win), (SHA_OUT - 64, rbytes(rng, 160)),
+               (sp - need - 0x100, rbytes(rng, need + 0x200)), (SHA_GLOBALS - 64, bump),
+               (EXTRA_ZISK, rbytes(rng, 256))]
+    unchanged = [('unchanged chunks [a1-off, +32n+40)', 0, []),
+                 ('unchanged out-64..out+96 except out', 1, [(64 + oo, 96 + oo)]),
+                 ('unchanged sp-need-0x100..sp+0x100 except [sp-need, sp)', 2,
+                  [(0x100, 0x100 + need)]),
+                 ('unchanged bump-64..bump+80 except bump', 3, [(64, 80)]),
+                 ('unchanged extra params 0xa0000f00+256 except staging', 4, [(0, 8)])]
+    ls = [win[off + 32 * i:off + 32 * i + 32] for i in range(n)]
+    root = ssz_sparse(ls, d) if sparse else ssz_prog(ls, d)
+    k = rng.randrange(32)
+    flipped = root[:k] + bytes([root[k] ^ rng.randrange(1, 256)]) + root[k + 1:]
+    # the bump words are written only by `zkvm_sha256` (`Sha256.bumpBytes`), called iff `d > 0`
+    # (sparseRoot) / `n > 0` (progressiveRootAt); the contract allows any value there
+    called = d > 0 if sparse else n > 0
+    bumpw = ((0xa05340c8).to_bytes(8, 'little') + (0xa0d340c8).to_bytes(8, 'little')
+             if called else bump[64:80])
+    expect = {'returned to ra': (1).to_bytes(8, 'little'),
+              'bump words (Sha256.bumpBytes iff a call)': bumpw}
+    expect.update({name: bytes(8) for name, _, _ in unchanged})
+    return Case(regs, regions, [], 0, [('root', SHA_OUT + oo, 32),
+                                       ('bump words (Sha256.bumpBytes iff a call)', SHA_GLOBALS, 16)],
+                fn=fn, pool=[], extra=extra, ret_bit=rng.randrange(2), unchanged=unchanged,
+                lean_skip=(2, 4),
+                expect=expect, alt=[('root = Python mirror', 'root', root, False),
+                                    ('flipped Python root rejected', 'root', flipped, True)])
+
+
+def case_fn_sparse(rng, i):
+    """Cases 0..13: depth/length edges (depth 0 empty, one, several; full and over-full trees;
+    depth 26 with the `ZERO_HASHES[25]` right half); then depth 0..26, 0..48 chunks."""
+    edges = [(0, 0), (1, 0), (3, 0), (0, 1), (1, 1), (2, 1), (3, 1), (5, 2), (4, 2), (8, 3),
+             (9, 3), (0, 26), (1, 26), (5, 26)]
+    if i < len(edges):
+        n, d = edges[i]
+    else:
+        d = rng.randrange(27)
+        n = rng.randrange(0, min(SSZ_MAXN, (1 << d) + 2) + 1)
+    return ssz_case(rng, 'sparseRoot', n, d)
+
+
+def case_fn_prog(rng, i):
+    """Cases 0..11: no chunks (depth 0 and a random 64-bit depth), one level, two levels (depths
+    0, 2), several levels (depths 0, 2, 4), depth 26; then depth 0..26, 0..48 chunks."""
+    edges = [(0, 0), (0, rng.getrandbits(64)), (1, 0), (2, 0), (3, 0), (2, 1), (6, 0), (21, 0),
+             (22, 0), (48, 0), (1, 26), (7, 25)]
+    if i < len(edges):
+        n, d = edges[i]
+    else:
+        d = rng.randrange(27)
+        n = rng.randrange(0, SSZ_MAXN + 1)
+    return ssz_case(rng, 'progressiveRootAt', n, d)
+
+
+case_fn_sparse.indexed = case_fn_prog.indexed = True
+
+
 CHECKS = {
     '0x813-reg': (case_813_reg, 'csr813, register count (memcpy, memmove, inline sites)'),
     '0x813-imm': (case_813_imm, 'csr813, immediate count'),
@@ -282,6 +404,14 @@ CHECKS = {
                   'harness stubs) vs Sha256.Post: digest (Lean Sha256.hash and hashlib), a0, '
                   'callee-saved, return to ra, bump words, memory outside Written (needs a ziskemu '
                   'that loads csrsi 0x816,2)'),
+    'fn-sparseRoot': (case_fn_sparse, 'ssz_output.sparseRoot (0x80042c0c) run by ziskemu (zkvm_sha256 '
+                      'rev8 sites through harness stubs) vs SparsePost: root (Lean model and Python '
+                      'mirror), callee-saved, return to ra, memory outside WrittenN (sparseStack), '
+                      'bump words'),
+    'fn-progressiveRootAt': (case_fn_prog, 'ssz_output.progressiveRootAt (0x80042b2c) run by '
+                             'ziskemu (zkvm_sha256 rev8 sites through harness stubs) vs ProgPost: '
+                             'root (Lean model and Python mirror), callee-saved, return to ra, '
+                             'memory outside WrittenN (progStack), bump words'),
 }
 
 
@@ -382,8 +512,9 @@ def dump_layout(c: Case):
     for name, _, n in c.dump:
         parts.append((name, off, n))
         off += n
-    parts.append(('regs', off, 8 * len(c.pool)))
-    off += 8 * len(c.pool)
+    if c.pool:
+        parts.append(('regs', off, 8 * len(c.pool)))
+        off += 8 * len(c.pool)
     if c.extra:
         parts.append(('callee-saved', off, 8 * len(c.extra)))
         off += 8 * len(c.extra)
@@ -397,17 +528,23 @@ def dump_layout(c: Case):
     return parts
 
 
-def program(c: Case) -> str:
-    out = ['.section .text', '.globl _start', '_start:']
-    data = ['.section .rodata']
+def load_regions(c: Case):
+    """(code, data) copying the case's regions into RAM."""
+    out, data = [], ['.section .rodata']
     for k, (addr, bs) in enumerate(c.regions):
         if addr == MARCHID_ADDR:
             continue                      # ZisK's start-up code writes it
         data.append(f'blob{k}: .byte ' + ','.join(str(b) for b in bs))
         out += [f'  la t3, blob{k}', f'  li t4, {addr:#x}', f'  li t5, {len(bs)}', '  jal copy']
+    return out, data
+
+
+def program(c: Case) -> str:
+    out, data = load_regions(c)
+    out = ['.section .text', '.globl _start', '_start:'] + out
     for r in POOL:
         out.append(f'  li {REGNAME[r]}, {c.regs[r]:#x}')
-    if c.fn == 'sha256':
+    if c.fn in SHA_FNS:
         out.append(f'  li gp, {SCRATCH:#x}')
     for name, v in c.extra.items():
         out.append(f'  li {name}, {v:#x}')
@@ -425,11 +562,10 @@ def program(c: Case) -> str:
         out.append(f'  li t6, {OUTPUT_ADDR:#x}')
         parts = dump_layout(c)
         poff = {p: o for p, o, _ in parts}
-        regoff = poff['regs']
         for i, r in enumerate(c.pool):
-            out.append(f'  sd {REGNAME[r]}, {regoff + 8 * i}(t6)')
+            out.append(f"  sd {REGNAME[r]}, {poff['regs'] + 8 * i}(t6)")
         for i, name in enumerate(c.extra):
-            out.append(f'  sd {name}, {regoff + 8 * len(c.pool) + 8 * i}(t6)')
+            out.append(f"  sd {name}, {poff['callee-saved'] + 8 * i}(t6)")
         if c.ret_bit is not None:
             out.append(f"  sd t3, {poff['returned to ra']}(t6)")
         for (name, addr, n), (_, off, _) in zip(c.dump, parts):
@@ -442,31 +578,41 @@ def program(c: Case) -> str:
             out += [f'  li t3, {addr:#x}', f'  la t4, blob{k}', f'  li t5, {len(bs)}',
                     f'  la a1, mask{j}', f'  li a2, {OUTPUT_ADDR + poff[name]:#x}', '  jal cmp']
         out += ['  li a7, 93', '  ecall']
-    out += ['copy:', '  beqz t5, 2f', '1: lbu t0, 0(t3)', '  sb t0, 0(t4)', '  addi t3, t3, 1',
-            '  addi t4, t4, 1', '  addi t5, t5, -1', '  bnez t5, 1b', '2: ret']
+    return '\n'.join(out + library(c) + data) + '\n'
+
+
+def library(c: Case):
+    """`copy`, `cmp` and the function's own words."""
+    out = ['copy:', '  beqz t5, 2f', '1: lbu t0, 0(t3)', '  sb t0, 0(t4)', '  addi t3, t3, 1',
+           '  addi t4, t4, 1', '  addi t5, t5, -1', '  bnez t5, 1b', '2: ret']
     # cmp: a3 = #{i < t5 | a1[i] ≠ 0 ∧ t3[i] ≠ t4[i]}, stored at a2
     out += ['cmp:', '  li a3, 0', '  beqz t5, 2f', '1: lbu t0, 0(t3)', '  lbu t1, 0(t4)',
             '  lbu t2, 0(a1)', '  beqz t2, 3f', '  beq t0, t1, 3f', '  addi a3, a3, 1',
             '3: addi t3, t3, 1', '  addi t4, t4, 1', '  addi a1, a1, 1', '  addi t5, t5, -1',
             '  bnez t5, 1b', '2: sd a3, 0(a2)', '  ret']
-    if c.fn == 'sha256':
+    if c.fn in SHA_FNS:
         text, sites = sha_text()
-        data += ['.section .fntext,"ax"', f'  .incbin "{text}"',
-                 '.section .zrodata,"a"', f'  .incbin "{zesu_bin(".rodata")}"',
-                 '.section .stubs,"ax"']
+        out += ['.section .fntext,"ax"', f'  .incbin "{text}"',
+                '.section .zrodata,"a"', f'  .incbin "{zesu_bin(".rodata")}"',
+                '.section .stubs,"ax"']
         for site in sites:
-            data += rev8_stub(*site)
+            out += rev8_stub(*site)
     elif c.fn:
-        data += ['.section .fntext,"ax"'] + [f'  .word {w:#010x}' for w in fn_words()]
-    return '\n'.join(out + data) + '\n'
+        out += ['.section .fntext,"ax"'] + [f'  .word {w:#010x}' for w in fn_words()]
+    return out
 
 
 def run_emu(c: Case, work: Path, idx: int, ziskemu: str) -> bytes | str:
     """The 256 output bytes, or ziskemu's panic message when it rejects the program."""
-    s, elf = work / f'c{idx}.s', work / f'c{idx}.elf'
-    s.write_text(program(c))
+    return emu_bytes(program(c), c, work, f'c{idx}', ziskemu)[0]
+
+
+def emu_bytes(src: str, c: Case, work: Path, tag: str, ziskemu: str):
+    """(256 output bytes or ziskemu's panic message, the ELF) of one program."""
+    s, elf = work / f'{tag}.s', work / f'{tag}.elf'
+    s.write_text(src)
     subprocess.run(['riscv64-elf-gcc', '-march=rv64ima_zicsr', '-mabi=lp64', '-nostdlib', '-static',
-                    '-T', str(work / ('link_sha.ld' if c.fn == 'sha256' else 'link.ld')), str(s),
+                    '-T', str(work / ('link_sha.ld' if c.fn in SHA_FNS else 'link.ld')), str(s),
                     '-o', str(elf)], check=True)
     env = dict(os.environ, LD_LIBRARY_PATH=LIBDIR)
     r = subprocess.run([ziskemu, '-e', str(elf), '-c'], capture_output=True, text=True, env=env,
@@ -474,12 +620,107 @@ def run_emu(c: Case, work: Path, idx: int, ziskemu: str) -> bytes | str:
     words = [int(x, 16) for x in r.stdout.split() if len(x) == 8]
     if len(words) < 64:
         panic = [ln for ln in r.stderr.splitlines() if 'panicked' in ln or 'assertion' in ln]
-        return re.sub(r"thread 'main' \(\d+\) ", '', ' | '.join(panic)) or f'no output: {r.stderr[-300:]}'
-    return b''.join(w.to_bytes(4, 'little') for w in words[:64])
+        return (re.sub(r"thread 'main' \(\d+\) ", '', ' | '.join(panic)) or
+                f'no output: {r.stderr[-300:]}'), elf
+    return b''.join(w.to_bytes(4, 'little') for w in words[:64]), elf
+
+
+# -- emulator snapshots (`--snap-out`): entry and exit state of a call, for the Lean side ---------
+# The call runs with every register x2..x31 set (the case's values, the rest random), `ra =
+# ret_ok + ret_bit`. At `ret_ok` the harness stores x1..x31 at `sp + 0x408` (slot `i` at
+# `+ 8 i`), then the marker (1 at `ret_ok`, 0 when the callee came back elsewhere) at `save =
+# sp₀ + 0x400`, `sp₀` the entry `sp` (slot x2 is cleared before the call, so a callee that
+# returns with another `sp` leaves it 0). The post image `save[0..256) ‖ window₀ ‖ window₁ …`
+# (windows = the case's regions) exceeds the 256 output bytes: run `k` of the same program
+# dumps bytes `[256 k, 256 k + 256)` of it.
+SNAP_SCHEMA = 'zesu-emusnap/1'
+ABI = {'sp': 2, 's0': 8, 's1': 9, **{f's{i}': 16 + i for i in range(2, 12)}}
+
+
+def snap_regs(c: Case, rng) -> dict:
+    """x2..x31 at the call (x1 is set from the `ret_ok` label)."""
+    regs = {r: rng.getrandbits(64) for r in range(2, 32)}
+    regs[2] = 0xa0300000 + 16 * rng.randrange(256)
+    regs.update(c.regs)
+    regs.update({ABI[n]: v for n, v in c.extra.items()})
+    if c.fn in SHA_FNS:
+        regs[3] = SCRATCH
+    regs[31] = FN[c.fn]
+    return regs
+
+
+def snap_windows(c: Case):
+    return [(a, bs) for a, bs in c.regions if a != MARCHID_ADDR]
+
+
+def snap_program(c: Case, regs: dict, k: int) -> str:
+    out, data = load_regions(c)
+    save = regs[2] + 0x400
+    out = ['.section .text', '.globl _start', '_start:'] + out
+    out += [f'  li t6, {save:#x}', '  sd zero, 16(t6)']
+    out += [f'  li x{r}, {regs[r]:#x}' for r in range(2, 31)]
+    out += ['  la ra, ret_ok', f'  addi ra, ra, {c.ret_bit or 0}', f'  li x31, {regs[31]:#x}',
+            '  jr x31', '  li t3, 0', '  j ret_done', 'ret_ok:']
+    out += [f'  sd x{i}, {0x400 + 8 * i}(sp)' for i in range(1, 32)]
+    out += ['  li t3, 1', 'ret_done:', f'  li t6, {save:#x}', '  sd t3, 0(t6)']
+    pos = 0
+    for addr, n in [(save, 256)] + [(a, len(bs)) for a, bs in snap_windows(c)]:
+        lo, hi = max(pos, 256 * k), min(pos + n, 256 * k + 256)
+        if lo < hi:
+            out += [f'  li t3, {addr + lo - pos:#x}', f'  li t4, {OUTPUT_ADDR + lo - 256 * k:#x}',
+                    f'  li t5, {hi - lo}', '  jal copy']
+        pos += n
+    out += ['  li a7, 93', '  ecall']
+    return '\n'.join(out + library(c) + data) + '\n'
+
+
+def snap_case(name: str, i: int, c: Case, work: Path, ziskemu: str) -> dict:
+    regs = snap_regs(c, random.Random(f'snap:{name}:{i}'))
+    wins = snap_windows(c)
+    total = 256 + sum(len(bs) for _, bs in wins)
+    img, labels = b'', set()
+    for k in range((total + 255) // 256):
+        got, elf = emu_bytes(snap_program(c, regs, k), c, work, f'snap{i}-{k}', ziskemu)
+        if isinstance(got, str):
+            raise RuntimeError(f'{name} case {i} run {k}: {got}')
+        img += got
+        nm = subprocess.run(['riscv64-elf-nm', str(elf)], capture_output=True, text=True,
+                            check=True).stdout
+        labels |= {int(ln.split()[0], 16) for ln in nm.splitlines() if ln.endswith(' ret_ok')}
+    assert len(labels) == 1, labels
+    ret_ok = labels.pop()
+    regs[1] = ret_ok + (c.ret_bit or 0)
+    word = lambda o: int.from_bytes(img[o:o + 8], 'little')
+    mem1, pos = [], 256
+    for a, bs in wins:
+        mem1.append({'base': a, 'hex': img[pos:pos + len(bs)].hex()})
+        pos += len(bs)
+    return {'schema': SNAP_SCHEMA, 'fn': f'f_{FN[c.fn]:08x}', 'check': name, 'case': i,
+            'regs0': [regs[r] for r in range(1, 32)],
+            'regs1': [word(8 * r) for r in range(1, 32)],
+            'pc1': ret_ok if word(0) == 1 else None,
+            'mem0': [{'base': a, 'hex': bytes(bs).hex()} for a, bs in wins], 'mem1': mem1}
+
+
+def write_snaps(name, k, seed, ziskemu, jobs, out: Path):
+    cases = gen_cases(name, k, seed)
+    d = out / name
+    d.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f'snap-{name}-') as w:
+        work = Path(w)
+        (work / 'link.ld').write_text(LINK_MEM)
+        (work / 'link_sha.ld').write_text(LINK_SHA)
+        with ThreadPoolExecutor(jobs) as ex:
+            snaps = list(ex.map(lambda ic: snap_case(name, ic[0], ic[1], work, ziskemu),
+                                enumerate(cases)))
+    for s in snaps:
+        (d / f"{s['case']}.json").write_text(json.dumps(s, indent=1) + '\n')
+    return snaps
 
 
 # -- the Lean side --------------------------------------------------------------------------------
 LEAN_HEAD = """import ZesuExec.Service
+import ZesuExec.Fn.SszRoot.Spec
 open ZesuExec
 
 def tMem (rs : List (Nat × List Nat)) : Word → Option Byte := fun x =>
@@ -548,6 +789,16 @@ def tSha256 (regs : List (Nat × Nat)) (rs : List (Nat × List Nat)) (dump : Lis
     0xa05340b8 16 g
   tPost ({ m with mem := mem }.setReg 10 0) dump pool
 
+/-- `sparseRoot` / `progressiveRootAt` called at their entries: the root `SparsePost` /
+`ProgPost` fixes at `a0` (`chunksOf`, `depthOf` of the contract). -/
+def tSsz (prog : Bool) (regs : List (Nat × Nat)) (rs : List (Nat × List Nat))
+    (dump : List (Nat × Nat)) (pool : List Nat) : String :=
+  let m := tM regs (if prog then 0x80042b2c else 0x80042c0c) rs
+  let ls := Fn.SszRoot.chunksOf m (Fn.SszRoot.chunkPtr m) (Fn.SszRoot.lenOf m)
+  let root := if prog then Fn.SszRoot.progressiveRootAt ls (Fn.SszRoot.depthOf m)
+    else Fn.SszRoot.sparseRoot ls (Fn.SszRoot.depthOf m)
+  tPost { m with mem := Machine.putBytes m.mem (m.reg 10).toNat 32 root } dump pool
+
 def tExit (regs : List (Nat × Nat)) (rs : List (Nat × List Nat)) : String :=
   match ziskExit (tImg {pc} [0x73]) (tM regs {pc} rs) with
   | some bs => String.join (bs.map fun b => hex2 b.toNat)
@@ -566,12 +817,14 @@ def lean_list(xs):
 
 def lean_case(c: Case) -> str:
     regs = lean_list(f'({r}, {v})' for r, v in sorted(c.regs.items()))
-    rs = lean_list(f'({a}, {lean_list(str(b) for b in bs)})' for a, bs in c.regions)
+    rs = lean_list(f'({a}, {lean_list(str(b) for b in bs)})'
+                   for k, (a, bs) in enumerate(c.regions) if k not in c.lean_skip)
     if c.exit_only:
         return f'tExit {regs} {rs}'
     dump = lean_list(f'({a}, {n})' for _, a, n in c.dump)
     if c.fn:
-        f = {'memmove': 'tMemmove', 'memset': 'tMemset', 'sha256': 'tSha256'}[c.fn]
+        f = {'memmove': 'tMemmove', 'memset': 'tMemset', 'sha256': 'tSha256',
+             'sparseRoot': 'tSsz false', 'progressiveRootAt': 'tSsz true'}[c.fn]
         return (f'({f} {regs} {rs} {dump} {lean_list(str(r) for r in c.pool)} ++ '
                 f'"{extra_hex(c)}")')
 
@@ -600,10 +853,16 @@ def run_lean(cases, work: Path) -> list[bytes | str]:
 
 
 # -- driver ---------------------------------------------------------------------------------------
-def run_check(name, n, seed, ziskemu, jobs):
-    gen, what = CHECKS[name]
+def gen_cases(name, n, seed):
+    """The first `n` cases of `name` for `seed`."""
+    gen = CHECKS[name][0]
     rng = random.Random(f'{seed}:{name}')
-    cases = [gen(rng, i) if getattr(gen, 'indexed', False) else gen(rng) for i in range(n)]
+    return [gen(rng, i) if getattr(gen, 'indexed', False) else gen(rng) for i in range(n)]
+
+
+def run_check(name, n, seed, ziskemu, jobs):
+    what = CHECKS[name][1]
+    cases = gen_cases(name, n, seed)
     with tempfile.TemporaryDirectory(prefix=f'svc-{name}-') as d:
         work = Path(d)
         (work / 'link.ld').write_text(LINK_MEM)
@@ -659,7 +918,18 @@ def main(argv=None):
     ap.add_argument('--ziskemu', default=ZISKEMU)
     ap.add_argument('--jobs', type=int, default=16)
     ap.add_argument('--json')
+    ap.add_argument('--snap-out', help='write entry/exit snapshots of the first --snap-n cases of '
+                    'each fn-* check to DIR/<check>/<case>.json (schema zesu-emusnap/1) instead of '
+                    'running the checks')
+    ap.add_argument('--snap-n', type=int, default=6)
     a = ap.parse_args(argv)
+    if a.snap_out:
+        for c in a.check:
+            if CHECKS[c][0].__name__.startswith('case_fn_'):
+                snaps = write_snaps(c, a.snap_n, a.seed, a.ziskemu, a.jobs, Path(a.snap_out))
+                print(f"{c}: {len(snaps)} snapshots, reached ret_ok "
+                      f"{sum(s['pc1'] is not None for s in snaps)}/{len(snaps)}")
+        return 0
     results = [run_check(c, a.n, a.seed, a.ziskemu, a.jobs) for c in a.check]
     for r in results:
         print(f"{r['check']:10} {'PASS' if r['pass'] else 'FAIL'}  {r['cases']} cases  "

@@ -1552,3 +1552,25 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `Fn/Scratch/Snap.lean`). `zmap check` passes (`d40e67b7`).
 - Open: `scratch_arena.alloc` (Pre must fix `ctx+8 = 0x801136d8`; the indirect target is then
   read from rodata, as in F1).
+
+## S14 `zkvm_sha256`, S15 recursion (Sha256Rec, Sha256RecB, 2026-11-28, branch sha256)
+
+- Merged `exec-spike` (s13 allocator) into `sha256`; image regenerated from the union of the
+  `--functions` lists (`tools/gen_image.sh`), `check_image`: 20 text segments, 5975 words, 33
+  rodata segments, 0 mismatches; `decode_table_size` 5975.
+- `zkvm_sha256` proved: `Sha256.sha256_spec n` (bound `200 + 10 ⌊n / 64⌋`), `sha256_sail`,
+  `pre_nonvacuous`; guards in `Axioms.lean`, modules in the root import. This round:
+  `Tail.lean` (fill, the three slice-bound panics infeasible, register-count `0x813` copy with
+  staging, hand step for `sb 0x80` at `0x800ea2b4`; `tail_p`, 14 steps), `Pad.lean` (one or two
+  padding blocks, the big-endian length from `rev8 (8 n)`; `pad`, ≤ 33 steps), `Out.lean` (the
+  output piece in shape `shapeO`, 96 steps; `out_post` gives `Post` through `hash_eq`),
+  `Proof.lean`, `Sail.lean`. Earlier rounds: contract, model, prologue, both block loops.
+- S15: `vc_sound_rec`; `sparseRoot` (30 cuts, 34 leaves) and `progressiveRootAt` (4 cuts, 6
+  leaves) proved with `pre_nonvacuous`; `zkvm_sha256`'s contract discharged (`Sparse.shaSpec :=
+  Sha256.sha256_spec 64`), so `sparseRoot_spec`, `progressiveRootAt_spec` and their `_sail`
+  carry no hypothesis.
+- Emulator: `svc_test.py fn-sha256` replaces the 10 `rev8` sites with stubs (the pinned ZisK has
+  no Zbb and halts at the first one); 100/100 on every measurable `Post` clause, flipped-digest
+  mutant rejected 100/100.
+- GO.md `## S15` written; GO.md S14 `zkvm_sha256` paragraph replaced; STATEMENTS.md S14/S15
+  updated.
