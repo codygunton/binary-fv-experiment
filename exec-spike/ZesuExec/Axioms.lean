@@ -5,6 +5,7 @@ import ZesuExec.Compliance.F3
 import ZesuExec.Compliance.F2
 import ZesuExec.Fn.F0.Proof
 import ZesuExec.Fn.F0.Sail
+import ZesuExec.Fn.Alloc.AllocProof
 import ZesuExec.Fn.F1.Proof
 import ZesuExec.Fn.F1.Sail
 import ZesuExec.Fn.F2.Proof
@@ -271,3 +272,15 @@ info: 'ZesuExec.Fn.DTF.DTF.reach_from' depends on axioms: [propext, Classical.ch
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.DTF.DTF.reach_from
+
+/--
+info: 'ZesuExec.Fn.Alloc.alloc_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Alloc.alloc_sail
+
+/--
+info: 'ZesuExec.Fn.Alloc.init_heap' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Alloc.init_heap

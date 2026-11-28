@@ -626,3 +626,7 @@ Open (to settle before review):
    `log2Align ≤ 4` (§ `AllocAssumptions` above: evidence from the allocator's source and
    disassembly that alignment 16 is handled; diverges from zesislar).
 - Non-vacuity: not yet stated; `decide` checks the decoder on four inputs.
+
+## S13 allocator contracts (draft, unreviewed)
+- `Alloc.AllocPre/AllocPost`: as `AllocAssumptions.alloc_spec` but over the concrete `Alloc.Heap`/`Alloc.Priv` (Fn/Alloc/Spec.lean).
+- `Alloc.FreePre` strengthens the assumed `free_spec` pre by (a) `log2_align ≤ 3 ∨ 8 < len` (a ≤8-byte block allocated below 16-alignment is 8 bytes; freeing it at 16 would push it on class 1) and (b) the callee frame avoids the freed block (free writes the block's first word while its frame holds ra/s0). Callers must discharge both.

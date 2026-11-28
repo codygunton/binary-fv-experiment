@@ -164,6 +164,11 @@ theorem cap_le_classBytes {n k : Nat} (h : sizeClassOfBytes n ≤ k) (hk : k < 2
   · exact classBytes_mono h
   · omega
 
+theorem eight_le_cap (n : Nat) : 8 ≤ cap n := by
+  unfold cap; split
+  · exact eight_le_classBytes _
+  · rename_i h; have := mt (sc_lt_iff n).mpr h; omega
+
 theorem cap_pos {n : Nat} (h : 0 < n) : 0 < cap n := Nat.lt_of_lt_of_le h (le_cap n)
 
 
@@ -541,12 +546,23 @@ theorem push_ok {L : List (Word × Nat)} {st : St} {m m' : Machine} (hd : Decode
     (hcap : classBytes k = cap n)
     (hcell : rd m' (flBase + 8 * k) = some p)
     (hnext : rd m' p.toNat = rd m (flBase + 8 * k))
-    (hagree : ∀ a, Priv L a → ¬ InRange (BitVec.ofNat 64 (flBase + 8 * k)) 8 a → m'.mem a = m.mem a)
+    (hagree : ∀ a, Priv L a → ¬ InRange (BitVec.ofNat 64 (flBase + 8 * k)) 8 a →
+      ¬ InRange p (cap n) a → m'.mem a = m.mem a)
     (hpres : ∀ a, Arena a → (m.mem a).isSome → (m'.mem a).isSome) :
     Heap (L.erase (p, n)) m' := by
   have hin := hg.live_in hb
   simp only at hin
   have hplt : p.toNat < 2 ^ 64 := p.isLt
+  -- the freed block's reserved bytes meet no cell and no other free block
+  have hPc : ∀ {x}, x < heapLo → ¬ InRange p (cap n) (BitVec.ofNat 64 x) := fun hx hr => by
+    unfold InRange at hr; rw [ofNat_toNat_lt (by anum)] at hr; omega
+  have hPw : ∀ {q t j}, j < 22 → q ∈ st.fl j → t < 8 →
+      ¬ InRange p (cap n) (BitVec.ofNat 64 (q + t)) := by
+    intro q t j hj hq ht hr
+    have hd := hg.free_live hj hq hb
+    have := eight_le_classBytes j; have h2 := free_word_lt hg hj hq t ht
+    unfold InRange at hr; rw [ofNat_toNat_lt (by anum)] at hr
+    simp only [NDisj] at hd; omega
   have hcellW : ∀ {x}, x < heapLo → (flBase + 8 * k ≤ x → x < flBase + 8 * k + 8 → False) →
       ¬ InRange (BitVec.ofNat 64 (flBase + 8 * k)) 8 (BitVec.ofNat 64 x) := fun hx hne hr => by
     rw [inRange_ofNat (by anum) (by anum)] at hr
@@ -573,11 +589,11 @@ theorem push_ok {L : List (Word × Nat)} {st : St} {m m' : Machine} (hd : Decode
     fun j hj => ?_⟩, ?_⟩
   · rw [rd_congr (by anum) fun t ht => hagree _
       (priv_cell hg (by anum)) (hcellW (by anum)
-        (by anum))]
+        (by anum)) (hPc (by anum))]
     exact hd.pos
   · rw [rd_congr (by anum) fun t ht => hagree _
       (priv_cell hg (by anum)) (hcellW (by anum)
-        (by anum))]
+        (by anum)) (hPc (by anum))]
     exact hd.top
   · by_cases hjk : j = k
     · subst hjk
@@ -593,13 +609,16 @@ theorem push_ok {L : List (Word × Nat)} {st : St} {m m' : Machine} (hd : Decode
         have hq' : q ∈ st.fl j := by rw [hfl]; simp
         refine ⟨by rw [hnext]; exact hq, chain_congr hqs ?_ (fun t ht => ?_) (fun r hr => ?_)⟩
         · have := free_word_lt hg hj hq' 0 (by omega); anum
-        · refine hagree _ (priv_free hg hj hq' ht) (hW hj hq' ht)
+        · refine hagree _ (priv_free hg hj hq' ht) (hW hj hq' ht) (hPw hj hq' ht)
         · have hr' : r ∈ st.fl j := by rw [hfl]; simp [hr]
           exact ⟨by have := free_word_lt hg hj hr' 0 (by omega); anum,
-            fun t ht => hagree _ (priv_free hg hj hr' ht) (hW hj hr' ht)⟩
+            fun t ht => hagree _ (priv_free hg hj hr' ht) (hW hj hr' ht) (hPw hj hr' ht)⟩
     · simp only [setFl, if_neg hjk]
-      exact chain_keep hd hg hagree hj (fun t ht => hcellW (by anum)
-        (by omega)) (fun q hq t ht => hW hj hq ht)
+      exact chain_keep hd hg (W := fun a => InRange (BitVec.ofNat 64 (flBase + 8 * k)) 8 a ∨
+          InRange p (cap n) a)
+        (fun a hpa hw => hagree a hpa (fun h => hw (.inl h)) (fun h => hw (.inr h))) hj
+        (fun t ht => not_or.mpr ⟨hcellW (by anum) (by omega), hPc (by anum)⟩)
+        (fun q hq t ht => not_or.mpr ⟨hW hj hq ht, hPw hj hq ht⟩)
   · have hlive : (liveBlocks L).Perm ((p.toNat, cap n) :: liveBlocks (L.erase (p, n))) :=
       (List.perm_cons_erase hb).map _
     have hall : (blocks (L.erase (p, n)) (setFl st k (p.toNat :: st.fl k))).Perm (blocks L st) := by
@@ -610,6 +629,26 @@ theorem push_ok {L : List (Word × Nat)} {st : St} {m m' : Machine} (hd : Decode
         ((List.Perm.refl _).append hlive.symm) |>.symm.symm
     refine ⟨hg.pos_lo, hg.pos_hi, fun b hb' => hg.live_pos b (List.mem_of_mem_erase hb'),
       fun b hb' => hg.inside b (hall.mem_iff.mp hb'), (hall.pairwise_iff ndisj_symm).mpr hg.disj⟩
+
+/-- Forgetting a live block (an oversized `free`): its bytes stay private, unused. -/
+theorem erase_ok {L : List (Word × Nat)} {m : Machine} (h : Heap L m) {b : Word × Nat}
+    (hb : b ∈ L) : Heap (L.erase b) m := by
+  obtain ⟨st, hd, hg⟩ := h
+  have hall : (blocks L st).Perm ((b.1.toNat, cap b.2) :: blocks (L.erase b) st) := by
+    unfold blocks
+    exact ((List.Perm.refl _).append ((List.perm_cons_erase hb).map _)).trans List.perm_middle
+  refine ⟨st, hd, hg.pos_lo, hg.pos_hi, fun c hc => hg.live_pos c (List.mem_of_mem_erase hc),
+    fun c hc => hg.inside c (hall.mem_iff.mpr (List.mem_cons_of_mem _ hc)), ?_⟩
+  exact (List.pairwise_cons.mp ((hall.pairwise_iff ndisj_symm).mp hg.disj)).2
+
+theorem priv_erase {L : List (Word × Nat)} {b : Word × Nat} {a : Word} (hb : b ∈ L)
+    (h : Priv (L.erase b) a) : Priv L a ∨ InRange b.1 b.2 a := by
+  by_cases hl : InLive L a
+  · obtain ⟨c, hc, hin⟩ := hl
+    rcases List.mem_cons.mp ((List.perm_cons_erase hb).mem_iff.mp hc) with rfl | hc'
+    · exact .inr hin
+    · exact absurd ⟨c, hc', hin⟩ h.2
+  · exact .inl ⟨h.1, hl⟩
 
 /-! ## Start-up state -/
 

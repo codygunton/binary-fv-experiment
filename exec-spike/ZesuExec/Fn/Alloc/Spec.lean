@@ -19,7 +19,9 @@ to the alignment, `sizeClass = max(sizeClassOfBytes len, log2_align - 3)`; a blo
 bytes allocated with alignment below 16 is 8 bytes long, so `free` of it must not claim
 alignment 16: `free`'s precondition asks `log2_align ≤ 3 ∨ 8 < len` (a strengthening recorded in
 `STATEMENTS.md`; every caller frees with the alignment it allocated with, and no caller frees a
-block of at most 8 bytes at alignment 16).
+block of at most 8 bytes at alignment 16). `free` writes the freed block's first word while its
+16-byte frame holds the saved `ra` and `s0`, so its precondition also asks the frame to avoid the
+freed block (a second strengthening, also in `STATEMENTS.md`).
 -/
 
 namespace ZesuExec.Fn
@@ -47,7 +49,8 @@ def FreePre (L : List (Word × Nat)) (m : Machine) : Prop :=
   Heap L m ∧ (m.reg 11, (m.reg 12).toNat) ∈ L ∧ 0 < (m.reg 12).toNat ∧
     (m.reg 12).toNat < 2 ^ 63 ∧ (m.reg 13).toNat ≤ 4 ∧
     ((m.reg 13).toNat ≤ 3 ∨ 8 < (m.reg 12).toNat) ∧ StackOk m 16 ∧ RetAligned m ∧
-    CalleeFrameFree (Priv L) m
+    CalleeFrameFree (Priv L) m ∧
+    ∀ a, InRange (m.reg 2 - 16) 16 a → ¬ InRange (m.reg 11) (m.reg 12).toNat a
 
 /-- `free` takes a live block back into `Priv`. -/
 def FreePost (L : List (Word × Nat)) (m m' : Machine) : Prop :=

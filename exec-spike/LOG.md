@@ -1270,3 +1270,9 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     not measured) vs new `leaf_diag` 281 s, budget passing on all 486 leaves.
   - `lake build` 325 jobs OK; no `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no
     `maxHeartbeats` change. Ledger item 2 (S11Auto), $15.07 session.
+
+## S13 (S13Alloc, partial)
+- Free-list invariant `Fn/Alloc/Inv.lean` (`Alloc.Heap`/`Priv`/`Arena` from alt_fl_alloc.zig + FREELIST_ALLOC.md): AllocAssumptions fields `priv_not_live`, `heap_frame`, `live_ok`, `arena_split` are theorems; transitions `pop_ok`, `bump_ok`, `push_ok`, `erase_ok`; start-up `init_heap : Init m → Heap [] m`.
+- `alloc_spec`/`alloc_sail` (0x80042494, bound 53) proved: plan AllocF, 9 cuts, 43 leaves, 52 items, 0 auto. Log2 alignment ≤ 4 proved from code (`ClassOk`, leafPB_inf).
+- `free` (0x80041f38): plan FreeF (4 cuts, 32 leaves), all 4 cut theorems, entry-leaf lemma `leafFE` and J1 leaf proved; J2/push leaves drafted in `OPEN/s13/FreeLeaves.lean` (2 small errors). Not yet assembled.
+- Not done: F1/F4/F5/TX/DTF rebuild, AllocModel deletion, non-vacuity alloc,free,alloc run, scratch_arena.*.

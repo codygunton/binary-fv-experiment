@@ -9,6 +9,8 @@ import ZesuExec.Fn.Common
 import ZesuExec.Fn.F0.Proof
 import ZesuExec.Fn.F0.Regions
 import ZesuExec.Fn.F0.Sail
+import ZesuExec.Fn.Alloc.AllocProof
+import ZesuExec.Fn.Alloc.FreeVc
 import ZesuExec.Fn.F0.Spec
 import ZesuExec.Fn.F0.Summary
 import ZesuExec.Fn.F1.Lemmas
