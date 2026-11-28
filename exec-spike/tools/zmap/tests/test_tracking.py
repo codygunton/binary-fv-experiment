@@ -337,7 +337,8 @@ class Metrics(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         line = lines[0]
         tx = line['fns']['f_80000000']
-        self.assertEqual(line['state_codes'][tx[0]], 'waiting')
+        # S17: its indirect calls reach only the allocator, which the fixture proves or assumes
+        self.assertEqual(line['state_codes'][tx[0]], 'ready')
         self.assertEqual(line['meaning_codes'][tx[1]], 'machine-only')
 
     def test_rework(self):
