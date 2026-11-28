@@ -118,6 +118,24 @@ theorem rType_srl (a b : Word) : rTypeResult .SRL a b = a >>> (b.toNat % 64) := 
   simp only [rTypeResult, Sail.shift_bits_right, BitVec.ushiftRight_eq']
   rw [extractLsb_field]; simp [LeanRV64DExecutable.Functions.log2_xlen]
 
+/-- An `l`-bit truncation of a natural number below `2^64`, read back at 64 bits. -/
+theorem toNat_ofNat_small (q : Nat) (h : q < 2 ^ 64) :
+    ((q : Int) % 36893488147419103232).toNat % 18446744073709551616 = q := by
+  rw [Int.emod_eq_of_lt (by omega) (by omega)]
+  simp; omega
+
+theorem divu_eq (a b : Word) : divResult true a b = if b = 0 then -1 else a / b := by
+  simp only [divResult, if_true, LeanRV64DExecutable.Functions.not, Bool.not_true, Bool.false_and,
+    to_bits_truncate, Sail.get_slice_int, Bool.false_eq_true, if_false]
+  by_cases hb : b = 0
+  · subst hb; apply BitVec.eq_of_toNat_eq; simp [Sail.BitVec.toNatInt]
+  · have hb' : b.toNat ≠ 0 := fun h => hb (BitVec.eq_of_toNat_eq (by simpa using h))
+    rw [if_neg hb]
+    apply BitVec.eq_of_toNat_eq
+    simp [Sail.BitVec.toNatInt, hb', BitVec.toNat_udiv]
+    rw [show (a.toNat : Int) / (b.toNat : Int) = ((a.toNat / b.toNat : Nat) : Int) from rfl]
+    exact toNat_ofNat_small _ (Nat.lt_of_le_of_lt (Nat.div_le_self _ _) a.isLt)
+
 /-! ## The simulation theorems -/
 
 theorem sim_andi {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
@@ -396,6 +414,21 @@ theorem sim_srl {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
   refine execute_RTYPE_run _ _ _ _ _ .SRL (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
     (rX_rg_run hag rs2) ?_
   rw [rType_srl]; exact wX_rg_run _ rd _
+
+theorem sim_divu {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.divu rd rs1 rs2))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  have hag := RegsAgree.T (m := m) hR.regs m.pc
+  change Runs (execute_DIV (rg rs2) (rg rs1) (rg rd) true) _ _ _
+  refine execute_DIV_run _ _ _ _ _ true (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
+    (rX_rg_run hag rs2) ?_
+  rw [divu_eq]; exact wX_rg_run _ rd _
 
 theorem sim_lui {rd : Fin 32} {imm : BitVec 20} (hR : Rel img m s)
     (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.lui rd imm))

@@ -103,6 +103,8 @@ def exec (m : Machine) : Instr → Option Machine
   | .lh rd rs1 imm => m.loadInto rd rs1 imm 2 fun v => (v.truncate 16).signExtend 64
   | .ori rd rs1 imm => m.writeReg rd (m.reg rs1 ||| sx imm)
   | .srl rd rs1 rs2 => m.writeReg rd (m.reg rs1 >>> ((m.reg rs2).toNat % 64))
+  | .divu rd rs1 rs2 =>
+    m.writeReg rd (if m.reg rs2 = 0 then -1 else m.reg rs1 / m.reg rs2)
 
 end Machine
 

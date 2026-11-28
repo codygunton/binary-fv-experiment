@@ -9,7 +9,7 @@ No nested or mutual inductives: Lean 4.29 cannot derive `DecidableEq` for them.
 
 namespace ZesuExec.Sym
 
-inductive BinOp | add | sub | and | or | xor | sll | srl | sltu | mul | mulhu
+inductive BinOp | add | sub | and | or | xor | sll | srl | sltu | mul | mulhu | divu
   deriving DecidableEq, Repr, Lean.ToExpr, Inhabited
 
 inductive Sym
