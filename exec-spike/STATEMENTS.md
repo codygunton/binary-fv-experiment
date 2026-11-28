@@ -236,7 +236,7 @@ as `KeysToOwnedSliceCallSpec2.v` (`keysToOwnedSliceCallArgs` `:17`, `BoundaryDom
   bound `0 ≤ ctx < 2^64` is the 8-byte load being present; `zisk_input_end` is not modelled.
 - Non-vacuity: `example` in `F4/Proof.lean` from `ToOwned.pre_satisfiable` (`F4/Witness.lean`):
   for any `A`, any `m0` with `A.Heap [] m0` and the image's rodata loaded, and a RAM window
-  `[0xa0400000, 0xa0401000)` (containing the scratch word) outside `A.Priv []`, overriding the
+  `[0xa0000000, 0xa0001000)` (containing the scratch word) outside `A.Priv []`, overriding the
   window gives a machine with `Pre A [] [] m` (empty list `{1, 0, 0}`).
 
 ## F5 `array_list.Aligned(input.AccessListEntry,null).toOwnedSlice` (`Fn/F5/Spec.lean`)
@@ -451,7 +451,7 @@ Differences:
    `Post`'s result clause; its Sail conjunct belongs to S6 and is not part of `f6_spec`.
 
 Non-vacuity: `example : ∃ m, Pre m` in `Spec.lean` (empty input at `0x40000000`, result at
-`0xa0002000`, `sp = 0xa0001000`).
+`0xa0002000`, `sp = 0xa0001800`).
 
 ### F6 (`ZesuExec/Compliance/F6.lean`)
 
@@ -653,5 +653,30 @@ Open (to settle before review):
   `0xa05340c0 ← 0xa0d340c8` (its bump-allocator words); callee-saved registers and `sp` kept;
   memory changed only there and in its `0xe0`-byte frame below `sp`. `Sha256.hash` agrees with
   Python's `hashlib` on lengths 0, 3, 55, 56, 64, 200.
-- **Known divergence:** `Layout.extraParams = 0xa0400f00`, ZisK stages at `0xa0000f00`
-  (`OPEN/services/extra_params.md`); not changed here (coordinator schedules it after S13).
+- **Known divergence (closed by the correction below):** `Layout.extraParams` was `0xa0400f00`,
+  ZisK stages at `0xa0000f00` (`OPEN/services/extra_params.md`).
+
+## Correction: memcpy staging address
+
+- **Trusted constant changed:** `Layout.extraParams := 0xa0000f00` (was `0xa0400f00`, copied
+  from zesislar `ZiskRuntime.v:19`). ZisK `eed62f4d9` stages the count of the register form of
+  CSR `0x813` at `EXTRA_PARAMS_ADDR = SYS_ADDR + 0xf00` (`core/src/mem.rs:113,147`); evidence in
+  `OPEN/services/extra_params.md`. Every statement that names `Layout.extraParams`
+  (`dmaMemcpyMem`, `ziskMemcpy`, `MemcpyPre`/`MemcpyPost`, the scratch clauses of F1, F4, F5, F6,
+  TX, DTF, memmove) now means the 8 bytes at `0xa0000f00`; no statement text changed.
+- **No Pre gained a hypothesis.** Every `Pre` that runs `memcpy` already states the staging word
+  apart from its frame (`Apart (sp - k) k scratch 8` / `Disjoint (scratch, 8) (sp - 512, 512)`)
+  and from its other owned ranges, so the new address (bottom of the stack range
+  `0xa0000000..0xa0400000`) needs no bound on `sp`; proofs that used the numeric value rebuilt
+  unchanged except `F6/Lemmas.lean` (the literal `0xa0000f00` in `hscr`).
+- **Witnesses moved** (non-vacuity statements; the old witnesses put their stack or window over
+  `0xa0000f00`, violating the stated apartness):
+  - F4/F5 `ToOwned.pre_satisfiable`: window `[0xa0400000, 0xa0401000)` → `[0xa0000000,
+    0xa0001000)` (it must contain the staging word; hypothesis `hwin` is about the new window),
+    list at `0xa0000300`, allocator object `0xa0000400`, result `0xa0000200`, `sp = 0xa0000100`.
+  - F6 `example : ∃ m, Pre m`: `sp = 0xa0001000` → `0xa0001800` (stack `[0xa0001600, 0xa0001800)`).
+  - TX `pre_nonvacuous`: `sp = 0xa0001000` → `0xa0001800` (stack `[0xa0001540, 0xa0001800)`).
+- **Snapshots:** `tools/snap.py` sets the runner's `ZISK_SCRATCH` to `0xa0000f00` after loading
+  it; all F1, F2, TX, DTF snapshots re-taken (only the scratch page and the staged bytes moved).
+- **Emulator:** `tools/svc_test.py --check 0x813-reg fn-memmove` compares the staging word at
+  `0xa0000f00` and the untouched old cell `0xa0400f00` against `ziskemu`.

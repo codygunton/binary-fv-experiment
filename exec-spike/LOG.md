@@ -1444,3 +1444,23 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   ZesuExec.Fn.DTF.Reach`: 647 items). `80002dc4_0` still open: needs the hash/tuple walks in the
   loop invariants (arms 3/4 `decode`), the `TxAt` store proof, and the buffers (CUTS.md § Stage 2
   status, items 1-3). `tools/verify.sh`, `zmap check` pass.
+
+## Correction: memcpy staging address — 2026-11-28, branch xparams (XParamsFix)
+
+- `Layout.extraParams := 0xa0000f00` (ZisK `EXTRA_PARAMS_ADDR`, `core/src/mem.rs:147`; was
+  `0xa0400f00`). STATEMENTS.md "Correction: memcpy staging address".
+- First `lake build` after the change: only 3 modules failed, all non-vacuity witnesses whose stack
+  or window covered `0xa0000f00` (F4 `Witness.lean`, F6 `Spec.lean` example, TX `pre_nonvacuous`),
+  plus one literal `0xa0400f00` in `F6/Lemmas.lean`. Every proof that uses the staging word's
+  numeric value (F1, F4, F5, F6, TX, DTF, memmove, `Stage`, `Preserve`, `Sail/Run`) rebuilt
+  unchanged: each Pre already states the word apart from its frame, so no Pre changed.
+- Witnesses moved: F4/F5 window `0xa0400000` → `0xa0000000`; F6 and TX `sp` `0xa0001000` →
+  `0xa0001800`.
+- `tools/snap.py` overrides the runner's `ZISK_SCRATCH` (read as a global by the pre-fill,
+  `_inside` and `_memcpy`) with `0xa0000f00`; all 80 snapshots (F1 19, F2 26, TX 16, DTF 19)
+  re-taken: same stop/outcome/instruction count/registers; only the scratch page and the 16
+  staged bytes moved. `lake exe zesu-difftest` on all 80: agree.
+- `tools/svc_test.py --check 0x813-reg fn-memmove`: 100/100 on every part (window,
+  `staging@0xa0000f00`, `old@0xa0400f00` untouched, registers); `map/svc_test.json` updated,
+  `map/reviews.json` csr `0x813` `emulator_tested: true`.
+- Full `lake build` 341 jobs green; `tools/verify.sh` all PASS (after `make -C tools/zmap map`).

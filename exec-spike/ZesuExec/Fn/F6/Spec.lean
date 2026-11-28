@@ -129,17 +129,17 @@ def Post (m m' : Machine) : Prop :=
 
 /-! ## Non-vacuity -/
 
-/-- Present bytes of the witness outside rodata: the 512 stack bytes below `0xa0001000`, the
+/-- Present bytes of the witness outside rodata: the 512 stack bytes below `0xa0001800`, the
 result at `0xa0002000`, the scratch word. -/
 def witnessRam (n : Nat) : Bool :=
-  (0xa0000e00 ≤ n && n < 0xa0001000) || (0xa0002000 ≤ n && n < 0xa0002050) ||
+  (0xa0001600 ≤ n && n < 0xa0001800) || (0xa0002000 ≤ n && n < 0xa0002050) ||
     (Layout.extraParams ≤ n && n < Layout.extraParams + 8)
 
-/-- `a0 = 0xa0002000` (result), `a1 = 0x40000000`, `a2 = 0` (empty input), `sp = 0xa0001000`,
+/-- `a0 = 0xa0002000` (result), `a1 = 0x40000000`, `a2 = 0` (empty input), `sp = 0xa0001800`,
 `ra = 0x80000000`, rodata loaded. -/
 def witness : Machine where
   regs := fun i =>
-    if i.val = 2 then 0xa0001000 else if i.val = 1 then 0x80000000
+    if i.val = 2 then 0xa0001800 else if i.val = 1 then 0x80000000
     else if i.val = 10 then 0xa0002000 else if i.val = 11 then 0x40000000 else 0
   pc := BitVec.ofNat 64 entry
   mem := fun a =>
@@ -170,7 +170,7 @@ example : ∃ m, Pre m := by
     by unfold RetAligned; decide, by decide, by decide, fun j hj => ?_, by decide, by decide,
     fun j hj => ?_, fun j hj => ?_, by unfold Disjoint; decide, by unfold Disjoint; decide,
     by unfold Disjoint; decide, fun input _ hl => ?_⟩
-  · have e : witness.reg 2 - BitVec.ofNat 64 512 = BitVec.ofNat 64 0xa0000e00 := by decide
+  · have e : witness.reg 2 - BitVec.ofNat 64 512 = BitVec.ofNat 64 0xa0001600 := by decide
     rw [e]
     exact witness_present _ _ (by omega) (by simp [witnessRam]; omega)
   · have : (witness.reg 12).toNat = 0 := by decide
