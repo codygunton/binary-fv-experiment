@@ -1518,7 +1518,8 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
 - Contract rule for `alloc`/`free`: `AllocF.pre_nonvacuous`, `FreeF.pre_nonvacuous` (concrete
   machines `initM`, `freeM`); `AllocF.post_snapshot`, `FreeF.post_snapshot` (`decide` on 10 + 6
   Unicorn snapshots, `tools/snap.py --fn Alloc|Free`, Lean data `tools/snap_alloc.py`, checker
-  `Fn/Alloc/Snap.lean`). `zesu-difftest --fn Alloc|Free`: `agree` on all 16 (pre-xparams build).
+  `Fn/Alloc/Snap.lean`). `zesu-difftest --fn Alloc|Free --snap …`: `agree` (sail = machine =
+  unicorn) on all 16, rerun on the merged build (exec-spike with xparams, `7107de07`) by S13AllocD.
 - End theorems moved into plan namespaces so `zesu-status` finds them: `AllocF.allocf_spec`,
   `FreeF.freef_spec`, `FS.fs_spec`, `RS.rs_spec` (+ `_sail`); Axioms guards added (incl. scratch).
 - Re-point: `AllocAssumptions` → `AllocContract` (`Fn/Alloc/Contract.lean`), proved instance
@@ -1530,5 +1531,12 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
 - `map/reviews.json`: allocator no longer `assumed`; draft contracts for alloc, free,
   scratch free/remap. Tests: `test_meaning_from_reviews` on guestMain; state-rule tests use an
   "allocator assumed" reviews copy; `test_states` expects `contract-draft`.
-- Open: `scratch_arena.alloc` not started (Pre must fix `ctx+8 = 0x801136d8`; the indirect
-  target is then read from rodata, as in F1); GO.md `## S13` not written.
+- GO.md `## S13` written (with the measures).
+- S13AllocD: contract rule for `scratch_arena.free`/`remap`: `FS.pre_nonvacuous`,
+  `RS.pre_nonvacuous` (concrete machine `scrM`, an arena with one chunk, so the chunk branch of
+  `Pre` is exercised; `decide`); `FS.post_snapshot`, `RS.post_snapshot` (`decide` on 5 + 7
+  Unicorn snapshots, `tools/snap.py --fn ScratchFree|ScratchRemap`, inputs
+  `tools/snap_inputs/scratch_{free,remap}.json`, Lean data `tools/snap_alloc.py`, checker
+  `Fn/Scratch/Snap.lean`). `zmap check` passes (`d40e67b7`).
+- Open: `scratch_arena.alloc` (Pre must fix `ctx+8 = 0x801136d8`; the indirect target is then
+  read from rodata, as in F1).
