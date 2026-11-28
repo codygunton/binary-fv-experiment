@@ -147,15 +147,29 @@ theorem leaf_at_x (d d' : CutData) (l : Leaf) (hpc : d.pc ≠ entry)
   leaf_at_xo d d' l hpc hcut hsrc (coreChk0 hck)
     (fun _ _ hA hc => core_obl hpc hcut hsrc hck hA hc) hex ht hat hX
 
+/-- `FieldsOk` from the entries a predicate selects and the others. -/
+theorem fieldsOk_filter {σ : Sig} {m : Machine} {fs : List Field} (keep : Field → Bool)
+    (h1 : FieldsOk σ m (fs.filter keep)) (h2 : FieldsOk σ m (fs.filter fun f => !keep f)) :
+    FieldsOk σ m fs := fun f hf ha => by
+  by_cases hk : keep f = true
+  · exact h1 f (List.mem_filter.mpr ⟨hf, hk⟩) ha
+  · exact h2 f (List.mem_filter.mpr ⟨hf, by simpa using hk⟩) ha
+
 /-- The call-side checks of a call leaf other than the callee's index, `SiteX` and the budget;
-the call site's item values by the carry rules (`fieldsCarry`). -/
-def CallChk (d : CutData) (l : Leaf) (d' : CutData) (s : Site) (t r : Nat) : Bool :=
+the call site's item values `keep` selects by the carry rules (`fieldsCarry`), the others are the
+hand proof's. -/
+def CallChkF (keep : Field → Bool) (d : CutData) (l : Leaf) (d' : CutData) (s : Site)
+    (t r : Nat) : Bool :=
   t == s.kind.entry && d'.pc != entry && SrcOk d' && s.shape.Fine &&
     shapeHolds l.S s.shape && armsKeep d.arms s.arms &&
     restFrom d.shape.S l.S (advUse d l) (srcRest d l) s.rest &&
     l.S.reg 1 == .lit r && decide ((w r &&& ~~~(1 : Word)).toNat = r) && decide (r % 4 = 0) &&
-    fieldsCarry (srcFields d) d l (siteFields r) && chkStep d l (chkCount s.rest) &&
+    fieldsCarry (srcFields d) d l ((siteFields r).filter keep) && chkStep d l (chkCount s.rest) &&
     decide (l.S.steps - d.shape.S.steps ≤ (budgetAt d.pc).1)
+
+/-- `CallChkF` with every call-site entry by the carry rules. -/
+def CallChk (d : CutData) (l : Leaf) (d' : CutData) (s : Site) (t r : Nat) : Bool :=
+  CallChkF (fun _ => true) d l d' s t r
 
 /-- What the call site knows at the call machine, for the hypotheses of `leaf_call_x`. -/
 structure CallFacts (s : Site) (r : Nat) (σ : Sig) (m' : Machine) : Prop where
@@ -168,13 +182,17 @@ structure CallFacts (s : Site) (r : Nat) (σ : Sig) (m' : Machine) : Prop where
   aligned : RetAligned m'
   fields : FieldsOk σ m' (siteFields r)
 
-/-- `leaf_call_x` with the leaf's obligations a hypothesis. -/
-theorem leaf_call_xo (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.pc ≠ entry)
+/-- `leaf_call_x` with the leaf's obligations a hypothesis and the call site's entries `keep`
+rejects proved by hand (`hH`). -/
+theorem leaf_call_xfo (keep : Field → Bool) (d d' : CutData) (s : Site) (l : Leaf) (t : Nat)
+    (hpc : d.pc ≠ entry)
     (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true) (hck : CoreChk0 d l = true)
     (hO : ∀ σ m, (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
       ∀ o ∈ l.obligs, o.holds (envOf d.shape σ m))
     (hex : l.exit = .call t d'.pc) (ht : targetOf d'.pc = some d') (hs : d'.site = some s)
-    (hcl : CallChk d l d' s t d'.pc = true)
+    (hcl : CallChkF keep d l d' s t d'.pc = true)
+    (hH : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
+      Ctx d l σ m m' → FieldsOk σ m' ((siteFields d'.pc).filter fun f => !keep f))
     (hX : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
       Ctx d l σ m m' → CallFacts s d'.pc σ m' →
       ∃ x, IdxOk s.kind σ x m' ∧ SiteX d'.pc σ x m' ∧ ∀ m'', (calleeOf s.kind).Post σ x m' m'' →
@@ -185,7 +203,7 @@ theorem leaf_call_xo (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.p
   obtain ⟨-, hctx⟩ := core_ctx0 hpc hcut hsrc hck hA hc
   have hob := hO σ m hA hc
   have F := facts_of_A hpc hsrc hA
-  unfold CallChk at hcl
+  unfold CallChkF at hcl
   simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq, decide_eq_true_eq] at hcl
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨ht', hne⟩, hsrc'⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hra1⟩, hra⟩, hr4⟩, hfld⟩,
     hchk⟩, hst⟩ := hcl
@@ -206,7 +224,7 @@ theorem leaf_call_xo (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.p
       rw [← C.hm'.regs 1]; show (l.S.reg 1).eval _ = _; rw [hra1]; rfl
     have hraM : RetAligned m' := by unfold RetAligned; rw [hr1, hra]; exact hr4
     have hchk' := chkStep_sound hpc hsrc hA hc F hchk
-    have hfl := fieldsCarry_sound C hpc hsrc hA hc hfld
+    have hfl := fieldsOk_filter keep (fieldsCarry_sound C hpc hsrc hA hc hfld) (hH σ m m' hA hc C)
     obtain ⟨x0, hidx, hsx, hbud⟩ :=
       hX σ m m' hA hc C ⟨hcm, hshp, harm, hrst, hchk', hr1, hraM, hfl⟩
     have hsite : SiteA s d'.pc σ x0 m' := ⟨hr1, hcm, hshp, harm, hrst, hidx, hfl, hchk', hsx⟩
@@ -224,6 +242,37 @@ theorem leaf_call_xo (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.p
       have := hbud m'' hpost
       omega
   | _ => rw [hexit] at hex; cases hex
+
+/-- `leaf_call_xfo` with every call-site entry by the carry rules. -/
+theorem leaf_call_xo (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.pc ≠ entry)
+    (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true) (hck : CoreChk0 d l = true)
+    (hO : ∀ σ m, (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
+      ∀ o ∈ l.obligs, o.holds (envOf d.shape σ m))
+    (hex : l.exit = .call t d'.pc) (ht : targetOf d'.pc = some d') (hs : d'.site = some s)
+    (hcl : CallChk d l d' s t d'.pc = true)
+    (hX : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
+      Ctx d l σ m m' → CallFacts s d'.pc σ m' →
+      ∃ x, IdxOk s.kind σ x m' ∧ SiteX d'.pc σ x m' ∧ ∀ m'', (calleeOf s.kind).Post σ x m' m'' →
+        s.kind.bound + budgetOf d' σ m'' + (l.S.steps - d.shape.S.steps) ≤ budgetOf d σ m) :
+    LeafGoal vcPlan (mkCut d) l :=
+  leaf_call_xfo (fun _ => true) d d' s l t hpc hcut hsrc hck hO hex ht hs hcl
+    (fun _ _ _ _ _ _ => fieldsOk_nil (by simp)) hX
+
+/-- `leaf_call_xfo` with the obligations `CoreChk` decides. -/
+theorem leaf_call_xf (keep : Field → Bool) (d d' : CutData) (s : Site) (l : Leaf) (t : Nat)
+    (hpc : d.pc ≠ entry) (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true)
+    (hck : CoreChk d l = true)
+    (hex : l.exit = .call t d'.pc) (ht : targetOf d'.pc = some d') (hs : d'.site = some s)
+    (hcl : CallChkF keep d l d' s t d'.pc = true)
+    (hH : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
+      Ctx d l σ m m' → FieldsOk σ m' ((siteFields d'.pc).filter fun f => !keep f))
+    (hX : ∀ σ m m', (mkCut d).A σ m → (∀ b ∈ l.conds, b.eval (envOf d.shape σ m) = true) →
+      Ctx d l σ m m' → CallFacts s d'.pc σ m' →
+      ∃ x, IdxOk s.kind σ x m' ∧ SiteX d'.pc σ x m' ∧ ∀ m'', (calleeOf s.kind).Post σ x m' m'' →
+        s.kind.bound + budgetOf d' σ m'' + (l.S.steps - d.shape.S.steps) ≤ budgetOf d σ m) :
+    LeafGoal vcPlan (mkCut d) l :=
+  leaf_call_xfo keep d d' s l t hpc hcut hsrc (coreChk0 hck)
+    (fun _ _ hA hc => core_obl hpc hcut hsrc hck hA hc) hex ht hs hcl hH hX
 
 theorem leaf_call_x (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.pc ≠ entry)
     (hcut : CutOK vcPlan (mkCut d)) (hsrc : SrcOk d = true) (hck : CoreChk d l = true)

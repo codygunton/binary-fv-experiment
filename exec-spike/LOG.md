@@ -1357,3 +1357,15 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   ZesuExec.Fn.DTF.Reach`: 647 items). `80002dc4_0` still open: needs the hash/tuple walks in the
   loop invariants (arms 3/4 `decode`), the `TxAt` store proof, and the buffers (CUTS.md § Stage 2
   status, items 1-3). `tools/verify.sh`, `zmap check` pass.
+- S7 cont. (DTFFieldsD, 2026-11-28, branch `dtf`): step 2 (the `TxAt` store) and the hash half of
+  step 1. `Success.lean`: `TxAt` split into `TxScal`/`TxBufs`; `scal_of` checks every scalar result
+  byte against a byte of a row location on the leaf's final state (decided, `byteOf_limb`), and
+  `scal_legacy`/`scal_t1`…`scal_t4` instantiate it from the row per arm; `decode_dc4` gives
+  `decode t payload = some (txOf t payload)` on arms 0-3 (`decode_blob`/`decode_auth` given the
+  walks). `HashLoop`/`HashItem` now carry `HashesOk` (each item a 32-byte string); the two exits to
+  `toOwnedSlice` prove the new machine-free row value `.hwalk 10` (`hash_walk_ok`,
+  `leaf_call_xf`/`CallChkF` for hand-proved call-site entries), carried to `0x80002dc4` by the kept
+  rule. `Rows.lean` 2695 entries; `gen_leaves.py` 415 instances. **Counts before → after: manual
+  646 → 646, open 1 → 1.** Still open in `80002dc4_0`: the tuple walk (arm 4) and the four
+  buffers, which need one shared live list `L` across `Extra`/`FieldsOk`/call sites (S13AllocC:
+  `Heap` does not pin `L`); CUTS.md § Stage 3 status.

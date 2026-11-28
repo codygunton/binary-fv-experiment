@@ -45,14 +45,15 @@ theorem store_out {σ : Sig} {m m' : Machine} {l : Leaf}
       m'.reg 23 = σ.inp + w (c + h + (j + k)) ∧ m'.reg 22 = w (p - (j + k)) ∧
       m'.reg 25 = w (n + 1) ∧ ListHdr σ m' 0x258 (n + 1) 0 ∧ Common σ m' ∧
       m'.load (σ.fr + w 336) 8 = m.load (σ.fr + w 336) 8 ∧
-      m'.load (σ.fr + w 344) 8 = m.load (σ.fr + w 344) 8 := by
+      m'.load (σ.fr + w 344) 8 = m.load (σ.fr + w 344) 8 ∧
+      HashesOk (TX.itemPayload (σ.payload.drop c) h p) (n + 1) := by
   have hcut : CutOK vcPlan (mkCut (table[110]!)) := DTF.cut_80002138
   obtain ⟨hwf, hm, -, -⟩ := hcut σ m hA
   simp only [mkCut] at hwf hm
   have hx : (table[110]!).shape.extra = [slotR 32] := by decide
   have hS : (table[110]!).shape.S.regions = baseRegions ++ [slotR 32] := by decide
   obtain ⟨hcm, harm, -, hslot, hit, hhs, -⟩ := store_src hA
-  obtain ⟨c, h, p, n, j, k, hl, hsk, hsk1, hnk, hk32, r23, r22, r25, r20, hdr⟩ := hit
+  obtain ⟨c, h, p, n, j, k, hl, hsk, hsk1, hnk, hk32, r23, r22, r25, r20, hdr, hok⟩ := hit
   have hpre := hcm.2.1
   have hle := hashList_le hpre (arm3 harm (by decide)) hl
   have hjk : j + k ≤ p := by
@@ -105,7 +106,7 @@ theorem store_out {σ : Sig} {m m' : Machine} {l : Leaf}
   have e25 : m.reg 25 + 1 = w (n + 1) := by
     rw [r25]; simp only [w]; rw [BitVec.ofNat_add]; rfl
   refine ⟨c, h, p, n, j, k, hl, hsk1, hnk, hk32, hjk, hle, r22, ?_, ?_, ?_, ?_, ?_, hcm', k336,
-    k344⟩
+    k344, hok⟩
   · simp only [Sym.eval_bin, BinOp.eval, hv 22 (by decide), hv 20 (by decide)]
     exact hsub
   · rw [hreg' 23, show (23 : Fin 32).val = 23 from rfl, h23]
@@ -159,14 +160,14 @@ theorem DTF.leaf_80002138_0 :
   rw [hexit] at hexok ⊢
   simp only [ExitOk] at hexok
   obtain ⟨c, h, p, n, j, k, hl, hsk1, hnk, hk32, hjk, hle, r22, hsub, e23, e22, e25, hdr, hcm',
-    k336, k344⟩ := store_out hreg (by decide) (by decide) (by decide) (by decide) (by decide)
+    k336, k344, hok⟩ := store_out hreg (by decide) (by decide) (by decide) (by decide) (by decide)
       (by decide) (by decide) (by decide) (by decide) hA hm' hso
   obtain ⟨-, harm, hrst, -, -, -, hchk, hfs⟩ := store_src hA
   have hcond := hc _ (show SBool.ne (.bin .sub (.var 22) (.var 20)) (.lit 0) ∈ _ by decide)
   simp only [SBool.eval, hsub, bne_iff_ne, ne_eq] at hcond
   have hwf' := wf_of_regions hwf (hreg.trans hS.symm)
   have hR0 : ((leavesAt 0x80002138)[0]!).S.regions[0]? = some frameR := by rw [hreg]; rfl
-  have hloop : HashLoop σ m' := ⟨c, h, p, n + 1, j + k, hl, hsk1, hnk, e23, e22, e25, hdr⟩
+  have hloop : HashLoop σ m' := ⟨c, h, p, n + 1, j + k, hl, hsk1, hnk, e23, e22, e25, hdr, hok⟩
   have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
   refine ExitGoal.at_cut rfl ⟨mkCut (table[107]!),
     List.mem_map_of_mem (targetOf_spec (pc := 0x800020ac) (d' := table[107]!) rfl).1, ?_, ?_, ?_⟩
@@ -233,7 +234,7 @@ theorem DTF.leaf_80002138_1 :
   rw [hexit] at hexok ⊢
   simp only [ExitOk] at hexok
   obtain ⟨c, h, p, n, j, k, hl, hsk1, hnk, hk32, hjk, hle, r22, hsub, e23, e22, e25, hdr, hcm',
-    k336, k344⟩ := store_out hreg (by decide) (by decide) (by decide) (by decide) (by decide)
+    k336, k344, hok⟩ := store_out hreg (by decide) (by decide) (by decide) (by decide) (by decide)
       (by decide) (by decide) (by decide) (by decide) hA hm' hso
   obtain ⟨-, harm, hrst, -, -, -, hchk, hfs⟩ := store_src hA
   have hcond := hc _ (show SBool.eq (.bin .sub (.var 22) (.var 20)) (.lit 0) ∈ _ by decide)
@@ -241,6 +242,13 @@ theorem DTF.leaf_80002138_1 :
   have hwf' := wf_of_regions hwf (hreg.trans hS.symm)
   have hR0 : ((leavesAt 0x80002138)[1]!).S.regions[0]? = some frameR := by rw [hreg]; rfl
   have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
+  -- the list payload used up: the walk over its `n + 1` hashes succeeds
+  have hjkp : j + k = p := by
+    have := congrArg BitVec.toNat hcond
+    simp only [w, BitVec.toNat_ofNat, Sym.eval_lit] at this
+    omega
+  have hwalk := hash_walk_ok hcm'.2.1 (arm3 harm (by decide)) hl (n := n + 1)
+    (by rw [hsk1, hjkp]) (by omega) hok
   -- the call machine
   have hr1 : m'.reg 1 = w 0x80002180 := by
     rw [← hm'.regs 1]
@@ -274,7 +282,9 @@ theorem DTF.leaf_80002138_1 :
   have hsite : SiteA (siteAt 111) (table[111]!).pc σ (L, items, ⟨[], []⟩) m' := by
     rw [show (table[111]!).pc = 0x80002180 by decide]
     refine ⟨hr1, hcm', hshp, harm', hrst', hidx,
-      keptCarry_sound (by decide) hwf hm (by rw [hS]; rfl) hwf' hm' hR0 harm hfs (by decide), ?_,
+      fieldsOk_filter (fun f => f.v != .hwalk 10)
+        (keptCarry_sound (by decide) hwf hm (by rw [hS]; rfl) hwf' hm' hR0 harm hfs (by decide))
+        (hwalk_fields hwalk_sel hl hwalk), ?_,
       siteX_of_no (by decide) σ _ m'⟩
     · rw [show chkCount (siteAt 111).rest = chkCount (table[110]!).rest by decide]; exact hchk
   refine ⟨calleeOf (siteAt 111).kind, (L, items, ⟨[], []⟩), ?_, ?_, hidx.1, fun m'' hpost => ?_⟩

@@ -166,6 +166,7 @@ def FieldVal.AtB (σ : Sig) (b : List Byte) (x : Word) : FieldVal → Prop
   | .lv _ => x = w (legacyV (numOf 32 b)).2
   | .ty => x = σ.m.reg 12
   | .cst v => x = w v
+  | .hwalk _ => ∃ hs, walkList hash (payOf b).length (payOf b) = some hs
   | _ => True
 
 theorem at_atB {σ : Sig} {m : Machine} {c h p : Nat} {l : Bool}
@@ -569,5 +570,29 @@ theorem scal_t4 {σ : Sig} {m m' : Machine}
       (row ⟨.slot 0x138, [2, 3, 4], .raw 5 0 8⟩) (row ⟨.slot 0x140, [2, 3, 4], .raw 5 8 8⟩)
       (row ⟨.slot 0x148, [2, 3, 4], .raw 5 16 4⟩)
       (addr_item (k := 5) hck (by rw [ht]; decide) (by rw [ht]; rfl)))
+
+/-! ## `decode` at the success write -/
+
+/-- The transaction arm `t` makes of the items at `b`. -/
+def txOf (t : Nat) (b : List Byte) : Tx :=
+  if t = 0 then legacyOf b else if t ≤ 2 then typedOf t b else if t = 3 then blobOf b
+  else authOf b
+
+/-- At `0x80002dc4` (arms 0–3): every item checked (`Extra`), the header fits (`Pre`) and, on arm
+3, the hash walk (the row's `.hwalk 10`) make `decode` succeed with `txOf`. -/
+theorem decode_dc4 {σ : Sig} {m : Machine} (hpre : Pre σ.A σ.g σ.m)
+    (hF : FieldsOk σ m (cutFields 0x80002dc4)) (hchk : ChecksOk σ (fieldCount σ.t))
+    (h4 : σ.t ≠ 4) : decode σ.t σ.payload = some (txOf σ.t σ.payload) := by
+  have hck := checksL_full hpre hchk
+  have ht4 : σ.t ≤ 4 := hpre.2.2.2.2.2.2.2.2.2.1
+  obtain ht | ht | ht | ht : σ.t = 0 ∨ σ.t = 1 ∨ σ.t = 2 ∨ σ.t = 3 := by omega
+  · rw [ht] at hck ⊢; exact decode_legacy hck
+  · rw [ht] at hck ⊢; exact decode_typed (.inl rfl) hck
+  · rw [ht] at hck ⊢; exact decode_typed (.inr rfl) hck
+  · have hw : FieldVal.AtB σ (restN 10 σ.payload) ((Loc.slot 0x130).word σ m) (.hwalk 10) :=
+      row_val (f := ⟨.slot 0x130, [3], .hwalk 10⟩) hF hck (by decide) (by simp [ArmOk, ht])
+        (by rw [ht]; decide)
+    rw [ht] at hck ⊢
+    exact decode_blob hck hw
 
 end ZesuExec.Fn.DTF
