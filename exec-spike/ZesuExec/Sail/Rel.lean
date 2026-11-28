@@ -225,5 +225,6 @@ def toSail : Instr → instruction
   | .lwu rd rs1 imm => .LOAD (imm, rg rs1, rg rd, true, 4)
   | .srliw rd rs1 sh => .SHIFTIWOP (sh, rg rs1, rg rd, .SRLIW)
   | .subw rd rs1 rs2 => .RTYPEW (rg rs2, rg rs1, rg rd, .SUBW)
+  | .lh rd rs1 imm => .LOAD (imm, rg rs1, rg rd, false, 2)
 
 end ZesuExec.SailLink
