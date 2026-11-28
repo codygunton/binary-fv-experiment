@@ -329,10 +329,12 @@ theorem memByte_slot (env : Env) (r : Nat) (v : Nat × Nat → Sym) (L : List (N
   unfold memByte; rw [find_slot r v L hd s hs t ht]; simp
 
 /-- The entry run to the first loop head: the prologue stores the saved registers in the frame
-(region 2); the items are the entry's. -/
-theorem entry_step {c : Cfg} {m m' : Machine} {lS : SState} (h : Pre c m)
+(region 2), after them the frame writes `ex` (which miss the saved slots); the items are the
+entry's. -/
+theorem entry_step_ex {c : Cfg} {m m' : Machine} {lS : SState} {ex : List Write} (h : Pre c m)
     (hm : Match (env0 c m) lS m') (hso : SameOutside (InWritable (env0 c m) (S0 c)) m m')
-    (hw : lS.mem = c.saved.map fun s => (⟨2, s.1, 8, .var s.2⟩ : Write))
+    (hw : lS.mem = ex ++ c.saved.map fun s => (⟨2, s.1, 8, .var s.2⟩ : Write))
+    (hex : (ex.all fun x => c.saved.all fun s => (List.range 8).all fun t => !x.covers 2 (s.1 + t)) = true)
     (hr : lS.regions.length = 3) (hsp : lS.reg 2 = .ptr 2 0) (hs0 : lS.reg 8 = .ptr 2 c.fs)
     (hkeep : keepsB lS c.kept = true) :
     Common c m m' ∧ Items m m' (items m (ptr m)) := by
@@ -353,7 +355,17 @@ theorem entry_step {c : Cfg} {m m' : Machine} {lS : SState} (h : Pre c m)
     exact s0_eval c _
   · exact hk i hi
   · have hle := c.saved_le s hs
-    rw [hmem _ (by omega), hw, memByte_slot _ _ _ _ c.saved_disj hs ht]
+    have hnone : ex.find? (·.covers 2 (s.1 + t)) = none := by
+      rw [List.find?_eq_none]
+      intro x hx
+      have := List.all_eq_true.mp (List.all_eq_true.mp (List.all_eq_true.mp hex x hx) s hs) t
+        (List.mem_range.mpr ht)
+      simpa using this
+    rw [hmem _ (by omega), hw]
+    have e : memByte (env0 c m) (ex ++ c.saved.map fun s => (⟨2, s.1, 8, .var s.2⟩ : Write)) 2 (s.1 + t) =
+        memByte (env0 c m) (c.saved.map fun s => (⟨2, s.1, 8, .var s.2⟩ : Write)) 2 (s.1 + t) := by
+      unfold memByte; rw [List.find?_append, hnone, Option.none_or]
+    rw [e, memByte_slot _ _ _ _ c.saved_disj hs ht]
     rfl
   · rw [hmem j hj]; rfl
   · apply hso
@@ -363,6 +375,14 @@ theorem entry_step {c : Cfg} {m m' : Machine} {lS : SState} (h : Pre c m)
   · refine (slice_bytesOf h.2.2.2.2.2.2.2.2.2.2.2.1).keep fun e he o ho => hso _ fun hw' => ?_
     obtain ⟨j, hj, he'⟩ := inW_0 hw'
     exact slice_ne_frame h he ho hj he'
+
+theorem entry_step {c : Cfg} {m m' : Machine} {lS : SState} (h : Pre c m)
+    (hm : Match (env0 c m) lS m') (hso : SameOutside (InWritable (env0 c m) (S0 c)) m m')
+    (hw : lS.mem = c.saved.map fun s => (⟨2, s.1, 8, .var s.2⟩ : Write))
+    (hr : lS.regions.length = 3) (hsp : lS.reg 2 = .ptr 2 0) (hs0 : lS.reg 8 = .ptr 2 c.fs)
+    (hkeep : keepsB lS c.kept = true) :
+    Common c m m' ∧ Items m m' (items m (ptr m)) :=
+  entry_step_ex (ex := []) h hm hso (by rw [hw]; rfl) rfl hr hsp hs0 hkeep
 
 /-- The items of `m'` are `G` on `[0, bE)`: their window. -/
 theorem win_items {m m' : Machine} {G : Nat → Nat → Byte} (hs : Items m m' G) {lo : Nat} :

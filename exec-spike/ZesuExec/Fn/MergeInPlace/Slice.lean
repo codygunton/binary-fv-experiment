@@ -1,4 +1,4 @@
-import ZesuExec.Fn.MergeInPlace.Cuts
+import ZesuExec.Fn.MergeInPlace.Lemmas
 
 /-!
 # `mergeInPlace` copies: elements that are byte slices
@@ -183,5 +183,143 @@ theorem str_not_writes {c : Cfg} {m : Machine} {x : List Byte} (h : Pre c m) (hx
 theorem key_stable {c : Cfg} {m mh : Machine} {x : List Byte} (h : Pre c m) (hc : Common c m mh)
     (hx : StrOk c.fs m x) : sliceKey mh x = sliceKey m x :=
   sliceKey_congr fun _ hj => hc.2.2.2.2.2.2 _ (str_not_writes h hx hj)
+
+
+/-- A string byte of a `StrOk` element in a `Common` machine is its entry byte. -/
+theorem str_byte {c : Cfg} {m mh : Machine} {x : List Byte} (h : Pre c m) (hc : Common c m mh)
+    (hx : StrOk c.fs m x) {j : Nat} (hj : j < sliceLen x) :
+    mh.mem (slicePtr x + w j) = m.mem (slicePtr x + w j) :=
+  hc.2.2.2.2.2.2 _ (str_not_writes h hx hj)
+
+/-! ## Elements of a round are input elements -/
+
+/-- The longest input string. -/
+def Lmax (m : Machine) : Nat :=
+  ((List.range' (aS m) (bE m - aS m)).map fun e => sliceLen (el (items m (ptr m)) e)).foldr max 0
+
+theorem le_foldr_max : ∀ {l : List Nat} {x : Nat}, x ∈ l → x ≤ l.foldr max 0
+  | _ :: _, _, .head _ => Nat.le_max_left _ _
+  | _ :: _, _, .tail _ h => Nat.le_trans (le_foldr_max h) (Nat.le_max_right _ _)
+
+theorem foldr_max_le : ∀ {l : List Nat} {B : Nat}, (∀ x ∈ l, x ≤ B) → l.foldr max 0 ≤ B
+  | [], _, _ => Nat.zero_le _
+  | x :: l, B, h => Nat.max_le.mpr ⟨h x (.head _), foldr_max_le fun y hy => h y (.tail _ hy)⟩
+
+/-- Every element of a round's items is an input element. -/
+theorem round_el {c : Cfg} {m : Machine} {G : Nat → Nat → Byte} {as ae e : Nat} (h : Pre c m)
+    (hR : Round c m G as ae) (he : aS m ≤ e) (he' : e < bE m) :
+    ∃ e₀, aS m ≤ e₀ ∧ e₀ < bE m ∧ el G e = el (items m (ptr m)) e₀ := by
+  obtain ⟨h1, h2, h3, hinv⟩ := hR
+  have hin : el G e ∈ win G (aS m) as ++ win G as ae ++ win G ae (bE m) := by
+    rw [← win_split h1 h2, ← win_split (by omega) h3]; exact mem_win.mpr ⟨e, he, he', rfl⟩
+  have := hinv.1.mem_iff.mp hin
+  rw [← xy_win h] at this
+  obtain ⟨e₀, h4, h5, h6⟩ := mem_win.mp this
+  exact ⟨e₀, h4, h5, h6.symm⟩
+
+theorem strOk_round {c : Cfg} {m : Machine} {G : Nat → Nat → Byte} {as ae e : Nat} (h : Pre c m)
+    (hp : SlicePre c.fs m) (hR : Round c m G as ae) (he : aS m ≤ e) (he' : e < bE m) :
+    StrOk c.fs m (el G e) := by
+  obtain ⟨e₀, h1, h2, h3⟩ := round_el h hR he he'
+  rw [h3]; exact hp e₀ h1 h2
+
+theorem len_round {c : Cfg} {m : Machine} {G : Nat → Nat → Byte} {as ae e : Nat} (h : Pre c m)
+    (hR : Round c m G as ae) (he : aS m ≤ e) (he' : e < bE m) : sliceLen (el G e) ≤ Lmax m := by
+  obtain ⟨e₀, h1, h2, h3⟩ := round_el h hR he he'
+  rw [h3]
+  exact le_foldr_max (List.mem_map.mpr ⟨e₀, List.mem_range'.mpr ⟨e₀ - aS m, by omega, by omega⟩, rfl⟩)
+
+theorem Lmax_le {fs : Nat} {m : Machine} (hp : SlicePre fs m) : Lmax m ≤ Layout.ramHi := by
+  refine foldr_max_le fun x hx => ?_
+  obtain ⟨e, he, rfl⟩ := List.mem_map.mp hx
+  obtain ⟨i, hi, rfl⟩ := List.mem_range'.mp he
+  have := readable_le (hp (aS m + 1 * i) (by omega) (by omega)).1
+  omega
+
+/-! ## Loads of a slice and its string bytes -/
+
+theorem w_sliceLen (x : List Byte) : w (sliceLen x) = leWord x 8 := by simp [sliceLen]
+
+/-- An 8-byte load at `off` of an element region (base `p + 32e`) of an entry environment. -/
+theorem init_el {m mh : Machine} {G : Nat → Nat → Byte} {regs : List (Word × Nat)} {k e off : Nat}
+    (hb : (regs.getD k (0, 0)).1 = ptr m + w (32 * e)) (hs : Items m mh G) (he : e < bE m)
+    (hoff : off + 8 ≤ 32) : (Sym.init k off 8).eval (entryEnv mh regs) = leWord (el G e) off := by
+  rw [leWord_el G e hoff]
+  simp only [Sym.eval]
+  congr 1
+  apply byteList_congr
+  intro t ht
+  simp only [Env.byte0, entryEnv, hb, items_add, hs e he (off + t) (by omega), Option.getD_some]
+
+theorem readable_sub {a n k : Nat} (h : readable a n = true) (hk : k < n) :
+    readable (a + k) 1 = true := by
+  simp only [readable, inRange, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at h ⊢
+  omega
+
+/-- An `SC` cut on byte `k` of two strings at different addresses. -/
+theorem cutCS_facts {c : Cfg} {m mh : Machine} {x y : List Byte} {a b k : Nat} (h : Pre c m)
+    (hc : Common c m mh) (hx : StrOk c.fs m x) (hy : StrOk c.fs m y) (hkx : k < sliceLen x)
+    (hky : k < sliceLen y) (hne : slicePtr x ≠ slicePtr y)
+    (ha : mh.reg (Fin.ofNat 32 a) = slicePtr x + w k) (hb : mh.reg (Fin.ofNat 32 b) = slicePtr y + w k) :
+    Env.WF (envC a b mh) (SC a b) ∧ Match (envC a b mh) (SC a b) mh := by
+  have ax := str_addr hx hkx
+  have ay := str_addr hy hky
+  have hn : (slicePtr x).toNat ≠ (slicePtr y).toNat := fun e => hne (BitVec.eq_of_toNat_eq e)
+  refine ⟨?_, ?_⟩
+  · have := entry_wf (m := mh) (ov := ovL [(a, .ptr 0 0), (b, .ptr 1 0)]) (ks := [])
+      [((mh.reg (Fin.ofNat 32 a), 1), byteR), ((mh.reg (Fin.ofNat 32 b), 1), byteR)] ?_ ?_
+    · exact this
+    · simp only [List.mem_cons, List.not_mem_nil, or_false]
+      rintro p (rfl | rfl)
+      · refine ⟨by simp [byteR], by simp [byteR, Nat.mod_one], ?_⟩
+        simp only [byteR, Bool.false_eq_true, if_false]; rw [ha, ax]
+        exact readable_sub hx.1 hkx
+      · refine ⟨by simp [byteR], by simp [byteR, Nat.mod_one], ?_⟩
+        simp only [byteR, Bool.false_eq_true, if_false]; rw [hb, ay]
+        exact readable_sub hy.1 hky
+    · rw [List.map_cons, List.map_cons, List.map_nil, List.pairwise_pair]
+      unfold Disjoint; simp only
+      rw [ha, hb, ax, ay]; omega
+  · refine match_ovL ?_ (fun r j hr hj => ?_) (by simp)
+    · simp only [List.mem_cons, List.not_mem_nil, or_false]
+      rintro p (rfl | rfl) <;> simp [Sym.eval, entryEnv, Env.base]
+    · simp at hr
+      have hj0 : j = 0 := by
+        rcases (show r = 0 ∨ r = 1 by omega) with rfl | rfl <;> simp [entryEnv, Env.size] at hj <;> omega
+      subst hj0
+      rcases (show r = 0 ∨ r = 1 by omega) with rfl | rfl
+      · simp only [entryEnv, Env.base, List.getD_cons_zero, BitVec.ofNat_eq_ofNat, BitVec.add_zero]
+        rw [ha, str_byte h hc hx hkx]; exact hx.2.1 k hkx
+      · simp only [entryEnv, Env.base, List.getD_cons_succ, List.getD_cons_zero,
+          BitVec.ofNat_eq_ofNat, BitVec.add_zero]
+        rw [hb, str_byte h hc hy hky]; exact hy.2.1 k hky
+
+/-- The byte at register `x` of an `SC` cut on string byte `k`. -/
+theorem envC_byte0 {c : Cfg} {m mh : Machine} {s : List Byte} {x y r k : Nat} (h : Pre c m)
+    (hc : Common c m mh) (hs : StrOk c.fs m s) (hk : k < sliceLen s) (hr : r < 2)
+    (hreg : mh.reg (Fin.ofNat 32 ([x, y].getD r 0)) = slicePtr s + w k) :
+    (envC x y mh).byte0 r 0 = strByte m (slicePtr s) k := by
+  rcases (show r = 0 ∨ r = 1 by omega) with rfl | rfl
+  · simp only [envC, entryEnv, Env.byte0, List.getD_cons_zero, BitVec.ofNat_eq_ofNat, BitVec.add_zero]
+    simp only [List.getD_cons_zero] at hreg
+    rw [hreg, str_byte h hc hs hk]; rfl
+  · simp only [envC, entryEnv, Env.byte0, List.getD_cons_succ, List.getD_cons_zero,
+      BitVec.ofNat_eq_ofNat, BitVec.add_zero]
+    simp only [List.getD_cons_succ, List.getD_cons_zero] at hreg
+    rw [hreg, str_byte h hc hs hk]; rfl
+
+/-! ## The comparison of two slice keys -/
+
+theorem ltBy_slice_ne (m : Machine) {x y : List Byte} {k : Nat} (hkx : k < sliceLen x)
+    (hky : k < sliceLen y) (hp : ∀ j < k, strByte m (slicePtr x) j = strByte m (slicePtr y) j)
+    (hne : strByte m (slicePtr x) k ≠ strByte m (slicePtr y) k) :
+    ltBy (sliceKey m) x y =
+      decide ((strByte m (slicePtr x) k).toNat < (strByte m (slicePtr y) k).toNat) :=
+  lex_range_ne _ _ hkx hky hp hne
+
+theorem ltBy_slice_eq (m : Machine) {x y : List Byte}
+    (hp : ∀ j < min (sliceLen x) (sliceLen y), strByte m (slicePtr x) j = strByte m (slicePtr y) j) :
+    ltBy (sliceKey m) x y = decide (sliceLen x < sliceLen y) :=
+  lex_range_eq _ _ hp
 
 end ZesuExec.Fn.MergeInPlace

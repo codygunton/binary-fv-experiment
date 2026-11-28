@@ -1805,3 +1805,5 @@
 {"schema": 2, "rec": "stop", "id": 31, "agent": "SailRegen", "ts": "2026-11-28T09:01:41Z", "outcome": "closed", "note": "authored with rev8 (item S12b form rev8 carries the time)"}
 {"schema": 2, "rec": "start", "id": 32, "ts": "2026-11-28T09:01:45Z", "fn": null, "item": "S12b gate: difftest, map, verify, docs", "kind": "infra", "agent": "SailRegen"}
 {"schema": 2, "rec": "stop", "id": 32, "agent": "SailRegen", "ts": "2026-11-28T09:08:07Z", "outcome": "closed", "note": "difftest 80/80, verify.sh, regeneration check"}
+{"schema": 2, "rec": "start", "id": 33, "ts": "2026-11-28T09:59:37Z", "fn": "f_80098ddc", "item": "S16 11564 phase B: Vc, Leaves, Proof, Axioms", "kind": "leaf", "agent": "S16GenericB.S16Merge2"}
+{"schema": 2, "rec": "stop", "id": 33, "agent": "S16GenericB.S16Merge2", "ts": "2026-11-28T10:50:26Z", "outcome": "closed", "note": null}

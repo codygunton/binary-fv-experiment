@@ -64,6 +64,58 @@ theorem init_entry {mh : Machine} {regs : List (Word × Nat)} {k off : Nat} {v :
   intro t ht
   simp only [Env.byte0, entryEnv, Nat.zero_add, hv t ht, Option.getD_some]
 
+/-- The `u64` at a frame slot. -/
+theorem u64_frame {mh : Machine} {f : Word} {off : Nat} {v : Word} (hv : FrameU64 mh f off v) :
+    u64 mh f off = v.toNat := by
+  unfold u64
+  rw [← ofBytesLE_bytes8 v]
+  congr 2
+  apply byteList_shift
+  intro t ht
+  simp only [Nat.zero_add, hv t ht, Option.getD_some]
+
+/-- Slot facts across a leaf that leaves the offsets `keep` alone. -/
+theorem frame_keep {mh m' : Machine} {f : Word} {keep : List Nat}
+    (hk : ∀ j ∈ keep, m'.mem (f + w j) = mh.mem (f + w j)) {off : Nat}
+    (hin : (List.range 8).all (fun t => keep.contains (off + t)) = true) {v : Word}
+    (h : FrameU64 mh f off v) : FrameU64 m' f off v :=
+  h.keep fun t ht => hk _ (by
+    have := List.all_eq_true.mp hin t (List.mem_range.mpr ht)
+    simpa using this)
+
+/-- `sp` and `s0` of a leaf whose frame region is region `k`, and the kept registers. -/
+theorem regs_frame {c : Cfg} {m mh m' : Machine} {regs : List (Word × Nat)} {lS : SState} {k : Nat}
+    (hc : Common c m mh) (hm : Match (entryEnv mh regs) lS m') (hb : (regs.getD k (0, 0)).1 = mh.reg 2)
+    (hsp : lS.reg 2 = .ptr k 0) (hs0 : lS.reg 8 = .ptr k c.fs) (hkeep : keepsB lS c.kept = true) :
+    ∀ i ∈ [2, 8] ++ c.kept, m'.reg (Fin.ofNat 32 i) = mh.reg (Fin.ofNat 32 i) := by
+  have h2 : mh.reg 2 = frame c m := hc.2.1
+  intro i hi
+  simp only [List.cons_append, List.nil_append, List.mem_cons] at hi
+  rcases hi with rfl | rfl | hi
+  · rw [reg_at hm 2, hsp, Sym.eval_ptr]; simp only [Env.base, entryEnv, hb]; simp
+  · rw [reg_at hm 8, hs0, show mh.reg (Fin.ofNat 32 8) = m.reg 2 from hc.2.2.1]
+    simp only [Sym.eval, Env.base, entryEnv, hb, h2]
+    unfold frame; rw [BitVec.ofInt_natCast]; exact BitVec.sub_add_cancel _ _
+  · exact keeps_of hm (entryEnv_vars_lt _ _) hkeep i hi
+
+/-- A leaf that writes nothing changes no memory. -/
+theorem mem_nowrite {mh m' : Machine} {regs : List (Word × Nat)} {S lS : SState}
+    (hm : Match (entryEnv mh regs) lS m') (hso : SameOutside (InWritable (entryEnv mh regs) S) mh m')
+    (hmem : lS.mem = []) (hlen : lS.regions.length = S.regions.length)
+    (hpres : ∀ a, InWritable (entryEnv mh regs) S a → (mh.mem a).isSome) :
+    ∀ a, m'.mem a = mh.mem a := by
+  intro a
+  by_cases hw : InWritable (entryEnv mh regs) S a
+  · obtain ⟨b, hb⟩ := Option.isSome_iff_exists.mp (hpres a hw)
+    obtain ⟨k, R, j, hR, -, hj, rfl⟩ := hw
+    have hk : k < lS.regions.length := by
+      rw [hlen]; exact (List.getElem?_eq_some_iff.mp hR).1
+    rw [hm.mem k j hk hj, hmem, hb]
+    simp only [memByte, List.find?_nil, Env.byte0, entryEnv]
+    simp only [Env.base, entryEnv] at hb
+    rw [hb]; rfl
+  · exact hso a hw
+
 theorem init_F {c : Cfg} {mh : Machine} {f : Word} {off : Nat} {v : Word} (h2 : mh.reg 2 = f)
     (hv : FrameU64 mh f off v) : (Sym.init 0 off 8).eval (envF c mh) = v :=
   init_entry (by show FrameU64 mh (mh.reg 2) off v; rw [h2]; exact hv)
@@ -92,6 +144,59 @@ theorem slot_of {env : Env} {S : SState} {m' : Machine} (hm : Match env S m') {r
   have := List.all_eq_true.mp h t (List.mem_range.mpr ht)
   simp only [beq_iff_eq] at this
   simp [memByte, this]
+
+/-- `slot_of` with the region's base and the value named. -/
+theorem slot_at {env : Env} {S : SState} {m' : Machine} (hm : Match env S m') {r off : Nat} {v : Sym}
+    {f val : Word} (hr : r < S.regions.length) (hs : off + 8 ≤ env.size r)
+    (h : slotB S.mem r off v = true) (hb : env.base r = f) (hv : v.eval env = val) :
+    FrameU64 m' f off val := by
+  have := slot_of hm hr hs h; rwa [hb, hv] at this
+
+/-- Frame slot `off` holds `v`, for every pair `(off, v)`. -/
+def SlotsAre (mh : Machine) (f : Word) : List (Nat × Word) → Prop
+  | [] => True
+  | (off, v) :: rest => FrameU64 mh f off v ∧ SlotsAre mh f rest
+
+theorem SlotsAre.get {mh : Machine} {f : Word} : ∀ {L : List (Nat × Word)}, SlotsAre mh f L →
+    ∀ {off : Nat} {v : Word}, (off, v) ∈ L → FrameU64 mh f off v
+  | [], _, _, _, h => absurd h List.not_mem_nil
+  | (o', v') :: L, ⟨h1, h2⟩, off, v, h => by
+    rcases List.mem_cons.mp h with h | h
+    · cases h; exact h1
+    · exact SlotsAre.get h2 h
+
+theorem SlotsAre.keep {mh m' : Machine} {f : Word} {keep : List Nat}
+    (hk : ∀ j ∈ keep, m'.mem (f + w j) = mh.mem (f + w j)) :
+    ∀ {L : List (Nat × Word)},
+      (L.all fun p => (List.range 8).all fun t => keep.contains (p.1 + t)) = true →
+      SlotsAre mh f L → SlotsAre m' f L
+  | [], _, _ => trivial
+  | (o, v) :: L, hin, ⟨h1, h2⟩ => by
+    simp only [List.all_cons, Bool.and_eq_true] at hin
+    exact ⟨frame_keep hk hin.1 h1, SlotsAre.keep hk hin.2 h2⟩
+
+theorem SlotsAre.same {mh m' : Machine} {f : Word} (hall : ∀ a, m'.mem a = mh.mem a) :
+    ∀ {L : List (Nat × Word)}, SlotsAre mh f L → SlotsAre m' f L
+  | [], _ => trivial
+  | (o, v) :: L, ⟨h1, h2⟩ => ⟨h1.keep fun _ _ => hall _, SlotsAre.same hall h2⟩
+
+theorem SlotsAre.append {mh : Machine} {f : Word} {L L' : List (Nat × Word)} (h : SlotsAre mh f L)
+    (h' : SlotsAre mh f L') : SlotsAre mh f (L ++ L') := by
+  induction L with
+  | nil => exact h'
+  | cons p L ih => obtain ⟨o, v⟩ := p; exact ⟨h.1, ih h.2⟩
+
+theorem SlotsAre.left {mh : Machine} {f : Word} {L L' : List (Nat × Word)}
+    (h : SlotsAre mh f (L ++ L')) : SlotsAre mh f L := by
+  induction L with
+  | nil => trivial
+  | cons p L ih => obtain ⟨o, v⟩ := p; exact ⟨h.1, ih h.2⟩
+
+theorem SlotsAre.right {mh : Machine} {f : Word} {L L' : List (Nat × Word)}
+    (h : SlotsAre mh f (L ++ L')) : SlotsAre mh f L' := by
+  induction L with
+  | nil => exact h
+  | cons p L ih => obtain ⟨o, v⟩ := p; exact ih h.2
 
 theorem keep_of {mh m' : Machine} {regs : List (Word × Nat)} {S : SState} {r : Nat}
     {keep : List Nat} (hm : Match (entryEnv mh regs) S m') (hr : r < S.regions.length)
@@ -208,7 +313,7 @@ theorem step_frame {c : Cfg} {m mh m' : Machine} {G : Nat → Nat → Byte} {lS 
     (hlen : lS.regions.length = 1)
     (hsv : ∀ s ∈ c.saved, ∀ t < 8, s.1 + t ∈ keep) (hkl : ∀ j ∈ keep, j < c.fs)
     (hkp : keepB lS.mem 0 keep = true)
-    (hkeep : keepsB lS ([2, 8] ++ c.kept) = true) :
+    (hsp : lS.reg 2 = .ptr 0 0) (hs0 : lS.reg 8 = .ptr 0 c.fs) (hkeep : keepsB lS c.kept = true) :
     Common c m m' ∧ Items m m' G ∧
       (∀ j ∈ keep, m'.mem (frame c m + w j) = mh.mem (frame c m + w j)) := by
   have h2 : mh.reg 2 = frame c m := hc.2.1
@@ -222,11 +327,43 @@ theorem step_frame {c : Cfg} {m mh m' : Machine} {G : Nat → Nat → Byte} {lS 
     obtain ⟨j, hj, rfl⟩ := inW_F hw
     exact ha j hj (by rw [h2])
   refine ⟨common_step h hc (fun a ha _ => hout a ha) (fun s hs t ht => hkeepm _ (hsv s hs t ht))
-    (fun j hj => ?_) (keeps_of hm (entryEnv_vars_lt _ _) hkeep), ?_, hkeepm⟩
+    (fun j hj => ?_) (regs_frame (regs := [(mh.reg 2, c.fs)]) hc hm rfl hsp hs0 hkeep), ?_, hkeepm⟩
   · have := hm.mem 0 j (by omega) (by simpa [envF, entryEnv, Env.size] using hj)
     simp only [envF, entryEnv, Env.base, List.getD_cons_zero, h2] at this
     rw [this]; rfl
   · exact hs.keep fun e' he' o ho => hout _ fun j hj => slice_ne_frame h he' ho hj
+
+/-- `Common` after a leaf that changes no memory and keeps `sp`, `s0` and the kept registers. -/
+theorem common_same {c : Cfg} {m mh m' : Machine} (h : Pre c m) (hc : Common c m mh)
+    (hall : ∀ a, m'.mem a = mh.mem a)
+    (hk : ∀ i ∈ [2, 8] ++ c.kept, m'.reg (Fin.ofNat 32 i) = mh.reg (Fin.ofNat 32 i)) :
+    Common c m m' :=
+  common_step h hc (fun a _ _ => hall a) (fun _ _ _ _ => hall _)
+    (fun j hj => by rw [hall]; exact hc.2.2.2.2.2.1 j hj) hk
+
+/-- A run from `SF` that writes nothing. -/
+theorem step_roF {c : Cfg} {m mh m' : Machine} {lS : SState} (h : Pre c m) (hc : Common c m mh)
+    (hm : Match (envF c mh) lS m') (hso : SameOutside (InWritable (envF c mh) (SF c)) mh m')
+    (hmem : lS.mem = []) (hlen : lS.regions.length = 1)
+    (hsp : lS.reg 2 = .ptr 0 0) (hs0 : lS.reg 8 = .ptr 0 c.fs) (hkeep : keepsB lS c.kept = true) :
+    Common c m m' ∧ ∀ a, m'.mem a = mh.mem a := by
+  have h2 : mh.reg 2 = frame c m := hc.2.1
+  have hall := mem_nowrite hm hso hmem (by simpa [SF, entryState] using hlen) fun a hw => by
+    obtain ⟨j, hj, rfl⟩ := inW_F hw; rw [h2]; exact hc.2.2.2.2.2.1 j hj
+  exact ⟨common_same h hc hall (regs_frame (regs := [(mh.reg 2, c.fs)]) hc hm rfl hsp hs0 hkeep), hall⟩
+
+/-- A run from `SP` that writes nothing. -/
+theorem step_roP {c : Cfg} {m mh m' : Machine} {r : Nat} {extra : List (Nat × Sym)} {lS : SState}
+    (h : Pre c m) (hc : Common c m mh)
+    (hm : Match (envP c r mh) lS m') (hso : SameOutside (InWritable (envP c r mh) (SP c r extra)) mh m')
+    (hmem : lS.mem = []) (hlen : lS.regions.length = 2)
+    (hsp : lS.reg 2 = .ptr 0 0) (hs0 : lS.reg 8 = .ptr 0 c.fs) (hkeep : keepsB lS c.kept = true) :
+    Common c m m' ∧ ∀ a, m'.mem a = mh.mem a := by
+  have h2 : mh.reg 2 = frame c m := hc.2.1
+  have hall := mem_nowrite hm hso hmem (by simpa [SP, entryState] using hlen) fun a hw => by
+    obtain ⟨j, hj, rfl⟩ := inW_P hw; rw [h2]; exact hc.2.2.2.2.2.1 j hj
+  exact ⟨common_same h hc hall (regs_frame (regs := [(mh.reg 2, c.fs), (mh.reg (Fin.ofNat 32 r), 32)])
+    hc hm rfl hsp hs0 hkeep), hall⟩
 
 theorem inW_R3 {c : Cfg} {lo hi : Nat} {mh : Machine} {a : Word}
     (h : InWritable (envR3 c lo hi mh) (SR3 c lo hi) a) :
@@ -251,7 +388,7 @@ theorem step_swap3 {c : Cfg} {m mh m' : Machine} {G : Nat → Nat → Byte} {lo 
     (hlen : lS.regions.length = 3) (hsw : swapB lS.mem = true)
     (hsv : ∀ s ∈ c.saved, ∀ t < 8, s.1 + t ∈ keep) (hkl : ∀ j ∈ keep, j < c.fs)
     (hkp : keepB lS.mem 2 keep = true)
-    (hkeep : keepsB lS ([2, 8] ++ c.kept) = true) :
+    (hsp : lS.reg 2 = .ptr 2 0) (hs0 : lS.reg 8 = .ptr 2 c.fs) (hkeep : keepsB lS c.kept = true) :
     Common c m m' ∧ (Items m m' fun e o =>
       if e = e₁ then G e₂ o else if e = e₂ then G e₁ o else G e o) ∧
       (∀ j ∈ keep, m'.mem (frame c m + w j) = mh.mem (frame c m + w j)) := by
@@ -299,7 +436,8 @@ theorem step_swap3 {c : Cfg} {m mh m' : Machine} {G : Nat → Nat → Byte} {lo 
       have := hm.mem 2 j (by omega) (by simpa [envR3, entryEnv, Env.size] using hj)
       simp only [envR3, entryEnv, Env.base, List.getD_cons_succ, List.getD_cons_zero, hf2] at this
       rw [this]; rfl)
-    (keeps_of hm (entryEnv_vars_lt _ _) hkeep), ?_, hkeepm⟩
+    (regs_frame (regs := [(mh.reg (Fin.ofNat 32 lo) - w 15, 32), (mh.reg (Fin.ofNat 32 hi) - w 16, 32),
+      (mh.reg 2, c.fs)]) hc hm rfl hsp hs0 hkeep), ?_, hkeepm⟩
   intro e he o ho
   dsimp only
   by_cases c1 : e = e₁

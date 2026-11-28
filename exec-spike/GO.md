@@ -83,17 +83,18 @@ plan; 126 lines), plus generated `Snaps.lean`; `Leaves.lean` (312 lines, 28 proo
 Lemmas}.lean` (1,739 lines) plus `Slice`/`Spill` for the second copy. `__anon_7964`: proved
 (`m7964_spec` with the written-out `MergeOf` postcondition, `m7964_sail`, `pre_nonvacuous`,
 `post_snapshot` on 10 snapshots, difftest `agree` 10/10): 18 cut points, 61 items (3.4 per cut
-point), automatic share 1/61 (one infeasible leaf). `__anon_11564`: runs (22 cut points, 56
-leaves), slice-key and spill-state lemmas, `post_snapshot` on 10 snapshots and difftest `agree`
-10/10 done; its machine proof (ledger 33) was still running when this section was written.
+point), automatic share 1/61 (one infeasible leaf). `__anon_11564`: proved the same way
+(`m11564_spec`, `m11564_sail`, `pre_nonvacuous`, `post_snapshot` on 10 snapshots, difftest
+`agree` 10/10): 22 cut points, 78 items (3.5 per cut point), automatic share 1/78; bound `2^100`
+(a probe costs up to 11 steps per string byte, strings up to ~2^32).
 
 | copy | ledger items | minutes | dollars | ratio to 7964 (min / $) |
 |---|---|---:|---:|---:|
 | 7964 (first) | 25, 26, 27 | 81.3 | 23.44 | 1 |
-| 11564 (so far) | 28, 29, 30, 33 (open) | ≥ 59 | ≥ 20.7 | ≥ 0.73 / ≥ 0.88 |
+| 11564 | 28, 29, 30, 33 | 68.0 | 21.98 | 0.84 / 0.94 |
 
-Reuse gate (≤ 40%): **fails** for merge, measured value already ≥ 0.73 (minutes) / 0.88
-(dollars) with the copy unfinished. What was shared: the model, contract, window/search/
+Reuse gate (≤ 40%): **fails** for merge (0.84 minutes / 0.94 dollars). Shared and reused
+unchanged: the model, contract, window/search/
 rotation lemmas, byte-provenance checker, cut shapes and step lemmas, budget lemmas. What was
 not: 11564 compares through pointers (string keys, pointer-equality shortcut, length
 comparison), spills a dozen live values to a 0x110 frame and uses `ra`/`s1–s11` as scratch, so
