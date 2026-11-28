@@ -85,8 +85,7 @@ theorem TX.leaf_8000015c_0 :
   have hcs : (run15c_leaves[0]!).conds = [SBool.ne (Sym.init 0 288 2) (Sym.lit 0)] := by decide
   refine err_leaf rfl (fun σ m hA => envB_ok (A15c_common hA)) (by decide) (by decide)
     (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_) (fun σ m hA hc => ?_)
-  · have : (run15c_leaves[0]!).S.steps - SBody.steps = 21 := by decide
-    show _ ≤ 32 * outerLeft m + 37; simp only [cut15c, mkCut] at *; omega
+  · budget_auto
   obtain ⟨hcm, o, k, L, hs, had, before, hb⟩ := ret15c hA
   have h1 : SBool.eval (envB σ m) (SBool.ne (Sym.init 0 288 2) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; exact List.mem_singleton.mpr rfl)
@@ -103,8 +102,7 @@ theorem TX.leaf_8000015c_1 :
       SBool.eq (Sym.bin BinOp.and (Sym.init 0 272 1) (Sym.lit 1)) (Sym.lit 0)] := by decide
   refine err_leaf rfl (fun σ m hA => envB_ok (A15c_common hA)) (by decide) (by decide)
     (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_) (fun σ m hA hc => ?_)
-  · have : (run15c_leaves[1]!).S.steps - SBody.steps = 24 := by decide
-    show _ ≤ 32 * outerLeft m + 37; simp only [cut15c, mkCut] at *; omega
+  · budget_auto
   obtain ⟨hcm, o, k, L, hs, had, before, hb⟩ := ret15c hA
   have h1 : SBool.eval (envB σ m) (SBool.eq (Sym.init 0 288 2) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; simp)
@@ -214,8 +212,7 @@ theorem TX.leaf_800001a0_0 :
   refine err_leaf rfl (fun σ m hA => envP_ok (A1a0_common hA) (by decide) (by decide))
     (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_)
     (fun σ m hA hc => ?_)
-  · have : (run1a0_leaves[0]!).S.steps - S1a0.steps = 21 := by decide
-    show _ ≤ 32 * (afterEntry m + keysLeft m) + 658; simp only [cut1a0, mkCut] at *; omega
+  · budget_auto
   obtain ⟨hcm, o, k, L, hok, hi, hlive, he, had, hal, hkl, hkw, hj, -, before, hb⟩ := ret1a0 hA
   have h1 : SBool.eval (envP 0x100 σ m) (SBool.ne (Sym.init 0 352 2) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; exact List.mem_singleton.mpr rfl)
@@ -233,8 +230,7 @@ theorem TX.leaf_800001a0_1 :
   refine err_leaf rfl (fun σ m hA => envP_ok (A1a0_common hA) (by decide) (by decide))
     (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_)
     (fun σ m hA hc => ?_)
-  · have : (run1a0_leaves[1]!).S.steps - S1a0.steps = 24 := by decide
-    show _ ≤ 32 * (afterEntry m + keysLeft m) + 658; simp only [cut1a0, mkCut] at *; omega
+  · budget_auto
   obtain ⟨hcm, o, k, L, hok, hi, hlive, he, had, hal, hkl, hkw, hj, -, before, hb⟩ := ret1a0 hA
   have h1 : SBool.eval (envP 0x100 σ m) (SBool.eq (Sym.init 0 352 2) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; simp)
@@ -262,8 +258,7 @@ theorem TX.leaf_800001a0_2 :
   refine err_leaf rfl (fun σ m hA => envP_ok (A1a0_common hA) (by decide) (by decide))
     (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_)
     (fun σ m hA hc => ?_)
-  · have : (run1a0_leaves[2]!).S.steps - S1a0.steps = 26 := by decide
-    show _ ≤ 32 * (afterEntry m + keysLeft m) + 658; simp only [cut1a0, mkCut] at *; omega
+  · budget_auto
   obtain ⟨hcm, o, k, L, hok, hi, hlive, he, had, hal, hkl, hkw, hj, r27, before, hb⟩ := ret1a0 hA
   have h3 : SBool.eval (envP 0x100 σ m) (SBool.ne (Sym.init 0 328 8) (Sym.var 27)) = true :=
     hc _ (by rw [hcs]; simp)

@@ -208,8 +208,7 @@ theorem TX.leaf_80000068_3 :
   have h3 : SBool.eval (envB σ m) (SBool.ne (Sym.init 0 96 8) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; simp)
   refine ⟨nil_obligs (by decide), ?_, ?_⟩
-  · show (run068_leaves[3]!).S.steps - S068.steps ≤ 32 * σ.len + 323
-    rw [hsteps]; omega
+  · budget_auto
   intro m' hm' hex hfr
   have hx : (run068_leaves[3]!).exit = .at 0x800000c4 := by decide
   rw [hx] at hex ⊢
@@ -263,8 +262,7 @@ theorem TX.leaf_80000068_2 :
   have h3 : SBool.eval (envB σ m) (SBool.eq (Sym.init 0 96 8) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; simp)
   refine ⟨nil_obligs (by decide), ?_, ?_⟩
-  · show (run068_leaves[2]!).S.steps - S068.steps ≤ 32 * σ.len + 323
-    rw [hsteps]; omega
+  · budget_auto
   intro m' hm' hex hfr
   have hx : (run068_leaves[2]!).exit = .call 0x800d6554 0x800004a0 := by decide
   rw [hx] at hex ⊢
@@ -534,8 +532,7 @@ theorem TX.leaf_80000230_0 :
     hc _ (by rw [hcs]; simp)
   have h22 : (m.reg 22 != 0#64) = true := h1
   refine ⟨nil_obligs (by decide), ?_, ?_⟩
-  · show (run230_leaves[0]!).S.steps - S230.steps ≤ 32 * (afterEntry m + keysLeft m) + 744
-    rw [hsteps]; omega
+  · budget_auto
   intro m' hm' hex hfr
   have hx : (run230_leaves[0]!).exit = .at 0x8000018c := by decide
   rw [hx] at hex ⊢
@@ -568,8 +565,7 @@ theorem TX.leaf_80000230_1 :
     hc _ (by rw [hcs]; simp)
   have h22 : (m.reg 22 == 0#64) = true := h1
   refine ⟨nil_obligs (by decide), ?_, ?_⟩
-  · show (run230_leaves[1]!).S.steps - S230.steps ≤ 32 * (afterEntry m + keysLeft m) + 744
-    rw [hsteps]; omega
+  · budget_auto
   intro m' hm' hex hfr
   have hx : (run230_leaves[1]!).exit = .call 0x800d677c 0x8000025c := by decide
   rw [hx] at hex ⊢
@@ -653,8 +649,7 @@ theorem TX.leaf_800000d8_2 :
       (SBool.ne (Sym.bin BinOp.and (Sym.init 0 168 1) (Sym.lit 1)) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; simp)
   refine ⟨nil_obligs (by decide), ?_, ?_⟩
-  · show (run0d8_leaves[2]!).S.steps - SBody.steps ≤ 32 * outerLeft m + 220
-    rw [hsteps]; omega
+  · budget_auto
   intro m' hm' hex hfr
   have hx : (run0d8_leaves[2]!).exit = .call 0x800d6960 0x8000010c := by decide
   rw [hx] at hex ⊢
@@ -919,8 +914,7 @@ theorem TX.leaf_8000015c_3 :
   have h3 : SBool.eval (envB σ m) (SBool.ne (Sym.init 0 264 8) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; simp)
   refine ⟨nil_obligs (by decide), ?_, ?_⟩
-  · show (run15c_leaves[3]!).S.steps - SBody.steps ≤ 32 * outerLeft m + 37
-    rw [hsteps]; omega
+  · budget_auto
   intro m' hm' hex hfr
   have hx : (run15c_leaves[3]!).exit = .at 0x8000018c := by decide
   rw [hx] at hex ⊢
@@ -969,8 +963,7 @@ theorem TX.leaf_8000015c_2 :
   have h3 : SBool.eval (envB σ m) (SBool.eq (Sym.init 0 264 8) (Sym.lit 0)) = true :=
     hc _ (by rw [hcs]; simp)
   refine ⟨nil_obligs (by decide), ?_, ?_⟩
-  · show (run15c_leaves[2]!).S.steps - SBody.steps ≤ 32 * outerLeft m + 37
-    rw [hsteps]; omega
+  · budget_auto
   intro m' hm' hex hfr
   have hx : (run15c_leaves[2]!).exit = .call 0x800d677c 0x8000025c := by decide
   rw [hx] at hex ⊢
@@ -1235,8 +1228,7 @@ theorem TX.leaf_8000010c_3 :
     rcases hob' with rfl | rfl | rfl <;>
       (change _ + 1 * ((Sym.var 40).eval (envP 0x180 σ m)).toNat + _ ≤ (envP 0x180 σ m).size 4
        rw [v40n, hsz4]; omega)
-  · show (run10c_leaves[3]!).S.steps - S10c.steps ≤ 32 * outerLeft m + 132
-    rw [hsteps]; omega
+  · budget_auto
   intro m' hm' hex hfr
   have hx : (run10c_leaves[3]!).exit = .call 0x800d6960 0x8000015c := by decide
   rw [hx] at hex ⊢
@@ -1566,8 +1558,7 @@ theorem TX.leaf_800001a0_3 :
     rcases hob' with rfl | rfl | rfl | rfl <;>
       (change _ + 1 * ((Sym.var 40).eval (envP 0x100 σ m)).toNat + _ ≤ (envP 0x100 σ m).size 4
        rw [v40n, hsz4]; omega)
-  · show (run1a0_leaves[3]!).S.steps - S1a0.steps ≤ 32 * (afterEntry m + keysLeft m) + 658
-    rw [hsteps]; omega
+  · budget_auto
   intro m' hm' hex hfr
   have hx : (run1a0_leaves[3]!).exit = .call 0x800cb40c 0x800001f8 := by decide
   rw [hx] at hex ⊢

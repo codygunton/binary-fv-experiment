@@ -213,8 +213,7 @@ theorem TX.leaf_800001f8_1 :
     simpa [SBool.eval, Sym.eval, BinOp.eval, envB_var] using h1
   obtain ⟨o, k, L, kh', hie, hko, hkl, hj, hky, hroom⟩ := after1f8 hA hz
   refine ⟨nil_obligs (by decide), ?_, ?_⟩
-  · show (run1f8_leaves[1]!).S.steps - SBody.steps ≤ 32 * (afterEntry m + keysLeft m) + 439
-    rw [hsteps]; omega
+  · budget_auto
   intro m' hm' hex hfr
   have hx : (run1f8_leaves[1]!).exit = .at 0x80000230 := by decide
   rw [hx] at hex ⊢

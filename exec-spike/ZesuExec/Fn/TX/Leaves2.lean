@@ -261,8 +261,7 @@ theorem TX.leaf_800001f8_0 :
       (Sym.bin BinOp.sll (Sym.var 10) (Sym.lit 48)) (Sym.lit 48)) (Sym.lit 0)] := by decide
   refine err_leaf rfl (fun σ m hA => envB_ok (ret_1f8 hA).1) (by decide) (by decide)
     (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_) (fun σ m hA hc => ?_)
-  · have : (run1f8_leaves[0]!).S.steps - SBody.steps = 22 := by decide
-    show _ ≤ 32 * (afterEntry m + keysLeft m) + 439; simp only [cut1f8, mkCut] at *; omega
+  · budget_auto
   have hcm := (ret_1f8 hA).1
   obtain ⟨mc, x, ⟨o, k, kh', hIE, -, -, hKL, -, -, ha⟩, ⟨hpost, -⟩, -⟩ := hA
   have h1 : SBool.eval (envB σ m) (SBool.ne (Sym.bin BinOp.srl
@@ -341,8 +340,7 @@ theorem TX.leaf_8000025c_0 :
   have hcs : (run25c_leaves[0]!).conds = [SBool.ne (Sym.init 0 408 2) (Sym.lit 0)] := by decide
   refine err_leaf rfl (fun σ m hA => envB_ok (ret_25c hA).1) (by decide) (by decide)
     (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_) (fun σ m hA hc => ?_)
-  · have : (run25c_leaves[0]!).S.steps - SBody.steps = 21 := by decide
-    show _ ≤ bTail m 539; unfold bTail; simp only [cut25c, mkCut] at *; omega
+  · budget_auto
   have hcm := (ret_25c hA).1
   obtain ⟨mc, x, ⟨o, k, hIE, -, -, hKL, ha⟩, hpost, -⟩ := hA
   have h1 : SBool.eval (envB σ m) (SBool.ne (Sym.init 0 408 2) (Sym.lit 0)) = true :=
@@ -370,8 +368,7 @@ theorem TX.leaf_800003d4_1 :
   have hcs : (run3d4_leaves[1]!).conds = [SBool.eq (Sym.var 10) (Sym.lit 0)] := by decide
   refine err_leaf rfl (fun σ m hA => envB_ok (A3d4_common hA)) (by decide) (by decide)
     (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_) (fun σ m hA hc => ?_)
-  · have : (run3d4_leaves[1]!).S.steps - SBody.steps = 22 := by decide
-    show _ ≤ bTail m 389; unfold bTail; simp only [cut3d4, mkCut] at *; omega
+  · budget_auto
   have hcm := A3d4_common hA
   obtain ⟨mc, L, ⟨o, k, kp', hED, -, -, -⟩, ⟨hret, hso, hcase⟩, -⟩ := hA
   have h1 : SBool.eval (envB σ m) (SBool.eq (Sym.var 10) (Sym.lit 0)) = true :=
@@ -450,8 +447,7 @@ theorem TX.leaf_800004a0_1 :
   have hcs : (run4a0_leaves[1]!).conds = [SBool.ne (Sym.init 0 456 2) (Sym.lit 0)] := by decide
   refine err_leaf rfl (fun σ m hA => envB_ok (ret_4a0 hA).1) (by decide) (by decide)
     (by decide) (by decide) (by decide) (by decide) (fun σ m _ => ?_) (fun σ m hA hc => ?_)
-  · have : (run4a0_leaves[1]!).S.steps - SBody.steps = 21 := by decide
-    show _ ≤ 23; simp only [cut4a0, mkCut] at *; omega
+  · budget_auto
   have hcm := (ret_4a0 hA).1
   obtain ⟨mc, x, ⟨o, hc0, hok, hip, hEL, hlive, -, ha⟩, hpost, -⟩ := hA
   have h1 : SBool.eval (envB σ m) (SBool.ne (Sym.init 0 456 2) (Sym.lit 0)) = true :=
@@ -706,7 +702,7 @@ theorem TX.leaf_80000400_0 :
   have hcs : (run400_leaves[0]!).conds = [SBool.eq (Sym.var 27) (Sym.lit 0)] := by decide
   intro σ m hA hc
   have hsteps : (run400_leaves[0]!).S.steps - cut400.S.steps = 1 := by decide
-  refine ⟨nil_obligs (by decide), by show _ ≤ bTail m 377; unfold bTail; omega, ?_⟩
+  refine ⟨nil_obligs (by decide), by budget_auto, ?_⟩
   intro m' hm' hex hfr
   have hx : (run400_leaves[0]!).exit = .at 0x8000042c := by decide
   rw [hx] at hex ⊢

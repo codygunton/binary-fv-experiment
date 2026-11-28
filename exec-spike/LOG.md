@@ -1228,3 +1228,45 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - Three-way difftest: no function of the image uses any added form (the image tables hold none
     of their mnemonics), so none applies. Regression: `lake exe zesu-difftest` on all 80
     snapshots (F1, F2, TX, DTF) prints `agree`.
+- S11 automation (S11Auto, 2026-11-28, branch `s11`): `budget_auto` and `oblig_auto` as decision
+  procedures; residual class `budget` closed on every leaf of the five plans; `oblig` partly.
+  Contingency taken for the rest of `oblig` (goal shapes below). Whole-leaf auto counts unchanged.
+  - `Vc/Tactics.lean`: `measure_norm` (unfolds `Nat`-valued non-recursive project definitions,
+    `Env.base`, projections of such values, `List.getD` at numerals, `if` on closed conditions,
+    `match` on constructors; closed `Nat`/`BitVec` terms become numerals by compiled evaluation,
+    kernel-checked; goal and arithmetic hypotheses), `sym_rw` (rewrite with `Sym.eval env t = u`
+    hypotheses), `assert_open` (unfold the assertion, split `∧`/`∃`/structures). `budget_auto` =
+    `leaf_norm`, `measure_norm at *`, `omega` (or split `if`s). `oblig_auto` = `oblig_region`
+    (normal form, `sym_rw`, hypothesis/`omega`/`bv_omega`/`region_arith`, then `assert_open`) |
+    `zesu_apply` | the old fallback; goal grammar from 20 TX leaves plus DTF/F6 in its doc comment.
+    `field_auto` gains a `Nat ≤` budget branch. `leaf_auto` is one rule (was four); `leafc_auto`
+    gets the main path (`oblig_auto`, `budget_auto`, exit).
+  - Cheap failure (the DTF lesson): `leaf_diag` now proves the leaf when its stages close and
+    otherwise fails at the first open stage/conjunct; `zesu_auto`/`zesu_autow` run it once per leaf
+    instead of `leaf_auto` then `leaf_diag`. `zesu_apply` skips `@[zesu_oblig]` lemmas whose `Env`
+    head differs from the goal's (TX's oblig stage spent ~5 s per leaf unifying F1/F2/F6 lemmas).
+    TX: `zesu_auto TX` moved from `Cuts.lean` (ran before any fact, 280 s) to the end of
+    `Facts.lean`; `Proof.lean` no longer re-runs it; `@[zesu_simp] envP_init`, `envS_init` (`rfl`)
+    so `common_ra` applies at `envP`/`envS` cuts.
+  - Stage shares (per-leaf harness over every leaf, facts in scope; before → after): budget F1
+    15/15, F2 17/17, F6 67/74 → 74/74, TX 25/51 → 51/51, DTF 0/486 → 486/486 (all: 124/643 →
+    643/643); oblig (leaves with obligations) F1 6/6, F2 17/17, F6 20/27 → 27/27, TX 15/23 → 21/23,
+    DTF 0/113 → 0/113 (all: 58/186 → 71/186). Whole leaves auto: 17/643 before and after.
+  - Not closed (contingency; shapes): TX `10c_3`, `1a0_3`: `inBounds 4 off (var 40) 1 n`, the bound
+    is the decoded item's payload length (decode semantics, `fits_bounds`); DTF 113 leaves:
+    `inBounds 3 0 (var 42) 1 1` (byte loops) and `inBounds 3 off (var 156) 1 n` (call arguments)
+    under the disjunctive assertion `plain ∧ PlainA ∨ ∃ s, site = some s ∧ RetA s`, the bound from
+    `F2.Post`'s decoded header (`out_ptr`) or `CurOk`; ra alignment in F1/F2/F6 still needs their
+    `@[zesu_oblig]` lemmas (no saved-`ra` fact; without the lemmas 4/6, 4/17, 6/27 close).
+  - Hand proofs removed: 27 TX budget bullets (2 lines each) and 12 inline budget proofs now
+    `budget_auto` (TX leaf files: 70 lines out, 39 in); `Test/Vc.lean`'s toy return leaf
+    (23 lines) is now closed by `zesu_auto` (guards updated). `Test/Auto.lean`: positive and
+    `fail_if_success` tests for both tactics (its garbled module doc repaired).
+  - Build times (`lake env lean`, 23 modules concurrently, same machine, before → after): Fn/TX
+    modules 366.0 → 92.3 s (Cuts 283.6 → 3.4, Facts 1.9 → 19.2, Proof 18.3 → 7.5); Fn/F6 132.4 →
+    54.9 s (Vc 125.0 → 48.0); F1/Vc 45.7 → 19.5; F2/Vc 34.5 → 18.7; Test/Auto 18.4 → 10.7.
+    DTF (read-only): `Fn/DTF/Vc` 307.7 s here vs 303.5 s in W with the old tactics (W's DTF cuts
+    are newer); per-leaf tactic time of `zesu_auto` on DTF: old `leaf_auto` 180 s (old `leaf_diag`
+    not measured) vs new `leaf_diag` 281 s, budget passing on all 486 leaves.
+  - `lake build` 325 jobs OK; no `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no
+    `maxHeartbeats` change. Ledger item 2 (S11Auto), $15.07 session.
