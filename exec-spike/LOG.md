@@ -1144,3 +1144,18 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     class with no closed sample.
   - S10.7 `zmap brief`, `zmap metrics --group`, `zmap check` (in `tools/verify.sh`);
     `map/waivers.json` waives the nine pre-revision functions.
+- S7 cont. (DTFAuth3, 2026-11-28, branch `dtf`, after merging exec-spike S10.1): field-value
+  carry, stage 1 (coordinator decision: generic carry before the assertion change). **Counts
+  before → after: manual 646 → 646, open 1 → 1** (no leaf reopened: the cut field table is empty).
+  - Measured: 155 of 161 cuts lie on paths to `0x80002dc4`; 297 leaves target them (236
+    `leaf_gen` instances, 61 hand proofs) — the reopen footprint without a generic carry.
+  - `FieldVal` kinds `ptr`/`len`/`num k n i`/`nz`/`raw`/`acc`; arm-guarded entries; `PlainA` gains
+    `FieldsOk σ m (cutFields d.pc)` (`cutFieldsTable = []`); `fieldsCarry` (vacuous, kept,
+    from the `decodeItem` result, loop entry/step/exit) with `fieldsCarry_sound`, checked in
+    `GenCheck`, `AtChk`, `CallChk` (`Fields.lean`, `Gen.lean`, `Hand.lean`; subagent
+    DTFAuth3.DTFFields1). Smoke test (legacy nonce, not committed): 42/42 leaves pass.
+  - Next (stage 2): `shape.py` emits guarded rows arm by arm; rules for the address copy and
+    sub-word stores; then `Extra 0x80002dc4` and the bridge to `decode`/`TxAt`; buffer bytes
+    (CUTS.md § Open).
+  - Checks: `lake build ZesuExec.Fn.DTF.Reach` (647 items, 646 manual, 1 open), `tools/verify.sh`
+    pass; no `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no `maxHeartbeats` change.

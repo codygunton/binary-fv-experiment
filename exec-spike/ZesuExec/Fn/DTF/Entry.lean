@@ -135,7 +135,7 @@ theorem DTF.leaf_8000050c_0 :
   · simp only [mkCut, if_neg hne1, ACut]
     refine .inl ⟨hpl1, by rw [hexok, hpc1], hcm,
       shapeOk_of_holds hwf' hm' hR0 hfine1 hsh1, .inl harms1, ?_, ?_, ?_,
-      fun i hi => by rw [hrest1] at hi; simp [chkCount] at hi⟩
+      fun i hi => by rw [hrest1] at hi; simp [chkCount] at hi, fieldsOk_nil (by decide)⟩
     · intro r hr
       rw [hrest1] at hr
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hr

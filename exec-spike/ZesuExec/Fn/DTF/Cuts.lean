@@ -27,17 +27,18 @@ Assertions (one generic form per kind, instantiated by the cut table of `Regions
   (`0x80002138`, `0x80002434`: RAM, present, carved from the allocator's private memory), the
   written result (`0x800011f8`: error code 3, or code 0 and the decoded transaction); `CurOk`
   at a byte-loop head (the cursor and end registers point into the payload, `cur < end ≤ len`,
-  `end - cur ≤ 32`);
+  `end - cur ≤ 32`); `ChecksOk` (the items before `rest` pass their checks); `FieldsOk` (the item
+  values the cut's `cutFields` row places in registers and frame words: limbs of numbers, payload
+  pointers and lengths, a byte loop's accumulator);
 * a call return site (`RetA`, TX's `ARet`): the call-site predicate (`Common`, the shape, arms
   and `rest` at the call instruction, the return address and the callee's index) at the machine of
   the call, and the callee's `Post` from it; a return site also reached by a jump
   (`0x80002a6c`) has the disjunction.
 
-Not yet stated (open assertion items, `OPEN/DTF/CUTS.md`): the values of the decoded fields held in
-registers and frame slots (and a byte loop's accumulator), the state of the
-`txHashList`/`txAuthList` buffers, and the per-field checks before the current item. Leaves whose
-goal needs them (callee preconditions on the field values, the success write at `0x80002dc4`) stay
-open until those conjuncts are added.
+Not yet stated (open assertion items, `OPEN/DTF/CUTS.md`): the `cutFields` rows (stage 1 leaves
+the table empty; the carry rules are `Gen.lean`'s `fieldsCarry`), the state of the
+`txHashList`/`txAuthList` buffers. The success write at `0x80002dc4` stays open until those rows
+and its `Extra` are added.
 
 Budgets: `K + 256 · (rest length) + inner`, `K` the longest path to the return over the cut graph
 (back edges of the two list loops and the byte loops' self edges removed, callee bounds added,
@@ -144,38 +145,87 @@ def RestOk (σ : Sig) (m : Machine) (rs : List RestLoc) : Prop :=
   ∀ r ∈ rs, ∃ c, skip r.k σ.payload = some c ∧
     r.loc.word σ m = if r.len then w σ.len - w c else σ.inp + w c
 
-/-- A value derived from a top-level item (open assertion item 1, the `data` copy so far): its
-payload pointer as `decodeItem` reports it, or its payload length. -/
+/-- Limb `i` (64 bits, least significant first) of the number `x`. -/
+def limb (x i : Nat) : Word := w (x / 2 ^ (64 * i))
+
+/-- An item's value as a number of at most `n` bytes from its payload length `p` and bytes `b`:
+`be b`, or `2^(8n) - 1` when the payload is longer (the clamping helpers `txNonce`, `txU128`;
+`txU64`/`txU256` fail instead, and `ChecksOk` excludes the longer payload). -/
+def numVal (n p : Nat) (b : List Byte) : Nat := if n < p then 2 ^ (8 * n) - 1 else be b
+
+/-- A value derived from a top-level item `k` (open assertion items 1 and 4), held in a register or
+frame word: its payload pointer as `decodeItem` reports it, its payload length, limb `i` of its
+number of at most `n` bytes (`numVal`: `u64`/`nonce` `n = 8`, `u128` `n = 16`, `u256` `n = 32`),
+whether it is nonempty (`txAddr`'s tag), bytes `o .. o+n-1` of its payload (the address copy), or a
+byte loop's accumulator over it (`acc`: limb `i` of the payload bytes before the cursor register
+`cur`, the end register `fin` at the payload's end, at most `n` bytes). -/
 inductive FieldVal
   | ptr (k : Nat)
   | len (k : Nat)
+  | num (k n i : Nat)
+  | nz (k : Nat)
+  | raw (k o n : Nat)
+  | acc (k n i cur fin : Nat)
   deriving DecidableEq, Repr
 
 def FieldVal.k : FieldVal → Nat
-  | .ptr k => k
-  | .len k => k
+  | .ptr k | .len k | .num k _ _ | .nz k | .raw k _ _ | .acc k _ _ _ _ => k
 
-/-- `x` is `v` of item `v.k` when that item decodes (`decodeItem`'s `result40`: the empty string
-`0x80` reports pointer 1); nothing is said otherwise. -/
-def FieldVal.Holds (σ : Sig) (v : FieldVal) (x : Word) : Prop :=
+/-- The value does not mention the machine (all but a byte loop's accumulator, whose cursor and
+end registers it states). -/
+def FieldVal.free : FieldVal → Bool
+  | .acc .. => false
+  | _ => true
+
+/-- `x` is `v` of item `v.k` (payload offset `c`, header `h`, payload length `p`) at machine `m`;
+`decodeItem`'s `result40` reports pointer 1 for the empty string `0x80`. -/
+def FieldVal.At (σ : Sig) (m : Machine) (c h p : Nat) (x : Word) : FieldVal → Prop
+  | .ptr _ => x = if (σ.payload.drop c).head? = some 128 then 1 else σ.inp + w (c + h)
+  | .len _ => x = w p
+  | .num _ n i => x = limb (numVal n p (TX.itemPayload (σ.payload.drop c) h p)) i
+  | .nz _ => x = if p = 0 then 0 else 1
+  | .raw _ o n => ∀ j < n, byteOf x j = (TX.itemPayload (σ.payload.drop c) h p).getD (o + j) 0
+  | .acc _ n i cur fin => p ≤ n ∧ c + h + p ≤ σ.len ∧ ∃ j < p,
+      m.reg (Fin.ofNat 32 cur) = σ.inp + w (c + h + j) ∧
+      m.reg (Fin.ofNat 32 fin) = σ.inp + w (c + h + p) ∧
+      x = limb (be ((TX.itemPayload (σ.payload.drop c) h p).take j)) i
+
+/-- `x` is `v` of item `v.k` when that item decodes; nothing is said otherwise. -/
+def FieldVal.Holds (σ : Sig) (m : Machine) (v : FieldVal) (x : Word) : Prop :=
   ∀ c, skip v.k σ.payload = some c → ∀ l h p, F2.decode (σ.payload.drop c) = .success l h p →
-    x = match v with
-      | .ptr _ => if (σ.payload.drop c).head? = some 128 then 1 else σ.inp + w (c + h)
-      | .len _ => w p
+    v.At σ m c h p x
 
-def FieldsOk (σ : Sig) (m : Machine) (fs : List (Loc × FieldVal)) : Prop :=
-  ∀ f ∈ fs, f.2.Holds σ (f.1.word σ m)
+/-- An item value `v` held at `loc` when the transaction type is one of `arms` (any when empty):
+the same location holds a different item on each arm reaching a cut (`nonce` is item 0 of the
+legacy arm and item 1 of the typed ones). -/
+structure Field where
+  loc : Loc
+  arms : List Nat
+  v : FieldVal
+  deriving DecidableEq, Repr
+
+def FieldsOk (σ : Sig) (m : Machine) (fs : List Field) : Prop :=
+  ∀ f ∈ fs, ArmOk σ f.arms → f.v.Holds σ m (f.loc.word σ m)
+
+theorem fieldsOk_nil {σ : Sig} {m : Machine} {fs : List Field} (h : fs = []) :
+    FieldsOk σ m fs := fun f hf => by rw [h] at hf; cases hf
 
 /-- Item values a call site holds, by return address: the `data` item's length and payload
 pointer across the allocator call that copies it (`0x800016e8` and the typed arms' copies). -/
-def siteFieldsTable : List (Nat × List (Loc × FieldVal)) := [
-  (0x80001708, [(.reg 11, .len 5), (.reg 18, .len 5), (.reg 25, .ptr 5)]),
-  (0x800017a0, [(.reg 11, .len 6), (.slot 0xf0, .len 6), (.slot 0x128, .ptr 6)]),
-  (0x800018fc, [(.reg 11, .len 7), (.slot 0xf0, .len 7), (.slot 0xe0, .ptr 7)]),
-  (0x80001998, [(.reg 11, .len 7), (.slot 0xf0, .len 7), (.slot 0xe0, .ptr 7)]),
-  (0x80001a34, [(.reg 11, .len 7), (.slot 0xf0, .len 7), (.slot 0xe0, .ptr 7)])]
+def siteFieldsTable : List (Nat × List Field) := [
+  (0x80001708, [⟨.reg 11, [], .len 5⟩, ⟨.reg 18, [], .len 5⟩, ⟨.reg 25, [], .ptr 5⟩]),
+  (0x800017a0, [⟨.reg 11, [], .len 6⟩, ⟨.slot 0xf0, [], .len 6⟩, ⟨.slot 0x128, [], .ptr 6⟩]),
+  (0x800018fc, [⟨.reg 11, [], .len 7⟩, ⟨.slot 0xf0, [], .len 7⟩, ⟨.slot 0xe0, [], .ptr 7⟩]),
+  (0x80001998, [⟨.reg 11, [], .len 7⟩, ⟨.slot 0xf0, [], .len 7⟩, ⟨.slot 0xe0, [], .ptr 7⟩]),
+  (0x80001a34, [⟨.reg 11, [], .len 7⟩, ⟨.slot 0xf0, [], .len 7⟩, ⟨.slot 0xe0, [], .ptr 7⟩])]
 
-def siteFields (r : Nat) : List (Loc × FieldVal) := (siteFieldsTable.lookup r).getD []
+def siteFields (r : Nat) : List Field := (siteFieldsTable.lookup r).getD []
+
+/-- Item values a cut reached by jumps and branches holds (`PlainA`), by pc (stage 1: none yet;
+`OPEN/DTF/CUTS.md`, "Open: the success write"). -/
+def cutFieldsTable : List (Nat × List Field) := []
+
+def cutFields (pc : Nat) : List Field := (cutFieldsTable.lookup pc).getD []
 
 /-- How the reference decoder checks one top-level item, by its field helper (open assertion
 item 2): a string (`txNonce`, `txU128`, `txBytesView`), a string of at most `n` bytes (`txU64`,
@@ -766,7 +816,8 @@ def CurOk (σ : Sig) (m : Machine) : Inner → Prop
 
 def PlainA (d : CutData) (σ : Sig) (m : Machine) : Prop :=
   m.pc.toNat = d.pc ∧ Common σ m ∧ ShapeOk σ d.shape m ∧ ArmOk σ d.arms ∧ RestOk σ m d.rest ∧
-    Extra d.pc σ m ∧ CurOk σ m (budgetAt d.pc).2 ∧ ChecksOk σ (chkCount d.rest)
+    Extra d.pc σ m ∧ CurOk σ m (budgetAt d.pc).2 ∧ ChecksOk σ (chkCount d.rest) ∧
+    FieldsOk σ m (cutFields d.pc)
 
 /-- The call-site predicate of the call returning to `r`. -/
 def SiteA (s : Site) (r : Nat) (σ : Sig) (x : Idx) (m : Machine) : Prop :=

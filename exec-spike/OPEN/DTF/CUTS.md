@@ -235,3 +235,55 @@ the hash list's 32-byte elements (F1/F4 get `bytesOf`) and the tuples' `0x90` by
 `0x80002434` (`astore_out` keeps only the frame; the slot's bytes are the leaf's region-4 writes).
 Adding those conjuncts reopens every leaf whose target gains them (`leaf_gen` only proves
 `noExtra` targets).
+
+### Stage 1 (generic carry, table empty)
+
+State (`Cuts.lean`): `FieldVal` (item `k`) = `ptr`/`len` (`decodeItem`'s words), `num k n i`
+(limb `i` of `numVal n p b`: `be b`, or `2^(8n) - 1` when `p > n`; nonce/u64 `n = 8`, u128 `16`,
+u256 `32`), `nz` (tag: `p ≠ 0`), `raw k o n` (payload bytes `o..o+n-1` as the word's low bytes:
+the address copy), `acc k n i cur fin` (byte loop: `p ≤ n`, cursor register `cur` at payload byte
+`j < p`, `fin` at the end, value limb `i` of `be` of the first `j` bytes; the only kind that
+mentions the machine, `FieldVal.free`). A `Field` is `⟨loc, arms, v⟩` (`arms`: the guard, empty =
+every arm; one location holds a different item per arm at merged cuts). `FieldsOk σ m fs` = every
+entry whose guard holds (`ArmOk`) has `v.Holds` at `loc` (`∀ c h p`, item `k` decodes →
+`v.At`). `PlainA` ends with `FieldsOk σ m (cutFields d.pc)`; `SiteA` already had
+`FieldsOk σ m (siteFields r)`. `cutFieldsTable` is empty.
+
+Carry (`Gen.lean`, `fieldsCarry src d l fs`, sound by `fieldsCarry_sound`; `src = srcFields d`:
+a plain source's `cutFields` row at `loc.sym`, a return site's call-site row of machine-free
+values at kept locations, `keptSym`/`keptPtr`, `siteKeeps`): an entry passes when its `loc` is
+`fine` and one of
+- vacuous: the source's arms are nonempty and none is in the entry's guard (`armsOff`);
+- kept: a free source value with the same `FieldVal`, guard implied (`guardOk`: source guard
+  empty, target guard ⊆ it, or source arms ⊆ it), and the same symbolic value;
+- from the source's outcome at `ko` (`fieldFrom`, `advOf`): `len`, `ptr`; `num`/`nz`/`raw` = 0
+  with the condition `len = 0`; `num` = clamp literal with `n <u len`; `nz` = 1 with `len ≠ 0`
+  (`nonzero`: `≠ 0` or `= q ≠ 0`); `acc` = 0 at a loop entry (cursor = pointer word, end =
+  pointer + `len`, `len ≠ 0`, `lenBound ≤ min n 32`);
+- loop step / exit (`loopFrom`, `accNext`): source cursor `cur` = base + `x`; `orShift`: limb 0 =
+  `acc0 << 8 | initx 3 0 x 1 1`, limb `i+1` = `acc(i+1) << 8 | acc(i) >> 56` (either operand
+  order); step: target `acc` with `cur := base + 1 + x`, `fin` kept, condition `cur + 1 ≠ fin`;
+  exit: target `num k n i` with condition `cur + 1 = fin`.
+`GenCheck` (both exits), `AtChk` and `CallChk` (`Hand.lean`, decided by the hand proofs' existing
+`(by decide)`) include it; hand-built `PlainA` (`Entry`, `Jump`, `HashStore`, `AuthStore`) give
+`fieldsOk_nil`. Arithmetic: `Fields.lean` (`limb_step0`, `limb_stepS`, `be_take_succ`,
+`decode_p_lt`, `holds_free`). With the empty table nothing reopened (415 `leaf_gen` instances,
+646 manual, 1 open).
+
+Smoke test (scratch, not committed): legacy `nonce` (item 0, `num 0 8 0`, guard `[0]`), the
+`acc 0 8 0 10 11` row at `0x800008e8`, `s11` at the call site `0x80000910` and at every arm-0
+cut/site after it up to `0x80002dc4`: 42 leaves (sources `0x8000059c` and the arm-0 cuts before
+`0x80002dc4`, targets arm-0 cuts but the error ones), 42 pass (36 kept, 2 outcome: empty and
+clamp, 1 loop entry, 1 step, 1 exit, 1 empty row). A greatest-fixpoint inference over all
+locations keeps exactly `s11` at the 19 rows, `0x80002dc4` included. Controls: `s10` instead
+29/42, `acc` bound 4 < the leaf's 8 40/42, `acc` as limb 1 40/42.
+
+Stage 2 (populate, arm by arm): `shape.py` abstract values `('acc', k, n, i)` at `Inner.be`
+heads (cursor/end from `budgetTable`), `('fld', k, kind)` after the exits and outcome rules, spills
+(a full-word store makes the slot's symbolic value the register's: kept); emit `cutFieldsTable` /
+`siteFieldsTable` rows with guards by arm (item index per arm). Missing rules: the address copy
+(`raw` from the 20-byte loads at the outcome pointer under `len = 20`), sub-word stores (`sb`/`sw`
+of tags and the address tail: `raw` with `n < 8`). Hand-proof sites with `fieldsOk_nil` (`Jump`
+uses `rfl`) and the `siteFields … = []` proofs need the rows' proofs when their targets gain rows.
+Then `Extra 0x80002dc4` and the bridge (`ChecksOk` + `FieldsOk` → `decode t payload = some tx`,
+`TxAt` from the success write's stores), plus the buffers (data copy, access list, hashes, tuples).

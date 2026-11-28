@@ -22,7 +22,7 @@ theorem astore_src {σ : Sig} {m : Machine} (hA : (mkCut (table[124]!)).A σ m) 
   have hne : (table[124]!).pc ≠ entry := by decide
   simp only [mkCut, if_neg hne, ACut, show (table[124]!).site = none by decide, reduceCtorEq,
     false_and, exists_false, or_false] at hA
-  obtain ⟨-, -, hcm, -, harm, hrst, hex, -, hchk⟩ := hA
+  obtain ⟨-, -, hcm, -, harm, hrst, hex, -, hchk, -⟩ := hA
   rw [show (table[124]!).pc = 0x80002434 by decide] at hex
   simp only [Extra] at hex
   exact ⟨hcm, harm, hrst, hex.1, hex.2, hchk⟩
@@ -173,7 +173,7 @@ theorem DTF.leaf_80002434_2 :
   · simp only [mkCut, if_neg hne', ACut]
     refine .inl ⟨by decide, by rw [hexok]; rfl, hcm', shapeOk_of_holds hwf' hm' hR0 (by decide)
       (by decide), by rw [show (table[125]!).arms = (table[124]!).arms by decide]; exact harm,
-      ?_, ?_, ?_, ?_⟩
+      ?_, ?_, ?_, ?_, fieldsOk_nil (by decide)⟩
     · rw [hrest, hrest0]
       rw [hrest0] at hrst
       intro r hr

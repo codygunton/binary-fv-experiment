@@ -90,11 +90,13 @@ theorem core_obl {d : CutData} {l : Leaf} (hpc : d.pc ≠ entry) (hcut : CutOK v
 theorem coreChk0 {d : CutData} {l : Leaf} (hck : CoreChk d l = true) : CoreChk0 d l = true := by
   unfold CoreChk at hck; simp only [Bool.and_eq_true] at hck; exact hck.1
 
-/-- The target-side checks of an `.at` leaf other than `Extra`, the cursor and the budget. -/
+/-- The target-side checks of an `.at` leaf other than `Extra`, the cursor and the budget; the
+target's item values by the carry rules (`fieldsCarry`). -/
 def AtChk (d : CutData) (l : Leaf) (d' : CutData) : Bool :=
   d'.pc != entry && d'.plain && d'.shape.Fine && shapeHolds l.S d'.shape &&
     armsKeep d.arms d'.arms && restFrom d.shape.S l.S (advUse d l) (srcRest d l) d'.rest &&
-    chkStep d l (chkCount d'.rest) && decide (l.S.steps - d.shape.S.steps ≤ (budgetAt d.pc).1)
+    chkStep d l (chkCount d'.rest) && decide (l.S.steps - d.shape.S.steps ≤ (budgetAt d.pc).1) &&
+    fieldsCarry (srcFields d) d l (cutFields d'.pc)
 
 /-- `leaf_at_x` with the leaf's obligations a hypothesis. -/
 theorem leaf_at_xo (d d' : CutData) (l : Leaf) (hpc : d.pc ≠ entry)
@@ -113,7 +115,7 @@ theorem leaf_at_xo (d d' : CutData) (l : Leaf) (hpc : d.pc ≠ entry)
   have F := facts_of_A hpc hsrc hA
   unfold AtChk at hat
   simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, decide_eq_true_eq] at hat
-  obtain ⟨⟨⟨⟨⟨⟨⟨hne, hpl⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hchk⟩, hst⟩ := hat
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨hne, hpl⟩, hfine'⟩, hsh⟩, harms⟩, hrest⟩, hchk⟩, hst⟩, hfc⟩ := hat
   cases hexit : l.exit with
   | «at» pc' =>
     rw [hexit] at hex
@@ -130,7 +132,7 @@ theorem leaf_at_xo (d d' : CutData) (l : Leaf) (hpc : d.pc ≠ entry)
       ⟨mkCut d', List.mem_map_of_mem (targetOf_spec ht).1, hexok, ?_, ?_⟩
     · simp only [mkCut, if_neg hne, ACut]
       exact .inl ⟨hpl, hexok, hcm, hshp, harm, hrst, hx, hcur,
-        chkStep_sound hpc hsrc hA hc F hchk⟩
+        chkStep_sound hpc hsrc hA hc F hchk, fieldsCarry_sound C hpc hsrc hA hc hfc⟩
     · show budgetOf d' σ m' ≤ budgetOf d σ m - (l.S.steps - d.shape.S.steps)
       omega
   | _ => rw [hexit] at hex; cases hex
@@ -145,13 +147,14 @@ theorem leaf_at_x (d d' : CutData) (l : Leaf) (hpc : d.pc ≠ entry)
   leaf_at_xo d d' l hpc hcut hsrc (coreChk0 hck)
     (fun _ _ hA hc => core_obl hpc hcut hsrc hck hA hc) hex ht hat hX
 
-/-- The call-side checks of a call leaf other than the callee's index, `SiteX` and the budget. -/
+/-- The call-side checks of a call leaf other than the callee's index, `SiteX` and the budget;
+the call site's item values by the carry rules (`fieldsCarry`). -/
 def CallChk (d : CutData) (l : Leaf) (d' : CutData) (s : Site) (t r : Nat) : Bool :=
   t == s.kind.entry && d'.pc != entry && SrcOk d' && s.shape.Fine &&
     shapeHolds l.S s.shape && armsKeep d.arms s.arms &&
     restFrom d.shape.S l.S (advUse d l) (srcRest d l) s.rest &&
     l.S.reg 1 == .lit r && decide ((w r &&& ~~~(1 : Word)).toNat = r) && decide (r % 4 = 0) &&
-    fieldsFrom d l (siteFields r) && chkStep d l (chkCount s.rest) &&
+    fieldsCarry (srcFields d) d l (siteFields r) && chkStep d l (chkCount s.rest) &&
     decide (l.S.steps - d.shape.S.steps ≤ (budgetAt d.pc).1)
 
 /-- What the call site knows at the call machine, for the hypotheses of `leaf_call_x`. -/
@@ -205,7 +208,7 @@ theorem leaf_call_xo (d d' : CutData) (s : Site) (l : Leaf) (t : Nat) (hpc : d.p
     obtain ⟨x0, hidx, hsx, hbud⟩ :=
       hX σ m m' hA hc C ⟨hcm, hshp, harm, hrst, hchk', hr1, hraM⟩
     have hsite : SiteA s d'.pc σ x0 m' := ⟨hr1, hcm, hshp, harm, hrst, hidx,
-      fieldsFrom_sound C hpc hsrc hA hfld, hchk', hsx⟩
+      fieldsCarry_sound C hpc hsrc hA hc hfld, hchk', hsx⟩
     refine ⟨calleeOf s.kind, x0, ?_, ?_, hidx.1, fun m'' hpost => ?_⟩
     · show calleeAt d'.pc = _
       unfold calleeAt

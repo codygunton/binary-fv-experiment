@@ -166,7 +166,7 @@ theorem DTF.leaf_80000574_0 :
   · simp only [mkCut, if_neg hne'', ACut]
     refine .inl ⟨hpl', hpcm'.trans hpc'.symm, hcm', shapeOk_of_holds hwf' hm' hR0 hfine' hsh',
       .inr (by rw [harms']; exact List.mem_singleton_self _), ?_, ?_, hinner.2,
-      fun i hi => by rw [hrest'] at hi; simp [chkCount] at hi⟩
+      fun i hi => by rw [hrest'] at hi; simp [chkCount] at hi, fieldsOk_nil rfl⟩
     · rw [hrest']
       intro r hr
       have := hrst r (by rw [hrest0]; exact hr)

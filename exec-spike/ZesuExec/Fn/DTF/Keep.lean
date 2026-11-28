@@ -122,7 +122,7 @@ theorem facts_of_ret {d : CutData} {s : Site} {σ : Sig} {m : Machine} (hs : d.s
 theorem facts_of_A {d : CutData} {σ : Sig} {m : Machine} (hpc : d.pc ≠ entry)
     (hck : SrcOk d = true) (hA : (mkCut d).A σ m) : Facts d σ m := by
   simp only [mkCut, if_neg hpc, ACut] at hA
-  rcases hA with ⟨hpl, -, hc, hs, ha, hr, -, -, hchk⟩ | ⟨s, hs, hret⟩
+  rcases hA with ⟨hpl, -, hc, hs, ha, hr, -, -, hchk, -⟩ | ⟨s, hs, hret⟩
   · refine ⟨hc, hs, ha, fun r h => hr r (kRest_sub h), hchk.mono ?_⟩
     unfold srcChk; split
     · exact Nat.le_refl _

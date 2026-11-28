@@ -1701,3 +1701,5 @@
 {"schema": 2, "rec": "stop", "id": 1, "agent": "S9Viewer", "ts": "2026-11-28T06:00:55Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:09:07Z", "fn": null, "item": "coordinate S11/S12/S17 launch, S9/S10 merges", "kind": "infra", "agent": "coordinator"}
 {"schema": 2, "rec": "stop", "id": 2, "agent": "coordinator", "ts": "2026-11-28T06:09:33Z", "outcome": "closed", "note": "S9/S10 merged, S11/S12/S17 dispatched"}
+{"schema": 2, "rec": "start", "id": 3, "ts": "2026-11-28T06:13:38Z", "fn": "f_8000050c", "item": "field-value carry stage 1 (generic leaf_gen carry, empty cut field table) toward leaf_80002dc4_0", "kind": "assertion", "agent": "DTFAuth3"}
+{"schema": 2, "rec": "stop", "id": 3, "agent": "DTFAuth3", "ts": "2026-11-28T06:36:46Z", "outcome": "closed", "note": null}
