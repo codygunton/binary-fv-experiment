@@ -24,6 +24,8 @@ theorem savedRegs_ne : ∀ p ∈ savedRegs, p.1 ≠ 0 ∧ p.1 ≠ 2 ∧ p.1 ≠ 
     p.1 ≠ 10 ∧ p.1 ≠ 11 ∧ p.1 ≠ 12 ∧ p.1 ≠ 13 ∧ p.1 ≠ 14 ∧ p.1 ≠ 15 ∧ p.1 ≠ 16 ∧ p.1 ≠ 17 := by
   decide
 
+theorem savedRegs_off : ∀ q ∈ savedRegs, 0x78 ≤ q.2 ∧ q.2 + 8 ≤ 0xe0 := by decide
+
 /-- `sp` after the prologue. -/
 def spM (m0 : Machine) : Word := m0.reg 2 - BitVec.ofNat 64 frameSize
 
@@ -237,5 +239,115 @@ theorem exec_store {m : Machine} {rs1 rs2 : Fin 32} {imm : BitVec 12} {n : Nat}
       mem := writeBytes m.mem (m.reg rs1 + Machine.sx imm).toNat (m.reg rs2) n, pc := m.pc + 4 } := by
   simp only [Machine.storeFrom, Machine.store]
   rw [if_pos ⟨hw, hp⟩]; rfl
+
+/-! ## Numbers `Pre` fixes -/
+
+/-- The frame, `out`, the bump words and the staging word as numbers. -/
+structure Nums (m0 : Machine) : Prop where
+  al : (spM m0).toNat % 16 = 0
+  lo : 0xa0000000 ≤ (spM m0).toNat
+  hi : (spM m0).toNat + 0xe0 ≤ 0xc0000000
+  fo : (spM m0).toNat + 0xe0 ≤ (m0.reg 12).toNat ∨ (m0.reg 12).toNat + 32 ≤ (spM m0).toNat
+  fb : (spM m0).toNat + 0xe0 ≤ 0xa05340b8 ∨ 0xa05340b8 + 16 ≤ (spM m0).toNat
+  fs : (spM m0).toNat + 0xe0 ≤ 0xa0000f00 ∨ 0xa0000f00 + 8 ≤ (spM m0).toNat
+  ob : (m0.reg 12).toNat + 32 ≤ 0xa05340b8 ∨ 0xa05340b8 + 16 ≤ (m0.reg 12).toNat
+  os : (m0.reg 12).toNat + 32 ≤ 0xa0000f00 ∨ 0xa0000f00 + 8 ≤ (m0.reg 12).toNat
+  olo : 0xa0000000 ≤ (m0.reg 12).toNat
+  ohi : (m0.reg 12).toNat + 32 ≤ 0xc0000000
+
+theorem nums {m0 : Machine} (h : Pre m0) : Nums m0 := by
+  have h' := h
+  obtain ⟨-, -, -, -, hout, -, -, hdis, -⟩ := h'
+  obtain ⟨hspn, hspal, hsplo, hsphi⟩ := spM_facts h
+  simp only [List.pairwise_cons, List.mem_cons, List.mem_nil_iff, or_false, forall_eq_or_imp,
+    forall_eq, List.Pairwise.nil, and_true] at hdis
+  obtain ⟨⟨hfo, hfb, hfs⟩, ⟨hob, hos⟩, -⟩ := hdis
+  have hfr0 : frameR m0 = (spM m0, 0xe0) := rfl
+  rw [hfr0] at hfb hfs hfo
+  simp only [Disjoint, bumpR, stageR, outR, BitVec.toNat_ofNat, bump, Layout.extraParams] at hfb hfs hob hos hfo
+  simp only [dstOk, writable, inRange, Bool.and_eq_true, decide_eq_true_eq] at hout
+  unfold frameSize Layout.ramLo Layout.ramHi at *
+  exact ⟨hspal, hsplo, hsphi, hfo, hfb, hfs, hob, hos, hout.1.1, hout.1.2⟩
+
+/-! ## Keeping `Mid` across a symbolic piece -/
+
+/-- A piece keeps `sp`, `a2` and the saved registers and writes only frame offsets below `0x78`. -/
+def keepsM (S : SState) : Bool :=
+  (savedRegs.all fun p => S.reg p.1.val == .var p.1.val) && S.reg 2 == .ptr 0 0 &&
+    S.reg 12 == .var 12 && S.mem.all (fun w => w.r == 0 && w.off + w.n ≤ 0x78)
+
+theorem frame_addr {m0 : Machine} (hn : Nums m0) {j : Nat} (hj : j < 0xe0) :
+    (spM m0 + BitVec.ofNat 64 j).toNat = (spM m0).toNat + j := by
+  rw [BitVec.toNat_add]; have := hn.hi; simp; omega
+
+theorem mid_leaf {m0 m m' : Machine} {S : SState} (hn : Nums m0) (hmid : Mid m0 m)
+    (hm' : Match (envM m) S m') (hso : SameOutside (InRange (m.reg 2) 0xe0) m m')
+    (hk : keepsM S = true) (hlen : S.regions.length = 1) : Mid m0 m' := by
+  simp only [keepsM, Bool.and_eq_true, List.all_eq_true, beq_iff_eq, decide_eq_true_eq] at hk
+  obtain ⟨⟨⟨hsv, h2⟩, h12⟩, hw⟩ := hk
+  have hsp' : m'.reg 2 = m.reg 2 := by
+    rw [reg_of_match hm', show ((2 : Fin 32).val) = 2 from rfl, h2]
+    simp [Sym.eval, envM, entryEnv, Env.base, shapeM]
+  have hkeep : ∀ i : Fin 32, S.reg i.val = .var i.val → i.val ≠ 0 → m'.reg i = m.reg i := by
+    intro i h h0
+    exact reg_kept hm' (by rw [h, if_neg h0])
+  have hfr : ∀ x : Word, ¬ InRange (spM m0) 0xe0 x → m'.mem x = m.mem x := by
+    intro x hx; rw [hmid.sp] at hso; exact hso x hx
+  have hbw : ∀ t < 16, ¬ InRange (spM m0) 0xe0 (bumpW + BitVec.ofNat 64 t) := by
+    intro t ht
+    have : bumpW + BitVec.ofNat 64 t = BitVec.ofNat 64 (0xa05340b8 + t) := by
+      rw [← ofNat_toNat_add]; rfl
+    rw [this]; exact notIn_of_disjoint hn.fb ht (by omega)
+  have hsw : ∀ t < 8, ¬ InRange (spM m0) 0xe0 (stageW + BitVec.ofNat 64 t) := by
+    intro t ht
+    have : stageW + BitVec.ofNat 64 t = BitVec.ofNat 64 (0xa0000f00 + t) := by
+      rw [← ofNat_toNat_add]; rfl
+    rw [this]; exact notIn_of_disjoint hn.fs ht (by omega)
+  refine ⟨by rw [hsp', hmid.sp], ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · rw [hkeep 12 h12 (by decide), hmid.out]
+  · intro p hp
+    have := savedRegs_ne p hp
+    rw [hkeep p.1 (hsv p hp) (fun h => this.1 (Fin.ext h)), hmid.saved p hp]
+  · intro x hx
+    rw [hfr x (fun h => hx (Or.inl h)), hmid.same x hx]
+  · intro j hj
+    rw [hsp']
+    have := hm'.mem 0 j (by rw [hlen]; decide) (by show j < 0xe0; exact hj)
+    rw [show (envM m).base 0 = m.reg 2 from rfl] at this
+    simp [this]
+  · intro p hp i hi
+    have hi8 : i < 8 := by rw [le8_length] at hi; exact hi
+    have hoff := savedRegs_off p hp
+    rw [hsp']
+    have hnone : S.mem.find? (·.covers 0 (p.2 + i)) = none := by
+      rw [List.find?_eq_none]
+      intro w hwm
+      have := hw w hwm
+      simp only [Write.covers, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq, not_and,
+        Nat.not_lt]
+      omega
+    have := mem_keep hm' (r := 0) (j := p.2 + i) (by rw [hlen]; decide) (by show _ < 0xe0; omega)
+      hnone (hmid.frame _ (by unfold frameSize; omega))
+    rw [show (entryEnv m ((shapeM m).map (·.1))).base 0 = m.reg 2 from rfl] at this
+    rw [this]
+    exact hmid.savedMem p hp i hi
+  · intro i hi
+    have hi16 : i < 16 := by simpa [bumpBytes] using hi
+    rw [hfr _ (hbw i hi16)]; exact hmid.bump i hi
+  · intro j hj
+    rw [hfr _ (hsw j hj)]; exact hmid.stage j hj
+
+/-- Frame bytes a piece did not write keep their values. -/
+theorem frameAt_leaf {m m' : Machine} {S : SState} (hm' : Match (envM m) S m')
+    (hsp : m'.reg 2 = m.reg 2) (hlen : S.regions.length = 1) {off : Nat} {L : List Byte}
+    (hfr : FrameAt m off L) (hfit : off + L.length ≤ 0xe0)
+    (hnone : ∀ t < L.length, S.mem.find? (·.covers 0 (off + t)) = none) : FrameAt m' off L := by
+  intro t ht
+  rw [hsp]
+  have := mem_keep hm' (r := 0) (j := off + t) (by rw [hlen]; decide) (by show _ < 0xe0; omega)
+    (hnone t ht) (by
+      rw [show (entryEnv m ((shapeM m).map (·.1))).base 0 = m.reg 2 from rfl, hfr t ht]; rfl)
+  rw [show (entryEnv m ((shapeM m).map (·.1))).base 0 = m.reg 2 from rfl] at this
+  rw [this]; exact hfr t ht
 
 end ZesuExec.Fn.Sha256

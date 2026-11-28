@@ -31,8 +31,6 @@ theorem pro_regs : ∀ i : Fin 32, i ≠ 2 → i ≠ 13 → i ≠ 14 →
 theorem bumpBytes_get : ∀ i (h : i < bumpBytes.length), bumpBytes[i] =
     if i < 8 then byteOf (0xa05340c8 : Word) i else byteOf (0xa0d340c8 : Word) (i - 8) := by decide
 
-theorem savedRegs_off : ∀ q ∈ savedRegs, 0x78 ≤ q.2 ∧ q.2 + 8 ≤ 0xe0 := by decide
-
 theorem pro_low : ∀ j < 0x78, (runPro_leaves[0]!).S.mem.find? (·.covers 0 j) = none := by decide
 
 theorem pro {m0 : Machine} (hpre : Pre m0) (hpc : m0.pc.toNat = entry) :
