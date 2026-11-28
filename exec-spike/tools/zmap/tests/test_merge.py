@@ -65,13 +65,14 @@ class Conditional(unittest.TestCase):
                 {'i': 0, 'exit': 'at', 'target': 0x8000018c, 'state': 'auto', 'residual': None},
                 {'i': 1, 'exit': 'call', 'target': 0x800d6960, 'state': 'open',
                  'residual': 'omega'}]}]})
-        ledger = [{'fn': 'TX', 'kind': 'leaf', 'minutes': 3, 'usd': 0.5, 'requests': 2,
-                   'outcome': 'closed'}]
+        ledger = [{'fn': 'TX', 'kind': 'leaf', 'minutes': 3, 'outcome': 'closed',
+                   'cost': {'usd': 0.5, 'requests': 2}}]
         m = run(status, ledger)
         tx = next(f for f in m['functions'] if f['id'] == 'f_80000000')
         self.assertEqual(tx['state'], 'conditional')
         self.assertEqual(tx['leaves'], {'auto': 1, 'manual': 0, 'open': 1})
-        self.assertEqual(tx['ledger']['all']['minutes'], 3)
+        self.assertEqual(tx['cost']['all']['minutes'], 3)
+        self.assertEqual(tx['cost']['all']['usd'], 0.5)
         leaf = tx['vc_cuts'][0]['leaves']
         self.assertEqual(leaf[0]['cfg']['target_kind'], 'cut')
         self.assertEqual(leaf[1]['cfg']['target_kind'], 'callee')

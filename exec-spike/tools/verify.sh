@@ -62,6 +62,9 @@ fi
 if [ -z "$fresh" ]; then record "map freshness" PASS
 else echo "$fresh; run make -C tools/zmap map"; record "map freshness" FAIL; fi
 
+echo "== zmap check (programme plan S10.7)"
+if (cd tools && python3 -m zmap check); then record "zmap check" PASS; else record "zmap check" FAIL; fi
+
 echo "== summary"
 printf '%s\n' "${RESULTS[@]}"
 exit $FAIL

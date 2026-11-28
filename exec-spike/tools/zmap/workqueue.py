@@ -120,6 +120,9 @@ def next_action(f, by_id):
     s = f['state']
     if s in CLOSED:
         return 'none'
+    if s == 'closed-on-assumptions':
+        return 'prove what it rests on: ' + ', '.join(
+            f'{c} {by_id[c]["name"]} [{by_id[c]["state"]}]' for c in f.get('rests_on', []))
     if s == 'conditional':
         return f'close {f["open_items"]} open items (zmap next)'
     if s == 'in-proof':
@@ -171,7 +174,8 @@ def card(m, f):
         L.append(f'    {cl["site"]:#x} {cl["kind"]}/{cl["resolution"]}{nr}: {tg or "-"}{more}')
     L.append('  leaves by state: ' + ', '.join(f'{k} {v}' for k, v in f['leaves'].items())
              + '; cut lemmas: ' + ', '.join(f'{k} {v}' for k, v in f['cut_lemmas'].items()))
-    lt = f['ledger']['all']
-    L.append(f'  ledger: {lt["items"]} items, {lt["minutes"]} min, ${lt["usd"]}, {lt["requests"]} requests')
+    lt = f['cost']['all']
+    L.append(f'  cost: {lt["items"]} items, {lt["minutes"]} min, ${lt["usd"]}, {lt["requests"]} '
+             f'requests, {lt["builds"]} builds')
     L.append(f'  next: {next_action(f, by_id)}')
     return '\n'.join(L)

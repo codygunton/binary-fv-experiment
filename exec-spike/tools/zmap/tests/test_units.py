@@ -1,13 +1,11 @@
-"""Graph algorithms, operand parsing and the ledger on small inputs."""
-import json
+"""Graph algorithms and operand parsing on small inputs."""
 import os
 import sys
-import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from zmap import analyze, elfread, ledger  # noqa: E402
+from zmap import analyze, elfread  # noqa: E402
 
 
 class Graphs(unittest.TestCase):
@@ -66,21 +64,6 @@ class Parsing(unittest.TestCase):
         base, terms = analyze.linear(v[3])
         self.assertEqual(base, 0x80000564 + 0x110000 - 0x514)
         self.assertEqual(terms, [('shl', ('r', 'a0'), 3)])
-
-
-class Ledger(unittest.TestCase):
-    def test_log_appends_line(self):
-        with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, 'ledger.jsonl')
-            ledger.log(path, '-', 'a', 'infra', 'me', 5, 'closed')
-            ledger.log(path, 'f_80000000', 'b', 'leaf', 'me', 2.5, 'open', usd=0.1, requests=3)
-            rows = [json.loads(l) for l in open(path)]
-        self.assertEqual(len(rows), 2)
-        self.assertIsNone(rows[0]['fn'])
-        self.assertEqual(rows[1]['fn'], 'f_80000000')
-        self.assertTrue(rows[0]['ts'].endswith('Z'))
-        with self.assertRaises(ValueError):
-            ledger.log(os.devnull, '-', 'c', 'bogus', 'me', 1, 'closed')
 
 
 if __name__ == '__main__':

@@ -1123,3 +1123,24 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - Checks: `lake build` (325 jobs) and `tools/verify.sh` pass after `make -C tools/zmap map`; no
     `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no `maxHeartbeats` change, no
     `zesu_simp`/`zesu_fact` lemma added.
+- S10 tracking (S10Tracking, 2026-11-28, branch `tracking`): gate passed in the worktree:
+  `make -C tools/zmap map test` (41 tests) and `zmap check` pass; `COSTMODEL.md` has non-zero
+  dollars for every item kind and the forecast table.
+  - S10.1 `tools/zmap/cost.py`: one row per model request from the session logs of
+    `map/sessions.json` (assistant messages and `model_usage` side requests; 0 lines without
+    usage). Ledger schema 2 (`zmap ledger start/stop/open`, items keyed by agent and id);
+    `zmap ledger log` removed. `zmap cost backfill` costed the 1642 schema-1 rows once
+    (`map/backfill.jsonl`, $465); `make map` backfills rows added later. Session dollars $713,
+    inside items $472, unattributed $240 (34%; per agent in `COSTMODEL.md`, `zmap cost agents`).
+  - S10.2 `zesu-status`: per item theorem name, file, lines, closing rule (`auto:infeasible`,
+    `auto:path`, `auto:cut`, `+facts`; `manual`); statement hashes (spec, pre, post, cuts,
+    callees); non-`Pre` hypotheses with the `Spec` entries they assume; `pre_nonvacuous` /
+    `post_snapshot` names; `Post`'s package constants (merge computes `meaning_link`).
+  - S10.3 `tools/buildstat.py`: 116 modules, -j 16: wall 1447 s, CPU 1631 s, peak 4.3 GB
+    (`map/build.json`).
+  - S10.4-6 `merge` writes `map/metrics.json` (11 groups) and a `map/history.jsonl` line per
+    commit; classes; state rule: F1, F4, F5, TX `closed-on-assumptions` (rest on `alloc`,
+    `free`). Forecast p25/p50/p75 $3.4k/$10.8k/$40.4k for 9986 open cut points; 90% of them in a
+    class with no closed sample.
+  - S10.7 `zmap brief`, `zmap metrics --group`, `zmap check` (in `tools/verify.sh`);
+    `map/waivers.json` waives the nine pre-revision functions.

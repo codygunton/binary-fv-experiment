@@ -1,0 +1,16 @@
+{
+ "about": "zmap check waivers (programme plan S10.7). `waivers`: the nine functions with a specification before revision 2 (F0-F6, TX, DTF) and the closed-function requirements they lack; remove an entry when S13 or S20 supplies the piece. `pre_revision` never shrinks: metrics count functions outside it as first proved after revision 2.",
+ "pre_revision": ["f_8004218c", "f_800cb40c", "f_800d6960", "f_800d6274", "f_800d677c",
+                  "f_800d6554", "f_800d5cb8", "f_80000000", "f_8000050c"],
+ "waivers": {
+  "f_8004218c": ["nonvacuity", "snapshot"],
+  "f_800cb40c": ["snapshot"],
+  "f_800d6960": ["nonvacuity", "snapshot"],
+  "f_800d6274": ["nonvacuity", "snapshot"],
+  "f_800d677c": ["nonvacuity", "snapshot"],
+  "f_800d6554": ["nonvacuity", "snapshot"],
+  "f_800d5cb8": ["nonvacuity", "snapshot"],
+  "f_80000000": ["snapshot"],
+  "f_8000050c": ["nonvacuity", "snapshot"]
+ }
+}
