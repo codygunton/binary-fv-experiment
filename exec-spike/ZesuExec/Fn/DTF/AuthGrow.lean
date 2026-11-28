@@ -103,11 +103,11 @@ def appSlots : List Nat := [0x70, 0x68, 0x30, 0x48, 0x78, 0x40, 0x38]
 theorem app_on {σ : Sig} {m m' : Machine}
     (h : ∀ o ∈ appSlots, m'.load (σ.fr + w o) 8 = m.load (σ.fr + w o) 8) {n : Nat}
     (ha : AuthApp σ m n) : AuthApp σ m' n := by
-  obtain ⟨⟨c, hh, p, j, k, ho, hs, hk, l48⟩, l78, l40, l38⟩ := ha
+  obtain ⟨⟨c, hh, p, j, k, ho, hs, hk, l48, hok⟩, l78, l40, l38⟩ := ha
   have e : ∀ o ∈ appSlots, ∀ {v : Word}, m.load (σ.fr + w o) 8 = some v →
       m'.load (σ.fr + w o) 8 = some v := fun o ho _ hv => by rw [h o ho]; exact hv
   exact ⟨⟨c, hh, p, j, k, authOut_mono (h _ (by decide)) (h _ (by decide)) (h _ (by decide)) ho,
-    hs, hk, e _ (by decide) l48⟩, e _ (by decide) l78, e _ (by decide) l40, e _ (by decide) l38⟩
+    hs, hk, e _ (by decide) l48, hok⟩, e _ (by decide) l78, e _ (by decide) l40, e _ (by decide) l38⟩
 
 theorem cap_word {σ : Sig} {m : Machine} {n : Nat} {cap : Word}
     (h1 : m.load (σ.fr + w 0x60) 8 = some cap) (h2 : m.load (σ.fr + w 0x60) 8 = some (w n))

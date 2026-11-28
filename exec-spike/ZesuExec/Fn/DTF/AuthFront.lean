@@ -72,7 +72,7 @@ theorem DTF.leaf_80001ccc_3 :
       ctx_word C (o := 0x60) (s := .lit 0) (by decide) (by decide), by decide, by decide, L, X,
       hlive, fun h0 => absurd h0 (by decide)⟩
   have hloop : AuthLoop σ m' :=
-    ⟨c, h, p, 0, 0, ⟨⟨hs, hd⟩, rfl, Nat.le_refl _, l70, l68, l30⟩, l78, hbuf⟩
+    ⟨c, h, p, 0, 0, ⟨⟨hs, hd⟩, rfl, Nat.le_refl _, l70, l68, l30, authsOk_zero _⟩, l78, hbuf⟩
   refine ⟨?_, ?_, ?_⟩
   · rw [show (table[125]!).pc = 0x800024d0 by decide]; simpa [Extra, AuthExtra] using hloop
   · rw [show budgetAt (table[125]!).pc = (7043, .list (.slot 0x68)) from rfl]; trivial

@@ -17,7 +17,8 @@ accumulator over it (`acc`: limb `i` of the payload bytes before the cursor regi
 register `fin` at the payload's end, at most `n` bytes); the legacy chain id (`lc`), its tag (`lt`)
 and `v` (`lv`) the `u256` item `k` (`v_raw`) gives (`legacyV`); the transaction type `a2` (`ty`),
 a constant word (`cst`: an arm's tags and empty slices), both stated with item 0; the list item
-`k`'s versioned-hash walk succeeds (`hwalk`, a fact about the payload only: the word is not read).
+`k`'s versioned-hash walk succeeds (`hwalk`) and the list item `k`'s authorization-tuple walk
+succeeds (`awalk`), facts about the payload only: the word is not read.
 -/
 inductive FieldVal
   | ptr (k : Nat)
@@ -32,11 +33,12 @@ inductive FieldVal
   | ty
   | cst (v : Nat)
   | hwalk (k : Nat)
+  | awalk (k : Nat)
   deriving DecidableEq, Repr
 
 def FieldVal.k : FieldVal → Nat
   | .ptr k | .len k | .num k _ _ | .nz k | .raw k _ _ | .acc k _ _ _ _ | .lc k | .lt k | .lv k
-  | .hwalk k => k
+  | .hwalk k | .awalk k => k
   | .ty | .cst _ => 0
 
 /-- The value does not mention the machine (all but a byte loop's accumulator, whose cursor and

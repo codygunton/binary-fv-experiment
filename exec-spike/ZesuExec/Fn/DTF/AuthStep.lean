@@ -142,20 +142,21 @@ theorem buf_keep {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d
     (fun _ _ hl => ctx_live C hl) hb
 
 theorem tup_keep {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    (h : authKeep d l true = true) {b : Nat} {nx : Bool} (ht : AuthTup σ m b nx) :
-    AuthTup σ m' b nx := by
-  obtain ⟨c, hh, p, n, j, ht', pt, q, ho, l50, hb, hd, hle, l48, hbq, hqp, r22, r23, hnx⟩ := ht
+    (h : authKeep d l true = true) {b f : Nat} {nx : Bool} (ht : AuthTup σ m b f nx) :
+    AuthTup σ m' b f nx := by
+  obtain ⟨c, hh, p, n, j, ht', pt, q, ho, l50, hb, hd, hle, l48, hbq, hfq, hqp, r22, r23, hsf, hok,
+    hnx⟩ := ht
   obtain ⟨e22, e23⟩ := authKeep_regs h
   refine ⟨c, hh, p, n, j, ht', pt, q, out_keep C h ho, ?_, buf_keep C h hb, hd, hle, ?_, hbq,
-    hqp, ?_, ?_, fun hx => ?_⟩
+    hfq, hqp, ?_, ?_, hsf, hok, fun hx => ?_⟩
   · rw [auth_load C h (by decide)]; exact l50
   · rw [auth_load C h (by decide)]; exact l48
   · rw [show (22 : Fin 32) = Fin.ofNat 32 22 from rfl, ctx_reg C (by decide) (by decide) e22]
     exact r22
   · rw [show (23 : Fin 32) = Fin.ofNat 32 23 from rfl, ctx_reg C (by decide) (by decide) e23]
     exact r23
-  · obtain ⟨k, lk, hk⟩ := hnx hx
-    exact ⟨k, by rw [auth_load C h (by decide)]; exact lk, hk⟩
+  · obtain ⟨hok', k, lk, hk⟩ := hnx hx
+    exact ⟨hok', k, by rw [auth_load C h (by decide)]; exact lk, hk⟩
 
 theorem addr_keep {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
     {regs : Bool} (h : authKeep d l regs = true) (ha : AddrOk σ m) : AddrOk σ m' := by
@@ -163,10 +164,12 @@ theorem addr_keep {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx 
   exact ⟨a, by rw [auth_load C h (by decide)]; exact la, hle⟩
 
 theorem end_keep {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    {regs : Bool} (h : authKeep d l regs = true) (he : AuthEnd σ m) : AuthEnd σ m' := by
-  obtain ⟨c, hh, p, n, j, k, ho, l50, hb, hs, hk, l48, ha⟩ := he
-  exact ⟨c, hh, p, n, j, k, out_keep C h ho, by rw [auth_load C h (by decide)]; exact l50,
-    buf_keep C h hb, hs, hk, by rw [auth_load C h (by decide)]; exact l48, addr_keep C h ha⟩
+    {regs : Bool} (h : authKeep d l regs = true) {f : Nat} {cur : Bool} (he : AuthEnd σ m f cur) :
+    AuthEnd σ m' f false :=
+  end_mono (fun o ho => auth_load C h (by
+    simp only [endSlots, List.mem_cons, List.not_mem_nil, or_false] at ho
+    simp only [authSlots, List.mem_cons, List.not_mem_nil, or_false]
+    omega)) (fun _ _ hl => ctx_live C hl) he
 
 /-- The loop heads' `Extra` survives a leaf that keeps the tuple state (the field cursor too but
 at the s loop `0x80002868`, whose `AuthEnd` does not name it). -/

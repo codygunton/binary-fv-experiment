@@ -115,9 +115,30 @@ theorem call_list_budget {d d' : CutData} {l : Leaf} {s : Site} {σ : Sig} {x : 
 
 /-! ## Appending the tuple -/
 
-theorem end_addr {σ : Sig} {m : Machine} (he : AuthEnd σ m) : AddrOk σ m := by
-  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, ha⟩ := he
+theorem end_addr {σ : Sig} {m : Machine} {f : Nat} {cur : Bool} (he : AuthEnd σ m f cur) :
+    AddrOk σ m := by
+  obtain ⟨-, -, -, -, -, -, -, -, ⟨-, -, -, -, -, -, ha, -⟩, -⟩ := he
   exact ha
+
+/-- A leaf's `geu (lit a) v` condition: `v ≤ a`. -/
+theorem geu_le {a : Nat} {v : Word} (h : (!(BitVec.ofNat 64 a).ult v) = true) (ha : a < 2 ^ 64) :
+    v.toNat ≤ a := by
+  simp only [BitVec.ult, Bool.not_eq_true', decide_eq_false_iff_not, Nat.not_lt,
+    BitVec.toNat_ofNat] at h
+  omega
+
+/-- An empty `s` (`0x80002820`'s append leaves): its check from the leaf's conditions. -/
+theorem end_2820c {σ : Sig} {m : Machine} (hA : (mkCut (table[136]!)).A σ m) (h4 : σ.t = 4)
+    (hpre : Pre σ.A σ.g σ.m) (hav : Avail σ m) {l : Leaf}
+    (hc : ∀ b ∈ l.conds, b.eval (envOf (table[136]!).shape σ m) = true)
+    (h1 : SBool.eq (.init 0 768 2) (.lit 0) ∈ l.conds)
+    (h2 : SBool.eq (isL 0x2e0) (.lit 0) ∈ l.conds)
+    (h3 : SBool.geu (.lit 32) (.init 0 744 8) ∈ l.conds) : AuthEnd σ m 6 false := by
+  have herr := hc _ h1
+  have hnl := hc _ h2
+  have hge := hc _ h3
+  simp only [SBool.eval, beq_iff_eq, Sym.eval_lit] at herr hnl hge
+  exact end_2820s hA h4 hpre hav herr hnl (geu_le hge (by decide))
 
 /-- The frame words `end_app` needs: kept, the source's, and the three the leaf writes. -/
 def appChk (d : CutData) (l : Leaf) : Bool :=
@@ -130,7 +151,7 @@ def appChk (d : CutData) (l : Leaf) : Bool :=
     (Loc.slot 0x38).sym l.S == .bin .sll (.init 0 0x50 8) (.lit 7)
 
 theorem end_app' {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    (h4 : σ.t = 4) (he : AuthEnd σ m) (hk : appChk d l = true) :
+    (h4 : σ.t = 4) (he : AuthEnd σ m 6 false) (hk : appChk d l = true) :
     ∃ n bp cap, AuthApp σ m' n ∧ m'.load (σ.fr + w 0x58) 8 = some bp ∧
       m'.load (σ.fr + w 0x60) 8 = some cap ∧ BufIs σ m' n 0 bp cap ∧ n < 2 ^ 32 ∧
       (Sym.init 0 0x50 8).eval (envOf d.shape σ m) = w n ∧
@@ -143,7 +164,7 @@ theorem end_app' {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d
 
 /-- The store path (`n < cap`, target `0x80002420`): room for the tuple. -/
 theorem store_extra {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    (h4 : σ.t = 4) (he : AuthEnd σ m) (hk : appChk d l = true)
+    (h4 : σ.t = 4) (he : AuthEnd σ m 6 false) (hk : appChk d l = true)
     (hlt : ((Sym.init 0 0x50 8).eval (envOf d.shape σ m)).ult
       ((Sym.init 0 0x60 8).eval (envOf d.shape σ m)) = true) :
     Extra 0x80002420 σ m' := by
@@ -202,7 +223,7 @@ theorem grow_of {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d 
 
 /-- The empty buffer (`cap = 0`, target `0x800029c4`): grow from no tuples, `a0 = 0`. -/
 theorem grow0_extra {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    (h4 : σ.t = 4) (he : AuthEnd σ m) (hk : appChk d l = true) (hg : growChk l = true)
+    (h4 : σ.t = 4) (he : AuthEnd σ m 6 false) (hk : appChk d l = true) (hg : growChk l = true)
     (h10 : l.S.reg 10 = .init 0 0x60 8)
     (h0 : (Sym.init 0 0x60 8).eval (envOf d.shape σ m) = 0) : Extra 0x800029c4 σ m' := by
   obtain ⟨n, bp, cap, ha, l58, l60, hb, hn32, e50, e60⟩ := end_app' C h4 he hk
@@ -217,7 +238,7 @@ theorem grow0_extra {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ct
 
 /-- A full buffer (`n ≥ cap ≠ 0`): `cap = n`, grow. -/
 theorem grow_full {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    (h4 : σ.t = 4) (he : AuthEnd σ m) (hk : appChk d l = true) (hg : growChk l = true)
+    (h4 : σ.t = 4) (he : AuthEnd σ m 6 false) (hk : appChk d l = true) (hg : growChk l = true)
     (hge : (!((Sym.init 0 0x50 8).eval (envOf d.shape σ m)).ult
       ((Sym.init 0 0x60 8).eval (envOf d.shape σ m))) = true) : ∃ n, AuthGrow σ m' n := by
   obtain ⟨n, bp, cap, ha, l58, l60, hb, hn32, e50, e60⟩ := end_app' C h4 he hk
@@ -235,9 +256,10 @@ theorem grow_full {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx 
 
 /-- The overflow check never fails: `mulhu (newCap n) 0x90 = 0`. -/
 theorem cap_mulhu {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    (h4 : σ.t = 4) (he : AuthEnd σ m) (i50 : (Loc.slot 0x50).sym d.shape.S = .init 0 0x50 8) :
+    (h4 : σ.t = 4) {f : Nat} {cur : Bool} (he : AuthEnd σ m f cur)
+    (i50 : (Loc.slot 0x50).sym d.shape.S = .init 0 0x50 8) :
     (Sym.bin .mulhu capSym (.lit 144)).eval (envOf d.shape σ m) = 0 := by
-  obtain ⟨c, hh, p, n, j, k, ho, l50, -, -, -, -, -⟩ := he
+  obtain ⟨c, hh, p, n, j, ht, pt, q, ⟨ho, l50, -⟩, -⟩ := he
   obtain ⟨-, -, hn⟩ := out_n C.F.common.2.1 h4 ho
   have e50 : (Sym.init 0 0x50 8).eval (envOf d.shape σ m) = w n := by
     rw [src_init C (by decide) i50, wordAt_of_load l50]
@@ -331,7 +353,7 @@ theorem DTF.leaf_80002820_0 :
     LeafGoal DTF.plan DTF.plan.cuts[136]! ((DTF.plan.leaves 0x80002820)[0]!) := by
   refine leaf_at_xo (table[136]!) (table[123]!) ((leavesAt 0x80002820)[0]!) (by decide)
     DTF.cut_80002820 (by decide) (by decide)
-    (oblLA_holds (by decide) DTF.cut_80002820 (by decide) fun _ _ hA => end_addr (end_2820 hA))
+    (oblLA_holds (by decide) DTF.cut_80002820 (by decide) fun _ _ hA => end_addr (end_2820a hA))
     (by decide) rfl (by decide) ?_
   intro σ m m' hA hc C
   have h4 : σ.t = 4 := arm4 C.F.arms (by decide)
@@ -340,13 +362,14 @@ theorem DTF.leaf_80002820_0 :
   refine ⟨?_, list_budget C (lenFrom_sound C (rs' := (table[123]!).rest) (by decide))
     (by decide)⟩
   rw [show (table[123]!).pc = 0x80002420 by decide]
-  exact store_extra C h4 (end_2820 hA) (by decide) hlt
+  exact store_extra C h4 (end_2820c hA h4 C.F.common.2.1 C.F.common.avail hc (by decide)
+    (by decide) (by decide)) (by decide) hlt
 
 theorem DTF.leaf_80002820_1 :
     LeafGoal DTF.plan DTF.plan.cuts[136]! ((DTF.plan.leaves 0x80002820)[1]!) := by
   refine leaf_at_xo (table[136]!) (table[139]!) ((leavesAt 0x80002820)[1]!) (by decide)
     DTF.cut_80002820 (by decide) (by decide)
-    (oblLA_holds (by decide) DTF.cut_80002820 (by decide) fun _ _ hA => end_addr (end_2820 hA))
+    (oblLA_holds (by decide) DTF.cut_80002820 (by decide) fun _ _ hA => end_addr (end_2820a hA))
     (by decide) rfl (by decide) ?_
   intro σ m m' hA hc C
   have h4 : σ.t = 4 := arm4 C.F.arms (by decide)
@@ -355,29 +378,31 @@ theorem DTF.leaf_80002820_1 :
   refine ⟨?_, list_budget C (lenFrom_sound C (rs' := (table[139]!).rest) (by decide))
     (by decide)⟩
   rw [show (table[139]!).pc = 0x800029c4 by decide]
-  exact grow0_extra C h4 (end_2820 hA) (by decide) (by decide) (by decide) h0
+  exact grow0_extra C h4 (end_2820c hA h4 C.F.common.2.1 C.F.common.avail hc (by decide)
+    (by decide) (by decide)) (by decide) (by decide) (by decide) h0
 
 theorem DTF.leaf_80002820_2 :
     LeafGoal DTF.plan DTF.plan.cuts[136]! ((DTF.plan.leaves 0x80002820)[2]!) := by
   refine leaf_call_xo (table[136]!) (table[138]!) (siteAt 138) ((leavesAt 0x80002820)[2]!)
     F0.entry (by decide) DTF.cut_80002820 (by decide) (by decide)
-    (oblLA_holds (by decide) DTF.cut_80002820 (by decide) fun _ _ hA => end_addr (end_2820 hA))
+    (oblLA_holds (by decide) DTF.cut_80002820 (by decide) fun _ _ hA => end_addr (end_2820a hA))
     (by decide) rfl rfl (by decide) ?_
   intro σ m m' hA hc C CF
   have h4 : σ.t = 4 := arm4 C.F.arms (by decide)
   have hge := hc _ (show SBool.geu (.init 0 80 8) (.init 0 96 8) ∈ _ by decide)
   simp only [SBool.eval] at hge
-  obtain ⟨n, hg⟩ := grow_full C h4 (end_2820 hA) (by decide) (by decide) hge
+  obtain ⟨n, hg⟩ := grow_full C h4 (end_2820c hA h4 C.F.common.2.1 C.F.common.avail hc
+    (by decide) (by decide) (by decide)) (by decide) (by decide) hge
   exact remap_call C CF hg (by decide) (by decide) (by decide) (by decide)
 
 theorem DTF.leaf_80002820_3 :
     LeafGoal DTF.plan DTF.plan.cuts[136]! ((DTF.plan.leaves 0x80002820)[3]!) := by
   refine leaf_at_xo (table[136]!) (table[139]!) ((leavesAt 0x80002820)[3]!) (by decide)
     DTF.cut_80002820 (by decide) (by decide)
-    (oblLA_holds (by decide) DTF.cut_80002820 (by decide) fun _ _ hA => end_addr (end_2820 hA))
+    (oblLA_holds (by decide) DTF.cut_80002820 (by decide) fun _ _ hA => end_addr (end_2820a hA))
     (by decide) rfl (by decide) fun σ m m' hA hc C => ?_
   have hov := hc _ (show SBool.ne (.bin .mulhu capSym (.lit 144)) (.lit 0) ∈ _ by decide)
-  simp only [SBool.eval, cap_mulhu C (arm4 C.F.arms (by decide)) (end_2820 hA) (by decide),
+  simp only [SBool.eval, cap_mulhu C (arm4 C.F.arms (by decide)) (end_2820a hA) (by decide),
     Sym.eval_lit] at hov
   exact absurd hov (by decide)
 

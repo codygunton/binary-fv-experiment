@@ -4,14 +4,15 @@ import ZesuExec.Fn.DTF.AuthExit
 # DTF: the tuple's fields (programme plan S7 step 4)
 
 The front half of the `txAuthList` loop: `decodeItem` on the list cursor (`0x800024d0`), the tuple a
-list (`0x800024ec`, `AuthTup 0`), then per field (chainId, address, nonce, yParity, r, s) the return
-of its `decodeItem` on the field cursor `s6`/`s7`: an empty field moves the cursor by the consumed
+list (`0x800024ec`, `AuthTup 0 0`), then per field (chainId, address, nonce, yParity, r, s) the
+return of its `decodeItem` on the field cursor `s6`/`s7`: the field passes `auth`'s check
+(`tupLen`, `TupOk`; not a list, the leaf's bound); an empty field moves the cursor by the consumed
 length and calls `decodeItem` on the next field; a nonempty one enters its byte loop (`CurOk` from
 the outcome, the `nx` clause); the loop's exit moves the cursor by the consumed word at `S-0x78`
 and calls `decodeItem` on the next field. Tools: the tuple state without the field cursor
-(`TupC`), a field return site's state and outcome (`f2_ret`, `tup_ret`, `tup_field`), a field's
-outcome (`field_res`), the cursor's advance (`tup_adv`), a field's `decodeItem` call
-(`field_call`), a byte loop's entry (`loop_entry`, `beL_budget`) and head (`tup_src`).
+(`TupC`), a field return site's state and outcome (`tup_ret`, `tup_field`), the cursor's advance
+(`tup_adv`), a field's `decodeItem` call (`field_call`), a byte loop's entry (`loop_entry`,
+`beL_budget`) and head (`tup_src`).
 -/
 
 namespace ZesuExec.Fn.DTF
@@ -27,20 +28,29 @@ def TupC (σ : Sig) (m : Machine) (c h p n j ht pt : Nat) : Prop :=
     F2.decode ((σ.payload.drop (c + h + j)).take (p - j)) = .success true ht pt ∧
     ht + pt ≤ p - j ∧ m.load (σ.fr + w 0x48) 8 = some (w (ht + pt))
 
-theorem tup_of {σ : Sig} {m : Machine} {c h p n j ht pt b q : Nat} {nx : Bool}
-    (hc : TupC σ m c h p n j ht pt) (hbq : b ≤ q) (hqp : q ≤ pt)
+theorem tup_of {σ : Sig} {m : Machine} {c h p n j ht pt b f q : Nat} {nx : Bool}
+    (hc : TupC σ m c h p n j ht pt) (hbq : b ≤ q) (hfq : f ≤ q) (hqp : q ≤ pt)
     (r22 : m.reg 22 = σ.inp + w (c + h + j + ht + q)) (r23 : m.reg 23 = w (pt - q))
-    (hnx : nx = true → ∃ k, m.load (σ.fr + w 0x2f8) 8 = some (w k) ∧ 1 ≤ k ∧ q + k ≤ pt) :
-    AuthTup σ m b nx := by
+    (hsf : skip f (tupPay σ c h p j ht pt) = some q) (hok : TupOk (tupPay σ c h p j ht pt) f)
+    (hnx : nx = true → TupOk (tupPay σ c h p j ht pt) (f + 1) ∧
+      ∃ k, m.load (σ.fr + w 0x2f8) 8 = some (w k) ∧ 1 ≤ k ∧ q + k ≤ pt ∧
+        skip (f + 1) (tupPay σ c h p j ht pt) = some (q + k)) :
+    AuthTup σ m b f nx := by
   obtain ⟨ho, l50, hb, hd, hle, l48⟩ := hc
-  exact ⟨c, h, p, n, j, ht, pt, q, ho, l50, hb, hd, hle, l48, hbq, hqp, r22, r23, hnx⟩
+  exact ⟨c, h, p, n, j, ht, pt, q, ho, l50, hb, hd, hle, l48, hbq, hfq, hqp, r22, r23, hsf, hok,
+    hnx⟩
 
-theorem of_tup {σ : Sig} {m : Machine} {b : Nat} {nx : Bool} (ht : AuthTup σ m b nx) :
-    ∃ c h p n j ht pt q, TupC σ m c h p n j ht pt ∧ b ≤ q ∧ q ≤ pt ∧
+theorem of_tup {σ : Sig} {m : Machine} {b f : Nat} {nx : Bool} (ht : AuthTup σ m b f nx) :
+    ∃ c h p n j ht pt q, TupC σ m c h p n j ht pt ∧ b ≤ q ∧ f ≤ q ∧ q ≤ pt ∧
       m.reg 22 = σ.inp + w (c + h + j + ht + q) ∧ m.reg 23 = w (pt - q) ∧
-      (nx = true → ∃ k, m.load (σ.fr + w 0x2f8) 8 = some (w k) ∧ 1 ≤ k ∧ q + k ≤ pt) := by
-  obtain ⟨c, h, p, n, j, ht, pt, q, ho, l50, hb, hd, hle, l48, hbq, hqp, r22, r23, hnx⟩ := ht
-  exact ⟨c, h, p, n, j, ht, pt, q, ⟨ho, l50, hb, hd, hle, l48⟩, hbq, hqp, r22, r23, hnx⟩
+      skip f (tupPay σ c h p j ht pt) = some q ∧ TupOk (tupPay σ c h p j ht pt) f ∧
+      (nx = true → TupOk (tupPay σ c h p j ht pt) (f + 1) ∧
+        ∃ k, m.load (σ.fr + w 0x2f8) 8 = some (w k) ∧ 1 ≤ k ∧ q + k ≤ pt ∧
+          skip (f + 1) (tupPay σ c h p j ht pt) = some (q + k)) := by
+  obtain ⟨c, h, p, n, j, ht, pt, q, ho, l50, hb, hd, hle, l48, hbq, hfq, hqp, r22, r23, hsf, hok,
+    hnx⟩ := ht
+  exact ⟨c, h, p, n, j, ht, pt, q, ⟨ho, l50, hb, hd, hle, l48⟩, hbq, hfq, hqp, r22, r23, hsf, hok,
+    hnx⟩
 
 /-- The frame words `TupC` names. -/
 def tupSlots : List Nat := [0x70, 0x68, 0x30, 0x58, 0x60, 0x50, 0x48]
@@ -76,31 +86,37 @@ theorem tupC_keep {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx 
 
 theorem siteX_tup0 {pc : Nat} (hpc : pc = 0x8000252c ∨ pc = 0x80002600) {σ : Sig} {x : Idx}
     {m : Machine} :
-    SiteX pc σ x m ↔ AuthTup σ m 0 false ∧ m.reg 11 = m.reg 22 ∧ m.reg 12 = m.reg 23 := by
+    SiteX pc σ x m ↔ AuthTup σ m 0 (tupF pc) false ∧ m.reg 11 = m.reg 22 ∧ m.reg 12 = m.reg 23 := by
   rcases hpc with rfl | rfl <;>
     simp only [SiteX, AuthSite, Nat.reduceEqDiff, if_false, if_true, or_true, or_false]
 
 theorem siteX_tup21 {pc : Nat} (hpc : pc = 0x80002654 ∨ pc = 0x800026d4 ∨ pc = 0x80002754)
     {σ : Sig} {x : Idx} {m : Machine} :
-    SiteX pc σ x m ↔ AuthTup σ m 21 false ∧ AddrOk σ m ∧ m.reg 11 = m.reg 22 ∧
+    SiteX pc σ x m ↔ AuthTup σ m 21 (tupF pc) false ∧ AddrOk σ m ∧ m.reg 11 = m.reg 22 ∧
       m.reg 12 = m.reg 23 := by
   rcases hpc with rfl | rfl | rfl <;>
     simp only [SiteX, AuthSite, Nat.reduceEqDiff, if_false, if_true, or_true, or_false]
 
 theorem siteX_end {σ : Sig} {x : Idx} {m : Machine} :
-    SiteX 0x80002820 σ x m ↔ AuthEnd σ m ∧ CurSlice σ m := by
+    SiteX 0x80002820 σ x m ↔ AuthEnd σ m 5 true := by
   simp only [SiteX, AuthSite, Nat.reduceEqDiff, if_false, if_true, or_false]
 
-/-- After the tuple's last field: the tuple consumed `ht + pt ≥ 22` bytes. -/
+/-- After the tuple's fifth field, `decodeItem` on `s` at `q`: the tuple consumed `ht + pt ≥ 22`
+bytes, its first five fields checked. -/
 theorem end_of {σ : Sig} {m : Machine} (hpre : Pre σ.A σ.g σ.m) (h4 : σ.t = 4)
-    {c h p n j ht pt : Nat} (hc : TupC σ m c h p n j ht pt) (h22 : 22 ≤ ht + pt)
-    (ha : AddrOk σ m) : AuthEnd σ m := by
+    {c h p n j ht pt q : Nat} (hc : TupC σ m c h p n j ht pt) (h22 : 22 ≤ ht + pt)
+    (ha : AddrOk σ m) (h5 : 5 ≤ q) (hqp : q ≤ pt)
+    (hs5 : skip 5 (tupPay σ c h p j ht pt) = some q) (hok : TupOk (tupPay σ c h p j ht pt) 5)
+    (a11 : m.reg 11 = σ.inp + w (c + h + j + ht + q)) (a12 : m.reg 12 = w (pt - q)) :
+    AuthEnd σ m 5 true := by
   obtain ⟨ho, l50, hb, hd, hle, l48⟩ := hc
   obtain ⟨hjp, hle', -⟩ := out_n hpre h4 ho
   have hlen := len_lt32 hpre
-  refine ⟨c, h, p, n, j, ht + pt, ho, l50, hb, ?_, h22, l48, ha⟩
+  refine ⟨c, h, p, n, j, ht, pt, q, ⟨ho, l50, hb, ?_, h22, l48, ha, hd, hle, h5, hqp, hs5, hok⟩,
+    fun _ => ⟨a11, a12⟩⟩
   rw [skip_snoc ho.2.1 (by rw [itemPayload_drop]; exact hd), TX.itemConsumed,
     Nat.mod_eq_of_lt (by omega)]
+
 
 /-! ## Evaluating the leaves' symbols -/
 
@@ -159,103 +175,114 @@ theorem len_reg {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d 
   simp only [w, BitVec.toNat_sub, BitVec.toNat_ofNat]
   omega
 
-/-- The leaf moves the field cursor by `k` (`s6 += k`, `s7 -= k`), the tuple state kept. -/
+/-- The leaf moves the field cursor by `k` (`s6 += k`, `s7 -= k`) past field `f`, the tuple state
+kept. -/
 theorem tup_adv {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
     (hks : slotsKept d l tupSlots = true) (h22 : l.S.reg 22 = advSym)
-    (h23 : l.S.reg 23 = lenSym) {c h p n j ht pt q k b : Nat}
+    (h23 : l.S.reg 23 = lenSym) {c h p n j ht pt q k b f : Nat}
     (hc : TupC σ m c h p n j ht pt) (r22 : m.reg 22 = σ.inp + w (c + h + j + ht + q))
     (r23 : m.reg 23 = w (pt - q)) (hkv : (Sym.init 0 760 8).eval (envOf d.shape σ m) = w k)
-    (hqk : q + k ≤ pt) (hpt : pt < 2 ^ 64) (hb : b ≤ q + k) : AuthTup σ m' b false := by
+    (hqk : q + k ≤ pt) (hpt : pt < 2 ^ 64) (hb : b ≤ q + k) (hfk : f + 1 ≤ q + k)
+    (hsf : skip (f + 1) (tupPay σ c h p j ht pt) = some (q + k))
+    (hok : TupOk (tupPay σ c h p j ht pt) (f + 1)) : AuthTup σ m' b (f + 1) false := by
   have e22 := adv_reg C (by decide) h22 r22 hkv
   have e23 := len_reg C (by decide) h23 r23 hkv (by omega) (by omega)
-  refine tup_of (tupC_keep C hks hc) hb hqk ?_ ?_ (fun h => absurd h (by decide))
+  refine tup_of (tupC_keep C hks hc) hb hfk hqk ?_ ?_ hsf hok (fun h => absurd h (by decide))
   · rw [show (22 : Fin 32) = Fin.ofNat 32 22 from rfl, e22, Nat.add_assoc]
   · rw [show (23 : Fin 32) = Fin.ofNat 32 23 from rfl, e23, Nat.sub_sub]
 
 /-! ## A field's `decodeItem` return -/
 
-/-- At the return site `table[i]!` of a `decodeItem` call (outcome at `fr + ko`): the call
-machine's `SiteX`, the frame below the outcome, the live list, `s6`/`s7` kept, and the outcome
-of the call on any payload slice its input was. -/
-theorem f2_ret {i : Nat} {σ : Sig} {m : Machine} (hne : (table[i]!).pc ≠ entry)
-    (hpl : (table[i]!).plain = false) (hkd : (siteAt i).kind = .f2)
-    (hSF : (siteAt i).kind.SiteFine (siteAt i) = true) {ko : Nat}
-    (h10 : regFr (siteAt i) 10 = some ko) (hko : ko + 40 + 104 ≤ frameBytes)
-    (hA : (mkCut (table[i]!)).A σ m) :
-    ∃ mc x, SiteX (table[i]!).pc σ x mc ∧ ArmOk σ (siteAt i).arms ∧ Pre σ.A σ.g σ.m ∧
-      (∀ o, o + 8 ≤ ko → m.load (σ.fr + w o) 8 = mc.load (σ.fr + w o) 8) ∧
-      (∀ L X, Live σ mc L X → Live σ m L X) ∧ m.reg 22 = mc.reg 22 ∧ m.reg 23 = mc.reg 23 ∧
-      ∀ X n, mc.reg 11 = σ.inp + w X → mc.reg 12 = w n → X + n ≤ σ.len →
-        ∃ before, BytesAt m (σ.fr + w ko)
-          (F2.result40 (σ.inp + w X) ((σ.payload.drop X).take n) before) := by
-  obtain ⟨mc, x, hsite, hpost⟩ := ret_parts hne hpl hA
-  have hq : F2.Post mc m := by have := hpost.1; rw [hkd] at this; exact this
-  have hSF' : Kind.SiteFine .f2 (siteAt i) = true := by rw [← hkd]; exact hSF
-  obtain ⟨hret, -, hkeep⟩ := ret_common hSF hsite hpost
-  have hout : mc.reg 10 = σ.fr + w ko := hsite.2.2.1.1 _ (lookup_mem (regFr_spec h10)) _ rfl
-  refine ⟨mc, x, hsite.2.2.2.2.2.2.2.2, hsite.2.2.2.1, hsite.2.1.2.1, fun o ho => hkeep o
-    (by omega) (by rw [hkd]; simp only [Kind.Keeps, h10, decide_eq_true_eq]; omega),
-    fun L X hl => f2_live hSF' hsite hq hpost.2 hl, hret.2 22 (by decide), hret.2 23 (by decide),
-    fun X n h11 h12 hXn => f2_post_cur hsite.2.1 hq hout (by omega) h11 h12 hXn⟩
-
-/-- At a field's return site whose `SiteX` is `AuthTup b false ∧ P` with the field cursor as the
+/-- At a field's return site whose `SiteX` is `AuthTup b f false ∧ P` with the field cursor as the
 input: the tuple state and the outcome on the field cursor's slice. -/
-theorem tup_ret {i b : Nat} {P : Sig → Machine → Prop} {σ : Sig} {m : Machine}
+theorem tup_ret {i b f : Nat} {P : Sig → Machine → Prop} {σ : Sig} {m : Machine}
     (hne : (table[i]!).pc ≠ entry) (hpl : (table[i]!).plain = false)
     (hkd : (siteAt i).kind = .f2) (hSF : (siteAt i).kind.SiteFine (siteAt i) = true)
     (h10 : regFr (siteAt i) 10 = some 0x2e0) (ha : (siteAt i).arms = [4])
     (hsx : ∀ x mc, SiteX (table[i]!).pc σ x mc →
-      AuthTup σ mc b false ∧ P σ mc ∧ mc.reg 11 = mc.reg 22 ∧ mc.reg 12 = mc.reg 23)
+      AuthTup σ mc b f false ∧ P σ mc ∧ mc.reg 11 = mc.reg 22 ∧ mc.reg 12 = mc.reg 23)
     (hP : ∀ mc, (∀ o, o + 8 ≤ 0x2e0 → m.load (σ.fr + w o) 8 = mc.load (σ.fr + w o) 8) →
       P σ mc → P σ m)
     (hA : (mkCut (table[i]!)).A σ m) :
-    ∃ c h p n j ht pt q before, TupC σ m c h p n j ht pt ∧ b ≤ q ∧ q ≤ pt ∧
+    ∃ c h p n j ht pt q before, TupC σ m c h p n j ht pt ∧ b ≤ q ∧ f ≤ q ∧ q ≤ pt ∧
       m.reg 22 = σ.inp + w (c + h + j + ht + q) ∧ m.reg 23 = w (pt - q) ∧ P σ m ∧
-      c + h + p ≤ σ.len ∧ j ≤ p ∧
+      c + h + p ≤ σ.len ∧ j ≤ p ∧ Pre σ.A σ.g σ.m ∧ σ.t = 4 ∧
+      skip f (tupPay σ c h p j ht pt) = some q ∧ TupOk (tupPay σ c h p j ht pt) f ∧
       BytesAt m (σ.fr + w 0x2e0) (F2.result40 (σ.inp + w (c + h + j + ht + q))
         ((σ.payload.drop (c + h + j + ht + q)).take (pt - q)) before) := by
   obtain ⟨mc, x, hsx', harm, hpre, hk, hL, e22, e23, hout⟩ :=
     f2_ret hne hpl hkd hSF h10 (by decide) hA
   obtain ⟨ht, hPm, a11, a12⟩ := hsx x mc hsx'
-  obtain ⟨c, h, p, n, j, ht, pt, q, hc, hbq, hqp, r22, r23, -⟩ := of_tup ht
+  obtain ⟨c, h, p, n, j, ht, pt, q, hc, hbq, hfq, hqp, r22, r23, hsf, hok, -⟩ := of_tup ht
   have h4 : σ.t = 4 := arm4 harm ha
   have hc' := tupC_mono (fun o ho => hk o (by
     simp only [tupSlots, List.mem_cons, List.not_mem_nil, or_false] at ho; omega)) hL hc
   obtain ⟨ho, -, -, -, hle, -⟩ := hc
   obtain ⟨hjp, hcl, -⟩ := out_n hpre h4 ho
   obtain ⟨before, hres⟩ := hout _ _ (a11.trans r22) (a12.trans r23) (by omega)
-  exact ⟨c, h, p, n, j, ht, pt, q, before, hc', hbq, hqp, e22.trans r22, e23.trans r23,
-    hP mc hk hPm, hcl, hjp, hres⟩
+  exact ⟨c, h, p, n, j, ht, pt, q, before, hc', hbq, hfq, hqp, e22.trans r22, e23.trans r23,
+    hP mc hk hPm, hcl, hjp, hpre, h4, hsf, hok, hres⟩
 
-/-- A field's outcome (`fr + 0x2e0`) on `n` payload bytes from `X`: no error and at most 32
-payload bytes give `p0 ≤ 32`, the consumed word `h + p0` in `1 ..= n`, and (nonempty) the payload
-at `X + h`. -/
-theorem field_res {sh : Shape} {σ : Sig} {m : Machine} {X n : Nat} {before : List Byte}
-    (hav : Avail σ m)
-    (hres : BytesAt m (σ.fr + w 0x2e0)
-      (F2.result40 (σ.inp + w X) ((σ.payload.drop X).take n) before))
-    (herr : (Sym.init 0 768 2).eval (envOf sh σ m) = 0)
-    (hp32 : ((Sym.init 0 744 8).eval (envOf sh σ m)).toNat ≤ 32) :
-    ∃ h p0, (Sym.init 0 744 8).eval (envOf sh σ m) = w p0 ∧ p0 ≤ 32 ∧
-      (Sym.init 0 760 8).eval (envOf sh σ m) = w (h + p0) ∧ 1 ≤ h + p0 ∧ h + p0 ≤ n ∧
-      (p0 ≠ 0 → TX.wordAt m (σ.fr + w 0x2e0) = σ.inp + w (X + h)) ∧ (h = 0 → p0 = 1) := by
-  have hne := res_ok (ko := 0x2e0) (by decide) hres herr
-  cases hd : F2.decode ((σ.payload.drop X).take n) with
-  | error => exact absurd hd hne
-  | success l h p =>
-  obtain ⟨-, hP, hK, hW⟩ := res_words (sh := sh) hav (by decide) hres hd
-  have hP' : (Sym.init 0 744 8).eval (envOf sh σ m) = w p := hP
-  have hK' : (Sym.init 0 760 8).eval (envOf sh σ m) = w (h + p) := hK
-  rw [hP'] at hp32
-  have hp32' : p % 2 ^ 64 ≤ 32 := by simpa [w] using hp32
-  obtain ⟨e, h1, hle⟩ := field_consumed hd hp32'
-  simp only [List.length_take, List.length_drop] at hle
-  refine ⟨h, p % 2 ^ 64, ?_, hp32', ?_, h1, by omega, fun hp => ?_, fun h0 => ?_⟩
-  · rw [hP']; apply BitVec.eq_of_toNat_eq; simp [w]
-  · rw [hK']; apply BitVec.eq_of_toNat_eq; simp only [w, BitVec.toNat_ofNat]; omega
-  · rw [hW, if_neg (fun h128 => hp (by simp [(decode_hdr hd).2 h128]))]
-    simp only [w]; rw [F1.add_add_ofNat]
-  · subst h0; rw [decode_h0 hd]
+/-- At a field's return site (`tup_ret`) with no error, not a list, and a payload length `tupLen`
+accepts (`hlen`): the tuple state, the field's payload length `p0` and consumed length `h' + p0`
+(within the tuple), its payload at `X + h'` (`X` the field cursor) when nonempty, and field `f`
+checked. -/
+theorem tup_field {i b f : Nat} {P : Sig → Machine → Prop} {σ : Sig} {m : Machine}
+    (hne : (table[i]!).pc ≠ entry) (hpl : (table[i]!).plain = false)
+    (hkd : (siteAt i).kind = .f2) (hSF : (siteAt i).kind.SiteFine (siteAt i) = true)
+    (h10 : regFr (siteAt i) 10 = some 0x2e0) (ha : (siteAt i).arms = [4])
+    (hsx : ∀ x mc, SiteX (table[i]!).pc σ x mc →
+      AuthTup σ mc b f false ∧ P σ mc ∧ mc.reg 11 = mc.reg 22 ∧ mc.reg 12 = mc.reg 23)
+    (hP : ∀ mc, (∀ o, o + 8 ≤ 0x2e0 → m.load (σ.fr + w o) 8 = mc.load (σ.fr + w o) 8) →
+      P σ mc → P σ m)
+    (hA : (mkCut (table[i]!)).A σ m) (hav : Avail σ m)
+    (herr : (Sym.init 0 768 2).eval (envOf (table[i]!).shape σ m) = 0)
+    (hnl : (isL 0x2e0).eval (envOf (table[i]!).shape σ m) = 0)
+    (hlen : ∀ p0, p0 < 2 ^ 64 → (Sym.init 0 744 8).eval (envOf (table[i]!).shape σ m) = w p0 →
+      tupLen f p0) :
+    ∃ c h p n j ht pt q h' p0, TupC σ m c h p n j ht pt ∧ b ≤ q ∧ f ≤ q ∧ q ≤ pt ∧
+      m.reg 22 = σ.inp + w (c + h + j + ht + q) ∧ m.reg 23 = w (pt - q) ∧ P σ m ∧
+      c + h + j + ht + pt ≤ σ.len ∧
+      (Sym.init 0 744 8).eval (envOf (table[i]!).shape σ m) = w p0 ∧ tupLen f p0 ∧
+      (Sym.init 0 760 8).eval (envOf (table[i]!).shape σ m) = w (h' + p0) ∧ 1 ≤ h' + p0 ∧
+      q + (h' + p0) ≤ pt ∧
+      (p0 ≠ 0 → TX.wordAt m (σ.fr + w 0x2e0) = σ.inp + w (c + h + j + ht + q + h')) ∧
+      (h' = 0 → p0 = 1) ∧ skip f (tupPay σ c h p j ht pt) = some q ∧
+      skip (f + 1) (tupPay σ c h p j ht pt) = some (q + (h' + p0)) ∧
+      TupOk (tupPay σ c h p j ht pt) (f + 1) := by
+  obtain ⟨c, h, p, n, j, ht, pt, q, before, hC, hbq, hfq, hqp, r22, r23, hPm, hcl, hjp, hpre, h4,
+    hsf, hok, hres⟩ := tup_ret hne hpl hkd hSF h10 ha hsx hP hA
+  have hlen' := payload_len hpre
+  obtain ⟨ho, -, -, hd, hle, -⟩ := id hC
+  have hqp' : q < pt := by
+    have hne := res_ok (ko := 0x2e0) (sh := (table[i]!).shape) (by decide) hres herr
+    refine Nat.lt_of_not_le fun hh' => hne ?_
+    rw [show pt - q = 0 by omega]
+    simp [F2.decode]
+  have hjp' : j < p := by
+    have := decode_ne_nil hd
+    simp only [List.length_take, List.length_drop] at this
+    omega
+  have hf := field_fits hpre h4 ho.1 ho.2.1 (by have := ho.2.2.1; omega)
+    (by rw [List.length_drop, hlen']; omega) hd hle hsf (by omega)
+  rw [tupPay_drop hle] at hf
+  obtain ⟨h', p0, hd', hP0, hK, h1, hkn, h64, hW, hh0⟩ := field_dec hav hres hf herr hnl
+  have hd'' : F2.decode ((tupPay σ c h p j ht pt).drop q) = .success false h' p0 := by
+    rw [tupPay_drop hle]; exact hd'
+  have hT := hlen p0 (by omega) hP0
+  have hs' := skip_snoc hsf hd''
+  rw [TX.itemConsumed, Nat.mod_eq_of_lt h64] at hs'
+  exact ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hfq, hqp, r22, r23, hPm, by omega, hP0, hT,
+    hK, h1, by omega, hW, hh0, hsf, hs', tupOk_succ hok hsf hd'' hT⟩
+
+/-- A `geu (lit B)` bound on the payload length word gives `tupLen f` when it accepts `≤ B`. -/
+theorem len_geu {f B : Nat} {v : Word} (h : (!(BitVec.ofNat 64 B).ult v) = true) (hB : B < 2 ^ 64)
+    (hf : ∀ p, p ≤ B → tupLen f p) : ∀ p0, p0 < 2 ^ 64 → v = w p0 → tupLen f p0 :=
+  fun p0 hp e => by
+    have := geu_le h hB
+    rw [e] at this
+    simp only [w, BitVec.toNat_ofNat] at this
+    exact hf p0 (by omega)
 
 /-! ## A field's `decodeItem` call -/
 
@@ -430,50 +457,15 @@ theorem DTF.leaf_800024ec_0 :
   have e11 := ctx_same C (i := 11) (i' := 22) (by decide) (by decide) (by decide)
   have e12 := ctx_same C (i := 12) (i' := 23) (by decide) (by decide) (by decide)
   have hsx : SiteX (table[127]!).pc σ ([], [], ⟨[], []⟩) m' := by
-    rw [show (table[127]!).pc = 0x8000252c by decide, siteX_tup0 (.inl rfl)]
-    exact ⟨tup_of hC (Nat.le_refl 0) (Nat.zero_le _) r22 r23 (fun h => absurd h (by decide)),
-      e11, e12⟩
+    rw [show (table[127]!).pc = 0x8000252c by decide, siteX_tup0 (.inl rfl),
+      show tupF 0x8000252c = 0 by decide]
+    exact ⟨tup_of hC (Nat.le_refl 0) (Nat.le_refl 0) (Nat.zero_le _) r22 r23 rfl (tupOk_zero _)
+      (fun h => absurd h (by decide)), e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
     (by decide) (by decide) (e11.trans r22) (e12.trans r23) (by omega) hsx (by decide)
     (by decide) (by decide) rfl rfl (by decide)
 
 /-! ## A field's return -/
-
-/-- A leaf's `geu (lit a) v` condition: `v ≤ a`. -/
-theorem geu_le {a : Nat} {v : Word} (h : (!(BitVec.ofNat 64 a).ult v) = true) (ha : a < 2 ^ 64) :
-    v.toNat ≤ a := by
-  simp only [BitVec.ult, Bool.not_eq_true', decide_eq_false_iff_not, Nat.not_lt,
-    BitVec.toNat_ofNat] at h
-  omega
-
-/-- At a field's return site (`tup_ret`) with no error and at most 32 payload bytes: the tuple
-state, the field's payload length `p0` and consumed length `h' + p0` (within the tuple), and
-its payload at `X + h'` (`X` the field cursor) when nonempty. -/
-theorem tup_field {i b : Nat} {P : Sig → Machine → Prop} {σ : Sig} {m : Machine}
-    (hne : (table[i]!).pc ≠ entry) (hpl : (table[i]!).plain = false)
-    (hkd : (siteAt i).kind = .f2) (hSF : (siteAt i).kind.SiteFine (siteAt i) = true)
-    (h10 : regFr (siteAt i) 10 = some 0x2e0) (ha : (siteAt i).arms = [4])
-    (hsx : ∀ x mc, SiteX (table[i]!).pc σ x mc →
-      AuthTup σ mc b false ∧ P σ mc ∧ mc.reg 11 = mc.reg 22 ∧ mc.reg 12 = mc.reg 23)
-    (hP : ∀ mc, (∀ o, o + 8 ≤ 0x2e0 → m.load (σ.fr + w o) 8 = mc.load (σ.fr + w o) 8) →
-      P σ mc → P σ m)
-    (hA : (mkCut (table[i]!)).A σ m) (hav : Avail σ m)
-    (herr : (Sym.init 0 768 2).eval (envOf (table[i]!).shape σ m) = 0)
-    (hp32 : ((Sym.init 0 744 8).eval (envOf (table[i]!).shape σ m)).toNat ≤ 32) :
-    ∃ c h p n j ht pt q h' p0, TupC σ m c h p n j ht pt ∧ b ≤ q ∧ q ≤ pt ∧
-      m.reg 22 = σ.inp + w (c + h + j + ht + q) ∧ m.reg 23 = w (pt - q) ∧ P σ m ∧
-      c + h + j + ht + pt ≤ σ.len ∧
-      (Sym.init 0 744 8).eval (envOf (table[i]!).shape σ m) = w p0 ∧ p0 ≤ 32 ∧
-      (Sym.init 0 760 8).eval (envOf (table[i]!).shape σ m) = w (h' + p0) ∧ 1 ≤ h' + p0 ∧
-      q + (h' + p0) ≤ pt ∧
-      (p0 ≠ 0 → TX.wordAt m (σ.fr + w 0x2e0) = σ.inp + w (c + h + j + ht + q + h')) ∧
-      (h' = 0 → p0 = 1) := by
-  obtain ⟨c, h, p, n, j, ht, pt, q, before, hC, hbq, hqp, r22, r23, hPm, hcl, hjp, hres⟩ :=
-    tup_ret hne hpl hkd hSF h10 ha hsx hP hA
-  obtain ⟨h', p0, hP', hp0, hK, hk1, hkn, hW, hh0⟩ := field_res hav hres herr hp32
-  have hle := hC.2.2.2.2.1
-  exact ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hqp, r22, r23, hPm, by omega, hP', hp0, hK,
-    hk1, by omega, hW, hh0⟩
 
 /-- chainId empty (`0x8000252c`, leaf 0): the cursor past it, `decodeItem` on the address. -/
 theorem DTF.leaf_8000252c_0 :
@@ -484,23 +476,27 @@ theorem DTF.leaf_8000252c_0 :
   intro σ m m' hA hc C CF
   have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
   have herr := hc _ (show SBool.eq (.init 0 768 2) (.lit 0) ∈ _ by decide)
+  have hnl := hc _ (show SBool.eq (isL 0x2e0) (.lit 0) ∈ _ by decide)
   have hge := hc _ (show SBool.geu (.lit 32) (.init 0 744 8) ∈ _ by decide)
-  simp only [SBool.eval, beq_iff_eq] at herr hge
-  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, -, hqp, r22, r23, -, hcl, -, -, hkv, -, hqk,
-    -, -⟩ := tup_field (i := 127) (P := fun _ _ => True) (by decide) (by decide) (by decide)
-      (by decide) (by decide) (by decide)
+  simp only [SBool.eval, beq_iff_eq, Sym.eval_lit] at herr hnl hge
+  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, -, hfq, hqp, r22, r23, -, hcl, -, -, hkv, hk1, hqk,
+    -, -, -, hsf, hok⟩ := tup_field (i := 127) (f := 0) (P := fun _ _ => True) (by decide)
+      (by decide) (by decide) (by decide) (by decide) (by decide)
       (fun x mc hs => by
-        rw [show (table[127]!).pc = 0x8000252c by decide, siteX_tup0 (.inl rfl)] at hs
+        rw [show (table[127]!).pc = 0x8000252c by decide, siteX_tup0 (.inl rfl),
+          show tupF 0x8000252c = 0 by decide] at hs
         exact ⟨hs.1, trivial, hs.2⟩)
-      (fun _ _ _ => trivial) hA C.F.common.avail herr (geu_le hge (by decide))
+      (fun _ _ _ => trivial) hA C.F.common.avail herr hnl
+      (len_geu hge (by decide) fun p hp => by simp [tupLen]; omega)
   have ht' := tup_adv C (b := 0) (by decide) (by decide) (by decide) hC r22 r23 hkv hqk
-    (by omega) (Nat.zero_le _)
+    (by omega) (Nat.zero_le _) (by omega) hsf hok
   have a11 := adv_reg C (r := 11) (by decide) (by decide) r22 hkv
   have a12 := len_reg C (r := 12) (by decide) (by decide) r23 hkv (by omega) (by omega)
   have e11 := ctx_same C (i := 11) (i' := 22) (by decide) (by decide) (by decide)
   have e12 := ctx_same C (i := 12) (i' := 23) (by decide) (by decide) (by decide)
   have hsx : SiteX (table[129]!).pc σ ([], [], ⟨[], []⟩) m' := by
-    rw [show (table[129]!).pc = 0x80002600 by decide, siteX_tup0 (.inr rfl)]
+    rw [show (table[129]!).pc = 0x80002600 by decide, siteX_tup0 (.inr rfl),
+      show tupF 0x80002600 = 0 + 1 by decide]
     exact ⟨ht', e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
     (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
@@ -516,28 +512,31 @@ theorem DTF.leaf_80002600_0 :
   intro σ m m' hA hc C CF
   have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
   have herr := hc _ (show SBool.eq (.init 0 768 2) (.lit 0) ∈ _ by decide)
+  have hnl := hc _ (show SBool.eq (isL 0x2e0) (.lit 0) ∈ _ by decide)
   have h20 := hc _ (show SBool.eq (.init 0 744 8) (.lit 20) ∈ _ by decide)
-  simp only [SBool.eval, beq_iff_eq, Sym.eval_lit] at herr h20
-  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, -, hqp, r22, r23, -, hcl, hP0, -, hkv, -, hqk,
-    hW, hh0⟩ := tup_field (i := 129) (P := fun _ _ => True) (by decide) (by decide)
-      (by decide) (by decide) (by decide) (by decide)
+  simp only [SBool.eval, beq_iff_eq, Sym.eval_lit] at herr hnl h20
+  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, -, hfq, hqp, r22, r23, -, hcl, -, hp20, hkv, -,
+    hqk, hW, hh0, -, hsf, hok⟩ := tup_field (i := 129) (f := 1) (P := fun _ _ => True) (by decide)
+      (by decide) (by decide) (by decide) (by decide) (by decide)
       (fun x mc hs => by
-        rw [show (table[129]!).pc = 0x80002600 by decide, siteX_tup0 (.inr rfl)] at hs
+        rw [show (table[129]!).pc = 0x80002600 by decide, siteX_tup0 (.inr rfl),
+          show tupF 0x80002600 = 1 by decide] at hs
         exact ⟨hs.1, trivial, hs.2⟩)
-      (fun _ _ _ => trivial) hA C.F.common.avail herr (by rw [h20]; decide)
-  have hp20 : p0 = 20 := by
-    rw [h20] at hP0
-    have := congrArg BitVec.toNat hP0
-    simp only [w, BitVec.toNat_ofNat] at this
-    omega
-  subst hp20
+      (fun _ _ _ => trivial) hA C.F.common.avail herr hnl
+      (fun p0 hp e => by
+        rw [h20] at e
+        have := congrArg BitVec.toNat e
+        simp only [w, BitVec.toNat_ofNat] at this
+        simp only [tupLen, if_true]; omega)
+  have hp20' : p0 = 20 := by simpa [tupLen] using hp20
+  subst hp20'
   have hh1 : 1 ≤ h' := by
     rcases Nat.eq_zero_or_pos h' with h0 | h0
     · have := hh0 h0; omega
     · exact h0
   have hW' := hW (by decide)
   have ht' := tup_adv C (b := 21) (by decide) (by decide) (by decide) hC r22 r23 hkv hqk
-    (by omega) (by omega)
+    (by omega) (by omega) (by omega) hsf hok
   have l78 : m'.load (σ.fr + w 0x78) 8 = some (σ.inp + w (c + h + j + ht + q + h')) := by
     rw [ctx_word C (o := 0x78) (s := .bin .add (.ptr 3 0) (.var 156)) (by decide) (by decide),
       eval_ptr_var (by decide), show 8 * (156 - 64) = 0x2e0 from rfl, hW']
@@ -547,7 +546,8 @@ theorem DTF.leaf_80002600_0 :
   have e11 := ctx_same C (i := 11) (i' := 22) (by decide) (by decide) (by decide)
   have e12 := ctx_same C (i := 12) (i' := 23) (by decide) (by decide) (by decide)
   have hsx : SiteX (table[130]!).pc σ ([], [], ⟨[], []⟩) m' := by
-    rw [show (table[130]!).pc = 0x80002654 by decide, siteX_tup21 (.inl rfl)]
+    rw [show (table[130]!).pc = 0x80002654 by decide, siteX_tup21 (.inl rfl),
+      show tupF 0x80002654 = 1 + 1 by decide]
     exact ⟨ht', hadd, e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
     (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
@@ -569,24 +569,27 @@ theorem DTF.leaf_80002654_0 :
   intro σ m m' hA hc C CF
   have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
   have herr := hc _ (show SBool.eq (.init 0 768 2) (.lit 0) ∈ _ by decide)
+  have hnl := hc _ (show SBool.eq (isL 0x2e0) (.lit 0) ∈ _ by decide)
   have hge := hc _ (show SBool.geu (.lit 8) (.init 0 744 8) ∈ _ by decide)
-  simp only [SBool.eval, beq_iff_eq] at herr hge
-  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hqp, r22, r23, hadd, hcl, -, -, hkv, -,
-    hqk, -, -⟩ := tup_field (i := 130) (P := AddrOk) (by decide) (by decide) (by decide)
-      (by decide) (by decide) (by decide)
+  simp only [SBool.eval, beq_iff_eq, Sym.eval_lit] at herr hnl hge
+  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hfq, hqp, r22, r23, hadd, hcl, -, -, hkv, -,
+    hqk, -, -, -, hsf, hok⟩ := tup_field (i := 130) (f := 2) (P := AddrOk) (by decide) (by decide)
+      (by decide) (by decide) (by decide) (by decide)
       (fun x mc hs => by
-        rw [show (table[130]!).pc = 0x80002654 by decide, siteX_tup21 (.inl rfl)] at hs
+        rw [show (table[130]!).pc = 0x80002654 by decide, siteX_tup21 (.inl rfl),
+          show tupF 0x80002654 = 2 by decide] at hs
         exact hs)
-      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr
-      (by have := geu_le hge (by decide); omega)
+      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr hnl
+      (len_geu hge (by decide) fun p hp => by simp [tupLen]; omega)
   have ht' := tup_adv C (b := 21) (by decide) (by decide) (by decide) hC r22 r23 hkv hqk
-    (by omega) (by omega)
+    (by omega) (by omega) (by omega) hsf hok
   have a11 := adv_reg C (r := 11) (by decide) (by decide) r22 hkv
   have a12 := len_reg C (r := 12) (by decide) (by decide) r23 hkv (by omega) (by omega)
   have e11 := ctx_same C (i := 11) (i' := 22) (by decide) (by decide) (by decide)
   have e12 := ctx_same C (i := 12) (i' := 23) (by decide) (by decide) (by decide)
   have hsx : SiteX (table[132]!).pc σ ([], [], ⟨[], []⟩) m' := by
-    rw [show (table[132]!).pc = 0x800026d4 by decide, siteX_tup21 (.inr (.inl rfl))]
+    rw [show (table[132]!).pc = 0x800026d4 by decide, siteX_tup21 (.inr (.inl rfl)),
+      show tupF 0x800026d4 = 2 + 1 by decide]
     exact ⟨ht', addr_keep C (regs := false) (by decide) hadd, e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
     (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
@@ -601,24 +604,27 @@ theorem DTF.leaf_800026d4_0 :
   intro σ m m' hA hc C CF
   have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
   have herr := hc _ (show SBool.eq (.init 0 768 2) (.lit 0) ∈ _ by decide)
+  have hnl := hc _ (show SBool.eq (isL 0x2e0) (.lit 0) ∈ _ by decide)
   have hge := hc _ (show SBool.geu (.lit 8) (.init 0 744 8) ∈ _ by decide)
-  simp only [SBool.eval, beq_iff_eq] at herr hge
-  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hqp, r22, r23, hadd, hcl, -, -, hkv, -,
-    hqk, -, -⟩ := tup_field (i := 132) (P := AddrOk) (by decide) (by decide) (by decide)
-      (by decide) (by decide) (by decide)
+  simp only [SBool.eval, beq_iff_eq, Sym.eval_lit] at herr hnl hge
+  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hfq, hqp, r22, r23, hadd, hcl, -, -, hkv, -,
+    hqk, -, -, -, hsf, hok⟩ := tup_field (i := 132) (f := 3) (P := AddrOk) (by decide) (by decide)
+      (by decide) (by decide) (by decide) (by decide)
       (fun x mc hs => by
-        rw [show (table[132]!).pc = 0x800026d4 by decide, siteX_tup21 (.inr (.inl rfl))] at hs
+        rw [show (table[132]!).pc = 0x800026d4 by decide, siteX_tup21 (.inr (.inl rfl)),
+          show tupF 0x800026d4 = 3 by decide] at hs
         exact hs)
-      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr
-      (by have := geu_le hge (by decide); omega)
+      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr hnl
+      (len_geu hge (by decide) fun p hp => by simp [tupLen]; omega)
   have ht' := tup_adv C (b := 21) (by decide) (by decide) (by decide) hC r22 r23 hkv hqk
-    (by omega) (by omega)
+    (by omega) (by omega) (by omega) hsf hok
   have a11 := adv_reg C (r := 11) (by decide) (by decide) r22 hkv
   have a12 := len_reg C (r := 12) (by decide) (by decide) r23 hkv (by omega) (by omega)
   have e11 := ctx_same C (i := 11) (i' := 22) (by decide) (by decide) (by decide)
   have e12 := ctx_same C (i := 12) (i' := 23) (by decide) (by decide) (by decide)
   have hsx : SiteX (table[134]!).pc σ ([], [], ⟨[], []⟩) m' := by
-    rw [show (table[134]!).pc = 0x80002754 by decide, siteX_tup21 (.inr (.inr rfl))]
+    rw [show (table[134]!).pc = 0x80002754 by decide, siteX_tup21 (.inr (.inr rfl)),
+      show tupF 0x80002754 = 3 + 1 by decide]
     exact ⟨ht', addr_keep C (regs := false) (by decide) hadd, e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
     (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
@@ -634,22 +640,27 @@ theorem DTF.leaf_80002754_0 :
   intro σ m m' hA hc C CF
   have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
   have herr := hc _ (show SBool.eq (.init 0 768 2) (.lit 0) ∈ _ by decide)
+  have hnl := hc _ (show SBool.eq (isL 0x2e0) (.lit 0) ∈ _ by decide)
   have hge := hc _ (show SBool.geu (.lit 32) (.init 0 744 8) ∈ _ by decide)
-  simp only [SBool.eval, beq_iff_eq] at herr hge
-  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hqp, r22, r23, hadd, hcl, -, -, hkv, hk1,
-    hqk, -, -⟩ := tup_field (i := 134) (P := AddrOk) (by decide) (by decide) (by decide)
-      (by decide) (by decide) (by decide)
+  simp only [SBool.eval, beq_iff_eq, Sym.eval_lit] at herr hnl hge
+  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hfq, hqp, r22, r23, hadd, hcl, -, -, hkv, hk1,
+    hqk, -, -, -, hsf, hok⟩ := tup_field (i := 134) (f := 4) (P := AddrOk) (by decide) (by decide)
+      (by decide) (by decide) (by decide) (by decide)
       (fun x mc hs => by
-        rw [show (table[134]!).pc = 0x80002754 by decide, siteX_tup21 (.inr (.inr rfl))] at hs
+        rw [show (table[134]!).pc = 0x80002754 by decide, siteX_tup21 (.inr (.inr rfl)),
+          show tupF 0x80002754 = 4 by decide] at hs
         exact hs)
-      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr (geu_le hge (by decide))
+      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr hnl
+      (len_geu hge (by decide) fun p hp => by simp [tupLen]; omega)
   have a11 := adv_reg C (r := 11) (by decide) (by decide) r22 hkv
   have a12 := len_reg C (r := 12) (by decide) (by decide) r23 hkv (by omega) (by omega)
-  have he : AuthEnd σ m' := end_of C.F.common.2.1 (arm4 C.F.arms (by decide))
+  have he : AuthEnd σ m' 5 true := end_of C.F.common.2.1 (arm4 C.F.arms (by decide))
     (tupC_keep C (by decide) hC) (by omega) (addr_keep C (regs := false) (by decide) hadd)
+    (by omega) hqk hsf hok (by rw [show (11 : Fin 32) = Fin.ofNat 32 11 from rfl, a11,
+      Nat.add_assoc]) (by rw [show (12 : Fin 32) = Fin.ofNat 32 12 from rfl, a12, Nat.sub_sub])
   have hsx : SiteX (table[136]!).pc σ ([], [], ⟨[], []⟩) m' := by
     rw [show (table[136]!).pc = 0x80002820 by decide, siteX_end]
-    exact ⟨he, _, _, a11, a12, by omega⟩
+    exact he
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
     (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
     (by decide) rfl rfl (by decide)
@@ -685,6 +696,7 @@ theorem loop_entry {d d' : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : 
   rw [hb']
   exact ⟨X + h', X + h' + p0, r10, r11, by omega, hle, by omega⟩
 
+
 /-- chainId nonempty (`0x8000252c`, leaf 1): into its byte loop (`0x80002574`). -/
 theorem DTF.leaf_8000252c_1 :
     LeafGoal DTF.plan DTF.plan.cuts[127]! ((DTF.plan.leaves 0x8000252c)[1]!) := by
@@ -692,27 +704,32 @@ theorem DTF.leaf_8000252c_1 :
     DTF.cut_8000252c (by decide) (by decide) (by decide) rfl (by decide) ?_
   intro σ m m' hA hc C
   have herr := hc _ (show SBool.eq (.init 0 768 2) (.lit 0) ∈ _ by decide)
+  have hnl := hc _ (show SBool.eq (isL 0x2e0) (.lit 0) ∈ _ by decide)
   have hge := hc _ (show SBool.geu (.lit 32) (.init 0 744 8) ∈ _ by decide)
   have hne := hc _ (show SBool.ne (.init 0 744 8) (.lit 0) ∈ _ by decide)
-  simp only [SBool.eval, beq_iff_eq, bne_iff_ne, ne_eq, Sym.eval_lit] at herr hge hne
-  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hqp, r22, r23, -, hcl, hP0, hp0, hkv, hk1,
-    hqk, hW, -⟩ := tup_field (i := 127) (P := fun _ _ => True) (by decide) (by decide)
-      (by decide) (by decide) (by decide) (by decide)
+  simp only [SBool.eval, beq_iff_eq, bne_iff_ne, ne_eq, Sym.eval_lit] at herr hnl hge hne
+  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hfq, hqp, r22, r23, -, hcl, hP0, hT, hkv,
+    hk1, hqk, hW, -, hsf0, hsf, hok⟩ := tup_field (i := 127) (f := 0) (P := fun _ _ => True) (by decide)
+      (by decide) (by decide) (by decide) (by decide) (by decide)
       (fun x mc hs => by
-        rw [show (table[127]!).pc = 0x8000252c by decide, siteX_tup0 (.inl rfl)] at hs
+        rw [show (table[127]!).pc = 0x8000252c by decide, siteX_tup0 (.inl rfl),
+          show tupF 0x8000252c = 0 by decide] at hs
         exact ⟨hs.1, trivial, hs.2⟩)
-      (fun _ _ _ => trivial) hA C.F.common.avail herr (geu_le hge (by decide))
+      (fun _ _ _ => trivial) hA C.F.common.avail herr hnl
+      (len_geu hge (by decide) fun p hp => by simp [tupLen]; omega)
   have hp0' : p0 ≠ 0 := fun h0 => hne (by rw [hP0, h0])
+  have hpB : p0 ≤ 32 := by simpa [tupLen] using hT
   have e22 := ctx_reg C (i := 22) (i' := 22) (by decide) (by decide) (by decide)
   have e23 := ctx_reg C (i := 23) (i' := 23) (by decide) (by decide) (by decide)
   have l2f8 : m'.load (σ.fr + w 0x2f8) 8 = some (w (h' + p0)) := by
     rw [ctx_word C (o := 0x2f8) (s := .init 0 760 8) (by decide) (by decide)]
     exact congrArg some hkv
-  have ht' : AuthTup σ m' 0 true := tup_of (tupC_keep C (by decide) hC) hbq hqp
-    (e22.trans r22) (e23.trans r23) fun _ => ⟨_, l2f8, hk1, hqk⟩
+  have ht' : AuthTup σ m' 0 0 true := tup_of (tupC_keep C (by decide) hC) hbq hfq hqp
+    (e22.trans r22) (e23.trans r23) hsf0 (tupOk_mono hok (by omega))
+    fun _ => ⟨hok, _, l2f8, hk1, hqk, hsf⟩
   refine ⟨?_, loop_entry C (by decide) (by decide)
     (lenFrom_sound C (rs' := (table[128]!).rest) (by decide)) rfl rfl (by decide) (B := 32)
-    (by decide) (by decide) hP0 hp0' hp0 (hW hp0') (by omega)⟩
+    (by decide) (by decide) hP0 hp0' hpB (hW hp0') (by omega)⟩
   rw [show (table[128]!).pc = 0x80002574 by decide]
   simpa [Extra, AuthExtra] using ht'
 
@@ -723,33 +740,35 @@ theorem DTF.leaf_80002654_1 :
     DTF.cut_80002654 (by decide) (by decide) (by decide) rfl (by decide) ?_
   intro σ m m' hA hc C
   have herr := hc _ (show SBool.eq (.init 0 768 2) (.lit 0) ∈ _ by decide)
+  have hnl := hc _ (show SBool.eq (isL 0x2e0) (.lit 0) ∈ _ by decide)
   have hge := hc _ (show SBool.geu (.lit 8) (.init 0 744 8) ∈ _ by decide)
   have hne := hc _ (show SBool.ne (.init 0 744 8) (.lit 0) ∈ _ by decide)
-  simp only [SBool.eval, beq_iff_eq, bne_iff_ne, ne_eq, Sym.eval_lit] at herr hge hne
-  have h8 := geu_le hge (by decide)
-  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hqp, r22, r23, hadd, hcl, hP0, hp32, hkv, hk1,
-    hqk, hW, -⟩ := tup_field (i := 130) (P := AddrOk) (by decide) (by decide) (by decide)
-      (by decide) (by decide) (by decide)
+  simp only [SBool.eval, beq_iff_eq, bne_iff_ne, ne_eq, Sym.eval_lit] at herr hnl hge hne
+  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hfq, hqp, r22, r23, hadd, hcl, hP0, hT, hkv,
+    hk1, hqk, hW, -, hsf0, hsf, hok⟩ := tup_field (i := 130) (f := 2) (P := AddrOk) (by decide)
+      (by decide) (by decide) (by decide) (by decide) (by decide)
       (fun x mc hs => by
-        rw [show (table[130]!).pc = 0x80002654 by decide, siteX_tup21 (.inl rfl)] at hs
+        rw [show (table[130]!).pc = 0x80002654 by decide, siteX_tup21 (.inl rfl),
+          show tupF 0x80002654 = 2 by decide] at hs
         exact hs)
-      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr (by omega)
+      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr hnl
+      (len_geu hge (by decide) fun p hp => by simp [tupLen]; omega)
   have hp0' : p0 ≠ 0 := fun h0 => hne (by rw [hP0, h0])
-  have hp8 : p0 ≤ 8 := by
-    rw [hP0] at h8; simp only [w, BitVec.toNat_ofNat] at h8; omega
+  have hpB : p0 ≤ 8 := by simpa [tupLen] using hT
   have e22 := ctx_reg C (i := 22) (i' := 22) (by decide) (by decide) (by decide)
   have e23 := ctx_reg C (i := 23) (i' := 23) (by decide) (by decide) (by decide)
   have l2f8 : m'.load (σ.fr + w 0x2f8) 8 = some (w (h' + p0)) := by
     rw [ctx_word C (o := 0x2f8) (s := .init 0 760 8) (by decide) (by decide)]
     exact congrArg some hkv
-  have ht' : AuthTup σ m' 21 true := tup_of (tupC_keep C (by decide) hC) hbq hqp
-    (e22.trans r22) (e23.trans r23) fun _ => ⟨_, l2f8, hk1, hqk⟩
+  have ht' : AuthTup σ m' 21 2 true := tup_of (tupC_keep C (by decide) hC) hbq hfq hqp
+    (e22.trans r22) (e23.trans r23) hsf0 (tupOk_mono hok (by omega))
+    fun _ => ⟨hok, _, l2f8, hk1, hqk, hsf⟩
   refine ⟨?_, loop_entry C (by decide) (by decide)
     (lenFrom_sound C (rs' := (table[131]!).rest) (by decide)) rfl rfl (by decide) (B := 8)
-    (by decide) (by decide) hP0 hp0' hp8 (hW hp0') (by omega)⟩
+    (by decide) (by decide) hP0 hp0' hpB (hW hp0') (by omega)⟩
   rw [show (table[131]!).pc = 0x80002690 by decide]
-  simpa [Extra, AuthExtra] using
-    (⟨ht', addr_keep C (regs := false) (by decide) hadd⟩ : AuthTup σ m' 21 true ∧ AddrOk σ m')
+  simpa [Extra, AuthExtra, tupF] using
+    (⟨ht', addr_keep C (regs := false) (by decide) hadd⟩ : AuthTup σ m' 21 2 true ∧ AddrOk σ m')
 
 /-- yParity nonempty (`0x800026d4`, leaf 1): into its byte loop (`0x80002710`). -/
 theorem DTF.leaf_800026d4_1 :
@@ -758,33 +777,35 @@ theorem DTF.leaf_800026d4_1 :
     DTF.cut_800026d4 (by decide) (by decide) (by decide) rfl (by decide) ?_
   intro σ m m' hA hc C
   have herr := hc _ (show SBool.eq (.init 0 768 2) (.lit 0) ∈ _ by decide)
+  have hnl := hc _ (show SBool.eq (isL 0x2e0) (.lit 0) ∈ _ by decide)
   have hge := hc _ (show SBool.geu (.lit 8) (.init 0 744 8) ∈ _ by decide)
   have hne := hc _ (show SBool.ne (.init 0 744 8) (.lit 0) ∈ _ by decide)
-  simp only [SBool.eval, beq_iff_eq, bne_iff_ne, ne_eq, Sym.eval_lit] at herr hge hne
-  have h8 := geu_le hge (by decide)
-  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hqp, r22, r23, hadd, hcl, hP0, hp32, hkv, hk1,
-    hqk, hW, -⟩ := tup_field (i := 132) (P := AddrOk) (by decide) (by decide) (by decide)
-      (by decide) (by decide) (by decide)
+  simp only [SBool.eval, beq_iff_eq, bne_iff_ne, ne_eq, Sym.eval_lit] at herr hnl hge hne
+  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hfq, hqp, r22, r23, hadd, hcl, hP0, hT, hkv,
+    hk1, hqk, hW, -, hsf0, hsf, hok⟩ := tup_field (i := 132) (f := 3) (P := AddrOk) (by decide)
+      (by decide) (by decide) (by decide) (by decide) (by decide)
       (fun x mc hs => by
-        rw [show (table[132]!).pc = 0x800026d4 by decide, siteX_tup21 (.inr (.inl rfl))] at hs
+        rw [show (table[132]!).pc = 0x800026d4 by decide, siteX_tup21 (.inr (.inl rfl)),
+          show tupF 0x800026d4 = 3 by decide] at hs
         exact hs)
-      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr (by omega)
+      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr hnl
+      (len_geu hge (by decide) fun p hp => by simp [tupLen]; omega)
   have hp0' : p0 ≠ 0 := fun h0 => hne (by rw [hP0, h0])
-  have hp8 : p0 ≤ 8 := by
-    rw [hP0] at h8; simp only [w, BitVec.toNat_ofNat] at h8; omega
+  have hpB : p0 ≤ 8 := by simpa [tupLen] using hT
   have e22 := ctx_reg C (i := 22) (i' := 22) (by decide) (by decide) (by decide)
   have e23 := ctx_reg C (i := 23) (i' := 23) (by decide) (by decide) (by decide)
   have l2f8 : m'.load (σ.fr + w 0x2f8) 8 = some (w (h' + p0)) := by
     rw [ctx_word C (o := 0x2f8) (s := .init 0 760 8) (by decide) (by decide)]
     exact congrArg some hkv
-  have ht' : AuthTup σ m' 21 true := tup_of (tupC_keep C (by decide) hC) hbq hqp
-    (e22.trans r22) (e23.trans r23) fun _ => ⟨_, l2f8, hk1, hqk⟩
+  have ht' : AuthTup σ m' 21 3 true := tup_of (tupC_keep C (by decide) hC) hbq hfq hqp
+    (e22.trans r22) (e23.trans r23) hsf0 (tupOk_mono hok (by omega))
+    fun _ => ⟨hok, _, l2f8, hk1, hqk, hsf⟩
   refine ⟨?_, loop_entry C (by decide) (by decide)
     (lenFrom_sound C (rs' := (table[133]!).rest) (by decide)) rfl rfl (by decide) (B := 8)
-    (by decide) (by decide) hP0 hp0' hp8 (hW hp0') (by omega)⟩
+    (by decide) (by decide) hP0 hp0' hpB (hW hp0') (by omega)⟩
   rw [show (table[133]!).pc = 0x80002710 by decide]
-  simpa [Extra, AuthExtra] using
-    (⟨ht', addr_keep C (regs := false) (by decide) hadd⟩ : AuthTup σ m' 21 true ∧ AddrOk σ m')
+  simpa [Extra, AuthExtra, tupF] using
+    (⟨ht', addr_keep C (regs := false) (by decide) hadd⟩ : AuthTup σ m' 21 3 true ∧ AddrOk σ m')
 
 /-- r nonempty (`0x80002754`, leaf 1): into its byte loop (`0x8000279c`). -/
 theorem DTF.leaf_80002754_1 :
@@ -793,72 +814,80 @@ theorem DTF.leaf_80002754_1 :
     DTF.cut_80002754 (by decide) (by decide) (by decide) rfl (by decide) ?_
   intro σ m m' hA hc C
   have herr := hc _ (show SBool.eq (.init 0 768 2) (.lit 0) ∈ _ by decide)
+  have hnl := hc _ (show SBool.eq (isL 0x2e0) (.lit 0) ∈ _ by decide)
   have hge := hc _ (show SBool.geu (.lit 32) (.init 0 744 8) ∈ _ by decide)
   have hne := hc _ (show SBool.ne (.init 0 744 8) (.lit 0) ∈ _ by decide)
-  simp only [SBool.eval, beq_iff_eq, bne_iff_ne, ne_eq, Sym.eval_lit] at herr hge hne
-  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hqp, r22, r23, hadd, hcl, hP0, hp0, hkv,
-    hk1, hqk, hW, -⟩ := tup_field (i := 134) (P := AddrOk) (by decide) (by decide) (by decide)
-      (by decide) (by decide) (by decide)
+  simp only [SBool.eval, beq_iff_eq, bne_iff_ne, ne_eq, Sym.eval_lit] at herr hnl hge hne
+  obtain ⟨c, h, p, n, j, ht, pt, q, h', p0, hC, hbq, hfq, hqp, r22, r23, hadd, hcl, hP0, hT, hkv,
+    hk1, hqk, hW, -, hsf0, hsf, hok⟩ := tup_field (i := 134) (f := 4) (P := AddrOk) (by decide)
+      (by decide) (by decide) (by decide) (by decide) (by decide)
       (fun x mc hs => by
-        rw [show (table[134]!).pc = 0x80002754 by decide, siteX_tup21 (.inr (.inr rfl))] at hs
+        rw [show (table[134]!).pc = 0x80002754 by decide, siteX_tup21 (.inr (.inr rfl)),
+          show tupF 0x80002754 = 4 by decide] at hs
         exact hs)
-      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr (geu_le hge (by decide))
+      (fun _ hk ha => addr_low hk ha) hA C.F.common.avail herr hnl
+      (len_geu hge (by decide) fun p hp => by simp [tupLen]; omega)
   have hp0' : p0 ≠ 0 := fun h0 => hne (by rw [hP0, h0])
+  have hpB : p0 ≤ 32 := by simpa [tupLen] using hT
   have e22 := ctx_reg C (i := 22) (i' := 22) (by decide) (by decide) (by decide)
   have e23 := ctx_reg C (i := 23) (i' := 23) (by decide) (by decide) (by decide)
   have l2f8 : m'.load (σ.fr + w 0x2f8) 8 = some (w (h' + p0)) := by
     rw [ctx_word C (o := 0x2f8) (s := .init 0 760 8) (by decide) (by decide)]
     exact congrArg some hkv
-  have ht' : AuthTup σ m' 21 true := tup_of (tupC_keep C (by decide) hC) hbq hqp
-    (e22.trans r22) (e23.trans r23) fun _ => ⟨_, l2f8, hk1, hqk⟩
+  have ht' : AuthTup σ m' 21 4 true := tup_of (tupC_keep C (by decide) hC) hbq hfq hqp
+    (e22.trans r22) (e23.trans r23) hsf0 (tupOk_mono hok (by omega))
+    fun _ => ⟨hok, _, l2f8, hk1, hqk, hsf⟩
   refine ⟨?_, loop_entry C (by decide) (by decide)
     (lenFrom_sound C (rs' := (table[135]!).rest) (by decide)) rfl rfl (by decide) (B := 32)
-    (by decide) (by decide) hP0 hp0' hp0 (hW hp0') (by omega)⟩
+    (by decide) (by decide) hP0 hp0' hpB (hW hp0') (by omega)⟩
   rw [show (table[135]!).pc = 0x8000279c by decide]
-  simpa [Extra, AuthExtra] using
-    (⟨ht', addr_keep C (regs := false) (by decide) hadd⟩ : AuthTup σ m' 21 true ∧ AddrOk σ m')
+  simpa [Extra, AuthExtra, tupF] using
+    (⟨ht', addr_keep C (regs := false) (by decide) hadd⟩ : AuthTup σ m' 21 4 true ∧ AddrOk σ m')
 
-/-- s nonempty (`0x80002820`, leaf 4): into its byte loop (`0x80002868`), `AuthEnd` kept. -/
+/-- s nonempty (`0x80002820`, leaf 4): `s` checked, into its byte loop (`0x80002868`). -/
 theorem DTF.leaf_80002820_4 :
     LeafGoal DTF.plan DTF.plan.cuts[136]! ((DTF.plan.leaves 0x80002820)[4]!) := by
   refine leaf_at_x (table[136]!) (table[137]!) ((leavesAt 0x80002820)[4]!) (by decide)
     DTF.cut_80002820 (by decide) (by decide) (by decide) rfl (by decide) ?_
   intro σ m m' hA hc C
   have herr := hc _ (show SBool.eq (.init 0 768 2) (.lit 0) ∈ _ by decide)
+  have hnl := hc _ (show SBool.eq (isL 0x2e0) (.lit 0) ∈ _ by decide)
   have hge := hc _ (show SBool.geu (.lit 32) (.init 0 744 8) ∈ _ by decide)
   have hne := hc _ (show SBool.ne (.init 0 744 8) (.lit 0) ∈ _ by decide)
-  simp only [SBool.eval, beq_iff_eq, bne_iff_ne, ne_eq, Sym.eval_lit] at herr hge hne
-  obtain ⟨mc, x, hsx, -, -, -, -, -, -, hout⟩ := f2_ret (i := 136) (ko := 0x2e0) (by decide)
-    (by decide) (by decide) (by decide) (by decide) (by decide) hA
-  rw [show (table[136]!).pc = 0x80002820 by decide, siteX_end] at hsx
-  obtain ⟨-, X, n, a11, a12, hXn⟩ := hsx
-  obtain ⟨before, hres⟩ := hout X n a11 a12 hXn
-  obtain ⟨h', p0, hP0, hp0, -, -, hkn, hW, -⟩ :=
-    field_res C.F.common.avail hres herr (geu_le hge (by decide))
+  simp only [SBool.eval, beq_iff_eq, bne_iff_ne, ne_eq, Sym.eval_lit] at herr hnl hge hne
+  have hpre := C.F.common.2.1
+  have h4 : σ.t = 4 := arm4 C.F.arms (by decide)
+  obtain ⟨c, hh, p, n, j, ht, pt, q, before, he, hres⟩ := end_2820 hA
+  obtain ⟨he6, h', p0, hP0, hp0, -, -, hkn, hW⟩ :=
+    end_s hpre h4 C.F.common.avail he hres herr hnl (geu_le hge (by decide))
+  obtain ⟨hjp, hcl, -⟩ := out_n hpre h4 he.1
+  have hle := he.2.2.2.2.2.2.2.2.1
   have hp0' : p0 ≠ 0 := fun h0 => hne (by rw [hP0, h0])
   refine ⟨?_, loop_entry C (by decide) (by decide)
     (lenFrom_sound C (rs' := (table[137]!).rest) (by decide)) rfl rfl (by decide) (B := 32)
     (by decide) (by decide) hP0 hp0' hp0 (hW hp0') (by omega)⟩
   rw [show (table[137]!).pc = 0x80002868 by decide]
-  simpa [Extra, AuthExtra] using end_keep C (regs := false) (by decide) (end_2820 hA)
+  simpa [Extra, AuthExtra] using end_keep C (regs := false) (by decide)
+    (⟨c, hh, p, n, j, ht, pt, q, he6, fun h => absurd h (by decide)⟩ : AuthEnd σ m 6 false)
 
 /-! ## Out of a field's byte loop -/
 
-/-- At a byte loop's head (`AuthTup b true`): the tuple state, the field's consumed length `k`
-(the word at `S-0x78`) within the tuple. -/
+/-- At a byte loop's head (`AuthTup b f true`): the tuple state, the field's consumed length `k`
+(the word at `S-0x78`) within the tuple, field `f` checked. -/
 theorem tup_src {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    (h4 : σ.t = 4) (hi : (Loc.slot 0x2f8).sym d.shape.S = .init 0 0x2f8 8) {b : Nat}
-    (ht : AuthTup σ m b true) :
-    ∃ c h p n j ht pt q k, TupC σ m c h p n j ht pt ∧ b ≤ q ∧
+    (h4 : σ.t = 4) (hi : (Loc.slot 0x2f8).sym d.shape.S = .init 0 0x2f8 8) {b f : Nat}
+    (ht : AuthTup σ m b f true) :
+    ∃ c h p n j ht pt q k, TupC σ m c h p n j ht pt ∧ b ≤ q ∧ f ≤ q ∧
       m.reg 22 = σ.inp + w (c + h + j + ht + q) ∧ m.reg 23 = w (pt - q) ∧
       (Sym.init 0 760 8).eval (envOf d.shape σ m) = w k ∧ 1 ≤ k ∧ q + k ≤ pt ∧
-      c + h + j + ht + pt ≤ σ.len := by
-  obtain ⟨c, h, p, n, j, ht, pt, q, hC, hbq, -, r22, r23, hnx⟩ := of_tup ht
-  obtain ⟨k, lk, hk1, hqk⟩ := hnx rfl
+      c + h + j + ht + pt ≤ σ.len ∧ skip (f + 1) (tupPay σ c h p j ht pt) = some (q + k) ∧
+      TupOk (tupPay σ c h p j ht pt) (f + 1) := by
+  obtain ⟨c, h, p, n, j, ht, pt, q, hC, hbq, hfq, -, r22, r23, -, -, hnx⟩ := of_tup ht
+  obtain ⟨hok, k, lk, hk1, hqk, hsf⟩ := hnx rfl
   obtain ⟨hjp, hcl, -⟩ := out_n C.F.common.2.1 h4 hC.1
   have hle := hC.2.2.2.2.1
-  exact ⟨c, h, p, n, j, ht, pt, q, k, hC, hbq, r22, r23,
-    by rw [src_init C (by decide) hi, wordAt_of_load lk], hk1, hqk, by omega⟩
+  exact ⟨c, h, p, n, j, ht, pt, q, k, hC, hbq, hfq, r22, r23,
+    by rw [src_init C (by decide) hi, wordAt_of_load lk], hk1, hqk, by omega, hsf, hok⟩
 
 /-- chainId's loop done (`0x80002574`, leaf 1): the cursor past it, `decodeItem` on the address. -/
 theorem DTF.leaf_80002574_1 :
@@ -870,17 +899,18 @@ theorem DTF.leaf_80002574_1 :
   have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
   have hx := extra_of_A (d := table[128]!) (by decide) (by decide) hA
   rw [show (table[128]!).pc = 0x80002574 by decide] at hx
-  obtain ⟨c, h, p, n, j, ht, pt, q, k, hC, -, r22, r23, hkv, -, hqk, hcl⟩ :=
+  obtain ⟨c, h, p, n, j, ht, pt, q, k, hC, -, hfq, r22, r23, hkv, hk1, hqk, hcl, hsf, hok⟩ :=
     tup_src C (arm4 C.F.arms (by decide)) (by decide)
-      (show AuthTup σ m 0 true by simpa [Extra, AuthExtra] using hx)
+      (show AuthTup σ m 0 0 true by simpa [Extra, AuthExtra] using hx)
   have ht' := tup_adv C (b := 0) (by decide) (by decide) (by decide) hC r22 r23 hkv hqk
-    (by omega) (Nat.zero_le _)
+    (by omega) (Nat.zero_le _) (by omega) hsf hok
   have a11 := adv_reg C (r := 11) (by decide) (by decide) r22 hkv
   have a12 := len_reg C (r := 12) (by decide) (by decide) r23 hkv (by omega) (by omega)
   have e11 := ctx_same C (i := 11) (i' := 22) (by decide) (by decide) (by decide)
   have e12 := ctx_same C (i := 12) (i' := 23) (by decide) (by decide) (by decide)
   have hsx : SiteX (table[129]!).pc σ ([], [], ⟨[], []⟩) m' := by
-    rw [show (table[129]!).pc = 0x80002600 by decide, siteX_tup0 (.inr rfl)]
+    rw [show (table[129]!).pc = 0x80002600 by decide, siteX_tup0 (.inr rfl),
+      show tupF 0x80002600 = 0 + 1 by decide]
     exact ⟨ht', e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
     (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
@@ -896,17 +926,19 @@ theorem DTF.leaf_80002690_1 :
   have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
   have hx := extra_of_A (d := table[131]!) (by decide) (by decide) hA
   rw [show (table[131]!).pc = 0x80002690 by decide] at hx
-  obtain ⟨htm, hadd⟩ : AuthTup σ m 21 true ∧ AddrOk σ m := by simpa [Extra, AuthExtra] using hx
-  obtain ⟨c, h, p, n, j, ht, pt, q, k, hC, hbq, r22, r23, hkv, -, hqk, hcl⟩ :=
+  obtain ⟨htm, hadd⟩ : AuthTup σ m 21 2 true ∧ AddrOk σ m := by
+    simpa [Extra, AuthExtra, tupF] using hx
+  obtain ⟨c, h, p, n, j, ht, pt, q, k, hC, hbq, hfq, r22, r23, hkv, hk1, hqk, hcl, hsf, hok⟩ :=
     tup_src C (arm4 C.F.arms (by decide)) (by decide) htm
   have ht' := tup_adv C (b := 21) (by decide) (by decide) (by decide) hC r22 r23 hkv hqk
-    (by omega) (by omega)
+    (by omega) (by omega) (by omega) hsf hok
   have a11 := adv_reg C (r := 11) (by decide) (by decide) r22 hkv
   have a12 := len_reg C (r := 12) (by decide) (by decide) r23 hkv (by omega) (by omega)
   have e11 := ctx_same C (i := 11) (i' := 22) (by decide) (by decide) (by decide)
   have e12 := ctx_same C (i := 12) (i' := 23) (by decide) (by decide) (by decide)
   have hsx : SiteX (table[132]!).pc σ ([], [], ⟨[], []⟩) m' := by
-    rw [show (table[132]!).pc = 0x800026d4 by decide, siteX_tup21 (.inr (.inl rfl))]
+    rw [show (table[132]!).pc = 0x800026d4 by decide, siteX_tup21 (.inr (.inl rfl)),
+      show tupF 0x800026d4 = 2 + 1 by decide]
     exact ⟨ht', addr_keep C (regs := false) (by decide) hadd, e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
     (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
@@ -922,17 +954,19 @@ theorem DTF.leaf_80002710_1 :
   have hlen64 : σ.len < 2 ^ 64 := (σ.m.reg 14).isLt
   have hx := extra_of_A (d := table[133]!) (by decide) (by decide) hA
   rw [show (table[133]!).pc = 0x80002710 by decide] at hx
-  obtain ⟨htm, hadd⟩ : AuthTup σ m 21 true ∧ AddrOk σ m := by simpa [Extra, AuthExtra] using hx
-  obtain ⟨c, h, p, n, j, ht, pt, q, k, hC, hbq, r22, r23, hkv, -, hqk, hcl⟩ :=
+  obtain ⟨htm, hadd⟩ : AuthTup σ m 21 3 true ∧ AddrOk σ m := by
+    simpa [Extra, AuthExtra, tupF] using hx
+  obtain ⟨c, h, p, n, j, ht, pt, q, k, hC, hbq, hfq, r22, r23, hkv, hk1, hqk, hcl, hsf, hok⟩ :=
     tup_src C (arm4 C.F.arms (by decide)) (by decide) htm
   have ht' := tup_adv C (b := 21) (by decide) (by decide) (by decide) hC r22 r23 hkv hqk
-    (by omega) (by omega)
+    (by omega) (by omega) (by omega) hsf hok
   have a11 := adv_reg C (r := 11) (by decide) (by decide) r22 hkv
   have a12 := len_reg C (r := 12) (by decide) (by decide) r23 hkv (by omega) (by omega)
   have e11 := ctx_same C (i := 11) (i' := 22) (by decide) (by decide) (by decide)
   have e12 := ctx_same C (i := 12) (i' := 23) (by decide) (by decide) (by decide)
   have hsx : SiteX (table[134]!).pc σ ([], [], ⟨[], []⟩) m' := by
-    rw [show (table[134]!).pc = 0x80002754 by decide, siteX_tup21 (.inr (.inr rfl))]
+    rw [show (table[134]!).pc = 0x80002754 by decide, siteX_tup21 (.inr (.inr rfl)),
+      show tupF 0x80002754 = 3 + 1 by decide]
     exact ⟨ht', addr_keep C (regs := false) (by decide) hadd, e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
     (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
@@ -950,16 +984,19 @@ theorem DTF.leaf_8000279c_1 :
   have h4 : σ.t = 4 := arm4 C.F.arms (by decide)
   have hx := extra_of_A (d := table[135]!) (by decide) (by decide) hA
   rw [show (table[135]!).pc = 0x8000279c by decide] at hx
-  obtain ⟨htm, hadd⟩ : AuthTup σ m 21 true ∧ AddrOk σ m := by simpa [Extra, AuthExtra] using hx
-  obtain ⟨c, h, p, n, j, ht, pt, q, k, hC, hbq, r22, r23, hkv, hk1, hqk, hcl⟩ :=
+  obtain ⟨htm, hadd⟩ : AuthTup σ m 21 4 true ∧ AddrOk σ m := by
+    simpa [Extra, AuthExtra, tupF] using hx
+  obtain ⟨c, h, p, n, j, ht, pt, q, k, hC, hbq, hfq, r22, r23, hkv, hk1, hqk, hcl, hsf, hok⟩ :=
     tup_src C h4 (by decide) htm
   have a11 := adv_reg C (r := 11) (by decide) (by decide) r22 hkv
   have a12 := len_reg C (r := 12) (by decide) (by decide) r23 hkv (by omega) (by omega)
-  have he : AuthEnd σ m' := end_of C.F.common.2.1 h4 (tupC_keep C (by decide) hC) (by omega)
-    (addr_keep C (regs := false) (by decide) hadd)
+  have he : AuthEnd σ m' 5 true := end_of C.F.common.2.1 h4 (tupC_keep C (by decide) hC)
+    (by omega) (addr_keep C (regs := false) (by decide) hadd) (by omega) hqk hsf hok
+    (by rw [show (11 : Fin 32) = Fin.ofNat 32 11 from rfl, a11, Nat.add_assoc])
+    (by rw [show (12 : Fin 32) = Fin.ofNat 32 12 from rfl, a12, Nat.sub_sub])
   have hsx : SiteX (table[136]!).pc σ ([], [], ⟨[], []⟩) m' := by
     rw [show (table[136]!).pc = 0x80002820 by decide, siteX_end]
-    exact ⟨he, _, _, a11, a12, by omega⟩
+    exact he
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
     (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
     (by decide) rfl rfl (by decide)

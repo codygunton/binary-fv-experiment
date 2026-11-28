@@ -355,9 +355,37 @@ Then `DTF.reach` (`zesu_assemble` reports open 0), `dtf_spec` (`Spec`-style, as 
   of the call site `0x80002180` (`leaf_call_xf`/`CallChkF`: call-site entries a `keep` predicate
   rejects come from the hand proof; `fields_infer.lean`'s `hand`), and kept from there to
   `0x80002dc4` by the existing kept rule.
-- Step 1, tuples: not done. `auth` needs each tuple's six inner items checked (`u256`, 20-byte
-  string, `u64`, `u64`, `u256`, `u256`): `AuthLoop` would carry the analogue of `HashesOk` built
-  from the tuple field leaves (`AuthFields.lean`), and `.awalk 9` at the call after the loop.
+- Step 1, tuples (DTFFieldsE): `tupLen`/`TupOk tp f` (the first `f` fields of the tuple payload
+  `tupPay` are strings passing `auth`'s check), `TupleOk`, `AuthsOk pl n` (`Cuts.lean`).
+  `AuthOut` carries `AuthsOk pl n`; `AuthTup σ m b f nx` the field index `f` (`skip f tp = q`,
+  `f ≤ q`, `TupOk tp f`, with `nx` also field `f`); `tupF pc` names `f` at the field cuts and
+  return sites. `AuthEnd σ m f cur` is `EndAt` (explicit tuple parameters) plus, with `cur`, the
+  `s` cursor in `a1`/`a2` (site `0x80002820`: `AuthEnd 5 true`; loop `0x80002868`: `AuthEnd 6
+  false`); `AuthCur` and `AuthDone` carry `AuthsOk`. Each field return checks not-a-list (the
+  leaf's `isL 0x2e0 = 0`), no error and its bound (`field_dec`, fit by `field_fits` from `Fits`'s
+  tuple level); `end_s`/`end_2820c` check `s`; `end_app` extends `AuthsOk` by the tuple
+  (`tupleOk_of`). Reopened leaves re-proved by hand (`AuthFields.lean` rewritten; `AuthBack`,
+  `AuthExit`, `AuthStep`, `AuthGrow`, `AuthOwn`, `AuthStore`, `AuthFront`). `auth_run`/
+  `walk_auth`/`auth_walk_ok` (`AuthLib.lean`): the walk succeeds from `AuthDone`. It is the row
+  value `.awalk 9` at slot `0x130` of the cut `0x800022e4` (`AuthDone`), supplied by hand on its
+  three non-vacuous entries (`leaf_at_xf`/`AtChkF`, `Hand.lean`; `awalk_done`) and kept to
+  `0x80002dc4`; `decode_dc4` covers all five arms.
+- Step 3 design (buffers, DTFFieldsE): `TxBufs` needs at `0x80002dc4` the four slices' bytes in
+  DTF's blocks. (a) One shared live list: `Common` loses its `∃ L X, Live`; `PlainA`/`SiteA` bind
+  `∃ L X, Live σ m L X` once and pass `L X` to `Extra`/`SiteX` (`ListHdr`, `BufIs`, `AuthNew`,
+  `AuthNewF`, `AuthOwn`, `BufL`, `NewL` drop their own `∃ L X`) and to `FieldsOk`; `IdxOk` states
+  `x.1 = L` for alloc/free/TX/F1/F4. (b) Row kind `buf k` (machine-dependent, like `acc`): the
+  word points into a block of `X` holding item `k`'s bytes (data: item payload; access list: TX's
+  entries image; hashes; tuples as `AuthAt`). (c) Per-callee keep lemmas: from `SiteA` + `Post`,
+  every `b ∈ X` disjoint from the callee's heap write (memcpy destination block, F1/F4 list buffer,
+  freed block) keeps its bytes and stays in the post-call `X'` (alloc `X ++ [new]`, free
+  `X.erase b`, F1/F4 `X.erase buf ++ [new]`, TX `X ++ leaked`): the Posts' `SameOutside` regions
+  are DTF-owned memory (not `Priv g.L`), `Priv x.1` (not live), or that write. (d) Origins: data
+  at the `memcpy` return after its `alloc`; access list at TX's return; hashes: `HashLoop` must
+  record the list buffer's bytes (store leaf `0x80002138`, F1's `PostKeep` copy, F4's `items`);
+  tuples: `AuthLoop` must record the buffer's `AuthAt`s (store leaf `0x80002434` from the tuple
+  fields' values, which need nested-item value facts in `AuthTup`), the growth `memcpy` and the
+  owned copy.
 - Step 3 (buffers) not started. Blocker found: separate `∃ L X, Live σ m L X` facts cannot be
   combined (S13AllocC: `Heap` does not pin `L`; `Heap [] m` and `Heap [(p,n)] m` both hold for a
   bumped block). A buffer's liveness must be stated against the live list the call sites use, so

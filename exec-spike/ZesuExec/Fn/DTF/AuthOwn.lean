@@ -22,10 +22,10 @@ theorem done_on {σ : Sig} {m m' : Machine}
     (h : ∀ o ∈ doneSlots, m'.load (σ.fr + w o) 8 = m.load (σ.fr + w o) 8)
     (hL : ∀ L X, Live σ m L X → Live σ m' L X) {n : Nat} (hd : AuthDone σ m n) :
     AuthDone σ m' n := by
-  obtain ⟨c, hh, p, hl, hs, hn, l78, l30, hp, hb⟩ := hd
+  obtain ⟨c, hh, p, hl, hs, hn, l78, l30, hp, hb, hok⟩ := hd
   exact ⟨c, hh, p, hl, hs, hn, by rw [h _ (by decide)]; exact l78,
     by rw [h _ (by decide)]; exact l30, hp,
-    authBuf_mono (h _ (by decide)) (h _ (by decide)) hL hb⟩
+    authBuf_mono (h _ (by decide)) (h _ (by decide)) hL hb, hok⟩
 
 theorem done_n {σ : Sig} {m : Machine} {n : Nat} (hpre : Pre σ.A σ.g σ.m) (h4 : σ.t = 4)
     (hd : AuthDone σ m n) : n < 2 ^ 32 := by
@@ -37,7 +37,7 @@ theorem done_n {σ : Sig} {m : Machine} {n : Nat} (hpre : Pre σ.A σ.g σ.m) (h
 /-- The buffer holds the `n` tuples: `n ≤ cap`, `cap ≤ 2 n + 1`, for the `cap` at `S-0x310`. -/
 theorem done_cap {σ : Sig} {m : Machine} {n : Nat} (hd : AuthDone σ m n) {cap : Word}
     (l60 : m.load (σ.fr + w 0x60) 8 = some cap) : n ≤ cap.toNat ∧ cap.toNat ≤ 2 * n + 1 := by
-  obtain ⟨-, -, -, -, -, -, -, -, -, bp', cap', -, l60', hn1, hn2, -⟩ := hd
+  obtain ⟨-, -, -, -, -, -, -, -, -, ⟨bp', cap', -, l60', hn1, hn2, -⟩, -⟩ := hd
   rw [l60, Option.some.injEq] at l60'
   subst l60'
   exact ⟨by omega, by omega⟩
@@ -92,6 +92,14 @@ theorem size_eval {env : Env} {n : Nat} (h : (Sym.init 0 0x78 8).eval env = w n)
 
 /-! ## After `toOwnedSlice`'s remap (`0x80002f54`): null -/
 
+/-- The tuple walk (`.awalk 9`, hand-supplied at `0x800022e4`) from `AuthDone`'s checked tuples. -/
+theorem awalk_done {σ : Sig} {m : Machine} (hpre : Pre σ.A σ.g σ.m) (h4 : σ.t = 4)
+    (hx : Extra 0x800022e4 σ m) (fs : List Field) :
+    FieldsOk σ m (fs.filter fun f => !(f.v != .awalk 9)) := by
+  simp only [Extra, AuthExtra, Nat.reduceEqDiff, if_false, if_true] at hx
+  obtain ⟨n, c, h, p, hl, hs, hnp, -, -, -, -, hok⟩ := hx
+  exact awalk_fields awalk_sel hl (auth_walk_ok hpre h4 hl hs hnp hok)
+
 theorem remap_ret2 {σ : Sig} {m : Machine} (hA : (mkCut (table[156]!)).A σ m) :
     (∃ n, AuthDone σ m n) ∧ m.reg 10 = 0 := by
   obtain ⟨mc, x, hsite, hpost⟩ := ret_parts (i := 156) (by decide) (by decide) hA
@@ -108,8 +116,10 @@ theorem remap_ret2 {σ : Sig} {m : Machine} (hA : (mkCut (table[156]!)).A σ m) 
 
 theorem DTF.leaf_80002f54_0 :
     LeafGoal DTF.plan DTF.plan.cuts[156]! ((DTF.plan.leaves 0x80002f54)[0]!) := by
-  refine leaf_at_xo (table[156]!) (table[116]!) ((leavesAt 0x80002f54)[0]!) (by decide)
-    DTF.cut_80002f54 (by decide) (by decide) (noObl (by decide)) (by decide) rfl (by decide) ?_
+  refine leaf_at_xf (fun f => f.v != .awalk 9) (table[156]!) (table[116]!)
+    ((leavesAt 0x80002f54)[0]!) (by decide) DTF.cut_80002f54 (by decide) (by decide)
+    (noObl (by decide)) (by decide) rfl (by decide) ?_
+    (fun σ _ _ _ C hx => awalk_done C.F.common.2.1 (arm4 C.F.arms (by decide)) hx _)
   intro σ m m' hA hc C
   obtain ⟨⟨n, hd⟩, -⟩ := remap_ret2 hA
   refine ⟨?_, ?_⟩
@@ -121,9 +131,10 @@ theorem DTF.leaf_80002f54_0 :
 /-- F0 returned null: the non-null branch is vacuous. -/
 theorem DTF.leaf_80002f54_1 :
     LeafGoal DTF.plan DTF.plan.cuts[156]! ((DTF.plan.leaves 0x80002f54)[1]!) := by
-  refine leaf_at_xo (table[156]!) (table[116]!) ((leavesAt 0x80002f54)[1]!) (by decide)
-    DTF.cut_80002f54 (by decide) (by decide) (noObl (by decide)) (by decide) rfl (by decide)
-    fun σ m m' hA hc C => ?_
+  refine leaf_at_xf (fun f => f.v != .awalk 9) (table[156]!) (table[116]!)
+    ((leavesAt 0x80002f54)[1]!) (by decide) DTF.cut_80002f54 (by decide) (by decide)
+    (noObl (by decide)) (by decide) rfl (by decide) (fun σ m m' hA hc C => ?_)
+    (fun σ _ _ _ C hx => awalk_done C.F.common.2.1 (arm4 C.F.arms (by decide)) hx _)
   have h10 := (remap_ret2 hA).2
   have hne := hc _ (show SBool.ne (.var 10) (.lit 0) ∈ _ by decide)
   simp only [SBool.eval, var_reg (show 10 < 32 by decide), Sym.eval_lit] at hne
@@ -208,7 +219,7 @@ theorem DTF.leaf_800022e4_1 :
     rw [r11]; simp only [w, BitVec.toNat_ofNat]; omega
   have hsp : m'.reg 2 = σ.fr + w 0 := CF.shape.1 (2, .fr 0) (by decide) _ rfl
   have hb : AuthBuf σ m' n 0 := by
-    obtain ⟨-, -, -, -, -, -, -, -, -, hb⟩ := hd'; exact hb
+    obtain ⟨-, -, -, -, -, -, -, -, -, hb, -⟩ := hd'; exact hb
   obtain ⟨bp, cap, l58, l60, -, -, L, X, hlive, hmem⟩ := hb
   have hidx : IdxOk (siteAt 147).kind σ (L, [], ⟨[], []⟩) m' := by
     rw [show (siteAt 147).kind = .alloc by decide]
@@ -264,14 +275,14 @@ theorem alloc_ret2 {σ : Sig} {m : Machine} (hA : (mkCut (table[147]!)).A σ m)
     · simp only [List.mem_singleton] at hb
       subst hb
       exact ⟨hpos, hram, fun a ha => priv_sub hpre hlive (hin a ha)⟩
-  obtain ⟨c, hh, p, hl, hs, hnp, l78, l30, hp, bp', cap', l58', l60', hn1, hn2, -⟩ := hd
+  obtain ⟨c, hh, p, hl, hs, hnp, l78, l30, hp, ⟨bp', cap', l58', l60', hn1, hn2, -⟩, hok⟩ := hd
   rw [l58, Option.some.injEq] at l58'
   rw [l60, Option.some.injEq] at l60'
   subst l58' l60'
   have hmem' : 0 < cap.toNat → (bp, cap.toNat * 0x90) ∈ X ++ [(m.reg 10, n * 0x90)] :=
     fun h => List.mem_append_left _ (hmem h)
-  refine ⟨n, ⟨c, hh, p, hl, hs, hnp, lk hk (by decide) l78, lk hk (by decide) l30, hp, bp, cap,
-    lk hk (by decide) l58, lk hk (by decide) l60, hn1, hn2, _, _, hliveM, hmem'⟩, ?_, bp, cap,
+  refine ⟨n, ⟨c, hh, p, hl, hs, hnp, lk hk (by decide) l78, lk hk (by decide) l30, hp, ⟨bp, cap,
+    lk hk (by decide) l58, lk hk (by decide) l60, hn1, hn2, _, _, hliveM, hmem'⟩, hok⟩, ?_, bp, cap,
     lk hk (by decide) l58, lk hk (by decide) l60, _, _, hliveM,
     List.mem_append_right _ (List.mem_singleton_self _), hmem'⟩
   rw [hret.2 25 (by decide)]; exact r25
@@ -405,12 +416,12 @@ theorem memcpy_ret2 {σ : Sig} {m : Machine} (hA : (mkCut (table[154]!)).A σ m)
     rw [← hc8, hlen] at ha
     exact ⟨_, hlive.2.1.symm.subset (List.mem_append_right _ hnew), ha⟩
   have hlive' := memcpy_live hsite.2.1 hq hpost.2 hlive hdst
-  obtain ⟨c, hh, p, hl, hs, hnp, l78, l30, hp, bp', cap', l58', l60', hn1, hn2, -⟩ := hd
+  obtain ⟨c, hh, p, hl, hs, hnp, l78, l30, hp, ⟨bp', cap', l58', l60', hn1, hn2, -⟩, hok⟩ := hd
   rw [l58, Option.some.injEq] at l58'
   rw [l60, Option.some.injEq] at l60'
   subst l58' l60'
-  exact ⟨⟨c, hh, p, hl, hs, hnp, lk hk (by decide) l78, lk hk (by decide) l30, hp, bp, cap,
-    lk hk (by decide) l58, lk hk (by decide) l60, hn1, hn2, L, X, hlive', hold⟩,
+  exact ⟨⟨c, hh, p, hl, hs, hnp, lk hk (by decide) l78, lk hk (by decide) l30, hp, ⟨bp, cap,
+    lk hk (by decide) l58, lk hk (by decide) l60, hn1, hn2, L, X, hlive', hold⟩, hok⟩,
     by rw [hret.2 25 (by decide)]; exact r25, .inr ⟨bp, cap, newp, lk hk (by decide) l58,
       lk hk (by decide) l60, lk hk (by decide) lc8, L, X, hlive', hnew, hold⟩⟩
 
@@ -476,8 +487,11 @@ theorem DTF.leaf_80002ee0_1 :
 /-- An empty authorization list (`0x80001ccc`, leaf 2): no tuples, the buffer `{16, 0}`. -/
 theorem DTF.leaf_80001ccc_2 :
     LeafGoal DTF.plan DTF.plan.cuts[93]! ((DTF.plan.leaves 0x80001ccc)[2]!) := by
-  refine leaf_at_x (table[93]!) (table[116]!) ((leavesAt 0x80001ccc)[2]!) (by decide)
-    DTF.cut_80001ccc (by decide) (by decide) (by decide) rfl (by decide) ?_
+  refine leaf_at_xf (fun f => f.v != .awalk 9) (table[93]!) (table[116]!)
+    ((leavesAt 0x80001ccc)[2]!) (by decide) DTF.cut_80001ccc (by decide) (coreChk0 (by decide))
+    (fun _ _ hA hc => core_obl (by decide) DTF.cut_80001ccc (by decide) (by decide) hA hc)
+    (by decide) rfl (by decide) ?_
+    (fun σ _ _ _ C hx => awalk_done C.F.common.2.1 (arm4 C.F.arms (by decide)) hx _)
   intro σ m m' hA hc C
   have hpre := C.F.common.2.1
   have herr := hc _ (show SBool.eq (.init 0 688 2) (.lit 0) ∈ _ by decide)
@@ -508,6 +522,7 @@ theorem DTF.leaf_80001ccc_2 :
   refine ⟨?_, keep_budget (lenFrom_sound C (rs' := (table[116]!).rest) (by decide)) (by decide)⟩
   rw [show (table[116]!).pc = 0x800022e4 by decide]
   simp only [Extra, AuthExtra, Nat.reduceEqDiff, if_false, if_true]
-  exact ⟨0, c, h, 0, ⟨hs, hd⟩, rfl, Nat.le_refl _, l78, l30, fun h0 => absurd rfl h0, hbuf⟩
+  exact ⟨0, c, h, 0, ⟨hs, hd⟩, rfl, Nat.le_refl _, l78, l30, fun h0 => absurd rfl h0, hbuf,
+    authsOk_zero _⟩
 
 end ZesuExec.Fn.DTF

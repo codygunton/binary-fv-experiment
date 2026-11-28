@@ -174,6 +174,8 @@ def FieldVal.At (σ : Sig) (m : Machine) (c h p : Nat) (x : Word) : FieldVal →
   | .cst v => x = w v
   | .hwalk _ => ∃ hs, walkList hash (TX.itemPayload (σ.payload.drop c) h p).length
       (TX.itemPayload (σ.payload.drop c) h p) = some hs
+  | .awalk _ => ∃ ts, walkList auth (TX.itemPayload (σ.payload.drop c) h p).length
+      (TX.itemPayload (σ.payload.drop c) h p) = some ts
 
 /-- `x` is `v` of item `v.k` when that item decodes; nothing is said otherwise. -/
 def FieldVal.Holds (σ : Sig) (m : Machine) (v : FieldVal) (x : Word) : Prop :=
@@ -281,12 +283,34 @@ def HashSlot (σ : Sig) (m : Machine) : Prop :=
 def AuthList (σ : Sig) (c h p : Nat) : Prop :=
   skip 9 σ.payload = some c ∧ F2.decode (σ.payload.drop c) = .success true h p
 
+/-- `auth`'s check of a tuple's field `i` of payload length `p`: the address (field 1) has 20
+bytes, `nonce`/`yParity` (`u64`) at most 8, `chainId`/`r`/`s` (`u256`) at most 32. -/
+def tupLen (i p : Nat) : Prop := if i = 1 then p = 20 else if i = 2 ∨ i = 3 then p ≤ 8 else p ≤ 32
+
+/-- The first `f` fields of the tuple payload `tp` are strings passing `tupLen`. -/
+def TupOk (tp : List Byte) (f : Nat) : Prop :=
+  ∀ i < f, ∀ c, skip i tp = some c → ∃ h p, F2.decode (tp.drop c) = .success false h p ∧ tupLen i p
+
+/-- The item at the head of `b` is a tuple `auth` accepts: a list whose six fields pass. -/
+def TupleOk (b : List Byte) : Prop :=
+  ∃ ht pt, F2.decode b = .success true ht pt ∧ 6 ≤ pt ∧ TupOk (TX.itemPayload b ht pt) 6
+
+/-- The first `n` items of the list payload `pl` are tuples `auth` accepts. -/
+def AuthsOk (pl : List Byte) (n : Nat) : Prop :=
+  ∀ i < n, ∀ c, skip i pl = some c → TupleOk (pl.drop c)
+
 /-- The list cursor after `n` tuples, `j` bytes of the list payload: `S-0x300 = inp + c + h + j`,
-`S-0x308 = p - j` (the budget's list term); the payload length `p` at `S-0x340`. -/
+`S-0x308 = p - j` (the budget's list term); the payload length `p` at `S-0x340`; the `n` tuples
+passed `auth`'s checks. -/
 def AuthOut (σ : Sig) (m : Machine) (n j c h p : Nat) : Prop :=
   AuthList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧ n ≤ j ∧
     m.load (σ.fr + w 0x70) 8 = some (σ.inp + w (c + h + j)) ∧
-    m.load (σ.fr + w 0x68) 8 = some (w (p - j)) ∧ m.load (σ.fr + w 0x30) 8 = some (w p)
+    m.load (σ.fr + w 0x68) 8 = some (w (p - j)) ∧ m.load (σ.fr + w 0x30) 8 = some (w p) ∧
+    AuthsOk (TX.itemPayload (σ.payload.drop c) h p) n
+
+/-- The payload of the `n + 1`-th tuple (header `ht`, payload length `pt`) at list offset `j`. -/
+def tupPay (σ : Sig) (c h p j ht pt : Nat) : List Byte :=
+  TX.itemPayload ((σ.payload.drop (c + h + j)).take (p - j)) ht pt
 
 /-- A tuple buffer `{bp, cap}` with room for `n + r` tuples of `0x90` bytes and at most
 `2 (n + r) + 1` (the growth rule keeps it so), one of DTF's blocks when it has one. -/
@@ -309,35 +333,53 @@ def AuthPre (σ : Sig) (m : Machine) : Prop :=
     AuthBuf σ m n 0 ∧ m.reg 11 = σ.inp + w (c + h + j) ∧ m.reg 12 = w (p - j)
 
 /-- Inside the `n + 1`-th tuple (a list, `ht + pt` bytes, consumed length at `S-0x328`): the
-field cursor `s6 = inp + … + q`, `s7 = pt - q`, `b ≤ q`; with `nx` the current field's consumed
-length `k` (outcome at `S-0x90`, `S-0x78`) fits after `q`. -/
-def AuthTup (σ : Sig) (m : Machine) (b : Nat) (nx : Bool) : Prop :=
+field cursor `s6 = inp + … + q`, `s7 = pt - q`, `b ≤ q`, at field `f` of the tuple payload whose
+first `f` fields passed their checks; with `nx` field `f` also passed and its consumed length `k`
+(outcome at `S-0x90`, `S-0x78`) fits after `q`. -/
+def AuthTup (σ : Sig) (m : Machine) (b f : Nat) (nx : Bool) : Prop :=
   ∃ c h p n j ht pt q, AuthOut σ m n j c h p ∧ m.load (σ.fr + w 0x50) 8 = some (w n) ∧
     AuthBuf σ m n 0 ∧
     F2.decode ((σ.payload.drop (c + h + j)).take (p - j)) = .success true ht pt ∧
-    ht + pt ≤ p - j ∧ m.load (σ.fr + w 0x48) 8 = some (w (ht + pt)) ∧ b ≤ q ∧ q ≤ pt ∧
+    ht + pt ≤ p - j ∧ m.load (σ.fr + w 0x48) 8 = some (w (ht + pt)) ∧ b ≤ q ∧ f ≤ q ∧ q ≤ pt ∧
     m.reg 22 = σ.inp + w (c + h + j + ht + q) ∧ m.reg 23 = w (pt - q) ∧
-    (nx = true → ∃ k, m.load (σ.fr + w 0x2f8) 8 = some (w k) ∧ 1 ≤ k ∧ q + k ≤ pt)
+    skip f (tupPay σ c h p j ht pt) = some q ∧ TupOk (tupPay σ c h p j ht pt) f ∧
+    (nx = true → TupOk (tupPay σ c h p j ht pt) (f + 1) ∧
+      ∃ k, m.load (σ.fr + w 0x2f8) 8 = some (w k) ∧ 1 ≤ k ∧ q + k ≤ pt ∧
+        skip (f + 1) (tupPay σ c h p j ht pt) = some (q + k))
+
+/-- The tuple field a field cut or return site is at. -/
+def tupF (pc : Nat) : Nat :=
+  if pc = 0x80002574 ∨ pc = 0x8000252c then 0 else if pc = 0x80002600 then 1
+  else if pc = 0x80002690 ∨ pc = 0x80002654 then 2
+  else if pc = 0x80002710 ∨ pc = 0x800026d4 then 3 else 4
 
 /-- The tuple's address payload pointer at `S-0x2f8`, its 20 bytes in the payload. -/
 def AddrOk (σ : Sig) (m : Machine) : Prop :=
   ∃ a, m.load (σ.fr + w 0x78) 8 = some (σ.inp + w a) ∧ a + 20 ≤ σ.len
 
-/-- After the tuple's last field: the tuple consumed `k ≥ 22` bytes (`S-0x328`). -/
-def AuthEnd (σ : Sig) (m : Machine) : Prop :=
-  ∃ c h p n j k, AuthOut σ m n j c h p ∧ m.load (σ.fr + w 0x50) 8 = some (w n) ∧
-    AuthBuf σ m n 0 ∧ skip (n + 1) (TX.itemPayload (σ.payload.drop c) h p) = some (j + k) ∧
-    22 ≤ k ∧ m.load (σ.fr + w 0x48) 8 = some (w k) ∧ AddrOk σ m
+/-- After the tuple's fifth field, the `n + 1`-th tuple (header `ht`, payload length `pt`) at list
+offset `j`: it consumed `ht + pt ≥ 22` bytes (`S-0x328`), its first `f` fields passed their checks,
+field 5 (`s`) is at `q`. -/
+def EndAt (σ : Sig) (m : Machine) (f c h p n j ht pt q : Nat) : Prop :=
+  AuthOut σ m n j c h p ∧ m.load (σ.fr + w 0x50) 8 = some (w n) ∧ AuthBuf σ m n 0 ∧
+    skip (n + 1) (TX.itemPayload (σ.payload.drop c) h p) = some (j + (ht + pt)) ∧
+    22 ≤ ht + pt ∧ m.load (σ.fr + w 0x48) 8 = some (w (ht + pt)) ∧ AddrOk σ m ∧
+    F2.decode ((σ.payload.drop (c + h + j)).take (p - j)) = .success true ht pt ∧
+    ht + pt ≤ p - j ∧ 5 ≤ q ∧ q ≤ pt ∧ skip 5 (tupPay σ c h p j ht pt) = some q ∧
+    TupOk (tupPay σ c h p j ht pt) f
 
-/-- `a1`/`a2` hold a slice of the payload. -/
-def CurSlice (σ : Sig) (m : Machine) : Prop :=
-  ∃ c n, m.reg 11 = σ.inp + w c ∧ m.reg 12 = w n ∧ c + n ≤ σ.len
+/-- `EndAt` for some tuple; with `cur` `a1`/`a2` the slice from field 5 (`s`'s `decodeItem`
+call). -/
+def AuthEnd (σ : Sig) (m : Machine) (f : Nat) (cur : Bool) : Prop :=
+  ∃ c h p n j ht pt q, EndAt σ m f c h p n j ht pt q ∧
+    (cur = true → m.reg 11 = σ.inp + w (c + h + j + ht + q) ∧ m.reg 12 = w (pt - q))
 
-/-- The `n + 1`-th tuple consumed `k ≥ 22` bytes from the list cursor (`S-0x328`). -/
+/-- The `n + 1`-th tuple consumed `k ≥ 22` bytes from the list cursor (`S-0x328`) and passed
+`auth`'s checks. -/
 def AuthCur (σ : Sig) (m : Machine) (n : Nat) : Prop :=
   ∃ c h p j k, AuthOut σ m n j c h p ∧
     skip (n + 1) (TX.itemPayload (σ.payload.drop c) h p) = some (j + k) ∧ 22 ≤ k ∧
-    m.load (σ.fr + w 0x48) 8 = some (w k)
+    m.load (σ.fr + w 0x48) 8 = some (w k) ∧ AuthsOk (TX.itemPayload (σ.payload.drop c) h p) (n + 1)
 
 /-- Appending the `n + 1`-th tuple (from `0x800028c0`): `S-0x2f8 = n + 1`, `S-0x330 = 16 n`,
 `S-0x338 = 128 n`. -/
@@ -374,11 +416,11 @@ def AuthSlot (σ : Sig) (m : Machine) : Prop :=
     ∃ bp, m.load (σ.fr + w 0x58) 8 = some bp ∧ m.reg 10 = bp + w (n * 0x90)
 
 /-- The list used up after `n` tuples (`toOwnedSlice`): the count at `S-0x2f8`, the payload
-length at `S-0x340` (nonzero: some tuple), the buffer. -/
+length at `S-0x340` (nonzero: some tuple), the buffer; the `n` tuples passed `auth`'s checks. -/
 def AuthDone (σ : Sig) (m : Machine) (n : Nat) : Prop :=
   ∃ c h p, AuthList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some p ∧
     n ≤ p ∧ m.load (σ.fr + w 0x78) 8 = some (w n) ∧ m.load (σ.fr + w 0x30) 8 = some (w p) ∧
-    (p ≠ 0 → 0 < n) ∧ AuthBuf σ m n 0
+    (p ≠ 0 → 0 < n) ∧ AuthBuf σ m n 0 ∧ AuthsOk (TX.itemPayload (σ.payload.drop c) h p) n
 
 /-- `toOwnedSlice`'s copy of `0x90 n` bytes (`s9`) into the new block `S-0x2a8`, if any. -/
 def AuthOwn (σ : Sig) (m : Machine) (n : Nat) : Prop :=
@@ -409,10 +451,10 @@ def authExtraPcs : List Nat :=
 
 def AuthExtra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
   if pc = 0x800024d0 then AuthLoop σ m
-  else if pc = 0x80002574 then AuthTup σ m 0 true
-  else if pc = 0x80002868 then AuthEnd σ m
+  else if pc = 0x80002574 then AuthTup σ m 0 0 true
+  else if pc = 0x80002868 then AuthEnd σ m 6 false
   else if pc = 0x80002690 ∨ pc = 0x80002710 ∨ pc = 0x8000279c then
-    AuthTup σ m 21 true ∧ AddrOk σ m
+    AuthTup σ m 21 (tupF pc) true ∧ AddrOk σ m
   else if pc = 0x80002420 then ∃ n, AuthApp σ m n ∧ AuthBuf σ m n 1
   else if pc = 0x8000241c then
     ∃ n, AuthApp σ m n ∧ ∃ cap, m.load (σ.fr + w 0x60) 8 = some cap ∧ BufIs σ m n 1 (m.reg 10) cap
@@ -436,10 +478,10 @@ abbrev Idx := List (Word × Nat) × List Byte × TX.Params
 def AuthSite (r : Nat) (σ : Sig) (x : Idx) (m : Machine) : Prop :=
   if r = 0x800024ec then AuthPre σ m
   else if r = 0x8000252c ∨ r = 0x80002600 then
-    AuthTup σ m 0 false ∧ m.reg 11 = m.reg 22 ∧ m.reg 12 = m.reg 23
+    AuthTup σ m 0 (tupF r) false ∧ m.reg 11 = m.reg 22 ∧ m.reg 12 = m.reg 23
   else if r = 0x80002654 ∨ r = 0x800026d4 ∨ r = 0x80002754 then
-    AuthTup σ m 21 false ∧ AddrOk σ m ∧ m.reg 11 = m.reg 22 ∧ m.reg 12 = m.reg 23
-  else if r = 0x80002820 then AuthEnd σ m ∧ CurSlice σ m
+    AuthTup σ m 21 (tupF r) false ∧ AddrOk σ m ∧ m.reg 11 = m.reg 22 ∧ m.reg 12 = m.reg 23
+  else if r = 0x80002820 then AuthEnd σ m 5 true
   else if r = 0x800029a8 then ∃ n, AuthGrow σ m n
   else if r = 0x80002a08 then
     ∃ n, AuthGrow σ m n ∧ m.reg 11 = w (newCap n * 0x90) ∧ BufL σ m x.1

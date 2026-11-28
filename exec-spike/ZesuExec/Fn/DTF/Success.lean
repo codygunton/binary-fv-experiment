@@ -167,6 +167,7 @@ def FieldVal.AtB (σ : Sig) (b : List Byte) (x : Word) : FieldVal → Prop
   | .ty => x = σ.m.reg 12
   | .cst v => x = w v
   | .hwalk _ => ∃ hs, walkList hash (payOf b).length (payOf b) = some hs
+  | .awalk _ => ∃ ts, walkList auth (payOf b).length (payOf b) = some ts
   | _ => True
 
 theorem at_atB {σ : Sig} {m : Machine} {c h p : Nat} {l : Bool}
@@ -578,21 +579,28 @@ def txOf (t : Nat) (b : List Byte) : Tx :=
   if t = 0 then legacyOf b else if t ≤ 2 then typedOf t b else if t = 3 then blobOf b
   else authOf b
 
-/-- At `0x80002dc4` (arms 0–3): every item checked (`Extra`), the header fits (`Pre`) and, on arm
-3, the hash walk (the row's `.hwalk 10`) make `decode` succeed with `txOf`. -/
+/-- At `0x80002dc4`: every item checked (`Extra`), the header fits (`Pre`) and, on arms 3 and 4,
+the list walk (the row's `.hwalk 10`, `.awalk 9`) make `decode` succeed with `txOf`. -/
 theorem decode_dc4 {σ : Sig} {m : Machine} (hpre : Pre σ.A σ.g σ.m)
-    (hF : FieldsOk σ m (cutFields 0x80002dc4)) (hchk : ChecksOk σ (fieldCount σ.t))
-    (h4 : σ.t ≠ 4) : decode σ.t σ.payload = some (txOf σ.t σ.payload) := by
+    (hF : FieldsOk σ m (cutFields 0x80002dc4)) (hchk : ChecksOk σ (fieldCount σ.t)) :
+    decode σ.t σ.payload = some (txOf σ.t σ.payload) := by
   have hck := checksL_full hpre hchk
   have ht4 : σ.t ≤ 4 := hpre.2.2.2.2.2.2.2.2.2.1
-  obtain ht | ht | ht | ht : σ.t = 0 ∨ σ.t = 1 ∨ σ.t = 2 ∨ σ.t = 3 := by omega
+  obtain ht | ht | ht | ht | ht : σ.t = 0 ∨ σ.t = 1 ∨ σ.t = 2 ∨ σ.t = 3 ∨ σ.t = 4 := by omega
   · rw [ht] at hck ⊢; exact decode_legacy hck
   · rw [ht] at hck ⊢; exact decode_typed (.inl rfl) hck
   · rw [ht] at hck ⊢; exact decode_typed (.inr rfl) hck
   · have hw : FieldVal.AtB σ (restN 10 σ.payload) ((Loc.slot 0x130).word σ m) (.hwalk 10) :=
       row_val (f := ⟨.slot 0x130, [3], .hwalk 10⟩) hF hck (by decide) (by simp [ArmOk, ht])
         (by rw [ht]; decide)
+    simp only [FieldVal.AtB] at hw
     rw [ht] at hck ⊢
     exact decode_blob hck hw
+  · have hw : FieldVal.AtB σ (restN 9 σ.payload) ((Loc.slot 0x130).word σ m) (.awalk 9) :=
+      row_val (f := ⟨.slot 0x130, [4], .awalk 9⟩) hF hck (by decide) (by simp [ArmOk, ht])
+        (by rw [ht]; decide)
+    simp only [FieldVal.AtB] at hw
+    rw [ht] at hck ⊢
+    exact decode_auth hck hw
 
 end ZesuExec.Fn.DTF

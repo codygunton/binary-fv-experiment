@@ -1785,3 +1785,4 @@
 {"schema": 2, "rec": "stop", "id": 32, "agent": "SailRegen", "ts": "2026-11-28T09:08:07Z", "outcome": "closed", "note": "difftest 80/80, verify.sh, regeneration check"}
 {"schema": 2, "rec": "start", "id": 22, "ts": "2026-11-28T09:07:19Z", "fn": "f_8000050c", "item": "S7 stage 2 cont. (D): 80002dc4_0 TxAt store, loop element facts, buffers; DTF.reach/dtf_spec/dtf_sail", "kind": "leaf", "agent": "DTFFieldsD"}
 {"schema": 2, "rec": "stop", "id": 22, "agent": "DTFFieldsD", "ts": "2026-11-28T10:00:03Z", "outcome": "open", "note": "step 2 + hash walk done; 80002dc4_0 open (tuple walk, buffers need shared live list L)"}
+{"schema": 2, "rec": "start", "id": 33, "ts": "2026-11-28T10:00:56Z", "fn": "f_8000050c", "item": "S7 stage 3 (E): auth tuple walk, buffers refactor, 80002dc4_0; DTF.reach/dtf_spec/dtf_sail", "kind": "leaf", "agent": "DTFFieldsE"}
