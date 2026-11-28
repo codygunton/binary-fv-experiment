@@ -114,6 +114,10 @@ theorem subw_eq (a b : Word) :
 theorem iType_ori (imm : BitVec 12) (v : Word) :
     iTypeResult .ORI imm v = v ||| Machine.sx imm := by simp [iTypeResult, sign_extend_eq]
 
+theorem rType_srl (a b : Word) : rTypeResult .SRL a b = a >>> (b.toNat % 64) := by
+  simp only [rTypeResult, Sail.shift_bits_right, BitVec.ushiftRight_eq']
+  rw [extractLsb_field]; simp [LeanRV64DExecutable.Functions.log2_xlen]
+
 /-! ## The simulation theorems -/
 
 theorem sim_andi {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
@@ -377,6 +381,21 @@ theorem sim_ori {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
   refine execute_ITYPE_run _ _ imm _ _ .ORI (m.reg rs1)
     (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
   rw [iType_ori]; exact wX_rg_run _ rd _
+
+theorem sim_srl {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.srl rd rs1 rs2))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  have hag := RegsAgree.T (m := m) hR.regs m.pc
+  change Runs (execute_RTYPE (rg rs2) (rg rs1) (rg rd) .SRL) _ _ _
+  refine execute_RTYPE_run _ _ _ _ _ .SRL (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
+    (rX_rg_run hag rs2) ?_
+  rw [rType_srl]; exact wX_rg_run _ rd _
 
 theorem sim_lui {rd : Fin 32} {imm : BitVec 20} (hR : Rel img m s)
     (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.lui rd imm))

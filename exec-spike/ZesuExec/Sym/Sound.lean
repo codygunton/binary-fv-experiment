@@ -488,6 +488,7 @@ theorem stepI_sound {img : Image} {pc : Nat} {i : Instr} {S S' : SState} {e : St
   | subw rd rs1 rs2 => exact wr rd _ _ (by simp [r, setWidth_sub32]) h
   | lh rd rs1 imm => exact loadI_ok hwf hm hro hpc rd rs1 imm 2 _ _ (fun s => by simp) h hob
   | ori rd rs1 imm => exact wr rd _ _ (by simp [r, eval_wlit, BinOp.eval]) h
+  | srl rd rs1 rs2 => exact wr rd _ _ (by simp [r, BinOp.eval]) h
   | beq rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | bne rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | blt rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h

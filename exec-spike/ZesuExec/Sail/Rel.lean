@@ -227,5 +227,6 @@ def toSail : Instr → instruction
   | .subw rd rs1 rs2 => .RTYPEW (rg rs2, rg rs1, rg rd, .SUBW)
   | .lh rd rs1 imm => .LOAD (imm, rg rs1, rg rd, false, 2)
   | .ori rd rs1 imm => .ITYPE (imm, rg rs1, rg rd, .ORI)
+  | .srl rd rs1 rs2 => .RTYPE (rg rs2, rg rs1, rg rd, .SRL)
 
 end ZesuExec.SailLink
