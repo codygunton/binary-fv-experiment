@@ -1699,3 +1699,5 @@
 {"schema": 2, "rec": "stop", "id": 1, "agent": "S10Tracking", "ts": "2026-11-28T06:01:24Z", "outcome": "closed", "note": "S10.1-S10.7; gate passed in worktree"}
 {"schema": 2, "rec": "start", "id": 1, "ts": "2026-11-28T05:43:26Z", "fn": null, "item": "S9.1 viewer", "kind": "infra", "agent": "S9Viewer"}
 {"schema": 2, "rec": "stop", "id": 1, "agent": "S9Viewer", "ts": "2026-11-28T06:00:55Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:10:10Z", "fn": null, "item": "S17 exact indirect-call resolution (backward slice)", "kind": "infra", "agent": "S17MapPrecision"}
+{"schema": 2, "rec": "stop", "id": 2, "agent": "S17MapPrecision", "ts": "2026-11-28T07:19:34Z", "outcome": "closed", "note": "S17 gate measured; make map test passes"}
