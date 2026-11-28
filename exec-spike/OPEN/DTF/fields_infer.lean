@@ -60,8 +60,8 @@ def srcKnown (rs : Rows) (d : CutData) (t : Nat) : Bool :=
   if d.pc == entry || d.arms.isEmpty || heads.contains d.pc then true else
   match d.site with
   | none => (lookupArm rs (false, d.pc) t).isSome
-  | some _ => if d.plain then true else
-      (lookupArm rs (true, d.pc) t).isSome || !active.contains t
+  | some _ => ((lookupArm rs (true, d.pc) t).isSome || !active.contains t) &&
+      (!d.plain || (lookupArm rs (false, d.pc) t).isSome)
 
 def sizes : List (Nat × Nat) := [(8, 1), (16, 2), (32, 4)]
 
@@ -156,10 +156,10 @@ def deps (rs : Rows) (d : CutData) (l : Leaf) (t : Nat) (e : Ent) : List (Nat ×
       | some _ => keptSym loc == some a.1 || keptPtr loc == some a.1) &&
         a.2.loc == loc).map fun loc => (t, (loc, a.2.v)))
 
-def srcKey (d : CutData) : Option (Bool × Nat) :=
+def srcKeys (d : CutData) : List (Bool × Nat) :=
   match d.site with
-  | none => some (false, d.pc)
-  | some _ => if d.plain then none else some (true, d.pc)
+  | none => [(false, d.pc)]
+  | some _ => if d.plain then [(false, d.pc), (true, d.pc)] else [(true, d.pc)]
 
 partial def need (rs : Rows) (work : List ((Bool × Nat) × Nat × Ent))
     (seen : List ((Bool × Nat) × Nat × Ent)) : List ((Bool × Nat) × Nat × Ent) :=
@@ -168,11 +168,9 @@ partial def need (rs : Rows) (work : List ((Bool × Nat) × Nat × Ent))
   | (key, t, e) :: rest =>
     let ins := edges.filter (·.2.2 == key)
     let new := ins.flatMap fun (d, l, _) =>
-      match srcKey d with
-      | some sk => if d.arms.isEmpty || d.arms.contains t then
-          (deps rs d l t e).map fun (t', e') => (sk, t', e')
-        else []
-      | none => []
+      if d.arms.isEmpty || d.arms.contains t then
+        (deps rs d l t e).flatMap fun (t', e') => (srcKeys d).map fun sk => (sk, t', e')
+      else []
     let new := new.filter fun x => !seen.contains x && !rest.contains x
     need rs (rest ++ new) (seen ++ new)
 

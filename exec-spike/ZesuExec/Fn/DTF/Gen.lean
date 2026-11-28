@@ -1583,12 +1583,17 @@ theorem armsOff_sound {σ : Sig} {arms g : List Nat} (h : armsOff arms g = true)
 /-- The source's item values as symbolic values of its state, with the entries stating them, from
 the tables `cf` (cuts reached by jumps) and `sf` (call sites): at a cut reached by jumps its `cf`
 row (`PlainA`); at a return site the call site's `sf` row's values free of the machine, at
-locations the call keeps, read as `keptSym`/`keptPtr`; at a cut that is both, none. -/
+locations the call keeps, read as `keptSym`/`keptPtr`; at a cut that is both, the `cf` entries the
+call site's row also states, free, at kept locations read alike either way. -/
 def srcFieldsOf (cf sf : Nat → List Field) (d : CutData) : List (Sym × Field) :=
   match d.site with
   | none => (cf d.pc).filterMap fun f =>
       if f.loc.fine then some (f.loc.sym d.shape.S, f) else none
-  | some s => if d.plain then [] else
+  | some s => if d.plain then
+      (cf d.pc).filterMap fun f =>
+        if f.loc.fine && f.v.free && siteKeeps s f.loc && (sf d.pc).contains f &&
+          keptSym f.loc == some (f.loc.sym d.shape.S) then some (f.loc.sym d.shape.S, f) else none
+    else
       (sf d.pc).flatMap fun f => if f.v.free && siteKeeps s f.loc then
         ((keptSym f.loc).map (·, f)).toList ++ ((keptPtr f.loc).map (·, f)).toList else []
 
@@ -1617,7 +1622,30 @@ theorem srcFields_sound {d : CutData} {σ : Sig} {m : Machine} (hpc : d.pc ≠ e
     · rw [hs] at hs'; cases hs'
   · next s hs =>
     split at ha
-    case isTrue => cases ha
+    · next hpl =>
+      obtain ⟨f, hf, hfa⟩ := List.mem_filterMap.mp ha
+      split at hfa
+      case isFalse => cases hfa
+      next hk =>
+      simp only [Bool.and_eq_true, List.contains_iff_mem, beq_iff_eq] at hk
+      obtain ⟨⟨⟨⟨hfine, hfree⟩, hkeeps⟩, hfs⟩, hks⟩ := hk
+      simp only [Option.some.injEq] at hfa
+      subst hfa
+      rcases hA' with ⟨-, hP⟩ | ⟨s', hs', mc, x, hsite, hpost⟩
+      · have := hP.2.2.2.2.2.2.2.2 f hf hg
+        rw [loc_word_eval hwf hm hS hfine] at this
+        exact this
+      rw [hs, Option.some.injEq] at hs'
+      subst hs'
+      have hSF : s.kind.SiteFine s = true := by
+        simp only [SrcOk, hs, RetCheck, Bool.and_eq_true] at hsrc; exact hsrc.1.1.1
+      obtain ⟨hret, hcm, hkeep⟩ := ret_common hSF hsite hpost
+      have hkeep' : ∀ o, f.loc = .slot o → o + 8 ≤ frameBytes →
+          m.load (σ.fr + w o) 8 = mc.load (σ.fr + w o) 8 := fun o he ho =>
+        hkeep o ho (by rw [he] at hkeeps; exact hkeeps)
+      show f.v.Holds σ m ((f.loc.sym d.shape.S).eval _)
+      rw [kept_sym hcm.avail hret hkeep' hks]
+      exact holds_free hfree (hsite.2.2.2.2.2.2.1 f hfs hg)
     next hpl =>
     obtain ⟨f, hf, hfa⟩ := List.mem_flatMap.mp ha
     split at hfa
