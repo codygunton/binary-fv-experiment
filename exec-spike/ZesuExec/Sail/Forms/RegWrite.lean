@@ -152,6 +152,16 @@ theorem slliw_eq (sh : BitVec 5) (v : Word) :
   simp only [shiftIWopResult, sign_extend_eq, extractLsb_31, Sail.shift_bits_left,
     BitVec.shiftLeft_eq']
 
+theorem slt_bit (a b : Word) :
+    zero_extend (m := 64) (bool_to_bit (zopz0zI_s a b)) = if a.slt b then 1 else 0 := by
+  by_cases h : a.toInt < b.toInt <;>
+    simp [zopz0zI_s, BitVec.slt, bool_to_bit, bool_bit_forwards, h, zero_extend,
+      Sail.BitVec.zeroExtend]
+
+theorem iType_slti (imm : BitVec 12) (v : Word) :
+    iTypeResult .SLTI imm v = if v.slt (Machine.sx imm) then 1 else 0 := by
+  simp only [iTypeResult]; rw [slt_bit, sign_extend_eq]
+
 /-! ## The simulation theorems -/
 
 theorem sim_andi {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
@@ -474,6 +484,20 @@ theorem sim_slliw {rd rs1 : Fin 32} {sh : BitVec 5} (hR : Rel img m s)
   refine execute_SHIFTIWOP_run _ _ sh _ _ .SLLIW (m.reg rs1)
     (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
   rw [slliw_eq]; exact wX_rg_run _ rd _
+
+theorem sim_slti {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.slti rd rs1 imm))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  change Runs (execute_ITYPE imm (rg rs1) (rg rd) .SLTI) _ _ _
+  refine execute_ITYPE_run _ _ imm _ _ .SLTI (m.reg rs1)
+    (rX_rg_run (RegsAgree.T (m := m) hR.regs m.pc) rs1) ?_
+  rw [iType_slti]; exact wX_rg_run _ rd _
 
 theorem sim_lui {rd : Fin 32} {imm : BitVec 20} (hR : Rel img m s)
     (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.lui rd imm))

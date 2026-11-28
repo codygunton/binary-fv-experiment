@@ -501,6 +501,7 @@ theorem stepI_sound {img : Image} {pc : Nat} {i : Instr} {S S' : SState} {e : St
       have := sh.isLt
       simp [r, BinOp.eval, Sym.eval, Nat.mod_eq_of_lt (show sh.toNat < 2 ^ 64 by omega),
         Nat.mod_eq_of_lt (show sh.toNat < 64 by omega), setWidth_sll32]) h
+  | slti rd rs1 imm => exact wr rd _ _ (by simp [r, eval_wlit, BinOp.eval]) h
   | beq rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | bne rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | blt rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
