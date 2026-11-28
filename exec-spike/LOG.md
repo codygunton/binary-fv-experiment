@@ -1253,3 +1253,7 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     22 (contract rule) 5 min. Items per cut point 28/8 = 3.5. Automatic share 0/28. Reuse ratio
     not measured (no second copy yet). Lines: shared 1,207, copy-specific 603 (of which 73
     generated snapshot data).
+  - Checks run: `lake build ZesuExec.Axioms zesu-difftest` passes (470 jobs, 13 min 21 s after the
+    image change); `zesu-difftest --fn R8330` prints `agree` on all 9 snapshots (21–2,455
+    transitions; sail = machine = unicorn); F2 regression snapshot `agree`. Not run: full
+    `lake build`, `tools/verify.sh`, `make -C tools/zmap map test`.
