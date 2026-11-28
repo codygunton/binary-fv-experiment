@@ -1,5 +1,10 @@
 # Where ZisK stages the `memcpy` count (S14 finding)
 
+**Resolved** (branch `xparams`): `Layout.extraParams := 0xa0000f00`, snapshots re-taken with the
+runner's `ZISK_SCRATCH` overridden by `tools/snap.py`, proofs and witnesses repaired, `svc_test`
+`0x813-reg`/`fn-memmove` 100/100 on the staging word. STATEMENTS.md "Correction: memcpy staging
+address". The text below is the original finding.
+
 **Finding.** `Layout.extraParams = 0xa0400f00` (`ZesuExec/Machine.lean`, copied from zesislar
 `ZesuSsz/Contracts/ZiskRuntime.v:19`) is not where ZisK stages the count. ZisK `eed62f4d9` stages
 it at `EXTRA_PARAMS_ADDR = SYS_ADDR + 0x0F00 = 0xa0000f00` (`/home/cody/zisk/core/src/mem.rs:113`

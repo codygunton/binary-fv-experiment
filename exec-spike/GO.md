@@ -181,7 +181,9 @@ does not work yet: with the binary's whole `.text` linked in, ziskemu-relaxed12 
 before the harness dumps (all-zero output); not diagnosed.
 
 **Findings.** (1) The pinned ZisK cannot load the target ELF (immediate-count memset).
-(2) `Layout.extraParams` is wrong vs ZisK (`OPEN/services/extra_params.md`).
+(2) `Layout.extraParams` is wrong vs ZisK (`OPEN/services/extra_params.md`). Corrected after S14
+(branch `xparams`, STATEMENTS.md "Correction: memcpy staging address"): `0x813-reg` and
+`fn-memmove` now 100/100 on every part, `0x813` emulator-tested, so all 4 CSRs are clean.
 
 **Cost.** One ledger item (id 20, 07:10–08:00Z); dollars come from `zmap merge`.
 

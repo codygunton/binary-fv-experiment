@@ -1,6 +1,6 @@
 {
  "schema": "zmap.metrics.v1",
- "generated": "2026-11-28T08:25:42Z",
+ "generated": "2026-11-28T09:07:18Z",
  "coverage": {
   "headline": {
    "cut_points_closed": 41,
@@ -203,7 +203,7 @@
   ],
   "csr": {
    "defined": 4,
-   "emulator_tested": 3,
+   "emulator_tested": 4,
    "total": 14,
    "numbers": [
     "0x800",
@@ -308,7 +308,7 @@
      "unreviewed",
      "ZesuExec.Fn.TX.pre_nonvacuous",
      "-",
-     0
+     1
     ],
     [
      "f_8000050c",
@@ -335,7 +335,7 @@
      "unreviewed",
      "ZesuExec.Fn.F1.pre_nonvacuous",
      "-",
-     5
+     6
     ],
     [
      "f_800d5cb8",
@@ -344,7 +344,7 @@
      "unreviewed",
      "-",
      "-",
-     0
+     1
     ],
     [
      "f_800d6274",
@@ -380,7 +380,7 @@
      "unreviewed",
      "-",
      "-",
-     0
+     1
     ],
     [
      "f_800e06d0",
@@ -614,18 +614,18 @@
  },
  "effort": {
   "total": {
-   "usd": 638.23,
-   "totalTokens": 1926154902.15,
-   "requests": 5966.35,
-   "minutes": 1809.96,
-   "builds": 1379.84
+   "usd": 641.24,
+   "totalTokens": 1934589118.15,
+   "requests": 6050.35,
+   "minutes": 1849.05,
+   "builds": 1386.84
   },
-  "session_usd": 964.34,
-  "unattributed_usd": 323.41,
-  "unattributed_share": 0.3354,
+  "session_usd": 1006.77,
+  "unattributed_usd": 362.83,
+  "unattributed_share": 0.3604,
   "unknown_cost_requests": 0,
   "unknown_cost_share": 0.0,
-  "infrastructure_share": 0.3334,
+  "infrastructure_share": 0.3318,
   "abandoned": {
    "usd": 0.0,
    "totalTokens": 0.0,
@@ -736,12 +736,12 @@
     ],
     [
      "service",
-     1,
-     17.06,
-     51299330.0,
-     207.0,
-     49.52,
-     29.0
+     2,
+     20.07,
+     59733546.0,
+     291.0,
+     88.61,
+     36.0
     ]
    ]
   },
@@ -873,10 +873,10 @@
     ],
     [
      "coordinator",
-     82.57,
+     84.94,
      10.79,
-     71.79,
-     0.8694,
+     74.15,
+     0.873,
      0
     ],
     [
@@ -1112,6 +1112,30 @@
      0
     ],
     [
+     "S13AllocB",
+     14.71,
+     0.0,
+     14.71,
+     1.0,
+     0
+    ],
+    [
+     "DTFFieldsC",
+     14.45,
+     0.0,
+     14.45,
+     1.0,
+     0
+    ],
+    [
+     "S16GenericB",
+     12.82,
+     0.0,
+     12.82,
+     1.0,
+     0
+    ],
+    [
      "TXFinish",
      12.72,
      12.08,
@@ -1120,18 +1144,18 @@
      0
     ],
     [
-     "DTFAuth3.DTFFields1",
-     12.53,
+     "SailRegen",
+     12.56,
      0.0,
-     12.53,
+     12.56,
      1.0,
      0
     ],
     [
-     "DTFFieldsC",
-     11.28,
+     "DTFAuth3.DTFFields1",
+     12.53,
      0.0,
-     11.28,
+     12.53,
      1.0,
      0
     ],
@@ -1168,27 +1192,11 @@
      0
     ],
     [
-     "SailRegen",
-     4.75,
-     0.0,
-     4.75,
-     1.0,
-     0
-    ],
-    [
-     "S13AllocB",
-     3.27,
-     0.0,
-     3.27,
-     1.0,
-     0
-    ],
-    [
-     "S16GenericB",
-     2.37,
-     0.0,
-     2.37,
-     1.0,
+     "XParamsFix",
+     3.3,
+     3.01,
+     0.28,
+     0.086,
      0
     ],
     [
@@ -1196,6 +1204,30 @@
      1.84,
      0.0,
      1.84,
+     1.0,
+     0
+    ],
+    [
+     "S16GenericB.S16Merge",
+     1.67,
+     0.0,
+     1.67,
+     1.0,
+     0
+    ],
+    [
+     "S16GenericB.S16MergeSnap",
+     1.24,
+     0.0,
+     1.24,
+     1.0,
+     0
+    ],
+    [
+     "S13AllocC",
+     0.8,
+     0.0,
+     0.8,
      1.0,
      0
     ],
@@ -1220,6 +1252,14 @@
      0.31,
      0.0,
      0.31,
+     1.0,
+     0
+    ],
+    [
+     "DTFFieldsD",
+     0.21,
+     0.0,
+     0.21,
      1.0,
      0
     ]
