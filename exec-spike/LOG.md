@@ -1512,3 +1512,23 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   `staging@0xa0000f00`, `old@0xa0400f00` untouched, registers); `map/svc_test.json` updated,
   `map/reviews.json` csr `0x813` `emulator_tested: true`.
 - Full `lake build` 341 jobs green; `tools/verify.sh` all PASS (after `make -C tools/zmap map`).
+
+## S13 (S13AllocC, 2026-11-28, branch s13)
+
+- Contract rule for `alloc`/`free`: `AllocF.pre_nonvacuous`, `FreeF.pre_nonvacuous` (concrete
+  machines `initM`, `freeM`); `AllocF.post_snapshot`, `FreeF.post_snapshot` (`decide` on 10 + 6
+  Unicorn snapshots, `tools/snap.py --fn Alloc|Free`, Lean data `tools/snap_alloc.py`, checker
+  `Fn/Alloc/Snap.lean`). `zesu-difftest --fn Alloc|Free`: `agree` on all 16 (pre-xparams build).
+- End theorems moved into plan namespaces so `zesu-status` finds them: `AllocF.allocf_spec`,
+  `FreeF.freef_spec`, `FS.fs_spec`, `RS.rs_spec` (+ `_sail`); Axioms guards added (incl. scratch).
+- Re-point: `AllocAssumptions` → `AllocContract` (`Fn/Alloc/Contract.lean`), proved instance
+  `Alloc.contract`; `Fn/Assumed.lean` deleted. F1/F4/F5/TX end theorems and TX compliance drop
+  `A` (generic `f1_spec_keep`, `f4_spec_of`, `f5_spec_of`, `tx_spec_of` kept for callers); free's
+  two new preconditions proved at the F1, F4/F5 (`free_step`), TX (`Grow`) and DTF
+  (`free_pre_dtf`) sites; DTF in its own commit. `pre_nonvacuous` of F1/F4/F5/TX concrete.
+  `(-if` → `(- if` in F1 (token clash once Sail modules are imported).
+- `map/reviews.json`: allocator no longer `assumed`; draft contracts for alloc, free,
+  scratch free/remap. Tests: `test_meaning_from_reviews` on guestMain; state-rule tests use an
+  "allocator assumed" reviews copy; `test_states` expects `contract-draft`.
+- Open: `scratch_arena.alloc` not started (Pre must fix `ctx+8 = 0x801136d8`; the indirect
+  target is then read from rodata, as in F1); GO.md `## S13` not written.

@@ -215,13 +215,23 @@ def with_alloc_hyp(status, fid):
     s = copy.deepcopy(status)
     for f in s['functions']:
         if f['id'] == fid:
-            f['hyps'] = [{'name': 'A', 'type': 'AllocAssumptions', 'spec_entries': [ALLOC, FREE]}]
+            f['hyps'] = [{'name': 'A', 'type': 'AllocContract', 'spec_entries': [ALLOC, FREE]}]
     return s
+
+
+def alloc_assumed():
+    """The reviews with the allocator assumed and without its contracts (as before S13 proved
+    it): the state rule's `closed-on-assumptions` case."""
+    rv = copy.deepcopy(REVIEWS)
+    rv['assumed'] = ['f_80042494', 'f_80041f38']
+    for fid in rv['assumed']:
+        rv['contracts'].pop(fid, None)
+    return rv
 
 
 class StateRule(unittest.TestCase):
     def test_hypothesis_callees_make_closed_on_assumptions(self):
-        m = merged(with_alloc_hyp(STATUS, 'f_800d677c'))
+        m = merged(with_alloc_hyp(STATUS, 'f_800d677c'), reviews=alloc_assumed())
         by = {f['id']: f for f in m['functions']}
         f4 = by['f_800d677c']
         self.assertEqual(f4['state'], 'closed-on-assumptions')
@@ -241,7 +251,7 @@ class StateRule(unittest.TestCase):
             'cuts': [{'pc': 0x80000000, 'cut_lemma': 'manual', 'leaves': [
                 {'i': 0, 'exit': 'call', 'target': 0x800d677c, 'state': 'manual'},
                 {'i': 1, 'exit': 'call', 'target': 0x800e06c0, 'state': 'auto'}]}]})
-        m = merged(s)
+        m = merged(s, reviews=alloc_assumed())
         tx = next(f for f in m['functions'] if f['id'] == 'f_80000000')
         self.assertEqual(tx['proof_callees'], ['f_800d677c', 'f_800e06c0'])  # memcpy: service
         self.assertEqual(tx['state'], 'closed-on-assumptions')
@@ -266,7 +276,8 @@ class StateRule(unittest.TestCase):
         self.assertEqual(by['f_8004218c']['meaning'], 'machine-only')
         tx = by['f_80000000']
         self.assertEqual(tx['meaning'], 'machine-only')  # a contract, no theorem in the fixture
-        self.assertEqual(by['f_80042494']['meaning'], 'none')
+        self.assertEqual(by['f_80042494']['meaning'], 'machine-only')  # S13: a contract
+        self.assertEqual(by['f_8003c8d8']['meaning'], 'none')  # root.guestMain: none
         self.assertIn('size:151-600', tx['classes'])
         self.assertIn('loops:1-3', tx['classes'])
         self.assertIn('indirect-call', tx['classes'])
@@ -296,7 +307,7 @@ class Metrics(unittest.TestCase):
     def setUp(self):
         self.items = items_for('F2', 4, 1.0) + items_for('F3', 2, 2.0) + \
             items_for(None, 1, 5.0, kind='infra')
-        self.m = merged(with_alloc_hyp(STATUS, 'f_800d677c'), self.items)
+        self.m = merged(with_alloc_hyp(STATUS, 'f_800d677c'), self.items, reviews=alloc_assumed())
         self.met = metrics.compute(self.m, self.items, PER_AGENT, None, PACKAGE,
                                    reviews_csr={}, history=[])
 

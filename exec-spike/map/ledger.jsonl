@@ -1790,3 +1790,4 @@
 {"schema": 2, "rec": "stop", "id": 31, "agent": "SailRegen", "ts": "2026-11-28T09:01:41Z", "outcome": "closed", "note": "authored with rev8 (item S12b form rev8 carries the time)"}
 {"schema": 2, "rec": "start", "id": 32, "ts": "2026-11-28T09:01:45Z", "fn": null, "item": "S12b gate: difftest, map, verify, docs", "kind": "infra", "agent": "SailRegen"}
 {"schema": 2, "rec": "stop", "id": 32, "agent": "SailRegen", "ts": "2026-11-28T09:08:07Z", "outcome": "closed", "note": "difftest 80/80, verify.sh, regeneration check"}
+{"schema": 2, "rec": "stop", "id": 25, "agent": "S13AllocC", "ts": "2026-11-28T09:36:55Z", "outcome": "open", "note": "alloc/free nonvacuity+snapshots; AllocContract re-point F1/F4/F5/TX/DTF; scratch_arena.alloc and GO.md S13 open"}
