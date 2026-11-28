@@ -1751,3 +1751,5 @@
 {"schema": 2, "rec": "stop", "id": 4, "agent": "DTFFieldsB", "ts": "2026-11-28T07:42:51Z", "outcome": "open", "note": null}
 {"schema": 2, "rec": "start", "id": 21, "ts": "2026-11-28T07:33:17Z", "fn": null, "item": "S9.4 source view feedback (5 fixes)", "kind": "infra", "agent": "S9Viewer"}
 {"schema": 2, "rec": "stop", "id": 21, "agent": "S9Viewer", "ts": "2026-11-28T07:52:35Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 22, "ts": "2026-11-28T07:54:51Z", "fn": null, "item": "S9.2 layers + refit + HTML labels", "kind": "infra", "agent": "S9Viewer"}
+{"schema": 2, "rec": "stop", "id": 22, "agent": "S9Viewer", "ts": "2026-11-28T08:06:36Z", "outcome": "closed", "note": null}
