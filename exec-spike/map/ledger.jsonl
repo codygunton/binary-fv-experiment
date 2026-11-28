@@ -1792,3 +1792,4 @@
 {"schema": 2, "rec": "stop", "id": 32, "agent": "SailRegen", "ts": "2026-11-28T09:08:07Z", "outcome": "closed", "note": "difftest 80/80, verify.sh, regeneration check"}
 {"schema": 2, "rec": "stop", "id": 25, "agent": "S13AllocC", "ts": "2026-11-28T09:36:55Z", "outcome": "open", "note": "alloc/free nonvacuity+snapshots; AllocContract re-point F1/F4/F5/TX/DTF; scratch_arena.alloc and GO.md S13 open"}
 {"schema": 2, "rec": "start", "id": 33, "ts": "2026-11-28T09:55:27Z", "fn": "f_800db904", "item": "S13 scratch free/remap nonvacuity+snapshots, scratch alloc, LOG fix", "kind": "compliance", "agent": "S13AllocD"}
+{"schema": 2, "rec": "stop", "id": 33, "agent": "S13AllocD", "ts": "2026-11-28T10:40:50Z", "outcome": "open", "note": "scratch free/remap nonvacuity+snapshots (d40e67b7), LOG fix (30771c1e); scratch_arena.alloc proved (SA.sa_spec/sa_sail, 18 items, pre_nonvacuous) but not imported into root: post_snapshot (ScratchAlloc snap profile + checker) open"}
