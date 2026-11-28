@@ -172,9 +172,7 @@ theorem DTF.leaf_80000574_0 :
       have := hrst r (by rw [hrest0]; exact hr)
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
       rcases hr with rfl | rfl | rfl | rfl <;> simpa [Loc.word, e13, e14, e21, e22] using this
-    · simp only [noExtra, Bool.and_eq_true, bne_iff_ne, ne_eq] at hnx
-      simp only [Extra, if_neg hnx.1.1.1.1, if_neg hnx.1.1.1.2, if_neg hnx.1.1.2, if_neg hnx.1.2,
-        if_neg hnx.2]
+    · exact extra_of_no hnx σ m'
   · show budgetOf (table[tgtIdx σ.t]!) σ m' ≤ budgetOf (table[1]!) σ m -
       (((leavesAt 0x80000574)[0]!).S.steps - (table[1]!).shape.S.steps)
     unfold budgetOf restLen

@@ -314,10 +314,24 @@ def shapeHolds (S : SState) (sh : Shape) : Bool :=
 /-- No `Extra` conjunct at `pc`. -/
 def noExtra (pc : Nat) : Bool :=
   pc != 0x80000574 && pc != 0x80002138 && pc != 0x80002434 && pc != 0x800011f8 &&
-    pc != 0x800020ac
+    pc != 0x800020ac && !authExtraPcs.contains pc
+
+theorem extra_of_no {pc : Nat} (h : noExtra pc = true) (σ : Sig) (m : Machine) :
+    Extra pc σ m := by
+  simp only [noExtra, Bool.and_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true'] at h
+  obtain ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩ := h
+  simp only [Extra, if_neg h1, if_neg h2, if_neg h3, if_neg h4, if_neg h5]
+  exact authExtra_none h6 σ m
 
 /-- No `SiteX` conjunct at the return site `r`. -/
-def noSiteX (r : Nat) : Bool := r != 0x800020c0 && r != 0x8000211c
+def noSiteX (r : Nat) : Bool :=
+  r != 0x800020c0 && r != 0x8000211c && !authSitePcs.contains r
+
+theorem siteX_of_no {r : Nat} (h : noSiteX r = true) (σ : Sig) (m : Machine) : SiteX r σ m := by
+  simp only [noSiteX, Bool.and_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true'] at h
+  obtain ⟨⟨h1, h2⟩, h3⟩ := h
+  simp only [SiteX, if_neg h1, if_neg h2]
+  exact authSite_none h3 σ m
 
 /-- The target has no inner budget and the constant part drops by the steps. -/
 def budgetKeep (pc pc' steps : Nat) : Bool :=
