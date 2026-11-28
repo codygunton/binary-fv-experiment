@@ -140,3 +140,56 @@ Open, with what each needs:
 | `800020c0_3` (→ F1) | its 4 reads at the item's payload pointer (`CoreChk` fails: `advUse` is `none` for a cursor call; give `leaf_call_x` the obligations as a hypothesis), an `f1_pre_dtf` (as `f4_pre_dtf`, from `ListHdr` with `r = 0`, request `n + 1 < 2^32` from `n ≤ j ≤ len`), `HashItem` from the F2 outcome on the cursor slice (`(payload.drop (c+h+j)).take (p-j)`: an `f2_out` for cursor calls) |
 | `8000211c_1` (→ slot `0x80002138`) | `CoreChk`/`AtChk` pass; `HashItem σ m' 1` and `SlotOk` from F1's `PostKeep` (no growth: header kept, `n + 1 ≤ cap`; growth: `{p', n, grown}` with `live_swap` and the new block in `X`; OOM excluded by the leaf's condition), slot `p + 32 n` present by `live_ok` |
 | `80002138_0` (loop back), `80002138_1` (→ F4) | a leaf core for a source with region 4 (the slot): `Ctx` assumes base regions; the 4 slot stores write one of DTF's blocks (`CallR` via `Priv g.L`), the header `len` store a frame word; budget back edge `2871 - 2564 + steps ≤ 256 k` |
+
+Status (DTFAuth): all four leaves above closed (`HashF1.lean`, `HashSlot.lean`, `HashStore.lean`;
+`Slot.lean` is the leaf core for a store-cut source: `writesLowS`, `common_slot`). The loop does
+not record the buffer's bytes (F1/F4 get `bytesOf`); step 4 needs the hashes as field values.
+
+## Authorization-list loop (arm 4, `0x80001ccc..0x80002f14`)
+
+Code shape (frame offsets from `fr = S-0x370`): list cursor `0x70`/`0x68` (`S-0x300`/`S-0x308`,
+the budget's list term), buffer `{ptr 0x58, cap 0x60}` of `0x90`-byte tuples, count `0x78` at the
+loop head (`0x50` inside a tuple, `0x78` reused for the address pointer, then `n + 1`), tuple
+consumed length `0x48`, field cursor `s6`/`s7` (regs 22/23). Per tuple: `decodeItem` (list) at
+`0x800024ec`, fields chainId (≤32, loop `0x80002574`), address (=20), nonce (≤8, `0x80002690`),
+yParity (≤8, `0x80002710`), r (≤32, `0x8000279c`), s (≤32, `0x80002868`, clobbers s6/s7); append
+at `0x800028c0`: `n < cap` → store (`0x80002420`, slot cut `0x80002434`); else grow: remap
+(`F0`, always null) → alloc (`a2 = 4`) → memcpy → free (`a3 = 4`, return `0x80002a6c`). End of
+list: inline `toOwnedSlice` (remap → alloc `a2 = 4` → memcpy → free `a3 = 4`, return
+`0x80002f14`) → `0x800022f0` (signature fields).
+
+State (`Cuts.lean`, stated): `AuthList`, `AuthOut`, `AuthBuf`, `AuthLoop` (`Extra 0x800024d0`),
+`AuthPre` (`SiteX 0x800024ec`), `AuthTup b nx` (field cursor at `q ≥ b`; `nx`: the current field's
+consumed length at `0x2f8` fits), `AddrOk`, `AuthEnd` (tuple consumed `k ≥ 17`), `CurSlice`;
+`AuthExtra`/`AuthSite` per pc (`authExtraPcs`, `authSitePcs`; `noExtra`/`noSiteX` exclude them,
+`extra_of_no`/`siteX_of_no`). Byte loops inside the list loop have budget `.beL 10 11 (.slot 0x68)`
+(new `Inner` constructor: `.be` dropped the list term, so no exit of those loops could pay for the
+rest of the list). `leaf_gen`'s `stepOk` only knows `.be`, so the self-loop leaves `80002690_0`,
+`80002710_0`, `80002868_0` reopened (regenerated `LeavesGen.lean`); with `80002574_0`,
+`8000279c_0` they need one `beL` step theorem (cursor `+1`, `Extra` and slot `0x68` kept: the
+leaf writes neither; obligations by `leaf_at_xo` from `CurOk`, as `curObl_holds`).
+
+Tools (`AuthLib.lean`): `inner_at`/`auth_fits` (tuple header fit from `Fits`: no wrap of
+`ht + pt`), `ret_parts` (call machine at a return site), `f2_post_cur` (outcome on a payload
+slice), `field_consumed` (a ≤32-byte field consumes `1 ≤ h + p ≤ slice`), `authOut_mono`,
+`authBuf_mono`. Closed: `80001ccc_3` (`AuthFront.lean`).
+
+Every other front leaf passes `CoreChk0` and `CallChk`/`AtChk` (checked by `#eval`); each needs
+only its `hX`: the target's `AuthExtra`/`AuthSite` and budget (list term kept, `0x68` untouched):
+
+| kind | leaves | `hX` |
+|---|---|---|
+| list cursor call | `800024d0_0` | `AuthPre` (a1/a2 = `0x70`/`0x68` words, `0x50 := 0x78`), `f2_pre_cur` |
+| tuple ret → field call | `800024ec_0` | `ret_parts`+`f2_post_cur` on the list slice, `auth_fits` (no wrap), `AuthTup 0` with `q = 0` |
+| field ret, empty → next call | `8000252c_0`, `80002654_0`, `800026d4_0` | cursor `+= k` (`field_consumed`), `AuthTup` |
+| address ret → call | `80002600_0` | `len = 20`: `AddrOk` (`0x78 :=` payload ptr), `q ≥ 21` |
+| r ret, empty → s call | `80002754_0` | `AuthEnd` (`k = ht + pt ≥ 1 + 21 + 1`), `CurSlice` |
+| field ret → loop entry | `8000252c_1`, `80002654_1`, `800026d4_1`, `80002754_1`, `80002820_4` | `CurOk` from the outcome on the slice (`res_words`), `nx` clause |
+| loop exit → call | `80002574_1`, `80002690_1`, `80002710_1`, `8000279c_1` | obligations from `CurOk` (`leaf_call_xo`), cursor `+= 0x2f8` word |
+
+Back half (not stated yet): `Extra`/`SiteX` for `0x80002420`, `0x8000241c`, `0x80002434` (slot
+`= ptr + 0x90 n`, `SlotOk 0x90`; extend `HashSlot`-style), growth cuts `0x800029a8..0x80002a6c`
+(new capacity `n+1+(n+1)/2+1` words at `0x8..0x18`, allocator ctx/vtable at `0x20/0x28`), the
+`toOwnedSlice` cuts; `IdxOk .free` must state the freed block is in `X` (cut lemmas `0x80002a6c`,
+`0x80002f14`). Contract-blocked (STATEMENTS.md § DTF point 7): `800029c8_2`, `800022e4_1`
+(alloc with log2 alignment 4), `80002a38_1`, `80002ee0_1` (free with 4).

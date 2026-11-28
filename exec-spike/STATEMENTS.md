@@ -595,4 +595,12 @@ Open (to settle before review):
    inputs (`test/snapshots/DTF/*.json`, `tx_type` = `a2`, payload = the `a4` bytes at `a3`): a
    scratch file proves `Fits t payload` for all 19 by `decide +kernel` over a `Bool` mirror
    (`itemsB`, `itemsB_iff`); not committed.
+7. (Open; found in S7 step 4 by DTFAuth, decision with the user via the coordinator.) The
+   `txAuthList` growth and `toOwnedSlice` paths call the allocator with log2 alignment 4
+   (`AuthorizationTuple`, 16-byte aligned): `alloc` at `0x800029f8`/`0x80002c54` (`a2 = 4`),
+   `free` at `0x80002a58`/`0x80002f04` (`a3 = 4`). The trusted contract (`Fn/Assumed.lean`,
+   mirroring `altFlMaxLog2Alignment := 3` in `ZesuSsz/Contracts/AltFlAllocPremises.v`) allows at
+   most 3, so leaves `800029c8_2`, `800022e4_1` (alloc) and `80002a38_1`, `80002ee0_1` (free) are
+   false under the current premises; every nonempty authorization list reaches them. They stay
+   open as contract-blocked until the premise is raised to 4 or `Domain` excludes such inputs.
 - Non-vacuity: not yet stated; `decide` checks the decoder on four inputs.

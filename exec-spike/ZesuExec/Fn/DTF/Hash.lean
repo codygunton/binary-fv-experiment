@@ -497,7 +497,7 @@ theorem DTF.leaf_80002064_2 :
   obtain ⟨L, X, items, hpre4, hlive, hbuf⟩ := f4_pre_dtf CF.common hsp hres hhdr hao
     (by decide) (by decide) (by decide) (by decide) (by decide) hdr CF.aligned
   have hsx : SiteX (table[111]!).pc σ m' := by
-    rw [show (table[111]!).pc = 0x80002180 by decide]; simp [SiteX]
+    rw [show (table[111]!).pc = 0x80002180 by decide]; exact siteX_of_no (by decide) σ m'
   have hidx : IdxOk (siteAt 111).kind σ (L, items, ⟨[], []⟩) m' := by
     rw [show (siteAt 111).kind = .f4 by decide]; exact ⟨hpre4, X, hlive, hbuf⟩
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩

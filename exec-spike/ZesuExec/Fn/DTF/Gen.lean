@@ -2188,9 +2188,7 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
         chkStep_sound hpc hsrc hA hc F hchk⟩
       simp only [Bool.or_eq_true] at hnx
       rcases hnx with hnx | hnx
-      · simp only [noExtra, Bool.and_eq_true, bne_iff_ne, ne_eq] at hnx
-        simp only [Extra, if_neg hnx.1.1.1.1, if_neg hnx.1.1.1.2, if_neg hnx.1.1.2,
-          if_neg hnx.1.2, if_neg hnx.2]
+      · exact extra_of_no hnx σ m'
       · exact extra_err C hnx
     · show budgetOf d' σ m' ≤ budgetOf d σ m - (l.S.steps - d.shape.S.steps)
       omega
@@ -2227,9 +2225,7 @@ theorem leaf_gen (d : CutData) (l : Leaf) (hpc : d.pc ≠ entry) (hcut : CutOK v
     have hraM : RetAligned m' := by unfold RetAligned; rw [hr1, hra]; exact hr4
     have hchk' := chkStep_sound hpc hsrc hA hc F hchk
     obtain ⟨x0, hidx⟩ := call_idx C hpc hsrc hA hc hcm hshp harm hrst hchk' hSF hargs hraM
-    have hsx : SiteX d'.pc σ m' := by
-      simp only [noSiteX, Bool.and_eq_true, bne_iff_ne, ne_eq] at hnsx
-      rw [hpc']; simp only [SiteX, if_neg hnsx.1, if_neg hnsx.2]
+    have hsx : SiteX d'.pc σ m' := by rw [hpc']; exact siteX_of_no hnsx σ m'
     have hsite : SiteA s d'.pc σ x0 m' := ⟨by rw [hpc']; exact hr1, hcm, hshp, harm, hrst, hidx,
       by rw [hpc']; exact fieldsFrom_sound C hpc hsrc hA hfld, hchk', hsx⟩
     refine ⟨calleeOf s.kind, x0, ?_, ?_, hidx.1, fun m'' hpost => ?_⟩

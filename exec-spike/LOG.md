@@ -1070,3 +1070,22 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
     return cuts `0x80002a6c`, `0x80002f14`); 2 success writes (field values, step 4).
   - Checks: `lake build` (311 jobs) passes; `Vc.lean` not touched in its `zesu_simp`/`zesu_fact`
     sets; no `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no `maxHeartbeats` change.
+- S7 cont. (DTFAuth, 2026-11-28, branch `dtf`): hash-list loop closed, authorization-list state.
+  **Counts before → after: manual 592 → 594, auto 0, open 55 → 53** (closed 5: `800020c0_3`,
+  `8000211c_1`, `80002138_0`, `80002138_1`, `80001ccc_3`; reopened 3 self-loop leaves
+  `80002690_0`, `80002710_0`, `80002868_0` by the `.beL` budget fix).
+  - Hand: `CoreChk0`, `leaf_at_xo`/`leaf_call_xo` (obligations as a hypothesis).
+  - Hash loop: `HashF1.lean` (`res_words`, `hash_item`, `f1_pre_dtf`), `HashSlot.lean`
+    (`hash_f1` from F1 `PostKeep`, `hdr_slot`), `Slot.lean` (`common_slot`: leaves from a store
+    cut), `HashStore.lean` (both store leaves). `SiteX 0x800020c0` gains `a1/a2 = s7/s6`,
+    `0x8000211c` `a2 = s9 + 1`; `Extra 0x80002138` gains `HashSlot`.
+  - Authorization list: state `AuthList/AuthOut/AuthBuf/AuthLoop/AuthPre/AuthTup/AddrOk/AuthEnd/
+    CurSlice`, `AuthExtra`/`AuthSite` (`noExtra`/`noSiteX` via `extra_of_no`/`siteX_of_no`);
+    `Inner.beL` for the five byte loops inside the list loop (their `.be` budget dropped the list
+    term: no exit leaf could hold). `AuthLib.lean`, `AuthFront.lean` (`80001ccc_3`). Open front
+    leaves and what each needs: `OPEN/DTF/CUTS.md` § Authorization-list loop.
+  - Blocker (STATEMENTS.md § DTF point 7, coordinator asking the user): alloc/free with log2
+    alignment 4 on the tuple buffer; 4 leaves false under `altFlMaxLog2Alignment = 3`.
+  - Checks: `lake build` (317 jobs) and `tools/verify.sh` pass after `make -C tools/zmap map`; no
+    `sorry`/`admit`/`axiom`/`native_decide`/`bv_decide`, no `maxHeartbeats` change, no
+    `zesu_simp`/`zesu_fact` lemma added.

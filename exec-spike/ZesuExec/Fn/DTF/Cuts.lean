@@ -252,21 +252,116 @@ def HashItem (σ : Sig) (m : Machine) (r : Nat) : Prop :=
 def HashSlot (σ : Sig) (m : Machine) : Prop :=
   ∃ p, m.load (σ.fr + w 0x258) 8 = some p ∧ m.reg 10 = p + 32 * m.reg 25
 
+/-! ### The `txAuthList` loop (arm 4's item 9; tuple parsing, `OPEN/DTF/CUTS.md`) -/
+
+/-- Top-level item 9 (arm 4's `authorizationList`) is a list of payload length `p` at `c + h`. -/
+def AuthList (σ : Sig) (c h p : Nat) : Prop :=
+  skip 9 σ.payload = some c ∧ F2.decode (σ.payload.drop c) = .success true h p
+
+/-- The list cursor after `n` tuples, `j` bytes of the list payload: `S-0x300 = inp + c + h + j`,
+`S-0x308 = p - j` (the budget's list term). -/
+def AuthOut (σ : Sig) (m : Machine) (n j c h p : Nat) : Prop :=
+  AuthList σ c h p ∧ skip n (TX.itemPayload (σ.payload.drop c) h p) = some j ∧ n ≤ j ∧
+    m.load (σ.fr + w 0x70) 8 = some (σ.inp + w (c + h + j)) ∧
+    m.load (σ.fr + w 0x68) 8 = some (w (p - j))
+
+/-- The tuple buffer `{S-0x318 = p, S-0x310 = cap}` with room for `n + r` tuples of `0x90` bytes,
+one of DTF's blocks when it has one. -/
+def AuthBuf (σ : Sig) (m : Machine) (n r : Nat) : Prop :=
+  ∃ bp cap : Word, m.load (σ.fr + w 0x58) 8 = some bp ∧ m.load (σ.fr + w 0x60) 8 = some cap ∧
+    n + r ≤ cap.toNat ∧ ∃ L X, Live σ m L X ∧ (0 < cap.toNat → (bp, cap.toNat * 0x90) ∈ X)
+
+/-- The loop head `0x800024d0`: `n` tuples, the count at `S-0x2f8`. -/
+def AuthLoop (σ : Sig) (m : Machine) : Prop :=
+  ∃ c h p n j, AuthOut σ m n j c h p ∧ m.load (σ.fr + w 0x78) 8 = some (w n) ∧ AuthBuf σ m n 0
+
+/-- The tuple's `decodeItem` (`0x800024ec`): the count at `S-0x320`, `a1`/`a2` the list cursor. -/
+def AuthPre (σ : Sig) (m : Machine) : Prop :=
+  ∃ c h p n j, AuthOut σ m n j c h p ∧ m.load (σ.fr + w 0x50) 8 = some (w n) ∧
+    AuthBuf σ m n 0 ∧ m.reg 11 = σ.inp + w (c + h + j) ∧ m.reg 12 = w (p - j)
+
+/-- Inside the `n + 1`-th tuple (a list, `ht + pt` bytes, consumed length at `S-0x328`): the
+field cursor `s6 = inp + … + q`, `s7 = pt - q`, `b ≤ q`; with `nx` the current field's consumed
+length `k` (outcome at `S-0x90`, `S-0x78`) fits after `q`. -/
+def AuthTup (σ : Sig) (m : Machine) (b : Nat) (nx : Bool) : Prop :=
+  ∃ c h p n j ht pt q, AuthOut σ m n j c h p ∧ m.load (σ.fr + w 0x50) 8 = some (w n) ∧
+    AuthBuf σ m n 0 ∧
+    F2.decode ((σ.payload.drop (c + h + j)).take (p - j)) = .success true ht pt ∧
+    ht + pt ≤ p - j ∧ m.load (σ.fr + w 0x48) 8 = some (w (ht + pt)) ∧ b ≤ q ∧ q ≤ pt ∧
+    m.reg 22 = σ.inp + w (c + h + j + ht + q) ∧ m.reg 23 = w (pt - q) ∧
+    (nx = true → ∃ k, m.load (σ.fr + w 0x2f8) 8 = some (w k) ∧ 1 ≤ k ∧ q + k ≤ pt)
+
+/-- The tuple's address payload pointer at `S-0x2f8`, its 20 bytes in the payload. -/
+def AddrOk (σ : Sig) (m : Machine) : Prop :=
+  ∃ a, m.load (σ.fr + w 0x78) 8 = some (σ.inp + w a) ∧ a + 20 ≤ σ.len
+
+/-- After the tuple's last field: the tuple consumed `k ≥ 17` bytes (`S-0x328`). -/
+def AuthEnd (σ : Sig) (m : Machine) : Prop :=
+  ∃ c h p n j k, AuthOut σ m n j c h p ∧ m.load (σ.fr + w 0x50) 8 = some (w n) ∧
+    AuthBuf σ m n 0 ∧ skip (n + 1) (TX.itemPayload (σ.payload.drop c) h p) = some (j + k) ∧
+    17 ≤ k ∧ m.load (σ.fr + w 0x48) 8 = some (w k) ∧ AddrOk σ m
+
+/-- `a1`/`a2` hold a slice of the payload. -/
+def CurSlice (σ : Sig) (m : Machine) : Prop :=
+  ∃ c n, m.reg 11 = σ.inp + w c ∧ m.reg 12 = w n ∧ c + n ≤ σ.len
+
+/-- The cuts of the tuple loop with an `Extra` conjunct. -/
+def authExtraPcs : List Nat :=
+  [0x800024d0, 0x80002574, 0x80002690, 0x80002710, 0x8000279c, 0x80002868]
+
+def AuthExtra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
+  if pc = 0x800024d0 then AuthLoop σ m
+  else if pc = 0x80002574 then AuthTup σ m 0 true
+  else if pc = 0x80002868 then AuthEnd σ m
+  else if pc = 0x80002690 ∨ pc = 0x80002710 ∨ pc = 0x8000279c then
+    AuthTup σ m 21 true ∧ AddrOk σ m
+  else True
+
+/-- The return sites of the tuple loop's calls with a `SiteX` conjunct. -/
+def authSitePcs : List Nat :=
+  [0x800024ec, 0x8000252c, 0x80002600, 0x80002654, 0x800026d4, 0x80002754, 0x80002820]
+
+def AuthSite (r : Nat) (σ : Sig) (m : Machine) : Prop :=
+  if r = 0x800024ec then AuthPre σ m
+  else if r = 0x8000252c ∨ r = 0x80002600 then
+    AuthTup σ m 0 false ∧ m.reg 11 = m.reg 22 ∧ m.reg 12 = m.reg 23
+  else if r = 0x80002654 ∨ r = 0x800026d4 ∨ r = 0x80002754 then
+    AuthTup σ m 21 false ∧ AddrOk σ m ∧ m.reg 11 = m.reg 22 ∧ m.reg 12 = m.reg 23
+  else if r = 0x80002820 then AuthEnd σ m ∧ CurSlice σ m
+  else True
+
+theorem authExtra_none {pc : Nat} (h : authExtraPcs.contains pc = false) (σ : Sig)
+    (m : Machine) : AuthExtra pc σ m := by
+  simp only [authExtraPcs, List.contains_cons, List.contains_nil, Bool.or_false,
+    Bool.or_eq_false_iff, beq_eq_false_iff_ne, ne_eq] at h
+  obtain ⟨h1, h2, h3, h4, h5, h6⟩ := h
+  unfold AuthExtra
+  rw [if_neg h1, if_neg h2, if_neg h6, if_neg (by omega)]; trivial
+
+theorem authSite_none {r : Nat} (h : authSitePcs.contains r = false) (σ : Sig) (m : Machine) :
+    AuthSite r σ m := by
+  simp only [authSitePcs, List.contains_cons, List.contains_nil, Bool.or_false,
+    Bool.or_eq_false_iff, beq_eq_false_iff_ne, ne_eq] at h
+  obtain ⟨h1, h2, h3, h4, h5, h6, h7⟩ := h
+  unfold AuthSite
+  rw [if_neg h1, if_neg (by omega), if_neg (by omega), if_neg h7]; trivial
+
 def Extra (pc : Nat) (σ : Sig) (m : Machine) : Prop :=
   if pc = 0x80000574 then m.reg 10 = w (0x80110050 + 8 * σ.t)
   else if pc = 0x80002138 then SlotOk σ m 32 ∧ HashItem σ m 1 ∧ HashSlot σ m
   else if pc = 0x80002434 then SlotOk σ m 0x90
   else if pc = 0x800011f8 then Done σ m
   else if pc = 0x800020ac then HashLoop σ m
-  else True
+  else AuthExtra pc σ m
 
 /-- What a call site states beyond its kind's: the hash loop's state across the item's
 `decodeItem` (`0x800020c0`, its input `a1`/`a2` the cursor `s7`/`s6`) and the list's
-`ensureTotalCapacity` (`0x8000211c`, the request `a2 = s9 + 1`). -/
+`ensureTotalCapacity` (`0x8000211c`, the request `a2 = s9 + 1`); the tuple loop's
+(`AuthSite`). -/
 def SiteX (r : Nat) (σ : Sig) (m : Machine) : Prop :=
   if r = 0x800020c0 then HashLoop σ m ∧ m.reg 11 = m.reg 23 ∧ m.reg 12 = m.reg 22
   else if r = 0x8000211c then HashItem σ m 0 ∧ m.reg 12 = m.reg 25 + 1
-  else True
+  else AuthSite r σ m
 
 /-! ## Callees -/
 
@@ -384,6 +479,8 @@ inductive Inner
   | be (cur fin : Nat)
   /-- a list loop: the location of the list bytes left -/
   | list (l : Loc)
+  /-- a byte loop inside a list loop: cursor and end registers, the list bytes left -/
+  | beL (cur fin : Nat) (l : Loc)
   deriving Inhabited
 
 /-- `(pc, K, inner)` per cut point (generated from the leaves, `OPEN/DTF/CUTS.md`). -/
@@ -516,16 +613,16 @@ def budgetTable : List (Nat × Nat × Inner) := [
   (0x800024d0, 6723, .list (.slot 0x68)),
   (0x800024ec, 6641, .list (.slot 0x68)),
   (0x8000252c, 6552, .list (.slot 0x68)),
-  (0x80002574, 5897, .be 10 11),
+  (0x80002574, 5897, .beL 10 11 (.slot 0x68)),
   (0x80002600, 5791, .list (.slot 0x68)),
   (0x80002654, 5698, .list (.slot 0x68)),
-  (0x80002690, 5046, .be 10 11),
+  (0x80002690, 5046, .beL 10 11 (.slot 0x68)),
   (0x800026d4, 4955, .list (.slot 0x68)),
-  (0x80002710, 4303, .be 10 11),
+  (0x80002710, 4303, .beL 10 11 (.slot 0x68)),
   (0x80002754, 4212, .list (.slot 0x68)),
-  (0x8000279c, 3557, .be 10 11),
+  (0x8000279c, 3557, .beL 10 11 (.slot 0x68)),
   (0x80002820, 3453, .list (.slot 0x68)),
-  (0x80002868, 2798, .be 10 11),
+  (0x80002868, 2798, .beL 10 11 (.slot 0x68)),
   (0x800029a8, 2714, .list (.slot 0x68)),
   (0x800029c4, 2708, .list (.slot 0x68)),
   (0x800029c8, 2707, .list (.slot 0x68)),
@@ -560,7 +657,7 @@ def AEntry (σ : Sig) (m : Machine) : Prop := m = σ.m ∧ m.pc.toNat = entry �
 /-- At a byte-loop head (`Inner.be cur fin`): the cursor and end registers point into the
 payload, `cur < end ≤ len`, at most 32 bytes apart (the loop reads `cur` and stops at `end`). -/
 def CurOk (σ : Sig) (m : Machine) : Inner → Prop
-  | .be cur fin => ∃ c e, m.reg (Fin.ofNat 32 cur) = σ.inp + w c ∧
+  | .be cur fin | .beL cur fin _ => ∃ c e, m.reg (Fin.ofNat 32 cur) = σ.inp + w c ∧
       m.reg (Fin.ofNat 32 fin) = σ.inp + w e ∧ c < e ∧ e ≤ σ.len ∧ e ≤ c + 32
   | _ => True
 
@@ -590,6 +687,8 @@ def innerOf (σ : Sig) (m : Machine) : Inner → Nat
   | .none => 0
   | .be cur fin => 20 * (m.reg (Fin.ofNat 32 fin) - m.reg (Fin.ofNat 32 cur)).toNat
   | .list l => 256 * (l.word σ m).toNat
+  | .beL cur fin l => 20 * (m.reg (Fin.ofNat 32 fin) - m.reg (Fin.ofNat 32 cur)).toNat +
+      256 * (l.word σ m).toNat
 
 /-- The budget at a cut. Deliberately not unfolded by `zesu_simp`: with `budgetAt` rows as
 `zesu_simp` lemmas `budget_auto` passes on every leaf and `leaf_auto`'s exit stage (two rules and

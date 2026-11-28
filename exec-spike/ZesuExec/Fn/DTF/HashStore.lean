@@ -272,7 +272,7 @@ theorem DTF.leaf_80002138_1 :
     rw [show (siteAt 111).arms = (table[110]!).arms by decide]; exact harm
   have hsite : SiteA (siteAt 111) (table[111]!).pc σ (L, items, ⟨[], []⟩) m' := by
     rw [show (table[111]!).pc = 0x80002180 by decide]
-    refine ⟨hr1, hcm', hshp, harm', hrst', hidx, fun f hf => ?_, ?_, by simp [SiteX]⟩
+    refine ⟨hr1, hcm', hshp, harm', hrst', hidx, fun f hf => ?_, ?_, siteX_of_no (by decide) σ m'⟩
     · rw [show siteFields 0x80002180 = [] by decide] at hf; cases hf
     · rw [show chkCount (siteAt 111).rest = chkCount (table[110]!).rest by decide]; exact hchk
   refine ⟨calleeOf (siteAt 111).kind, (L, items, ⟨[], []⟩), ?_, ?_, hidx.1, fun m'' hpost => ?_⟩
