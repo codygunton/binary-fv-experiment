@@ -1,0 +1,15 @@
+{
+ "assertions": {
+  "fit": 102,
+  "total": 104
+ },
+ "leaves": {
+  "fit": 92,
+  "total": 245
+ },
+ "leaves_all_map": {
+  "fit": 95,
+  "total": 258
+ },
+ "decision": "stop S24 and S25; S26-S28 with Prop assertions"
+}
