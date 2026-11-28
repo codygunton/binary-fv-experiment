@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""Entry/return snapshots of F1, F2, TX, DTF, the allocator and the scratch arena under Unicorn, for
-`zesu-difftest` and the `post_snapshot` theorems.
+"""Entry/return snapshots of F1, F2, TX, DTF, the allocator, the scratch arena and the S16 functions
+under Unicorn, for `zesu-difftest` and the `post_snapshot` theorems.
 
     snap.py --runner <zesislar>/tools/oblig/exec/run.py
-            --fn F1|F2|TX|DTF|Alloc|Free|ScratchFree|ScratchRemap [--elf ELF]
-            [--inputs FILE ...] [--input ID ...] --out DIR
+            --fn F1|F2|TX|DTF|Alloc|Free|ScratchFree|ScratchRemap|R8330|R10572|R12629|M7964|M11564
+            [--elf ELF] [--inputs FILE ...] [--input ID ...] --out DIR
 
 Imports zesislar's Unicorn runner `run.py` as a module and runs its profile (`keysEnsureCapacity`
 for F1, `decodeItem` for F2, `txAccessList` for TX; DTF uses `dtf_profile` below, the runner has
 none; `alt_fl_alloc.alloc` and `free` use `alloc_profile`, `scratch_arena.free` and `remap`
-`scratch_profile`) on each input of the given input sets
+`scratch_profile`, the `mem.rotate` copies `R<n>` `rotate_profile`, the `sort.block.mergeInPlace`
+copies `M<n>` `merge_profile`) on each input of the given input sets
 (runner schema `oblig-exec-inputs/1`; default: `inputs/<profile>.json` beside `run.py`, for DTF
 `tools/snap_inputs/decodeTxFields.json`, for Alloc and Free `tools/snap_inputs/alloc.json` and
-`free.json`, for ScratchFree and ScratchRemap `scratch_free.json` and `scratch_remap.json`;
+`free.json`, for ScratchFree and ScratchRemap `scratch_free.json` and `scratch_remap.json`,
+for the rotate copies `tools/snap_inputs/rotate.json`, for the merge copies
+`tools/snap_inputs/merge.json`;
 `tools/snap_inputs/` adds F1 paths the runner's set lacks). Unlike `run.py`, the allocator entries are not hooked:
 Unicorn executes the real `alt_fl_alloc.{alloc,remap,free}` reached through the vtable; only the
 `memcpy` stub is replaced, by the runner's ZisK service hook. The hook stages the count at the
@@ -40,14 +43,27 @@ from pathlib import Path
 
 FNS = {'F1': 'keysEnsureCapacity', 'F2': 'decodeItem', 'TX': 'txAccessList', 'DTF': 'decodeTxFields',
        'Alloc': 'alloc', 'Free': 'free', 'ScratchFree': 'scratch_arena.free',
-       'ScratchRemap': 'scratch_arena.remap'}
+       'ScratchRemap': 'scratch_arena.remap',
+       'R8330': 'rotate', 'R10572': 'rotate', 'R12629': 'rotate', 'M7964': 'mergeInPlace',
+       'M11564': 'mergeInPlace'}
 # Own inputs (the runner has no profile for these functions).
 OWN_INPUTS = {'DTF': 'decodeTxFields.json', 'Alloc': 'alloc.json', 'Free': 'free.json',
-              'ScratchFree': 'scratch_free.json', 'ScratchRemap': 'scratch_remap.json'}
+              'ScratchFree': 'scratch_free.json', 'ScratchRemap': 'scratch_remap.json',
+              'R8330': 'rotate.json', 'R10572': 'rotate.json',
+              'R12629': 'rotate.json', 'M7964': 'merge.json', 'M11564': 'merge_slices.json'}
 # `ScratchArena` and its newest chunk header for `scratch_profile` (owned argument cells).
 SCRATCH_CTX, SCRATCH_CHUNK = 0xa0600000, 0xa0610000
 # `alt_fl_alloc`'s memory (`ZesuExec/Fn/Alloc/Inv.lean`): the 22 free-list heads, HEAP_POS, HEAP_TOP.
 FL_BASE, POS_ADDR, HEAP_LO, HEAP_TOP = 0xa0534008, 0xa0d34520, 0xa0d34530, 0xbfff0000
+# `mem.rotate` copies: symbol and element size.
+ROTATE = {'R8330': ('mem.rotate__anon_8330', 48), 'R10572': ('mem.rotate__anon_10572', 104),
+          'R12629': ('mem.rotate__anon_12629', 64)}
+# `sort.block.mergeInPlace` copies: symbol and whether the 32-byte elements are keyed (first 16
+# bytes a byte slice `{ptr, len}`, ordered by the pointed-to bytes) or ordered by themselves.
+MERGE = {'M7964': ('sort.block.mergeInPlace__anon_7964', False),
+         'M11564': ('sort.block.mergeInPlace__anon_11564', True)}
+# Where the keyed elements' strings live: `strs[k]` at `STRS + 0x40 k + (3 k) % 8`.
+STRS = 0xa0800000
 PAGE = 0x1000
 # Readable regions of `ZesuExec.Layout` (half-open): rodata, input, RAM.
 REGIONS = [(0x8010fd80, 0x80118678), (0x40000000, 0x80000000), (0xa0000000, 0xc0000000)]
@@ -173,6 +189,107 @@ def scratch_profile(r, fn: str):
     return Scratch()
 
 
+def slice_bytes(row: dict, size: int) -> bytes:
+    """The input slice of a rotate row: `size` bytes from the row's seed."""
+    return bytes((row['seed'] * 131 + 7 * i + i * i) % 256 for i in range(size))
+
+
+def rotate_profile(r, fn: str):
+    """`mem.rotate(T, items, amount)`: a0 = items.ptr (RAM at `DATA_PTR`), a1 = items.len,
+    a2 = amount (row fields `n`, `amount`; the bytes come from `seed`). The outcome checks the
+    slice against the rotation `e ↦ (e + amount) % n`."""
+    symbol, elem = ROTATE[fn]
+
+    class Rotate(r.Profile):
+        name = 'rotate'
+
+        def setup(self, m, row):
+            n = row['n']
+            m.own('items', r.DATA_PTR, n * elem, True, slice_bytes(row, n * elem))
+            return [r.DATA_PTR, n, row['amount']]
+
+        def outcome(self, m, row):
+            n, a = row['n'], row['amount']
+            before, after = slice_bytes(row, n * elem), m.read(r.DATA_PTR, n * elem)
+            want = b''.join(before[elem * ((e + a) % n):elem * ((e + a) % n) + elem] for e in range(n))
+            return {'kind': 'rotated' if after == want else 'wrong'}
+
+    Rotate.symbol = symbol
+    return Rotate()
+
+
+def merge_element(spec: str) -> bytes:
+    """A 32-byte element: the hex prefix `spec`, then the fixed filler `(37 i + 11) % 256` at
+    offset `i`, so equal specs give equal elements."""
+    head = bytes.fromhex(spec)
+    return head + bytes((37 * i + 11) % 256 for i in range(len(head), 32))
+
+
+def str_addr(k: int) -> int:
+    return STRS + 0x40 * k + (3 * k) % 8
+
+
+def slice_element(row: dict, spec: list[int]) -> bytes:
+    """A keyed element `[k, seed]`: the slice `strs[k]` (`{ptr, len}`), then 16 filler bytes."""
+    k, seed = spec
+    return (str_addr(k).to_bytes(8, 'little') + (len(row['strs'][k]) // 2).to_bytes(8, 'little')
+            + bytes((29 * seed + 5 * i) % 256 for i in range(16)))
+
+
+def merge_key(row: dict, keyed: bool):
+    """The order's key of an element spec: the element itself, or its string."""
+    return (lambda s: bytes.fromhex(row['strs'][s[0]])) if keyed else merge_element
+
+
+def merge_items(row: dict, keyed: bool) -> tuple[bytes, int, int, int]:
+    """The items array of a merge row (`pre ++ a ++ b ++ post`) and A.start, A.end = B.start, B.end."""
+    pre, a, b, post = row['pre'], row['a'], row['b'], row['post']
+    enc = (lambda s: slice_element(row, s)) if keyed else merge_element  # noqa: E731
+    data = b''.join(enc(e) for e in pre + a + b + post)
+    return data, len(pre), len(pre) + len(a), len(pre) + len(a) + len(b)
+
+
+def merge_profile(r, fn: str):
+    """`sort.block.mergeInPlace(items, A, B)` on 32-byte elements: a0 = items.ptr (RAM at
+    `DATA_PTR`), a1 = &A and a2 = &B (`Range = {start, end}`, two `u64` LE, at `CELLS` and
+    `CELLS + 0x10`). Row fields `pre`, `a`, `b`, `post`: A = the `a` elements, B = the `b`
+    elements, each sorted. Plain copies: element hex prefixes (`merge_element`), ordered
+    byte-lexicographically. Keyed copies: `[k, seed]` (`slice_element`) over the row's `strs`
+    (hex; `strs[k]` at `str_addr(k)`, read-only), ordered by the strings. The outcome checks
+    `items[A.start..B.end]` is the stable merge and every other element kept."""
+    import struct
+    symbol, keyed = MERGE[fn]
+
+    class Merge(r.Profile):
+        name = 'mergeInPlace'
+
+        def setup(self, m, row):
+            data, a_s, a_e, b_e = merge_items(row, keyed)
+            key = merge_key(row, keyed)
+            for run in ('a', 'b'):
+                assert row[run] == sorted(row[run], key=key), f"{row['id']}: {run} not sorted"
+            if keyed:
+                for k, s in enumerate(row['strs']):
+                    m.own(f'str{k}', str_addr(k), len(s) // 2, False, bytes.fromhex(s))
+            m.own('items', r.DATA_PTR, len(data), True, data)
+            m.own('ranges', r.CELLS, 32, False, struct.pack('<QQQQ', a_s, a_e, a_e, b_e))
+            return [r.DATA_PTR, r.CELLS, r.CELLS + 0x10]
+
+        def outcome(self, m, row):
+            before, a_s, _, b_e = merge_items(row, keyed)
+            after = m.read(r.DATA_PTR, len(before))
+            key = merge_key(row, keyed)
+            specs = row['pre'] + row['a'] + row['b'] + row['post']
+            els = lambda d: [d[32 * e:32 * e + 32] for e in range(len(d) // 32)]  # noqa: E731
+            x, y = els(before), els(after)
+            mid = sorted(range(a_s, b_e), key=lambda e: key(specs[e]))
+            want = x[:a_s] + [x[e] for e in mid] + x[b_e:]
+            return {'kind': 'merged' if y == want else 'wrong'}
+
+    Merge.symbol = symbol
+    return Merge()
+
+
 def profile_for(r, fn: str):
     if fn == 'DTF':
         return dtf_profile(r)
@@ -180,6 +297,10 @@ def profile_for(r, fn: str):
         return alloc_profile(r, fn)
     if fn in ('ScratchFree', 'ScratchRemap'):
         return scratch_profile(r, fn)
+    if fn in ROTATE:
+        return rotate_profile(r, fn)
+    if fn in MERGE:
+        return merge_profile(r, fn)
     return r.PROFILES[FNS[fn]]
 
 

@@ -1743,6 +1743,12 @@
 {"schema": 2, "rec": "stop", "id": 18, "agent": "S12Forms", "ts": "2026-11-28T06:48:56Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 19, "ts": "2026-11-28T06:48:56Z", "fn": null, "item": "S12 measure: map rebuild, blocked counts, gate", "kind": "infra", "agent": "S12Forms"}
 {"schema": 2, "rec": "stop", "id": 19, "agent": "S12Forms", "ts": "2026-11-28T06:55:28Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 20, "ts": "2026-11-28T07:13:09Z", "fn": "f_8006464c", "item": "rotate_8330 contract + shared rotate model", "kind": "contract", "agent": "S16Generic"}
+{"schema": 2, "rec": "stop", "id": 20, "agent": "S16Generic", "ts": "2026-11-28T07:58:58Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 21, "ts": "2026-11-28T07:58:58Z", "fn": "f_8006464c", "item": "rotate_8330 cut assertions, runs, 8 cut lemmas, 20 leaves, spec+sail (shared Rotate/{Model,Spec,Cuts,Tac})", "kind": "leaf", "agent": "S16Generic"}
+{"schema": 2, "rec": "stop", "id": 21, "agent": "S16Generic", "ts": "2026-11-28T07:59:05Z", "outcome": "abandoned", "note": "opened late: the 8330 proof work (contract, assertions, 28 items) is item 20"}
+{"schema": 2, "rec": "start", "id": 22, "ts": "2026-11-28T07:59:05Z", "fn": "f_8006464c", "item": "rotate_8330 contract rule: pre_nonvacuous, post_snapshot, axioms, reviews/STATEMENTS", "kind": "contract", "agent": "S16Generic"}
+{"schema": 2, "rec": "stop", "id": 22, "agent": "S16Generic", "ts": "2026-11-28T08:04:28Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 2, "ts": "2026-11-28T06:10:38Z", "fn": null, "item": "S11 budget_auto/oblig_auto: baseline measures, goal grammar, tactics", "kind": "rule", "agent": "S11Auto"}
 {"schema": 2, "rec": "stop", "id": 2, "agent": "S11Auto", "ts": "2026-11-28T07:12:00Z", "outcome": "closed", "note": "budget_auto/oblig_auto/leaf_diag one pass; TX zesu_auto moved to Facts; 39 TX budget subproofs -> budget_auto; toy leaf auto"}
 {"schema": 2, "rec": "start", "id": 20, "ts": "2026-11-28T07:19:33Z", "fn": "0x80042494", "item": "S13 free-list invariant + alloc/free proofs", "kind": "contract", "agent": "S13Alloc"}
@@ -1764,6 +1770,22 @@
 {"schema": 2, "rec": "start", "id": 24, "ts": "2026-11-28T09:05:06Z", "fn": "scratch_arena", "item": "S13 scratch_arena free/remap proved; alloc open", "kind": "leaf", "agent": "S13AllocB"}
 {"schema": 2, "rec": "stop", "id": 24, "agent": "S13AllocB", "ts": "2026-11-28T09:05:10Z", "outcome": "open", "note": "free_spec/remap_spec (+sail) proved; scratch_arena.alloc not started; re-point F1/F4/F5/TX/DTF waits for xparams"}
 {"schema": 2, "rec": "start", "id": 25, "ts": "2026-11-28T09:06:04Z", "fn": "alt_fl_alloc", "item": "S13 non-vacuity+snapshots, scratch alloc, re-point", "kind": "compliance", "agent": "S13AllocC"}
+{"schema": 2, "rec": "start", "id": 23, "ts": "2026-11-28T08:19:46Z", "fn": "f_8007cc68", "item": "rotate_10572 copy over shared Rotate library: cfg, runs, regs, budgets, 28 items, spec+sail, contract rule", "kind": "leaf", "agent": "S16GenericB"}
+{"schema": 2, "rec": "stop", "id": 23, "agent": "S16GenericB", "ts": "2026-11-28T08:38:14Z", "outcome": "closed", "note": "new: Runs/Vc (regs, budgets, cut regs) + Snaps; Leaves/Proof by renaming 8330's (all 28 items unchanged); difftest run in item 24's span"}
+{"schema": 2, "rec": "start", "id": 24, "ts": "2026-11-28T08:38:14Z", "fn": "f_800a8f30", "item": "rotate_12629 copy over shared Rotate library: cfg, runs, regs, budgets, 28 items, spec+sail, contract rule", "kind": "leaf", "agent": "S16GenericB"}
+{"schema": 2, "rec": "stop", "id": 24, "agent": "S16GenericB", "ts": "2026-11-28T08:40:10Z", "outcome": "closed", "note": "new: Runs/Vc (regs, budgets, cut regs) + Snaps; Leaves/Proof by renaming 8330's (all 28 items unchanged)"}
+{"schema": 2, "rec": "start", "id": 25, "ts": "2026-11-28T08:40:14Z", "fn": "f_8004f388", "item": "mergeInPlace_7964 Lean model (sorted permutation), contract, shared merge library", "kind": "contract", "agent": "S16GenericB"}
+{"schema": 2, "rec": "stop", "id": 25, "agent": "S16GenericB", "ts": "2026-11-28T09:01:45Z", "outcome": "closed", "note": "Model (lexLt, MergeOf, Inv + steps), Spec, Win (windows, rot, searches), Bytes (memSrc), Cuts/Steps (states, Common, copy/swap steps), C7964 Runs (18 cuts, 43 leaves); machine proof handed to S16Merge"}
+{"schema": 2, "rec": "start", "id": 26, "ts": "2026-11-28T09:02:11Z", "fn": "f_8004f388", "item": "S16 m7964 machine proof: shared lemmas, Vc, Leaves, Proof", "kind": "contract", "agent": "S16GenericB.S16Merge"}
+{"schema": 2, "rec": "start", "id": 27, "ts": "2026-11-28T09:02:21Z", "fn": "f_8004f388", "item": "M7964 snapshot test + difftest", "kind": "contract", "agent": "S16GenericB.S16MergeSnap"}
+{"schema": 2, "rec": "start", "id": 28, "ts": "2026-11-28T09:03:29Z", "fn": "f_80098ddc", "item": "mergeInPlace_11564: cut design and runs over the shared merge library", "kind": "run", "agent": "S16GenericB"}
+{"schema": 2, "rec": "stop", "id": 27, "agent": "S16GenericB.S16MergeSnap", "ts": "2026-11-28T09:05:27Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 29, "ts": "2026-11-28T09:06:48Z", "fn": "f_80098ddc", "item": "M11564 snapshot test + difftest", "kind": "contract", "agent": "S16GenericB.S16MergeSnap"}
+{"schema": 2, "rec": "stop", "id": 28, "agent": "S16GenericB", "ts": "2026-11-28T09:07:40Z", "outcome": "closed", "note": "22 cuts, 50 leaves, all runs succeed; new shapes SF, SR3; design local S16Merge11564.md"}
+{"schema": 2, "rec": "stop", "id": 29, "agent": "S16GenericB.S16MergeSnap", "ts": "2026-11-28T09:09:45Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 30, "ts": "2026-11-28T09:24:25Z", "fn": "f_80098ddc", "item": "S16 11564 phase A: Slice, Spill, C11564/Cfg, Runs generic states", "kind": "leaf", "agent": "S16GenericB.S16Merge2"}
+{"schema": 2, "rec": "stop", "id": 30, "agent": "S16GenericB.S16Merge2", "ts": "2026-11-28T09:34:28Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "stop", "id": 26, "agent": "S16GenericB.S16Merge", "ts": "2026-11-28T09:58:53Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 21, "ts": "2026-11-28T07:44:33Z", "fn": "f_8000050c", "item": "S7 stage 2 cont.: arms 3-4 rows, legacy v, Extra 80002dc4, TxAt, buffers; DTF.reach/dtf_spec/dtf_sail", "kind": "leaf", "agent": "DTFFieldsC"}
 {"schema": 2, "rec": "stop", "id": 21, "agent": "DTFFieldsC", "ts": "2026-11-28T09:06:11Z", "outcome": "open", "note": "steps 1-3 + scalar rows done; 80002dc4_0 open (loop walks, TxAt stores, buffers)"}
 {"schema": 2, "rec": "start", "id": 23, "ts": "2026-11-28T08:28:13Z", "fn": null, "item": "xparams: Layout.extraParams 0xa0000f00", "kind": "service", "agent": "XParamsFix"}
@@ -1795,3 +1817,5 @@
 {"schema": 2, "rec": "stop", "id": 25, "agent": "S13AllocC", "ts": "2026-11-28T09:36:55Z", "outcome": "open", "note": "alloc/free nonvacuity+snapshots; AllocContract re-point F1/F4/F5/TX/DTF; scratch_arena.alloc and GO.md S13 open"}
 {"schema": 2, "rec": "start", "id": 33, "ts": "2026-11-28T09:55:27Z", "fn": "f_800db904", "item": "S13 scratch free/remap nonvacuity+snapshots, scratch alloc, LOG fix", "kind": "compliance", "agent": "S13AllocD"}
 {"schema": 2, "rec": "stop", "id": 33, "agent": "S13AllocD", "ts": "2026-11-28T10:40:50Z", "outcome": "open", "note": "scratch free/remap nonvacuity+snapshots (d40e67b7), LOG fix (30771c1e); scratch_arena.alloc proved (SA.sa_spec/sa_sail, 18 items, pre_nonvacuous) but not imported into root: post_snapshot (ScratchAlloc snap profile + checker) open"}
+{"schema": 2, "rec": "start", "id": 33, "ts": "2026-11-28T09:59:37Z", "fn": "f_80098ddc", "item": "S16 11564 phase B: Vc, Leaves, Proof, Axioms", "kind": "leaf", "agent": "S16GenericB.S16Merge2"}
+{"schema": 2, "rec": "stop", "id": 33, "agent": "S16GenericB.S16Merge2", "ts": "2026-11-28T10:50:26Z", "outcome": "closed", "note": null}

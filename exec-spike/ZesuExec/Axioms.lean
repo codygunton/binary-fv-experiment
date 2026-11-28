@@ -13,6 +13,11 @@ import ZesuExec.Fn.F1.Proof
 import ZesuExec.Fn.F1.Sail
 import ZesuExec.Fn.F2.Proof
 import ZesuExec.Fn.F2.Sail
+import ZesuExec.Fn.Rotate.C8330.Proof
+import ZesuExec.Fn.Rotate.C10572.Proof
+import ZesuExec.Fn.Rotate.C12629.Proof
+import ZesuExec.Fn.MergeInPlace.C7964.Proof
+import ZesuExec.Fn.MergeInPlace.C11564.Proof
 import ZesuExec.Fn.F3.Proof
 import ZesuExec.Fn.F3.Sail
 import ZesuExec.Fn.F4.Proof
@@ -361,6 +366,66 @@ info: 'ZesuExec.Fn.Scratch.RS.post_snapshot' depends on axioms: [propext]
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.Scratch.RS.post_snapshot
+
+/--
+info: 'ZesuExec.Fn.Rotate.C8330.r8330_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C8330.r8330_spec
+
+/--
+info: 'ZesuExec.Fn.Rotate.C8330.r8330_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C8330.r8330_sail
+
+/--
+info: 'ZesuExec.Fn.Rotate.C10572.r10572_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C10572.r10572_spec
+
+/--
+info: 'ZesuExec.Fn.Rotate.C10572.r10572_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C10572.r10572_sail
+
+/--
+info: 'ZesuExec.Fn.Rotate.C12629.r12629_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C12629.r12629_spec
+
+/--
+info: 'ZesuExec.Fn.Rotate.C12629.r12629_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.Rotate.C12629.r12629_sail
+
+/--
+info: 'ZesuExec.Fn.MergeInPlace.C7964.m7964_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.MergeInPlace.C7964.m7964_spec
+
+/--
+info: 'ZesuExec.Fn.MergeInPlace.C7964.m7964_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.MergeInPlace.C7964.m7964_sail
+
+/--
+info: 'ZesuExec.Fn.MergeInPlace.C11564.m11564_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.MergeInPlace.C11564.m11564_spec
+
+/--
+info: 'ZesuExec.Fn.MergeInPlace.C11564.m11564_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.MergeInPlace.C11564.m11564_sail
 
 /--
 info: 'ZesuExec.Fn.Memmove.memmove_spec' depends on axioms: [propext, Quot.sound]

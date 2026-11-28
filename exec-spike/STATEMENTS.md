@@ -671,6 +671,56 @@ Open (to settle before review):
   `FreePre/FreePost`, `RemapPre/RemapPost` act on the newest chunk's header only (`used` at 16,
   `cap` at 8 of the chunk `ctx.chunks`); proved `FS.fs_spec` (bound 16), `RS.rs_spec` (22).
 
+## S16 rotate: `mem.rotate__anon_8330` (`0x8006464c`), `__anon_10572` (`0x8007cc68`), `__anon_12629` (`0x800a8f30`) — draft, unreviewed
+
+New contract, no zesislar counterpart. Drafted from `std/mem.zig` (`rotate` = three `reverse`s;
+`reverse` swaps `i` and `L-1-i` for `i < L/2`) and the binary. Stated once over the element size
+(`ZesuExec/Fn/Rotate/Spec.lean`, `Rotate.Cfg`: entry, `E`, frame size, saved slots, kept
+registers); copy 8330 is `C8330.cfg` (`E = 48`, 32-byte frame saving `s1`, `s0`, `ra`), copies
+10572 and 12629 are `C10572.cfg` and `C12629.cfg` (`E = 104` and `E = 64`, 16-byte frame saving
+`s0`, `ra`). Per copy `Cn`:
+
+- `Pre cfg m`: rodata loaded; `StackOk` for the frame; `RetAligned`; `amount ≤ len` (Zig's slice
+  bound `items[0..amount]`, a safety check the release build omits); the `E·len` slice bytes are
+  writable RAM and present; slice and frame disjoint.
+- `Post cfg m m'`: `Returns`; memory changed only in the slice and the frame; for `e < len`,
+  `o < E`, byte `o` of element `e` at the return is byte `o` of entry element `(e + amount) % len`.
+- End theorems `Cn.rn_spec : Spec zesuImage entry (2^32 + 40) (Pre cfg) (Post cfg)` and
+  `rn_sail`. The bound is a constant over-approximation valid for `E·len ≤ 2^29` (RAM); the
+  per-cut budgets are exact functions of `len` and `amount`.
+- Non-vacuity: `Cn.pre_nonvacuous` (the machine `Rotate.witness cfg 2 1`).
+- Snapshot: `Cn.post_snapshot` checks `Post` (`Rotate.SnapOk`) by kernel `decide` on the nine
+  Unicorn snapshots `test/snapshots/Rn` (lengths 0–8, amounts 0..len), made by
+  `tools/snap.py --fn Rn` from `tools/snap_inputs/rotate.json` and rendered by
+  `tools/snap_post.py`.
+
+## S16 merge: `sort.block.mergeInPlace__anon_7964` (`0x8004f388`), `__anon_11564` (`0x80098ddc`) — draft, unreviewed
+
+New contract, no zesislar counterpart, level `model`. Drafted from `std/sort/block.zig`
+(`mergeInPlace`: `binaryFirst` into B, `mem.rotate`, `binaryLast` into the new A, repeat; Zig
+0.16) and the binary. Stated once (`ZesuExec/Fn/MergeInPlace/Spec.lean`, `MergeInPlace.Cfg`:
+entry, frame, saved slots, kept registers, the element order as a key `key m x`, an extra
+precondition `pre`). Elements are 32 bytes; copy 7964 orders them by `std.mem.lessThan(u8)` on
+the element itself (`key = id`, `[32]u8`), copy 11564 by `std.mem.lessThan(u8)` on the byte
+slice `(ptr, len)` in the element's first 16 bytes (`key m x` = the bytes it points to in the
+entry machine; `pre`: those strings present, readable, disjoint from the items and the frame).
+
+- **The model** (`Fn/MergeInPlace/Model.lean`): `lexLt` (Zig's byte-lexicographic order, a
+  proper prefix is less), `Sorted key` (pairwise not-above), `MergeOf key xs ys zs` := `zs` is a
+  permutation of `xs ++ ys` and `Sorted key zs`. `map/reviews.json` names
+  `ZesuExec.Fn.MergeInPlace.MergeOf` as the model of both functions.
+- `Pre cfg m`: rodata loaded; `StackOk`; `RetAligned`; the two `Range`s (`a1`, `a2`; `start`,
+  `end` as little-endian `u64`) readable and present; `A.start ≤ A.end = B.start ≤ B.end`;
+  `items[0..B.end]` (32-byte elements at `a0`) present writable RAM, disjoint from the frame; the
+  ranges disjoint from each other and the frame; both runs `Sorted`; `cfg.pre m`.
+- `Post cfg m m'`: `Returns`; memory changed only in `items[A.start..B.end]` and the frame;
+  `MergeOf (cfg.key m) items[A] items[B] items'[A.start..B.end]`.
+- Snapshot: `Cn.post_snapshot` (`C7964/SnapCheck.lean`, `C11564/SnapCheck.lean`) checks `Post`
+  (`MergeInPlace.SnapOk`: return registers, changed bytes in range or frame, `isPerm` of the
+  32-byte elements and `lexLt`-sortedness of the keys) by kernel `decide` on ten Unicorn
+  snapshots each (`test/snapshots/M7964`, `M11564`; inputs `tools/snap_inputs/merge.json`,
+  `merge_slices.json`).
+
 ## S14 (services)
 
 - **`next` gains service steps** (`ZesuExec/Service.lean`): when `step` is `none` (a word the
