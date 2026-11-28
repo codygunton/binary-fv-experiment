@@ -1,0 +1,215 @@
+[
+ {
+  "check": "0x813-reg",
+  "definition": "csr813, register count (memcpy, memmove, inline sites)",
+  "cases": 100,
+  "lean_none": 0,
+  "parts": {
+   "window": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "staging@0xa0000f00": {
+    "agree": 0,
+    "disagree": 100,
+    "first": {
+     "case": 0,
+     "emu": "0900000000000000",
+     "lean": "7371462b025c69e8"
+    }
+   },
+   "staging@0xa0400f00": {
+    "agree": 0,
+    "disagree": 100,
+    "first": {
+     "case": 0,
+     "emu": "3bd5f5dc3f5194a2",
+     "lean": "0900000000000000"
+    }
+   },
+   "regs": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   }
+  },
+  "emulator_errors": {},
+  "pass": false
+ },
+ {
+  "check": "0x813-imm",
+  "definition": "csr813, immediate count",
+  "cases": 100,
+  "lean_none": 0,
+  "parts": {
+   "window": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "regs": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   }
+  },
+  "emulator_errors": {},
+  "pass": true
+ },
+ {
+  "check": "0x816-reg",
+  "definition": "csr816, register count (memset)",
+  "cases": 100,
+  "lean_none": 0,
+  "parts": {
+   "window": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "regs": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   }
+  },
+  "emulator_errors": {},
+  "pass": true
+ },
+ {
+  "check": "0x816-imm",
+  "definition": "csr816, immediate count",
+  "cases": 100,
+  "lean_none": 0,
+  "parts": {
+   "window": {
+    "agree": 0,
+    "disagree": 0,
+    "first": null
+   },
+   "regs": {
+    "agree": 0,
+    "disagree": 0,
+    "first": null
+   }
+  },
+  "emulator_errors": {
+   "panicked at core/src/riscv2zisk_context.rs:695:9: | assertion failed: inst_size == 2 || inst_size == 4 || inst_size == 8": 100
+  },
+  "pass": false
+ },
+ {
+  "check": "0x805",
+  "definition": "csr805, SHA-256 compression",
+  "cases": 100,
+  "lean_none": 0,
+  "parts": {
+   "state": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "block": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "regs": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   }
+  },
+  "emulator_errors": {},
+  "pass": true
+ },
+ {
+  "check": "0xf12",
+  "definition": "csrF12, marchid read after ZiskBoot",
+  "cases": 100,
+  "lean_none": 0,
+  "parts": {
+   "regs": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   }
+  },
+  "emulator_errors": {},
+  "pass": true
+ },
+ {
+  "check": "exit",
+  "definition": "ziskExit, public output of the exit ecall",
+  "cases": 100,
+  "lean_none": 0,
+  "parts": {
+   "output": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   }
+  },
+  "emulator_errors": {},
+  "pass": true
+ },
+ {
+  "check": "fn-memmove",
+  "definition": "memmove (0x800e06d0) run by ziskemu vs MemcpyPost (ziskMemcpy)",
+  "cases": 100,
+  "lean_none": 0,
+  "parts": {
+   "window": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "staging@0xa0000f00": {
+    "agree": 0,
+    "disagree": 100,
+    "first": {
+     "case": 0,
+     "emu": "0a00000000000000",
+     "lean": "ed2895f2f2fc767b"
+    }
+   },
+   "staging@0xa0400f00": {
+    "agree": 0,
+    "disagree": 100,
+    "first": {
+     "case": 0,
+     "emu": "2c220fcadaa40426",
+     "lean": "0a00000000000000"
+    }
+   },
+   "regs": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   }
+  },
+  "emulator_errors": {},
+  "pass": false
+ },
+ {
+  "check": "fn-memset",
+  "definition": "memset (0x800e06f0) run by ziskemu vs Memset.Post",
+  "cases": 100,
+  "lean_none": 0,
+  "parts": {
+   "window": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "regs": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   }
+  },
+  "emulator_errors": {},
+  "pass": true
+ }
+]

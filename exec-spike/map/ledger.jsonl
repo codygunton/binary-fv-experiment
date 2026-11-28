@@ -1741,3 +1741,5 @@
 {"schema": 2, "rec": "stop", "id": 18, "agent": "S12Forms", "ts": "2026-11-28T06:48:56Z", "outcome": "closed", "note": null}
 {"schema": 2, "rec": "start", "id": 19, "ts": "2026-11-28T06:48:56Z", "fn": null, "item": "S12 measure: map rebuild, blocked counts, gate", "kind": "infra", "agent": "S12Forms"}
 {"schema": 2, "rec": "stop", "id": 19, "agent": "S12Forms", "ts": "2026-11-28T06:55:28Z", "outcome": "closed", "note": null}
+{"schema": 2, "rec": "start", "id": 20, "ts": "2026-11-28T07:10:41Z", "fn": "f_800e06d0", "item": "S14 service registry + memmove", "kind": "service", "agent": "S14Services"}
+{"schema": 2, "rec": "stop", "id": 20, "agent": "S14Services", "ts": "2026-11-28T08:00:12Z", "outcome": "closed", "note": "registry, svc_test, memmove, memset closed; sha256 blocked (rev8)"}

@@ -1228,3 +1228,24 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   - Three-way difftest: no function of the image uses any added form (the image tables hold none
     of their mnemonics), so none applies. Regression: `lake exe zesu-difftest` on all 80
     snapshots (F1, F2, TX, DTF) prints `agree`.
+
+## S14 gate (services) — 2026-11-28, branch s14
+
+- `ziskemu` (ZisK eed62f4d9) builds only from a clone (`/home/cody/.cache/zesu-tmp/zisk-src`,
+  `/home/cody/zisk` untouched) with two build fixes: `mpi-sys` patched to bindgen 0.72 (0.69 with
+  clang 23 emits an opaque `ompi_status_public_t`), `lib-float/c/lib` copied back after the clone's
+  mtimes triggered `make clean`, linked with `RUSTFLAGS=-L ~/.local/lib` (`libiomp5`). Binary:
+  `/home/cody/.cache/zesu-tmp/ziskemu-eed62f4d9` (needs `LD_LIBRARY_PATH=~/.local/lib`).
+  `ziskemu-relaxed12` = same with the `inst_size` assertion at `riscv2zisk_context.rs:695`
+  admitting 12.
+- **The pinned ziskemu cannot load the target ELF**: `csrsi 0x816, 2; addi; addi` (immediate
+  `memset`, e.g. in `zkvm_sha256`) → `create_extended_precompiles_op(.., 12)` asserts
+  `inst_size ∈ {2,4,8}`. The relaxed build loads it.
+- Registry `ZesuExec/Service/` (Basic, Memcpy 0x813, Memset 0x816, Sha256f 0x805, Arch 0xf12 +
+  exit + `ZiskBoot`); `next` and `SailReaches` extended (STATEMENTS.md S14). Full `lake build`
+  green after the `next` change.
+- `tools/svc_test.py` (100 random cases each, Lean evaluation of the registry vs ziskemu): see
+  GO.md S14 and `map/svc_test.json`.
+- Proved: `memmove_spec/_sail`, `memset_spec/_sail` (+ `pre_nonvacuous` each), guarded in
+  Axioms.lean. Image gains `memmove`, `memset` (`tools/gen_image.sh`).
+- `zkvm_sha256`: blocked on `rev8`; contract drafted, not proved (coordinator decision B).
