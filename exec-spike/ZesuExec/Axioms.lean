@@ -31,6 +31,7 @@ import ZesuExec.Fn.Memmove.Sail
 import ZesuExec.Fn.Memset.Sail
 import ZesuExec.Vc.SoundRec
 import ZesuExec.Fn.SszRoot.SparseSail
+import ZesuExec.Fn.SszRoot.ProgProof
 
 /-! Axiom guards for every end theorem (plan Verification item 4). -/
 
@@ -435,3 +436,27 @@ info: 'ZesuExec.Fn.SszRoot.Sparse.pre_nonvacuous' depends on axioms: [propext, C
 -/
 #guard_msgs in
 #print axioms ZesuExec.Fn.SszRoot.Sparse.pre_nonvacuous
+
+/--
+info: 'ZesuExec.Fn.SszRoot.Prog.prog_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.SszRoot.Prog.prog_spec
+
+/--
+info: 'ZesuExec.Fn.SszRoot.Prog.progressiveRootAt_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.SszRoot.Prog.progressiveRootAt_spec
+
+/--
+info: 'ZesuExec.Fn.SszRoot.Prog.progressiveRootAt_sail' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.SszRoot.Prog.progressiveRootAt_sail
+
+/--
+info: 'ZesuExec.Fn.SszRoot.Prog.pre_nonvacuous' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ZesuExec.Fn.SszRoot.Prog.pre_nonvacuous

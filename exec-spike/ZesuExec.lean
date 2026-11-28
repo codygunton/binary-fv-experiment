@@ -119,6 +119,12 @@ import ZesuExec.Fn.SszRoot.SparseVc
 import ZesuExec.Fn.SszRoot.SparseRec
 import ZesuExec.Fn.SszRoot.SparseProof
 import ZesuExec.Fn.SszRoot.SparseSail
+import ZesuExec.Fn.SszRoot.ProgDefs
+import ZesuExec.Fn.SszRoot.ProgVc
+import ZesuExec.Fn.SszRoot.ProgCall
+import ZesuExec.Fn.SszRoot.ProgLeaf
+import ZesuExec.Fn.SszRoot.ProgRec
+import ZesuExec.Fn.SszRoot.ProgProof
 import ZesuExec.Vc.AssembleW
 import ZesuExec.Fn.F1.Vc
 import ZesuExec.Fn.F2.Vc
