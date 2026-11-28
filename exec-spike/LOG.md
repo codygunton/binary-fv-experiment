@@ -1550,5 +1550,11 @@ Times local (2026-11-27). GNU time: `/usr/bin/time` is not installed on this hos
   Unicorn snapshots, `tools/snap.py --fn ScratchFree|ScratchRemap`, inputs
   `tools/snap_inputs/scratch_{free,remap}.json`, Lean data `tools/snap_alloc.py`, checker
   `Fn/Scratch/Snap.lean`). `zmap check` passes (`d40e67b7`).
-- Open: `scratch_arena.alloc` (Pre must fix `ctx+8 = 0x801136d8`; the indirect target is then
-  read from rodata, as in F1).
+- S13AllocD/S13ScratchAlloc: `scratch_arena.alloc` proved (`SA.sa_spec`, `SA.sa_sail`,
+  `sa_spec_of`; 5 cuts, 18 items; `Pre` fixes `ctx+8 = 0x801136d8`, the indirect target read from
+  rodata as in F1, and bounds the request against wraparound). Contract rule: `SA.pre_nonvacuous`
+  (`saM`, first call of an empty arena); `SA.post_snapshot` (`decide` on 7 Unicorn snapshots,
+  `tools/snap.py --fn ScratchAlloc` over the real child `alt_fl_alloc`, inputs
+  `tools/snap_inputs/scratch_alloc.json`, checker `saOk` in `Fn/Scratch/Snap.lean`). Now in the
+  root import with Axioms guards. `zesu-difftest` takes `--fn ScratchAlloc|ScratchFree|ScratchRemap`:
+  `agree` on all 7 + 5 + 7.

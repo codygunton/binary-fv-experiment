@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Render Unicorn snapshots of `alt_fl_alloc.alloc` / `free` and `scratch_arena.free` / `remap`
-(`tools/snap.py --fn Alloc|Free|ScratchFree|ScratchRemap`, schema `zesu-snap/1`) as Lean data for
-their `post_snapshot` theorems (contract rule (b)).
+"""Render Unicorn snapshots of `alt_fl_alloc.alloc` / `free` and `scratch_arena.free` / `remap` /
+`alloc` (`tools/snap.py --fn Alloc|Free|ScratchFree|ScratchRemap|ScratchAlloc`, schema
+`zesu-snap/1`) as Lean data for their `post_snapshot` theorems (contract rule (b)).
 
     snap_alloc.py --fn Alloc --ns ZesuExec.Fn.Alloc.AllocF --snaps test/snapshots/Alloc \
         --inputs tools/snap_inputs/alloc.json --out ZesuExec/Fn/Alloc/SnapsAlloc.lean
@@ -10,8 +10,11 @@ Per snapshot: the registers at entry and exit, the exit `pc`, the address of eve
 the live blocks of the input row, and, at entry and at exit, the words the Lean check reads. For
 the allocator (`Alloc.decodeB`): the 22 head cells, `HEAP_POS`, `HEAP_TOP` and the first word of
 every block on a chain (followed here only to list the words; the Lean side follows the chains
-itself and fails on a missing word). For the scratch arena (`Scratch.freeOk` / `remapOk`): the
-`chunks` word at `a0 + 16` and, when it is not null, the chunk's `cap` and `used` words.
+itself and fails on a missing word). For the scratch arena's `free` and `remap`
+(`Scratch.freeOk` / `remapOk`): the `chunks` word at `a0 + 16` and, when it is not null, the
+chunk's `cap` and `used` words. For its `alloc` (`Scratch.saOk`): the allocator's words, the
+arena's `child.vtable`, `chunks` and `last_chunk_size` words (`a0 + 8`, `+ 16`, `+ 24`) and, when
+`chunks` is not null, the chunk's `next`, `cap` and `used` words (`+ 0`, `+ 8`, `+ 16`).
 """
 import argparse
 import json
@@ -38,12 +41,20 @@ def words(fn, mem, a0):
             out[a] = int.from_bytes(bytes(mem[a + j] for j in range(8)), 'little')
         return out.get(a)
 
-    if fn.startswith('Scratch'):
+    if fn in ('ScratchFree', 'ScratchRemap'):
         chunk = take(a0 + 16)
         if chunk:
             take(chunk + 8)
             take(chunk + 16)
         return sorted(out.items())
+    if fn == 'ScratchAlloc':
+        take(a0 + 8)
+        take(a0 + 24)
+        chunk = take(a0 + 16)
+        if chunk:
+            take(chunk)
+            take(chunk + 8)
+            take(chunk + 16)
     take(POS_ADDR)
     take(TOP_ADDR)
     for k in range(22):
@@ -55,7 +66,8 @@ def words(fn, mem, a0):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--fn', required=True, choices=['Alloc', 'Free', 'ScratchFree', 'ScratchRemap'])
+    ap.add_argument('--fn', required=True,
+                    choices=['Alloc', 'Free', 'ScratchFree', 'ScratchRemap', 'ScratchAlloc'])
     ap.add_argument('--ns', required=True)
     ap.add_argument('--snaps', type=Path, required=True)
     ap.add_argument('--inputs', type=Path, required=True)

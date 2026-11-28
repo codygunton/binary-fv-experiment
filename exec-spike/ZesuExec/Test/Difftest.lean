@@ -28,6 +28,9 @@ def segOf : String → Option Seg
   | "F0" => some Gen.F0 | "F1" => some Gen.F1 | "F2" => some Gen.F2 | "F3" => some Gen.F3
   | "F4" => some Gen.F4 | "F5" => some Gen.F5 | "F6" => some Gen.F6 | "TX" => some Gen.TX
   | "DTF" => some Gen.DTF | "Alloc" => some Gen.alloc | "Free" => some Gen.free
+  | "ScratchAlloc" => some Gen.fn_scratch_arena_alloc
+  | "ScratchFree" => some Gen.fn_scratch_arena_free
+  | "ScratchRemap" => some Gen.fn_scratch_arena_remap
   | _ => none
 
 def hex (n : Nat) : String := "0x" ++ String.ofList (Nat.toDigits 16 n)
