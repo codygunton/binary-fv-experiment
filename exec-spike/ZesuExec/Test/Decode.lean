@@ -38,7 +38,8 @@ def s12Samples : List (Nat × Nat × String) :=
    (0x800053b0, 0x020f5c63, "bge"), (0x800059bc, 0x01096603, "lwu"),
    (0x80003df4, 0x0186d39b, "srliw"), (0x800061b4, 0x40c5053b, "subw"),
    (0x80011bfc, 0xf7e41703, "lh"), (0x80003224, 0x080a6693, "ori"),
-   (0x8000862c, 0x0186d6b3, "srl"), (0x8000fa1c, 0x02b555b3, "divu")]
+   (0x8000862c, 0x0186d6b3, "srl"), (0x8000fa1c, 0x02b555b3, "divu"),
+   (0x80019c78, 0x0219f533, "remu")]
 
 theorem decode_s12_samples : s12Samples.all mnemonicAgrees = true := by decide +kernel
 

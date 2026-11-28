@@ -318,6 +318,14 @@ theorem dec_divu (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 1)
   have : w.toNat / 8192 % 4 = 2 := by simp only [field] at hf3; omega
   dec_tac
 
+theorem dec_remu (hop : field w.toNat 0 7 = 0x33) (hf7 : field w.toNat 25 7 = 1)
+    (hf3 : field w.toNat 12 3 = 7) :
+    Runs (ext_decode w) s s (toSail (.remu (reg w.toNat 7) (reg w.toNat 15) (reg w.toNat 20))) := by
+  have := opc_of_field hop; have := fld_of_field hf3; have := fld_of_field hf7
+  have := fld_of_field (show field w.toNat 12 1 = 1 by simp only [field] at hf3 ⊢; omega)
+  have : w.toNat / 8192 % 4 = 3 := by simp only [field] at hf3; omega
+  dec_tac
+
 end forms
 
 /-- Case split on an `if` in a hypothesis `ite c a b = x`. -/
@@ -382,6 +390,7 @@ theorem decode_sound {w : BitVec 32} {i : Instr} {s : State} (h : decodeWord w =
         | exact dec_lh w hc (by assumption) (by assumption)
         | exact dec_ori w hc (by assumption) (by assumption)
         | exact dec_srl w hc (by assumption) (by assumption) (by assumption)
-        | exact dec_divu w hc (by assumption) (by assumption) (by assumption))
+        | exact dec_divu w hc (by assumption) (by assumption) (by assumption)
+        | exact dec_remu w hc (by assumption) (by assumption) (by assumption))
 
 end ZesuExec.SailLink

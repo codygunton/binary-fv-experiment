@@ -490,6 +490,7 @@ theorem stepI_sound {img : Image} {pc : Nat} {i : Instr} {S S' : SState} {e : St
   | ori rd rs1 imm => exact wr rd _ _ (by simp [r, eval_wlit, BinOp.eval]) h
   | srl rd rs1 rs2 => exact wr rd _ _ (by simp [r, BinOp.eval]) h
   | divu rd rs1 rs2 => exact wr rd _ _ (by simp [r, BinOp.eval]) h
+  | remu rd rs1 rs2 => exact wr rd _ _ (by simp [r, BinOp.eval]) h
   | beq rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | bne rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h
   | blt rs1 rs2 imm => exact branch_ok hm hpc _ _ (by simp [SBool.eval, r]) imm h

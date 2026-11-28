@@ -136,6 +136,17 @@ theorem divu_eq (a b : Word) : divResult true a b = if b = 0 then -1 else a / b 
     rw [show (a.toNat : Int) / (b.toNat : Int) = ((a.toNat / b.toNat : Nat) : Int) from rfl]
     exact toNat_ofNat_small _ (Nat.lt_of_le_of_lt (Nat.div_le_self _ _) a.isLt)
 
+theorem remu_eq (a b : Word) : remResult true a b = a % b := by
+  simp only [remResult, if_true, to_bits_truncate, Sail.get_slice_int]
+  by_cases hb : b = 0
+  · subst hb; apply BitVec.eq_of_toNat_eq; simp [Sail.BitVec.toNatInt]
+    all_goals exact a.isLt
+  · have hb' : b.toNat ≠ 0 := fun h => hb (BitVec.eq_of_toNat_eq (by simpa using h))
+    apply BitVec.eq_of_toNat_eq
+    simp [Sail.BitVec.toNatInt, hb', BitVec.toNat_umod]
+    rw [show (a.toNat : Int).tmod (b.toNat : Int) = ((a.toNat % b.toNat : Nat) : Int) from rfl]
+    exact toNat_ofNat_small _ (Nat.lt_of_le_of_lt (Nat.mod_le _ _) a.isLt)
+
 /-! ## The simulation theorems -/
 
 theorem sim_andi {rd rs1 : Fin 32} {imm : BitVec 12} (hR : Rel img m s)
@@ -429,6 +440,21 @@ theorem sim_divu {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
   refine execute_DIV_run _ _ _ _ _ true (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
     (rX_rg_run hag rs2) ?_
   rw [divu_eq]; exact wX_rg_run _ rd _
+
+theorem sim_remu {rd rs1 rs2 : Fin 32} (hR : Rel img m s)
+    (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.remu rd rs1 rs2))
+    (hs : step img m = some m') :
+    ∀ n, ∃ s', Runs (try_step n false) s s' false ∧ Rel img m' s' := by
+  intro n
+  obtain ⟨hpc, hex⟩ := step_inv hs hw hd
+  simp only [Machine.exec, Machine.writeReg, Option.some.injEq] at hex
+  subst hex
+  refine sim_wreg hR hw hd hpc ?_ n
+  have hag := RegsAgree.T (m := m) hR.regs m.pc
+  change Runs (execute_REM (rg rs2) (rg rs1) (rg rd) true) _ _ _
+  refine execute_REM_run _ _ _ _ _ true (m.reg rs1) (m.reg rs2) (rX_rg_run hag rs1)
+    (rX_rg_run hag rs2) ?_
+  rw [remu_eq]; exact wX_rg_run _ rd _
 
 theorem sim_lui {rd : Fin 32} {imm : BitVec 20} (hR : Rel img m s)
     (hw : img.word? m.pc.toNat = some w) (hd : decodeNat w = some (.lui rd imm))

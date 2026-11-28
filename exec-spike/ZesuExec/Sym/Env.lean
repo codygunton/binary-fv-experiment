@@ -31,6 +31,7 @@ def BinOp.eval : BinOp → Word → Word → Word
   | .mul, a, b => a * b
   | .mulhu, a, b => BitVec.ofNat 64 (a.toNat * b.toNat / 2 ^ 64)
   | .divu, a, b => if b = 0 then -1 else a / b
+  | .remu, a, b => a % b
 
 structure Env where
   vars : Nat → Word

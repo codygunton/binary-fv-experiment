@@ -105,6 +105,7 @@ def exec (m : Machine) : Instr → Option Machine
   | .srl rd rs1 rs2 => m.writeReg rd (m.reg rs1 >>> ((m.reg rs2).toNat % 64))
   | .divu rd rs1 rs2 =>
     m.writeReg rd (if m.reg rs2 = 0 then -1 else m.reg rs1 / m.reg rs2)
+  | .remu rd rs1 rs2 => m.writeReg rd (m.reg rs1 % m.reg rs2)
 
 end Machine
 
