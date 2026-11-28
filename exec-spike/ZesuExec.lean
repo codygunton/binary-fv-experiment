@@ -121,6 +121,7 @@ import ZesuExec.Fn.DTF.Head
 import ZesuExec.Fn.DTF.Gen
 import ZesuExec.Fn.DTF.LeavesGen
 import ZesuExec.Fn.DTF.Hand
+import ZesuExec.Fn.DTF.Bridge
 import ZesuExec.Fn.DTF.Hash
 import ZesuExec.Fn.DTF.HashF1
 import ZesuExec.Fn.DTF.HashSlot

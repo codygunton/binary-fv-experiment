@@ -269,7 +269,6 @@ theorem field_call {d : CutData} {l : Leaf} {i' : Nat} {σ : Sig} {m m' : Machin
     (hko : ko + 40 + 104 ≤ frameBytes) (hko8 : ko % 8 = 0)
     {X n : Nat} (h11 : m'.reg 11 = σ.inp + w X) (h12 : m'.reg 12 = w n) (hXn : X + n ≤ σ.len)
     (hsx : SiteX (table[i']!).pc σ ([], [], ⟨[], []⟩) m')
-    (hfl : siteFields (table[i']!).pc = [])
     (hR : retLen d l (siteAt i') (table[i']!) = true)
     (hk : (Loc.slot 0x68).sym l.S = (Loc.slot 0x68).sym d.shape.S)
     (hko' : (siteAt i').kind.Keeps (siteAt i') 0x68 = true)
@@ -287,8 +286,7 @@ theorem field_call {d : CutData} {l : Leaf} {i' : Nat} {σ : Sig} {m m' : Machin
   have hidx : IdxOk (siteAt i').kind σ ([], [], ⟨[], []⟩) m' := by
     rw [hkd]; exact ⟨hf2, trivial⟩
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩
-  have hfld : FieldsOk σ m' (siteFields (table[i']!).pc) := fun f hf => by
-    rw [hfl] at hf; cases hf
+  have hfld := CF.fields
   have hsite : SiteA (siteAt i') (table[i']!).pc σ ([], [], ⟨[], []⟩) m' :=
     ⟨CF.ra, CF.common, CF.shape, CF.arms, CF.rest, hidx, hfld, CF.chk, hsx⟩
   exact call_list_budget C hSF hsite hpost hR (by decide) hko' hk hlo h'
@@ -350,7 +348,7 @@ theorem DTF.leaf_800024d0_0 :
     simpa [SiteX, AuthSite] using hpre'
   exact field_call C CF (ko := 0x2b8) (by decide) (by decide) (by decide) (by decide) (by decide)
     (by decide)
-    r11 r12 (by omega) hsx (by decide) (by decide) (by decide) (by decide) rfl rfl (by decide)
+    r11 r12 (by omega) hsx (by decide) (by decide) (by decide) rfl rfl (by decide)
 
 /-- A list item's first byte is not `0x80`. -/
 theorem decode_list_head {b : List Byte} {h p : Nat} (hd : F2.decode b = .success true h p) :
@@ -437,7 +435,7 @@ theorem DTF.leaf_800024ec_0 :
       e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
     (by decide) (by decide) (e11.trans r22) (e12.trans r23) (by omega) hsx (by decide)
-    (by decide) (by decide) (by decide) rfl rfl (by decide)
+    (by decide) (by decide) rfl rfl (by decide)
 
 /-! ## A field's return -/
 
@@ -505,7 +503,7 @@ theorem DTF.leaf_8000252c_0 :
     rw [show (table[129]!).pc = 0x80002600 by decide, siteX_tup0 (.inr rfl)]
     exact ⟨ht', e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
-    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide) (by decide)
+    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
     (by decide) rfl rfl (by decide)
 
 /-- The address (`0x80002600`, leaf 0): 20 bytes, its pointer to `S-0x2f8`, the cursor past it,
@@ -552,7 +550,7 @@ theorem DTF.leaf_80002600_0 :
     rw [show (table[130]!).pc = 0x80002654 by decide, siteX_tup21 (.inl rfl)]
     exact ⟨ht', hadd, e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
-    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide) (by decide)
+    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
     (by decide) rfl rfl (by decide)
 
 /-- `AddrOk` survives a call below the outcome slot. -/
@@ -591,7 +589,7 @@ theorem DTF.leaf_80002654_0 :
     rw [show (table[132]!).pc = 0x800026d4 by decide, siteX_tup21 (.inr (.inl rfl))]
     exact ⟨ht', addr_keep C (regs := false) (by decide) hadd, e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
-    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide) (by decide)
+    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
     (by decide) rfl rfl (by decide)
 
 /-- yParity empty (`0x800026d4`, leaf 0): the cursor past it, `decodeItem` on r. -/
@@ -623,7 +621,7 @@ theorem DTF.leaf_800026d4_0 :
     rw [show (table[134]!).pc = 0x80002754 by decide, siteX_tup21 (.inr (.inr rfl))]
     exact ⟨ht', addr_keep C (regs := false) (by decide) hadd, e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
-    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide) (by decide)
+    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
     (by decide) rfl rfl (by decide)
 
 /-- r empty (`0x80002754`, leaf 0): the tuple consumed (`AuthEnd`), `decodeItem` on s at the
@@ -653,7 +651,7 @@ theorem DTF.leaf_80002754_0 :
     rw [show (table[136]!).pc = 0x80002820 by decide, siteX_end]
     exact ⟨he, _, _, a11, a12, by omega⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
-    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide) (by decide)
+    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
     (by decide) rfl rfl (by decide)
 
 /-! ## Into a field's byte loop -/
@@ -885,7 +883,7 @@ theorem DTF.leaf_80002574_1 :
     rw [show (table[129]!).pc = 0x80002600 by decide, siteX_tup0 (.inr rfl)]
     exact ⟨ht', e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
-    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide) (by decide)
+    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
     (by decide) rfl rfl (by decide)
 
 /-- nonce's loop done (`0x80002690`, leaf 1): the cursor past it, `decodeItem` on yParity. -/
@@ -911,7 +909,7 @@ theorem DTF.leaf_80002690_1 :
     rw [show (table[132]!).pc = 0x800026d4 by decide, siteX_tup21 (.inr (.inl rfl))]
     exact ⟨ht', addr_keep C (regs := false) (by decide) hadd, e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
-    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide) (by decide)
+    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
     (by decide) rfl rfl (by decide)
 
 /-- yParity's loop done (`0x80002710`, leaf 1): the cursor past it, `decodeItem` on r. -/
@@ -937,7 +935,7 @@ theorem DTF.leaf_80002710_1 :
     rw [show (table[134]!).pc = 0x80002754 by decide, siteX_tup21 (.inr (.inr rfl))]
     exact ⟨ht', addr_keep C (regs := false) (by decide) hadd, e11, e12⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
-    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide) (by decide)
+    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
     (by decide) rfl rfl (by decide)
 
 /-- r's loop done (`0x8000279c`, leaf 1): the tuple consumed (`AuthEnd`), `decodeItem` on s at
@@ -963,7 +961,7 @@ theorem DTF.leaf_8000279c_1 :
     rw [show (table[136]!).pc = 0x80002820 by decide, siteX_end]
     exact ⟨he, _, _, a11, a12, by omega⟩
   exact field_call C CF (ko := 0x2e0) (by decide) (by decide) (by decide) (by decide)
-    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide) (by decide)
+    (by decide) (by decide) a11 a12 (by omega) hsx (by decide) (by decide)
     (by decide) rfl rfl (by decide)
 
 end ZesuExec.Fn.DTF

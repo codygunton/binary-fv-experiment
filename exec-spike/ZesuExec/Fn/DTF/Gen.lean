@@ -2110,20 +2110,21 @@ def rawKept (src : List (Sym × Field)) (d : CutData) (l : Leaf) (f : Field) : B
         (byteAt a.1 j).isSome && byteAt (f.loc.sym l.S) j == byteAt a.1 j
   | _ => false
 
-theorem rawKept_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx d l σ m m')
-    {src : List (Sym × Field)}
+theorem rawKept_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
+    (harm : ArmOk σ d.arms) {src : List (Sym × Field)}
     (hsrcF : ∀ a ∈ src, ArmOk σ a.2.arms → a.2.v.Holds σ m (a.1.eval (envOf d.shape σ m)))
-    {f : Field} (hg : ArmOk σ f.arms) (hfine : f.loc.fine = true) (h : rawKept src d l f = true) :
-    f.v.Holds σ m' (f.loc.word σ m') := by
+    {f : Field} (hg : ArmOk σ f.arms)
+    (hloc : f.loc.word σ m' = (f.loc.sym l.S).eval (envOf d.shape σ m))
+    (h : rawKept src d l f = true) : f.v.Holds σ m' (f.loc.word σ m') := by
   obtain ⟨loc, g, v⟩ := f
   cases v with
   | raw k o n =>
     simp only [rawKept, Bool.and_eq_true, decide_eq_true_eq, List.any_eq_true, beq_iff_eq,
       List.all_eq_true, List.mem_range] at h
     obtain ⟨hn, a, ha, ⟨hav, hga⟩, hb⟩ := h
-    have hA := hsrcF a ha (guard_ok hga C.F.arms hg)
+    have hA := hsrcF a ha (guard_ok hga harm hg)
     rw [hav] at hA
-    rw [loc_word_eval C.wf' C.hm' C.hS' hfine]
+    rw [hloc]
     intro c hs l' hh p hd j hj
     obtain ⟨hsome, heq⟩ := hb j hj
     obtain ⟨b, hb'⟩ := Option.isSome_iff_exists.mp hsome
@@ -2131,15 +2132,35 @@ theorem rawKept_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : 
     exact hA c hs l' hh p hd j hj
   | _ => simp [rawKept] at h
 
-/-- A target item value: vacuous (no arm reaching the source is one of its arms, `armsOff`),
-kept (a source value free of the machine with the same symbolic value, whose guard the target's
-implies), from the source's `decodeItem` outcome (`fieldFrom`), a byte-loop step (`loopFrom`),
-or an address copy kept byte by byte (`rawKept`). -/
-def fieldOk (src : List (Sym × Field)) (d : CutData) (l : Leaf) (f : Field) : Bool :=
-  f.loc.fine && (armsOff d.arms f.arms ||
+/-- A target item value that rests on the source's row alone: vacuous (no arm reaching the source
+is one of its arms, `armsOff`), kept (a source value free of the machine with the same symbolic
+value, whose guard the target's implies), or an address copy kept byte by byte (`rawKept`). -/
+def keptOk (src : List (Sym × Field)) (d : CutData) (l : Leaf) (f : Field) : Bool :=
+  armsOff d.arms f.arms ||
     (f.v.free && src.any fun a =>
       a.2.v == f.v && guardOk d.arms a.2.arms f.arms && a.1 == f.loc.sym l.S) ||
-    fieldFrom d l (f.loc, f.v) || loopFrom src d l f.arms (f.loc, f.v) || rawKept src d l f)
+    rawKept src d l f
+
+theorem keptOk_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
+    (harm : ArmOk σ d.arms) {src : List (Sym × Field)}
+    (hsrcF : ∀ a ∈ src, ArmOk σ a.2.arms → a.2.v.Holds σ m (a.1.eval (envOf d.shape σ m)))
+    {f : Field} (hg : ArmOk σ f.arms)
+    (hloc : f.loc.word σ m' = (f.loc.sym l.S).eval (envOf d.shape σ m))
+    (h : keptOk src d l f = true) : f.v.Holds σ m' (f.loc.word σ m') := by
+  simp only [keptOk, Bool.or_eq_true, Bool.and_eq_true, List.any_eq_true, beq_iff_eq] at h
+  rcases h with (hoff | ⟨hfree, a, ha, ⟨hav, hga⟩, hsym⟩) | h
+  · exact (armsOff_sound hoff harm hg).elim
+  · rw [hloc, ← hsym]
+    have := hsrcF a ha (guard_ok hga harm hg)
+    rw [hav] at this
+    exact holds_free hfree this
+  · exact rawKept_sound harm hsrcF hg hloc h
+
+/-- A target item value: one that rests on the source's row (`keptOk`), from the source's
+`decodeItem` outcome (`fieldFrom`), or a byte-loop step (`loopFrom`). -/
+def fieldOk (src : List (Sym × Field)) (d : CutData) (l : Leaf) (f : Field) : Bool :=
+  f.loc.fine && (keptOk src d l f || fieldFrom d l (f.loc, f.v) ||
+    loopFrom src d l f.arms (f.loc, f.v))
 
 /-- The carry check of a leaf for the target's item values `fs`, from the source's `src`. -/
 def fieldsCarry (src : List (Sym × Field)) (d : CutData) (l : Leaf) (fs : List Field) : Bool :=
@@ -2152,16 +2173,11 @@ theorem fieldsCarry_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
   have hsrcF := srcFields_sound hpc hsrc hA C.wf C.hm C.hS
   intro f hf hg
   have h1 := List.all_eq_true.mp h f hf
-  simp only [fieldOk, Bool.and_eq_true, Bool.or_eq_true, List.any_eq_true, beq_iff_eq] at h1
-  obtain ⟨hfine, (((hoff | ⟨hfree, a, ha, ⟨hav, hga⟩, hsym⟩) | h1) | h1) | h1⟩ := h1
-  · exact (armsOff_sound hoff C.F.arms hg).elim
-  · rw [loc_word_eval C.wf' C.hm' C.hS' hfine, ← hsym]
-    have := hsrcF a ha (guard_ok hga C.F.arms hg)
-    rw [hav] at this
-    exact holds_free hfree this
+  simp only [fieldOk, Bool.and_eq_true, Bool.or_eq_true] at h1
+  obtain ⟨hfine, (h1 | h1) | h1⟩ := h1
+  · exact keptOk_sound C.F.arms hsrcF hg (loc_word_eval C.wf' C.hm' C.hS' hfine) h1
   · exact fieldFrom_sound C hpc hsrc hA hc hfine h1
   · exact loopFrom_sound C hc hsrcF hg hfine h1
-  · exact rawKept_sound C hsrcF hg hfine h1
 
 /-! ## Checks of the current item (open assertion item 2) -/
 

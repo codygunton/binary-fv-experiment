@@ -273,8 +273,7 @@ theorem DTF.leaf_800029c8_2 :
     simp only [SiteX, AuthSite, Nat.reduceEqDiff, if_false, if_true]
     exact ⟨n, hg', r11, bp, cap, X, l58, l60, hlive, hmem⟩
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩
-  have hfld : FieldsOk σ m' (siteFields (table[141]!).pc) := fun f hf => by
-    rw [show siteFields (table[141]!).pc = [] by decide] at hf; cases hf
+  have hfld := CF.fields
   have hsite : SiteA (siteAt 141) (table[141]!).pc σ (L, [], ⟨[], []⟩) m' :=
     ⟨CF.ra, CF.common, CF.shape, CF.arms, CF.rest, hidx, hfld, CF.chk, hsx⟩
   exact call_list_budget C (by decide) hsite hpost (by decide) (o := 0x68) (by decide)
@@ -408,8 +407,7 @@ theorem DTF.leaf_80002a1c_0 :
     rw [r10]
     exact (ctx_keptOn C (os := [0x50]) (by decide) _ (by decide)).trans l50
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩
-  have hfld : FieldsOk σ m' (siteFields (table[143]!).pc) := fun f hf => by
-    rw [show siteFields (table[143]!).pc = [] by decide] at hf; cases hf
+  have hfld := CF.fields
   have hsite : SiteA (siteAt 143) (table[143]!).pc σ ([], [], ⟨[], []⟩) m' :=
     ⟨CF.ra, CF.common, CF.shape, CF.arms, CF.rest, hidx, hfld, CF.chk, hsx⟩
   exact call_list_budget C (by decide) hsite hpost (by decide) (o := 0x68) (by decide)
@@ -514,8 +512,7 @@ theorem DTF.leaf_80002a38_1 :
     simp only [SiteX, AuthSite, Nat.reduceEqDiff, if_false, if_true]
     exact ⟨n, hn', by rw [r11]; exact l58, r12, newp, X, l50, hlive', hnew⟩
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩
-  have hfld : FieldsOk σ m' (siteFields (table[144]!).pc) := fun f hf => by
-    rw [show siteFields (table[144]!).pc = [] by decide] at hf; cases hf
+  have hfld := CF.fields
   have hsite : SiteA (siteAt 144) (table[144]!).pc σ (L, [], ⟨[], []⟩) m' :=
     ⟨CF.ra, CF.common, CF.shape, CF.arms, CF.rest, hidx, hfld, CF.chk, hsx⟩
   exact call_list_budget C (by decide) hsite hpost (by decide) (o := 0x68) (by decide)

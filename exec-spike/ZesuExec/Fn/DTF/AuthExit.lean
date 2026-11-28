@@ -265,8 +265,7 @@ theorem remap_call {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine} (C : Ctx
     simp only [SiteX, AuthSite, Nat.reduceEqDiff, if_false, if_true]
     exact ⟨n, hg⟩
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩
-  have hfld : FieldsOk σ m' (siteFields (table[138]!).pc) := fun f hf => by
-    rw [show siteFields (table[138]!).pc = [] by decide] at hf; cases hf
+  have hfld := CF.fields
   have hsite : SiteA (siteAt 138) (table[138]!).pc σ ([], [], ⟨[], []⟩) m' :=
     ⟨CF.ra, CF.common, CF.shape, CF.arms, CF.rest, hidx, hfld, CF.chk, hsx⟩
   exact call_list_budget C (by decide) hsite hpost hR (by decide) (by decide) hk hlo rfl
