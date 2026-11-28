@@ -61,7 +61,7 @@ def ArmCheck (t : Nat) : Bool :=
       w (tgtPc t) &&
     decide (tgtIdx t < table.length) && decide (tgtPc t ≠ entry) &&
     (w (tgtPc t) &&& ~~~1) == w (tgtPc t) && decide ((w (tgtPc t)).toNat % 4 = 0) &&
-    decide (tgtPc t < 2 ^ 64)
+    decide (tgtPc t < 2 ^ 64) && (cutFields d'.pc).isEmpty
 
 set_option maxRecDepth 20000 in
 theorem armCheck_all : ∀ t < 5, ArmCheck t = true := by decide
@@ -110,8 +110,8 @@ theorem DTF.leaf_80000574_0 :
   have hck := armCheck_all σ.t ht5
   simp only [ArmCheck, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq,
     List.isEmpty_iff] at hck
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hpc', hpl'⟩, harms'⟩, hx'⟩, hrest'⟩, hfine'⟩, hsh'⟩, hnx⟩, hin'⟩, hbud'⟩,
-    hal⟩, hword⟩, hidx⟩, hne'⟩, hand⟩, hal4⟩, h64⟩ := hck
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hpc', hpl'⟩, harms'⟩, hx'⟩, hrest'⟩, hfine'⟩, hsh'⟩, hnx⟩, hin'⟩, hbud'⟩,
+    hal⟩, hword⟩, hidx⟩, hne'⟩, hand⟩, hal4⟩, h64⟩, hfl⟩ := hck
   have htw : (Sym.init 4 0 8).eval (envOf (table[1]!).shape σ m) = w (tgtPc σ.t) := by
     rw [table_word hx hcm.2.2.1 ht5 h10, hword]
   have htgt : (Sym.bin .and (.init 4 0 8) (.lit 18446744073709551614)).eval
@@ -166,7 +166,7 @@ theorem DTF.leaf_80000574_0 :
   · simp only [mkCut, if_neg hne'', ACut]
     refine .inl ⟨hpl', hpcm'.trans hpc'.symm, hcm', shapeOk_of_holds hwf' hm' hR0 hfine' hsh',
       .inr (by rw [harms']; exact List.mem_singleton_self _), ?_, ?_, hinner.2,
-      fun i hi => by rw [hrest'] at hi; simp [chkCount] at hi, fieldsOk_nil rfl⟩
+      fun i hi => by rw [hrest'] at hi; simp [chkCount] at hi, fieldsOk_nil hfl⟩
     · rw [hrest']
       intro r hr
       have := hrst r (by rw [hrest0]; exact hr)

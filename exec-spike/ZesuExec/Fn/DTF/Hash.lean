@@ -192,8 +192,7 @@ theorem DTF.leaf_800020ac_0 :
   have hidx : IdxOk (siteAt 108).kind σ ([], [], ⟨[], []⟩) m' := by
     rw [show (siteAt 108).kind = .f2 by decide]; exact ⟨hf2, trivial⟩
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩
-  have hfld : FieldsOk σ m' (siteFields (table[108]!).pc) := fun f hf => by
-    rw [show siteFields (table[108]!).pc = [] by decide] at hf; cases hf
+  have hfld := CF.fields
   have hsite : SiteA (siteAt 108) (table[108]!).pc σ ([], [], ⟨[], []⟩) m' :=
     ⟨CF.ra, CF.common, CF.shape, CF.arms, CF.rest, hidx, hfld, CF.chk, hsx⟩
   have hSF : (siteAt 108).kind.SiteFine (siteAt 108) = true := by decide
@@ -501,8 +500,7 @@ theorem DTF.leaf_80002064_2 :
   have hidx : IdxOk (siteAt 111).kind σ (L, items, ⟨[], []⟩) m' := by
     rw [show (siteAt 111).kind = .f4 by decide]; exact ⟨hpre4, X, hlive, hbuf⟩
   refine ⟨_, hidx, hsx, fun m'' hpost => ?_⟩
-  have hfld : FieldsOk σ m' (siteFields (table[111]!).pc) := fun f hf => by
-    rw [show siteFields (table[111]!).pc = [] by decide] at hf; cases hf
+  have hfld := CF.fields
   have hsite : SiteA (siteAt 111) (table[111]!).pc σ (L, items, ⟨[], []⟩) m' :=
     ⟨CF.ra, CF.common, CF.shape, CF.arms, CF.rest, hidx, hfld, CF.chk, hsx⟩
   have hSF : (siteAt 111).kind.SiteFine (siteAt 111) = true := by decide

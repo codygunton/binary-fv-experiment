@@ -1,14 +1,17 @@
 import ZesuExec.Sail.Step
 import ZesuExec.Logic
+import ZesuExec.Fn.Preserve
 
 /-!
 # `sail_reaches`: machine-level reachability transfers to the Sail model
 
 `SailReaches img b Q s`: from `s`, the Sail model reaches a state satisfying `Q` within `b`
 instructions, where each step is a retiring `try_step`, except at the `memcpy` entry, where the
-assumed ZisK service (`ziskMemcpy`) acts on a related machine state (cost 3). `sail_reaches`
-follows by induction on `RunsIn`, with `sail_step_sim` for ordinary steps; for the service it
-builds the Sail state `sailMemcpy m s` that holds the service's effect.
+assumed ZisK service (`ziskMemcpy`) acts on a related machine state (cost 3), and at a ZisK
+service step of the registry (`svc`, `ZesuExec/Service.lean`), which acts the same way with the
+step's cost. `sail_reaches` follows by induction on `RunsIn`, with `sail_step_sim` for ordinary
+steps; for a service it builds the Sail state (`sailMemcpy m s`, `sailSvc e s`) that holds the
+service's effect.
 -/
 
 namespace ZesuExec.SailLink
@@ -24,6 +27,9 @@ inductive SailReaches (img : Image) : Nat → (State → Prop) → State → Pro
   | service {b : Nat} {Q : State → Prop} {s s' : State} {m m' : Machine} :
       Rel img m s → m.pc.toNat = Layout.memcpyEntry → ziskMemcpy m = some m' → Rel img m' s' →
       SailReaches img b Q s' → SailReaches img (b + 3) Q s
+  | svc {b : Nat} {Q : State → Prop} {s s' : State} {m : Machine} {e : SvcEffect} :
+      Rel img m s → step img m = none → ZesuExec.svc img m = some e → Rel img (e.apply m) s' →
+      SailReaches img b Q s' → SailReaches img (b + e.cost) Q s
 
 theorem SailReaches.mono {img : Image} {b b' : Nat} {Q : State → Prop} {s : State}
     (h : SailReaches img b Q s) (hb : b ≤ b') : SailReaches img b' Q s := by
@@ -35,6 +41,9 @@ theorem SailReaches.mono {img : Image} {b b' : Nat} {Q : State → Prop} {s : St
   | service hR hpc hz hR' _ ih =>
     obtain ⟨c, rfl⟩ : ∃ c, b' = c + 3 := ⟨b' - 3, by omega⟩
     exact .service hR hpc hz hR' (ih (by omega))
+  | @svc _ _ _ _ _ e hR hs he hR' _ ih =>
+    obtain ⟨c, rfl⟩ : ∃ c, b' = c + e.cost := ⟨b' - e.cost, by omega⟩
+    exact .svc hR hs he hR' (ih (by omega))
 
 /-! ## The Sail state after the `memcpy` service -/
 
@@ -142,6 +151,79 @@ theorem sailMemcpy_rel {img : Image} {m m' : Machine} {s : State} (h : Rel img m
       exact h.code seg hseg k w hk h1 h2 j hj
   · cases hz
 
+/-! ## The Sail state after a registry service step -/
+
+/-- Overwrite each address of `as` with the byte `f` holds there. -/
+def memFold (f : Word → Option Byte) (as : List Nat) (mem : Std.ExtHashMap Nat (BitVec 8)) :
+    Std.ExtHashMap Nat (BitVec 8) :=
+  as.foldl (fun mem a => match f (BitVec.ofNat 64 a) with
+    | some b => mem.insert a b
+    | none => mem) mem
+
+theorem memFold_spec (f : Word → Option Byte) :
+    ∀ (as : List Nat) (mem : Std.ExtHashMap Nat (BitVec 8)) (x : Nat),
+      (x ∈ as → ∀ b, f (BitVec.ofNat 64 x) = some b → (memFold f as mem).get? x = some b) ∧
+      (x ∉ as → (memFold f as mem).get? x = mem.get? x)
+  | [], mem, x => by simp [memFold]
+  | a :: as, mem, x => by
+    have ih := fun mem => memFold_spec f as mem x
+    have hstep : memFold f (a :: as) mem = memFold f as
+        (match f (BitVec.ofNat 64 a) with
+          | some b => mem.insert a b
+          | none => mem) := rfl
+    rw [hstep]
+    constructor
+    · intro hx b hb
+      by_cases hr : x ∈ as
+      · exact (ih _).1 hr b hb
+      · have hxa : x = a := by simpa [hr] using hx
+        subst hxa
+        rw [(ih _).2 hr, hb]
+        simp [Std.ExtHashMap.get?_eq_getElem?]
+    · intro hx
+      have hr : x ∉ as := fun h => hx (List.mem_cons_of_mem _ h)
+      have hxa : x ≠ a := fun h => hx (h ▸ List.mem_cons_self)
+      rw [(ih _).2 hr]
+      split
+      · simp [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.getElem?_insert, Ne.symm hxa]
+      · rfl
+
+/-- The Sail state that holds the effect `e`, starting from `s`. -/
+def sailSvc (e : SvcEffect) (s : State) : State :=
+  let s₁ := setX s e.rd e.v
+  { s₁ with mem := memFold e.mem e.addrs s₁.mem, regs := s₁.regs.insert PC e.pc }
+
+theorem sailSvc_rel {img : Image} {m : Machine} {s : State} {e : SvcEffect} (h : Rel img m s)
+    (hf : e.Framed m) : Rel img (e.apply m) (sailSvc e s) := by
+  have hfin : ∀ r, r ≠ PC → r ≠ xreg e.rd → (sailSvc e s).regs.get? r = s.regs.get? r :=
+    fun r h1 h2 => (get?_insert_ne _ h1).trans (setX_get?_ne h2)
+  have hmem : (setX s e.rd e.v).mem = s.mem := setX_mem _ _ _
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  · exact Configured.of_agree h.conf (fun r _ h2 _ _ h5 => hfin r h2 (fun e' => h5 _ e'.symm))
+      (by rw [hfin _ (by decide) (xreg_ne_minstret _).symm]; exact h.conf.instret)
+  · intro j hj
+    rw [show (sailSvc e s).regs.get? (xreg j) = (setX s e.rd e.v).regs.get? (xreg j) from
+      get?_insert_ne _ (xreg_ne_PC j)]
+    exact RegsAgree.setX h.regs e.rd e.v j hj
+  · exact get?_insert_self _
+  · intro x b hb
+    change (memFold e.mem e.addrs (setX s e.rd e.v).mem).get? x.toNat = some b
+    rw [hmem]
+    change e.mem x = some b at hb
+    by_cases hx : x.toNat ∈ e.addrs
+    · exact (memFold_spec e.mem _ s.mem x.toNat).1 hx b (by simpa using hb)
+    · rw [(memFold_spec e.mem _ s.mem x.toNat).2 hx]
+      rw [hf.1 x hx] at hb
+      exact h.mem x b hb
+  · intro seg hseg k w hk h1 h2 j hj
+    change (memFold e.mem e.addrs (setX s e.rd e.v).mem).get? _ = _
+    rw [hmem]
+    have hnot : seg.base + 4 * k + j ∉ e.addrs := fun hx => by
+      have := (hf.2.1 _ hx).1
+      simp only [Layout.ramLo, Layout.textHi] at this h2; omega
+    rw [(memFold_spec e.mem _ s.mem _).2 hnot]
+    exact h.code seg hseg k w hk h1 h2 j hj
+
 /-! ## Transfer -/
 
 theorem sail_runsIn {img : Image} {k : Nat} {m m₂ : Machine} (hr : RunsIn img k m m₂)
@@ -158,11 +240,19 @@ theorem sail_runsIn {img : Image} {k : Nat} {m m₂ : Machine} (hr : RunsIn img 
       obtain ⟨m', hz, rfl, rfl⟩ := hn
       rw [Nat.add_comm]
       exact .service h hpc hz (sailMemcpy_rel h hz) (ih hq (sailMemcpy m s) (sailMemcpy_rel h hz))
-    · simp only [Option.map_eq_some_iff, Prod.mk.injEq] at hn
-      obtain ⟨m', hs, rfl, rfl⟩ := hn
-      obtain ⟨s', hrun, hrel⟩ := sail_step_sim h hs 0
-      rw [Nat.add_comm]
-      exact .step 0 hrun (ih hq s' hrel)
+    · split at hn
+      · rename_i m' hs
+        simp only [Option.some.injEq, Prod.mk.injEq] at hn
+        obtain ⟨rfl, rfl⟩ := hn
+        obtain ⟨s', hrun, hrel⟩ := sail_step_sim h hs 0
+        rw [Nat.add_comm]
+        exact .step 0 hrun (ih hq s' hrel)
+      · rename_i hs
+        simp only [Option.map_eq_some_iff, Prod.mk.injEq] at hn
+        obtain ⟨e, he, rfl, rfl⟩ := hn
+        have hrel := sailSvc_rel h (Fn.svc_framed he)
+        rw [Nat.add_comm]
+        exact .svc h hs he hrel (ih hq _ hrel)
 
 theorem sail_reaches {img : Image} {b : Nat} {Q : Machine → Prop} {m : Machine} {s : State}
     (h : Rel img m s) (hr : Reaches img b Q m) :

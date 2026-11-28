@@ -113,4 +113,33 @@ theorem slot_word {env : Env} {S' : SState} {m' : Machine} {σ : Sig}
   rw [hb, h] at e'
   exact e'
 
+/-- The carry check of a leaf from a cut reached by jumps whose state has an extra region (a
+store cut, so no `Ctx`): every target entry rests on the source's row (`keptOk`). -/
+def keptCarry (d : CutData) (l : Leaf) (fs : List Field) : Bool :=
+  fs.all fun f => f.loc.fine && keptOk (srcFields d) d l f
+
+theorem keptCarry_sound {d : CutData} {l : Leaf} {σ : Sig} {m m' : Machine}
+    (hs : d.site = none) (hwf : Env.WF (envOf d.shape σ m) d.shape.S)
+    (hm : Match (envOf d.shape σ m) d.shape.S m) (hR : d.shape.S.regions[0]? = some frameR)
+    (hwf' : Env.WF (envOf d.shape σ m) l.S) (hm' : Match (envOf d.shape σ m) l.S m')
+    (hR' : l.S.regions[0]? = some frameR) (harm : ArmOk σ d.arms)
+    (hfs : FieldsOk σ m (cutFields d.pc)) {fs : List Field} (h : keptCarry d l fs = true) :
+    FieldsOk σ m' fs := by
+  have hsrcF : ∀ a ∈ srcFields d, ArmOk σ a.2.arms →
+      a.2.v.Holds σ m (a.1.eval (envOf d.shape σ m)) := by
+    intro a ha hg
+    simp only [srcFields, srcFieldsOf, hs] at ha
+    obtain ⟨f, hf, hfa⟩ := List.mem_filterMap.mp ha
+    split at hfa
+    case isFalse => cases hfa
+    next hfine =>
+    simp only [Option.some.injEq] at hfa
+    subst hfa
+    have := hfs f hf hg
+    rwa [loc_word_eval0 hwf hm hR hfine] at this
+  intro f hf hg
+  have h1 := List.all_eq_true.mp h f hf
+  simp only [Bool.and_eq_true] at h1
+  exact keptOk_sound harm hsrcF hg (loc_word_eval0 hwf' hm' hR' h1.1) h1.2
+
 end ZesuExec.Fn.DTF

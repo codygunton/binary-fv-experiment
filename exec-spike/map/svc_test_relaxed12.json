@@ -1,0 +1,22 @@
+[
+ {
+  "check": "0x816-imm",
+  "definition": "csr816, immediate count",
+  "cases": 100,
+  "lean_none": 0,
+  "parts": {
+   "window": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   },
+   "regs": {
+    "agree": 100,
+    "disagree": 0,
+    "first": null
+   }
+  },
+  "emulator_errors": {},
+  "pass": true
+ }
+]

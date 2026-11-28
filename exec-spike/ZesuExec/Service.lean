@@ -1,58 +1,39 @@
-import ZesuExec.Image
+import ZesuExec.Service.Memcpy
+import ZesuExec.Service.Memset
+import ZesuExec.Service.Sha256f
+import ZesuExec.Service.Arch
 
 /-!
-# The ZisK `memcpy` service and the machine's `next`
+# The ZisK service registry and the machine's `next`
 
-`ziskMemcpy` is the one trusted definition about ZisK. It transcribes `ziskMemcpyMemory`
-(`ZesuSsz/Contracts/ZiskRuntime.v`) and `ziskMemcpyCallDomain`
-(`ZesuSsz/Contracts/ZiskMemcpyPremise.v`) of zesislar: destination `x10`, source `x11`,
-length `x12`. The length is stored first as a 64-bit little-endian word at
-`Layout.extraParams`; the copy then reads that staged memory. Registers are unchanged and
-`pc := x1` with bit 0 cleared.
+The trusted definitions about ZisK, one file per CSR number under `ZesuExec/Service/`, each citing
+the ZisK source (`/home/cody/zisk`, commit `eed62f4d9`) it transcribes:
+
+| CSR | file | service |
+|---|---|---|
+| `0x813` | `Memcpy.lean` | DMA `memcpy` (register and immediate count); `ziskMemcpy` at `memcpy`'s entry |
+| `0x816` | `Memset.lean` | DMA `memset` (register and immediate count) |
+| `0x805` | `Sha256f.lean` | SHA-256 compression |
+| `0xf12` | `Arch.lean` | `marchid` read; also the exit `ecall` and `ZiskBoot` |
+
+`tools/svc_test.py` runs each against `ziskemu`. `next` takes one transition: the function-level
+`memcpy` service at its entry (cost 3), else an ordinary instruction (cost 1), else a service step
+(`svc`) at a word the decoder does not know.
 -/
 
 namespace ZesuExec
-namespace Machine
 
-/-- All `n` bytes at `a, a+1, …` are present. -/
-def present (mem : Word → Option Byte) (a n : Nat) : Bool := (readBytes mem a n).isSome
-
-end Machine
-
-open Machine in
-/-- Domain of the service: `x1 & ~1` is 4-aligned, the 8 bytes at `Layout.extraParams` are
-present RAM, and for a nonzero length the source range is present readable memory and the
-destination range is present RAM, neither wrapping. -/
-def ziskMemcpyDomain (m : Machine) : Bool :=
-  let d := (m.reg 10).toNat
-  let s := (m.reg 11).toNat
-  let n := (m.reg 12).toNat
-  ((m.reg 1 &&& ~~~(1 : Word)).toNat % 4 == 0) &&
-  writable Layout.extraParams 8 && present m.mem Layout.extraParams 8 &&
-  (n == 0 ||
-    (readable s n && present m.mem s n && writable d n && present m.mem d n))
-
-/-- Memory after the service, `ziskMemcpyMemory` of `ZiskRuntime.v`. -/
-def ziskMemcpyMem (m : Machine) : Word → Option Byte :=
-  let d := (m.reg 10).toNat
-  let s := (m.reg 11).toNat
-  let len := m.reg 12
-  let n := len.toNat
-  let staged : Nat → Option Byte := fun a =>
-    if Layout.extraParams ≤ a ∧ a < Layout.extraParams + 8 then
-      some (len.extractLsb' (8 * (a - Layout.extraParams)) 8)
-    else m.mem (BitVec.ofNat 64 a)
-  fun x =>
-    let a := x.toNat
-    if n ≠ 0 ∧ d ≠ s ∧ d ≤ a ∧ a < d + n then staged (s + a - d) else staged a
-
-def ziskMemcpy (m : Machine) : Option Machine :=
-  if ziskMemcpyDomain m then
-    some { m with mem := ziskMemcpyMem m, pc := m.reg 1 &&& ~~~(1 : Word) }
-  else none
+/-- The service step at `m.pc`, if any. -/
+def svc (img : Image) (m : Machine) : Option SvcEffect :=
+  (csr813 img m).orElse fun _ => (csr816 img m).orElse fun _ =>
+    (csr805 img m).orElse fun _ => csrF12 img m
 
 /-- One machine transition and its cost in instructions. -/
 def next (img : Image) (m : Machine) : Option (Machine × Nat) :=
-  if m.pc.toNat = Layout.memcpyEntry then (ziskMemcpy m).map (·, 3) else (step img m).map (·, 1)
+  if m.pc.toNat = Layout.memcpyEntry then (ziskMemcpy m).map (·, 3)
+  else
+    match step img m with
+    | some m' => some (m', 1)
+    | none => (svc img m).map fun e => (e.apply m, e.cost)
 
 end ZesuExec

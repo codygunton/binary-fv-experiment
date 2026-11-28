@@ -287,3 +287,16 @@ of tags and the address tail: `raw` with `n < 8`). Hand-proof sites with `fields
 uses `rfl`) and the `siteFields … = []` proofs need the rows' proofs when their targets gain rows.
 Then `Extra 0x80002dc4` and the bridge (`ChecksOk` + `FieldsOk` → `decode t payload = some tx`,
 `TxAt` from the success write's stores), plus the buffers (data copy, access list, hashes, tuples).
+
+### Stage 2 status (DTFFieldsB)
+
+Rows for arms 0-2 committed (`Rows.lean`, `shape.py --fields 0,1,2`); `--fields 0,1,2,3,4` infers
+rows that carry every scalar field to `0x80002dc4` (legacy `chainId`/tag/`v` excepted: derived from
+`vRaw` by `0x80001fac`/`0x80002004`'s leaves, needs a rule or hand proofs there). To land arms 3-4:
+`HashStore.lean`/`AuthStore.lean` use `keptCarry_sound` (`Slot.lean`) for their targets' rows.
+In-leaves of the success write: `0x80001fac` (3), `0x80002004` (3) arm 0; `0x80002b50`,
+`0x80002bb4` arm 1 → `0x80002dbc`; `0x80002c94`, `0x80002cfc` arm 2, `0x80002f90`, `0x80002ff0`
+arm 4 → `0x80002db8`; `0x80003064`, `0x800030d4` arm 3 → `0x80002dc4`; `0x80002db8 → 0x80002dbc →
+0x80002dc4`. Their `rest` is empty, so `Extra` must state `ChecksOk σ (fieldCount σ.t)` (from
+`chkStep_sound` with `K' = fieldCount t` at each arm's source). Bridge: `Bridge.lean`
+(`decode_legacy`, `decode_typed`; arms 3/4 need `hashList`/`authList` runs from the loops).
